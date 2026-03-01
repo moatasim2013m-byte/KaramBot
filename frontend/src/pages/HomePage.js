@@ -279,7 +279,7 @@ export default function HomePage() {
   const trustBullets = [
     'آمن ومعقم يومياً',
     'للأعمار 1–10 سنوات',
-    'إربد – وحشة سنتر'
+    'اربد- شارع ابو راشد'
   ];
 
   const showHeroImage = heroImageReady && !!heroImgSrc && !heroImageError;
@@ -304,6 +304,23 @@ export default function HomePage() {
     return renderShroomiIcon(index + 2);
   };
 
+  const renderHeroTitleText = (title) => {
+    const parts = title.split(/(الأطفال|الاطفال)/g);
+    if (parts.length === 1) return title;
+
+    return parts.map((part, index) => {
+      if (part === 'الأطفال' || part === 'الاطفال') {
+        return (
+          <span key={`kids-word-${index}`} className="opl-hero-title-kids-word">
+            {part}
+          </span>
+        );
+      }
+
+      return <span key={`title-part-${index}`}>{part}</span>;
+    });
+  };
+
   return (
     <div className="home-page" dir="rtl">
       <SkyBackground className="home-sky-layer" />
@@ -325,26 +342,26 @@ export default function HomePage() {
               <div className="hero-text-card text-right opl-hero-left" dir="rtl">
                 <span className="opl-cloud opl-cloud--one" aria-hidden="true" />
                 <span className="opl-cloud opl-cloud--two" aria-hidden="true" />
-                <span className="opl-float-chip opl-float-chip--one" aria-hidden="true">＋</span>
-                <span className="opl-float-chip opl-float-chip--two" aria-hidden="true">－</span>
-                <span className="opl-float-chip opl-float-chip--three" aria-hidden="true">×</span>
-                <span className="opl-float-chip opl-float-chip--four" aria-hidden="true">÷</span>
+                <span className="opl-float-chip opl-float-chip--one" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
+                <span className="opl-float-chip opl-float-chip--two" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
+                <span className="opl-float-chip opl-float-chip--three" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
+                <span className="opl-float-chip opl-float-chip--four" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
                 <div className="hero-brand-row mr-0">
                   <img src={logoImg} alt="شعار بيكابو" className="hero-brand-logo" />
                 </div>
                 <p className="hero-brand-slogan opl-hero-badge">We bring happiness</p>
-                <h1 className="hero-main-title opl-hero-title font-heading text-3xl sm:text-4xl md:text-5xl lg:text-6xl leading-tight" data-testid="hero-title">
-                  {heroConfig.title}
+                <h1 className="hero-main-title opl-hero-title opl-hero-title--kids font-heading text-3xl sm:text-4xl md:text-5xl lg:text-6xl leading-tight" data-testid="hero-title">
+                  {renderHeroTitleText(heroConfig.title)}
                 </h1>
                 <div className="hero-title-underline mr-0"></div>
-                <p className="hero-description text-base sm:text-lg text-muted-foreground mt-6 leading-relaxed max-w-[520px] mr-0 opacity-85">
+                <p className="hero-description opl-hero-subtitle-playful text-base sm:text-lg text-muted-foreground mt-6 leading-relaxed max-w-[520px] mr-0 opacity-85">
                   {heroConfig.subtitle}
                 </p>
 
 
                 <div className="hero-cta-row opl-hero-cta-row flex flex-col sm:flex-row gap-4 justify-start">
                   <Link to={heroConfig.ctaRoute}>
-                    <Button size="lg" className="rounded-full btn-playful pb-btn primary-btn hero-primary-btn theme-gradient-btn text-base sm:text-lg px-8 h-[52px] w-full sm:w-auto" data-testid="hero-book-btn">
+                    <Button size="lg" className="rounded-full btn-playful pb-btn primary-btn hero-primary-btn hero-primary-btn--yellow text-base sm:text-lg px-8 h-[52px] w-full sm:w-auto" data-testid="hero-book-btn">
                       <span className="cta-label-with-shroomi">
                         <span>احجز جلسة</span>
                         {renderShroomiIcon(0)}
@@ -354,7 +371,7 @@ export default function HomePage() {
                   </Link>
                   {!isAuthenticated && (
                     <Link to="/register">
-                      <Button size="lg" variant="outline" className="rounded-full hero-secondary-btn text-base sm:text-lg px-8 py-6 border-2 w-full sm:w-auto" data-testid="hero-signup-btn">
+                      <Button size="lg" variant="outline" className="rounded-full hero-secondary-btn hero-secondary-btn--red text-base sm:text-lg px-8 py-6 border-2 w-full sm:w-auto" data-testid="hero-signup-btn">
                         <span className="cta-label-with-shroomi">
                           <span>سجل مجاناً</span>
                           {renderShroomiIcon(1)}

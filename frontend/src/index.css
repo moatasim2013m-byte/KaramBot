@@ -1210,6 +1210,20 @@ button.primary,
   background: #fff !important;
 }
 
+.hero-primary-btn--yellow {
+  background: linear-gradient(135deg, #ffd552 0%, #f7bc30 100%) !important;
+  color: #7c3d00 !important;
+  border: 1px solid rgba(230, 156, 36, 0.5) !important;
+  box-shadow: 0 12px 24px rgba(247, 188, 48, 0.38) !important;
+}
+
+.hero-secondary-btn--red {
+  border-color: var(--pk-red) !important;
+  background: var(--pk-red) !important;
+  color: #fff !important;
+  box-shadow: 0 12px 24px rgba(240, 82, 76, 0.3) !important;
+}
+
 .hero-mascot {
   position: absolute;
   bottom: clamp(76px, 9vw, 116px);
@@ -4957,20 +4971,53 @@ body {
 
 .opl-hero-title {
   font-family: var(--font-heading-ar);
-  color: #2d5e98;
-  background: linear-gradient(120deg, #2d5e98 0%, #f56b9c 48%, #f28a2e 100%);
+  color: #ea7a1f;
+  background: linear-gradient(120deg, #f28a2e 0%, #f7a23a 55%, #f3bf62 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   letter-spacing: 0.01em;
-  -webkit-text-stroke: 2px #fff;
-  text-shadow:
-    -2px -2px 0 #fff,
-    2px -2px 0 #fff,
-    -2px 2px 0 #fff,
-    2px 2px 0 #fff,
-    0 8px 18px rgba(30, 78, 129, 0.24),
-    0 0 18px rgba(255, 181, 214, 0.2);
+  -webkit-text-stroke: 0;
+  text-shadow: 0 6px 14px rgba(152, 96, 31, 0.16);
+}
+
+
+.home-page .hero-main-title,
+.home-page .hero-description,
+.home-page .opl-hero-trust-pills li,
+.home-page .hero-primary-btn,
+.home-page .hero-secondary-btn {
+  font-family: 'Baloo Bhaijaan 2', 'Kidzhood Arabic', 'Changa', 'Cairo', sans-serif;
+}
+
+.opl-hero-subtitle-playful {
+  font-weight: 600;
+  color: #3f5f8f !important;
+  text-shadow: 0 3px 10px rgba(89, 156, 212, 0.12);
+}
+
+.opl-hero-title--kids {
+  font-family: 'Baloo Bhaijaan 2', 'Kidzhood Arabic', 'Changa', 'Cairo', sans-serif;
+  color: #df2f45;
+  background: linear-gradient(120deg, #ff4a57 0%, #f03d5e 45%, #ff7a3e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 6px 14px rgba(189, 43, 56, 0.18);
+}
+
+.opl-hero-title-kids-word {
+  display: inline-block;
+  margin: 0 0.1em;
+  padding: 0 0.14em;
+  color: #d71f33;
+  background: linear-gradient(120deg, #ff5a65 0%, #e22743 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  border-radius: 0.35em;
+  text-shadow: none;
 }
 
 .opl-hero-badge {
@@ -5070,10 +5117,14 @@ body {
   background: linear-gradient(145deg, #ffffff, #edf8ff);
   border: 2px solid rgba(255, 255, 255, 0.98);
   box-shadow: 0 10px 18px rgba(30, 78, 129, 0.14);
-  color: var(--pk-blue-dark);
-  font-size: 1.35rem;
-  font-weight: 800;
   animation: opl-chip-float 4.5s ease-in-out infinite;
+}
+
+.opl-float-chip__mascot {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(29, 78, 120, 0.15));
 }
 
 .opl-float-chip--one {
@@ -5184,14 +5235,15 @@ body {
   }
 
   .opl-hero-title {
-    -webkit-text-stroke: 1.5px #fff;
-    text-shadow:
-      -1.5px -1.5px 0 #fff,
-      1.5px -1.5px 0 #fff,
-      -1.5px 1.5px 0 #fff,
-      1.5px 1.5px 0 #fff,
-      0 8px 16px rgba(30, 78, 129, 0.22);
+    -webkit-text-stroke: 0;
+    text-shadow: 0 6px 12px rgba(152, 96, 31, 0.14);
   }
+
+  .opl-hero-title--kids {
+    -webkit-text-stroke: 0;
+    text-shadow: 0 6px 12px rgba(189, 43, 56, 0.16);
+  }
+
 
   .opl-hero-trust-pills li {
     font-size: 0.73rem;
@@ -5212,4 +5264,14 @@ body {
   .opl-float-chip--two { left: 54%; }
   .opl-float-chip--three { left: 70%; }
   .opl-float-chip--four { left: 86%; }
+}
+
+/* Keep homepage hero booking CTA yellow (overrides global playful button theme rules). */
+.home-page .hero-primary-btn--yellow,
+.home-page .hero-primary-btn--yellow:hover,
+.home-page .hero-primary-btn--yellow:focus-visible {
+  background: linear-gradient(135deg, #ffd552 0%, #f7bc30 100%) !important;
+  color: #7c3d00 !important;
+  border: 1px solid rgba(230, 156, 36, 0.5) !important;
+  box-shadow: 0 12px 24px rgba(247, 188, 48, 0.38) !important;
 }
