@@ -61,10 +61,48 @@ const persistConfirmation = (confirmationData) => {
   }
 };
 
+const toNumberOrUndefined = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const trackSnapSubscribe = ({ result, user, orderId }) => {
+  if (typeof window === 'undefined' || typeof window.snaptr !== 'function') return;
+  if (result?.resourceType !== 'subscription') return;
+
+  const amount = toNumberOrUndefined(
+    pickFirst(
+      result?.subscription?.amount,
+      result?.subscription?.final_amount,
+      result?.subscription?.plan_price,
+      result?.subscription?.plan?.price
+    )
+  );
+
+  const numberItems = toNumberOrUndefined(
+    pickFirst(
+      result?.subscription?.remaining_visits,
+      result?.subscription?.visits,
+      result?.subscription?.plan?.visits,
+      1
+    )
+  );
+
+  window.snaptr('track', 'SUBSCRIBE', {
+    price: amount,
+    currency: 'JOD',
+    transaction_id: orderId,
+    number_items: numberItems,
+    uuid_c1: pickFirst(user?.id, user?._id),
+    user_email: user?.email,
+    user_phone_number: user?.phone
+  });
+};
+
 export default function PaymentSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { api, isAuthenticated, loading: authLoading } = useAuth();
+  const { api, user, isAuthenticated, loading: authLoading } = useAuth();
   const orderId = useMemo(() => searchParams.get('orderId') || searchParams.get('session_id') || '', [searchParams]);
 
   const [status, setStatus] = useState(STATUS.LOADING);
@@ -98,7 +136,9 @@ export default function PaymentSuccessPage() {
       try {
         const response = await api.post(`/payments/finalize/${encodeURIComponent(orderId)}`);
         if (!isMountedRef.current) return;
-        navigateToConfirmation(response.data || {});
+        const result = response.data || {};
+        trackSnapSubscribe({ result, user, orderId });
+        navigateToConfirmation(result);
         return;
       } catch (error) {
         if (!isMountedRef.current) return;
@@ -122,7 +162,7 @@ export default function PaymentSuccessPage() {
         return;
       }
     }
-  }, [api, navigateToConfirmation, orderId]);
+  }, [api, navigateToConfirmation, orderId, user]);
 
   useEffect(() => {
     isMountedRef.current = true;
