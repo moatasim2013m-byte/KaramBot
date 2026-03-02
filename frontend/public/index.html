@@ -1,6 +1,24 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
     <head>
+        <!-- Google Tag Manager -->
+        <script>
+            (function (w, d, s, l, i) {
+                w[l] = w[l] || [];
+                w[l].push({
+                    'gtm.start': new Date().getTime(),
+                    event: 'gtm.js',
+                });
+                var f = d.getElementsByTagName(s)[0],
+                    j = d.createElement(s),
+                    dl = l != 'dataLayer' ? '&l=' + l : '';
+                j.async = true;
+                j.src =
+                    'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+                f.parentNode.insertBefore(j, f);
+            })(window, document, 'script', 'dataLayer', 'GTM-P78RNVXB');
+        </script>
+        <!-- End Google Tag Manager -->
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#E8F6FF" />
@@ -45,6 +63,32 @@
         These two scripts have been added for the Visual Edits, please do not edit or remove them
         -->
         <script>
+            (function initSnapPixel() {
+                var snapPixelId = "%REACT_APP_SNAP_PIXEL_ID%";
+                if (!snapPixelId || snapPixelId === "%REACT_APP_SNAP_PIXEL_ID%") {
+                    return;
+                }
+
+                (function (e, t, n) {
+                    if (e.snaptr) return;
+                    var a = (e.snaptr = function () {
+                        a.handleRequest
+                            ? a.handleRequest.apply(a, arguments)
+                            : a.queue.push(arguments);
+                    });
+                    a.queue = [];
+                    var s = "script";
+                    var r = t.createElement(s);
+                    r.async = !0;
+                    r.src = n;
+                    var u = t.getElementsByTagName(s)[0];
+                    u.parentNode.insertBefore(r, u);
+                })(window, document, "https://sc-static.net/scevent.min.js");
+
+                window.snaptr("init", snapPixelId);
+                window.snaptr("track", "PAGE_VIEW");
+            })();
+
             // Only load visual edit scripts when inside an iframe
             if (window.self !== window.top) {
                 // Load debug monitor script
@@ -66,6 +110,16 @@
         </script>
     </head>
     <body>
+        <!-- Google Tag Manager (noscript) -->
+        <noscript
+            ><iframe
+                src="https://www.googletagmanager.com/ns.html?id=GTM-P78RNVXB"
+                height="0"
+                width="0"
+                style="display: none; visibility: hidden"
+            ></iframe
+        ></noscript>
+        <!-- End Google Tag Manager (noscript) -->
         <noscript>You need to enable JavaScript to run this app.</noscript>
         <div id="root"></div>
         <!--

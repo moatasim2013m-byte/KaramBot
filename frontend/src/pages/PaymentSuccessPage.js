@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 const MAX_AUTO_ATTEMPTS = 6;
 const RETRY_DELAY_MS = 1200;
 const STORAGE_KEY = 'pk_last_confirmation';
+const SNAP_TRACKED_PURCHASES_KEY = 'pk_snap_tracked_purchases';
 
 const STATUS = {
   LOADING: 'loading',
@@ -97,12 +98,56 @@ const trackSnapSubscribe = ({ result, user, orderId }) => {
     user_email: user?.email,
     user_phone_number: user?.phone
   });
+const trackSnapPurchase = ({ confirmationData, orderId, user }) => {
+  if (typeof window === 'undefined' || typeof window.snaptr !== 'function') {
+    return;
+  }
+
+  const trackedPurchases = new Set(
+    (() => {
+      try {
+        const raw = localStorage.getItem(SNAP_TRACKED_PURCHASES_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (_error) {
+        return [];
+      }
+    })()
+  );
+
+  const transactionId = String(orderId || confirmationData?.bookingId || '').trim();
+  if (!transactionId || trackedPurchases.has(transactionId)) {
+    return;
+  }
+
+  const numberItems = Number(confirmationData?.itemCount || 1);
+  const safeNumberItems = Number.isFinite(numberItems) && numberItems > 0 ? numberItems : 1;
+  const amount = Number(confirmationData?.amount || 0);
+
+  window.snaptr('track', 'PURCHASE', {
+    price: Number.isFinite(amount) && amount > 0 ? amount : 0,
+    currency: 'JOD',
+    transaction_id: transactionId,
+    item_ids: [String(confirmationData?.bookingId || transactionId)],
+    item_category: String(confirmationData?.bookingType || 'booking'),
+    number_items: safeNumberItems,
+    uuid_c1: transactionId,
+    user_email: user?.email || undefined,
+    user_phone_number: user?.phone || undefined
+  });
+
+  trackedPurchases.add(transactionId);
+  try {
+    localStorage.setItem(SNAP_TRACKED_PURCHASES_KEY, JSON.stringify([...trackedPurchases].slice(-40)));
+  } catch (_error) {
+    // Non-blocking if storage is unavailable.
+  }
 };
 
 export default function PaymentSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { api, user, isAuthenticated, loading: authLoading } = useAuth();
+  const { api, isAuthenticated, loading: authLoading, user } = useAuth();
   const orderId = useMemo(() => searchParams.get('orderId') || searchParams.get('session_id') || '', [searchParams]);
 
   const [status, setStatus] = useState(STATUS.LOADING);
@@ -113,9 +158,10 @@ export default function PaymentSuccessPage() {
   const navigateToConfirmation = useCallback((result) => {
     const confirmationData = buildConfirmationData(result);
     persistConfirmation(confirmationData);
+    trackSnapPurchase({ confirmationData, orderId, user });
     setStatus(STATUS.SUCCESS);
     navigate('/booking-confirmation', { replace: true, state: confirmationData });
-  }, [navigate]);
+  }, [navigate, orderId, user]);
 
   const attemptFinalize = useCallback(async ({ manual = false } = {}) => {
     if (!orderId) {
