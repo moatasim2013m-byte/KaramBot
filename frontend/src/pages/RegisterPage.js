@@ -9,6 +9,49 @@ import { toast } from 'sonner';
 import { Mail, Lock, User, Loader2, Phone, CheckCircle } from 'lucide-react';
 import mascotImg from '../assets/mascot.png';
 
+const SNAP_UUID_STORAGE_KEY = 'snap_uuid_c1';
+
+const getOrCreateSnapUuid = () => {
+  const existingUuid = window.localStorage.getItem(SNAP_UUID_STORAGE_KEY);
+  if (existingUuid) {
+    return existingUuid;
+  }
+
+  const generatedUuid = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  window.localStorage.setItem(SNAP_UUID_STORAGE_KEY, generatedUuid);
+  return generatedUuid;
+};
+
+const sha256Hex = async (value) => {
+  const normalized = value.trim().toLowerCase();
+  if (!window.crypto?.subtle) {
+    return '';
+  }
+  const payload = new TextEncoder().encode(normalized);
+  const digest = await window.crypto.subtle.digest('SHA-256', payload);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const trackSnapSignup = async ({ email, phone }) => {
+  if (typeof window.snaptr !== 'function') {
+    return;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedPhone = phone.replace(/\s/g, '');
+  const userHashedEmail = normalizedEmail ? await sha256Hex(normalizedEmail) : '';
+  const userHashedPhoneNumber = normalizedPhone ? await sha256Hex(normalizedPhone) : '';
+
+  window.snaptr('track', 'SIGN_UP', {
+    sign_up_method: 'email',
+    uuid_c1: getOrCreateSnapUuid(),
+    user_email: normalizedEmail,
+    user_phone_number: normalizedPhone,
+    user_hashed_email: userHashedEmail,
+    user_hashed_phone_number: userHashedPhoneNumber
+  });
+};
+
 export default function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -52,6 +95,11 @@ export default function RegisterPage() {
         phone: phone.replace(/\s/g, ''),
         origin_url: window.location.origin
       });
+      try {
+        await trackSnapSignup({ email, phone });
+      } catch (trackingError) {
+        console.warn('Snap SIGN_UP tracking failed', trackingError);
+      }
       setRegistrationSuccess(true);
     } catch (error) {
       toast.error(error.response?.data?.error || 'فشل إنشاء الحساب');
