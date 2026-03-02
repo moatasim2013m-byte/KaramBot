@@ -17,6 +17,34 @@ import mascotImg from '../assets/mascot.png';
 // Morning pricing constant
 const MORNING_PRICE_PER_HOUR = 3.5;
 
+const SNAP_CURRENCY = 'JOD';
+
+const toSha256Hex = async (value) => {
+  if (!value || !window?.crypto?.subtle) return '';
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return '';
+  const buffer = await window.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(normalized)
+  );
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+};
+
+const getOrCreateSnapUuid = () => {
+  const key = 'pk_snap_uuid_c1';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+
+  const generated = window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  localStorage.setItem(key, generated);
+  return generated;
+};
+
 // Check if morning period has expired for a given date
 const isMorningExpiredForDate = (selectedDate) => {
   if (!selectedDate) return false;
@@ -206,6 +234,45 @@ export default function TicketsPage() {
     sum + ((selectedProductQty[product.id] || 0) * (Number(product.priceJD) || 0))
   ), 0);
 
+  const trackSnapAddCart = async ({ amount, lineItems }) => {
+    if (typeof window.snaptr !== 'function') return;
+
+    const fullName = (user?.name || '').trim();
+    const [firstName, ...restNames] = fullName.split(/\s+/).filter(Boolean);
+    const lastName = restNames.join(' ');
+
+    const selectedChildRecords = children.filter((child) => selectedChildren.includes(child.id));
+    const childAges = selectedChildRecords
+      .map((child) => Number(child.age))
+      .filter((age) => Number.isFinite(age) && age > 0);
+
+    const productCount = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+    const itemIds = [
+      `hourly-${selectedSlot?.id || 'unknown'}`,
+      ...lineItems.map((item) => item.productId)
+    ];
+
+    const payload = {
+      price: Number(amount.toFixed(2)),
+      currency: SNAP_CURRENCY,
+      item_ids: itemIds,
+      item_category: 'hourly_booking',
+      number_items: Math.max(selectedChildren.length, 1) + productCount,
+      uuid_c1: getOrCreateSnapUuid(),
+      transaction_id: `hourly-${selectedSlot?.id || 'slot'}-${Date.now()}`,
+      success: 1,
+      user_email: user?.email || '',
+      user_phone_number: user?.phone || '',
+      user_hashed_email: await toSha256Hex(user?.email),
+      user_hashed_phone_number: await toSha256Hex(user?.phone),
+      firstname: firstName || '',
+      lastname: lastName || '',
+      age: childAges.length ? Math.round(childAges.reduce((sum, age) => sum + age, 0) / childAges.length).toString() : ''
+    };
+
+    window.snaptr('track', 'ADD_CART', payload);
+  };
+
   const fetchChildren = async () => {
     try {
       const response = await api.get('/profile/children');
@@ -289,6 +356,7 @@ export default function TicketsPage() {
       // Calculate amount using Happy Hour logic
       const amount = getFinalTotal();
       const lineItems = buildLineItems();
+      await trackSnapAddCart({ amount, lineItems });
       
       if (paymentMethod === 'card') {
         // Online card provider checkout flow
