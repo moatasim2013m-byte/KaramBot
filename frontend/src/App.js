@@ -1,8 +1,9 @@
 import "@/App.css";
 import { Suspense, lazy, useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { trackSnapchatPageView } from "./utils/snapchatTracking";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import ScrollToTop from "./components/ScrollToTop";
@@ -185,6 +186,20 @@ function AppRoutes() {
   );
 }
 
+function SnapchatPageViewTracker() {
+  const location = useLocation();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    trackSnapchatPageView({
+      pathname: location.pathname,
+      user,
+    });
+  }, [location.pathname, user]);
+
+  return null;
+}
+
 function App() {
   const [showFaqWidget, setShowFaqWidget] = useState(false);
 
@@ -214,6 +229,7 @@ function App() {
     <BrowserRouter>
       <ScrollToTop />
       <AuthProvider>
+        <SnapchatPageViewTracker />
         <AppRoutes />
         {showFaqWidget && (
           <Suspense fallback={null}>
