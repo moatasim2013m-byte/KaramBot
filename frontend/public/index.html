@@ -45,6 +45,32 @@
         These two scripts have been added for the Visual Edits, please do not edit or remove them
         -->
         <script>
+            (function initSnapPixel() {
+                var snapPixelId = "%REACT_APP_SNAP_PIXEL_ID%";
+                if (!snapPixelId || snapPixelId === "%REACT_APP_SNAP_PIXEL_ID%") {
+                    return;
+                }
+
+                (function (e, t, n) {
+                    if (e.snaptr) return;
+                    var a = (e.snaptr = function () {
+                        a.handleRequest
+                            ? a.handleRequest.apply(a, arguments)
+                            : a.queue.push(arguments);
+                    });
+                    a.queue = [];
+                    var s = "script";
+                    var r = t.createElement(s);
+                    r.async = !0;
+                    r.src = n;
+                    var u = t.getElementsByTagName(s)[0];
+                    u.parentNode.insertBefore(r, u);
+                })(window, document, "https://sc-static.net/scevent.min.js");
+
+                window.snaptr("init", snapPixelId);
+                window.snaptr("track", "PAGE_VIEW");
+            })();
+
             // Only load visual edit scripts when inside an iframe
             if (window.self !== window.top) {
                 // Load debug monitor script

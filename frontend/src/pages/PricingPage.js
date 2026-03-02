@@ -1,9 +1,20 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, Cake, Star, Sun, Moon, ChevronLeft } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import PublicPageShell, { WonderSection, WonderSectionTitle, WonderCard } from '../components/PublicPageShell';
+import { trackSnapViewContent } from '../utils/snapPixel';
 
 export default function PricingPage() {
+  useEffect(() => {
+    trackSnapViewContent({
+      price: 3.5,
+      currency: 'JOD',
+      itemIds: ['hourly_morning', 'hourly_evening'],
+      itemCategory: 'pricing',
+    });
+  }, []);
+
   return (
     <PublicPageShell
       title="الأسعار"
