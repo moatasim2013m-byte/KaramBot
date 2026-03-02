@@ -145,7 +145,7 @@ const trackSnapPurchase = ({ confirmationData, orderId, user }) => {
   }
 };
 
-export default function PaymentSuccessPage() {
+function PaymentSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { api, isAuthenticated, loading: authLoading, user } = useAuth();
@@ -289,3 +289,5 @@ export default function PaymentSuccessPage() {
     </div>
   );
 }
+
+export default PaymentSuccessPage;
