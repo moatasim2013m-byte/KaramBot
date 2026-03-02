@@ -98,6 +98,8 @@ const trackSnapSubscribe = ({ result, user, orderId }) => {
     user_email: user?.email,
     user_phone_number: user?.phone
   });
+};
+
 const trackSnapPurchase = ({ confirmationData, orderId, user }) => {
   if (typeof window === 'undefined' || typeof window.snaptr !== 'function') {
     return;
@@ -146,7 +148,6 @@ const trackSnapPurchase = ({ confirmationData, orderId, user }) => {
 export default function PaymentSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { api, user, isAuthenticated, loading: authLoading } = useAuth();
   const { api, isAuthenticated, loading: authLoading, user } = useAuth();
   const orderId = useMemo(() => searchParams.get('orderId') || searchParams.get('session_id') || '', [searchParams]);
 
