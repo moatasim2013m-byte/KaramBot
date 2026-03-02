@@ -7,6 +7,24 @@ import { CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock, 
 
 const STORAGE_KEY = 'pk_last_confirmation';
 
+const hashValue = async (value) => {
+  if (!value || !window.crypto?.subtle || !window.TextEncoder) {
+    return null;
+  }
+
+  try {
+    const normalizedValue = value.trim().toLowerCase();
+    const encoded = new TextEncoder().encode(normalizedValue);
+    const digestBuffer = await window.crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(digestBuffer))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  } catch (error) {
+    console.error('Failed to hash value for Snap tracking:', error);
+    return null;
+  }
+};
+
 export default function BookingConfirmationPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -43,6 +61,50 @@ export default function BookingConfirmationPage() {
     
     setConfirmation(data);
   }, [location.state]);
+
+  useEffect(() => {
+    const trackLevelComplete = async () => {
+      if (!confirmation || typeof window.snaptr !== 'function') {
+        return;
+      }
+
+      const fallbackTrackingKey = `PK-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const trackingKey = confirmation.bookingId || confirmation.bookingCode || fallbackTrackingKey;
+      const sessionKey = `pk_snap_level_complete_${trackingKey}`;
+
+      if (sessionStorage.getItem(sessionKey)) {
+        return;
+      }
+
+      const email = confirmation.parentEmail || confirmation.email || confirmation.userEmail;
+      const phoneNumber = confirmation.parentPhone || confirmation.phone || confirmation.userPhoneNumber;
+
+      const [hashedEmail, hashedPhoneNumber] = await Promise.all([
+        confirmation.userHashedEmail ? Promise.resolve(confirmation.userHashedEmail) : hashValue(email),
+        confirmation.userHashedPhoneNumber ? Promise.resolve(confirmation.userHashedPhoneNumber) : hashValue(phoneNumber)
+      ]);
+
+      const eventPayload = {
+        level: confirmation.bookingType || 'booking_confirmation',
+        uuid_c1: trackingKey,
+        user_email: email,
+        user_phone_number: phoneNumber,
+        user_hashed_email: hashedEmail,
+        user_hashed_phone_number: hashedPhoneNumber
+      };
+
+      Object.keys(eventPayload).forEach((key) => {
+        if (!eventPayload[key]) {
+          delete eventPayload[key];
+        }
+      });
+
+      window.snaptr('track', 'LEVEL_COMPLETE', eventPayload);
+      sessionStorage.setItem(sessionKey, '1');
+    };
+
+    trackLevelComplete();
+  }, [confirmation]);
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
