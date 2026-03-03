@@ -5,7 +5,6 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { useAuth } from '../context/AuthContext';
 import SkyBackground from '../components/theme/SkyBackground';
-import SmilingSun from '../components/theme/SmilingSun';
 import MascotVariant from '../components/theme/MascotVariant';
 import mascotImg from '../assets/mascot.png';
 import logoImg from '../assets/logo.png';
@@ -326,26 +325,10 @@ export default function HomePage() {
       <SkyBackground className="home-sky-layer" />
 
       <section id="home" className="home-hero-sky home-theme-section home-theme-section--sky pb-hero pb-section py-14 md:py-24">
-        <div className="home-hero-confetti" aria-hidden="true">
-          <span className="home-hero-confetti-dot home-hero-confetti-dot--one" />
-          <span className="home-hero-confetti-dot home-hero-confetti-dot--two" />
-          <span className="home-hero-confetti-dot home-hero-confetti-dot--three" />
-          <span className="home-hero-balloon home-hero-balloon--right" />
-          <span className="home-hero-balloon home-hero-balloon--left" />
-        </div>
-        <div className="home-hero-decor" aria-hidden="true">
-          <SmilingSun className="home-sun-corner" />
-        </div>
         <div className="page-shell home-hero-shell px-2 sm:px-4 lg:px-6 relative z-10">
           <div className="hero-content-stack opl-hero">
             <div className="hero-image-section opl-hero-inner">
               <div className="hero-text-card text-right opl-hero-left" dir="rtl">
-                <span className="opl-cloud opl-cloud--one" aria-hidden="true" />
-                <span className="opl-cloud opl-cloud--two" aria-hidden="true" />
-                <span className="opl-float-chip opl-float-chip--one" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
-                <span className="opl-float-chip opl-float-chip--two" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
-                <span className="opl-float-chip opl-float-chip--three" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
-                <span className="opl-float-chip opl-float-chip--four" aria-hidden="true"><img src={mascotImg} alt="" className="opl-float-chip__mascot" /></span>
                 <div className="hero-brand-row mr-0">
                   <img src={logoImg} alt="شعار بيكابو" className="hero-brand-logo" />
                 </div>
@@ -388,8 +371,6 @@ export default function HomePage() {
                 </ul>
               </div>
 
-              <span className="opl-cloud opl-cloud--three" aria-hidden="true" />
-              <span className="opl-cloud opl-cloud--four" aria-hidden="true" />
               <div
                 className={`hero-image-panel opl-tablet-frame group ${canOpenLightbox ? 'is-clickable' : ''}`}
                 onClick={() => canOpenLightbox && setLightboxOpen(true)}
