@@ -8,6 +8,7 @@ const REQUIRED_SIGNED_FIELDS = [
   'profile_id',
   'transaction_uuid',
   'signed_field_names',
+  'unsigned_field_names',
   'signed_date_time',
   'transaction_type',
   'reference_number',
@@ -188,14 +189,26 @@ const validateSecureAcceptanceFields = (fields = {}) => {
   const missingFields = requiredFields.filter((fieldName) => !String(fields[fieldName] || '').trim());
   const signedFieldNames = String(fields.signed_field_names || '').split(',').map((name) => name.trim()).filter(Boolean);
   const missingSignedFields = REQUIRED_SIGNED_FIELDS.filter((fieldName) => !signedFieldNames.includes(fieldName));
+  const expectedRequiredOrder = REQUIRED_SIGNED_FIELDS.join(',');
+  const actualRequiredOrder = signedFieldNames
+    .filter((fieldName) => REQUIRED_SIGNED_FIELDS.includes(fieldName))
+    .join(',');
+  const hasRequiredOrderMismatch = actualRequiredOrder !== expectedRequiredOrder;
   const details = {
     missing_fields: missingFields,
     missing_signed_fields: missingSignedFields,
-    signed_field_count: signedFieldNames.length
+    signed_field_count: signedFieldNames.length,
+    expected_required_signed_field_order: expectedRequiredOrder,
+    actual_required_signed_field_order: actualRequiredOrder
   };
 
-  if (missingFields.length || missingSignedFields.length) {
-    return { ok: false, code: 'CAPITAL_BANK_SIGNATURE_INVALID', reason: 'missing_signed_payload_fields', details };
+  if (missingFields.length || missingSignedFields.length || hasRequiredOrderMismatch) {
+    return {
+      ok: false,
+      code: 'CAPITAL_BANK_SIGNATURE_INVALID',
+      reason: hasRequiredOrderMismatch ? 'signed_field_order_mismatch' : 'missing_signed_payload_fields',
+      details
+    };
   }
 
   return { ok: true, code: null, reason: null, details };
