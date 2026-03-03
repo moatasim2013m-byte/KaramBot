@@ -8,7 +8,6 @@ const REQUIRED_SIGNED_FIELDS = [
   'profile_id',
   'transaction_uuid',
   'signed_field_names',
-  'unsigned_field_names',
   'signed_date_time',
   'transaction_type',
   'reference_number',
