@@ -29,3 +29,27 @@ Set on Cloud Run backend and redeploy after any change:
 - HTTPS enforced on Capital Bank endpoints.
 - Idempotency guard via `metadata.processed_transaction_ids` for notifications.
 - Global clickjacking headers remain enabled (`X-Frame-Options`, CSP frame-ancestors).
+
+## Root-cause investigation checklist for "You are not authorized to view this page"
+When Secure Acceptance shows the hosted error page (`...secureacceptance.cybersource.com`) before redirecting back, investigate in this order:
+
+1. **Profile/access/secret mismatch**
+   - Confirm `CAPITAL_BANK_PROFILE_ID`, `CAPITAL_BANK_ACCESS_KEY`, `CAPITAL_BANK_SECRET_KEY`, and `CAPITAL_BANK_MERCHANT_ID` are from the same CyberSource profile/account.
+   - A mismatch here is the most common cause of immediate authorization rejection on the hosted page.
+
+2. **Environment mismatch (TEST vs PROD)**
+   - `CAPITAL_BANK_ENV=test` must use `testsecureacceptance.cybersource.com`.
+   - `CAPITAL_BANK_ENV=prod` must use `secureacceptance.cybersource.com`.
+   - Any cross-mix can produce hosted-page rejection before transaction processing.
+
+3. **Secure Acceptance profile domain/config restrictions**
+   - In CyberSource Business Center, verify the merchant profile is enabled for Hosted Checkout/Secure Acceptance and your production domain is whitelisted according to bank setup.
+   - Check whether custom receipt/cancel URLs are allowed and match the configured merchant profile rules.
+
+4. **Signature validation and payload completeness**
+   - Check backend logs for `Secure Acceptance payload validation failed` and `Invalid signature` messages.
+   - Ensure secret-key encoding (`CAPITAL_BANK_SECRET_KEY_ENCODING`) matches the format provided by bank (`base64` vs `utf8`/`hex`).
+
+5. **Use callback metadata stored per transaction**
+   - The callback now stores gateway diagnostics under `PaymentTransaction.metadata.gateway_callback` (`decision`, `reason_code`, `message`, `req_transaction_uuid`, etc.).
+   - Use this metadata plus CyberSource error reference number from customer screenshot when opening a ticket with Capital Bank/CyberSource support.

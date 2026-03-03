@@ -812,6 +812,16 @@ const toCapitalBankErrorResponse = ({ status = 422, code, error, details = {} })
   }
 });
 
+const buildFailureReason = ({ decision, reasonCode, message }) => {
+  const normalizedDecision = sanitizeReason(decision || 'payment_failed');
+  const normalizedReasonCode = sanitizeReason(reasonCode || '');
+  const normalizedMessage = sanitizeReason(message || '');
+  if (normalizedReasonCode && normalizedMessage) return `${normalizedDecision}_${normalizedReasonCode}_${normalizedMessage}`;
+  if (normalizedReasonCode) return `${normalizedDecision}_${normalizedReasonCode}`;
+  if (normalizedMessage) return `${normalizedDecision}_${normalizedMessage}`;
+  return normalizedDecision;
+};
+
 router.post('/capital-bank/initiate', authMiddleware, ensureHttpsForCapitalBank, async (req, res) => {
   try {
     if (!isCapitalBankProviderActive()) {
@@ -1053,6 +1063,17 @@ const processCapitalBankCallback = async (req, res, source = 'notify') => {
       payment_status: shouldKeepPaidState ? 'paid' : resolvedPaymentStatus,
       updated_at: new Date(),
       provider: DB_PROVIDER_CAPITAL_BANK,
+      'metadata.gateway_callback': {
+        source,
+        decision,
+        reason_code: reasonCode,
+        message,
+        req_reference_number: reqReferenceNumber,
+        reference_number: referenceNumber,
+        transaction_id: transactionId,
+        req_transaction_uuid: reqTransactionUuid,
+        received_at: new Date().toISOString()
+      },
       ...(transactionId ? { payment_id: transactionId } : {})
     }
   };
@@ -1109,7 +1130,7 @@ const processCapitalBankCallback = async (req, res, source = 'notify') => {
     return res.redirect(303, `/payment/pending?orderId=${encodeURIComponent(sessionId)}`);
   }
 
-  const reason = sanitizeReason(decision || 'payment_failed');
+  const reason = buildFailureReason({ decision, reasonCode, message });
   return res.redirect(303, `/payment/failed?orderId=${encodeURIComponent(sessionId)}&reason=${encodeURIComponent(reason)}`);
 };
 
