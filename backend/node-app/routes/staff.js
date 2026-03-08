@@ -7,6 +7,7 @@ const TimeSlot = require('../models/TimeSlot');
 const User = require('../models/User');
 const { authMiddleware, staffMiddleware } = require('../middleware/auth');
 const { addMinutes, format } = require('date-fns');
+const { sendCheckinConfirmation } = require('../utils/checkinNotifications');
 
 const router = express.Router();
 
@@ -88,7 +89,8 @@ router.post('/checkin', async (req, res) => {
     
     const booking = await HourlyBooking.findOne({ booking_code })
       .populate('slot_id')
-      .populate('child_id');
+      .populate('child_id')
+      .populate('user_id');
 
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found' });
@@ -105,6 +107,29 @@ router.post('/checkin', async (req, res) => {
     booking.check_in_time = now;
     booking.session_end_time = sessionEndTime;
     await booking.save();
+
+    const parentPhone = booking.user_id?.phone;
+    const parentName = booking.user_id?.name;
+
+    if (parentPhone) {
+      sendCheckinConfirmation({
+        phone: parentPhone,
+        parentName,
+        childName: booking.child_id?.name,
+        bookingCode: booking.booking_code,
+        checkInTime: now,
+        sessionEndTime
+      }).then((result) => {
+        if (!result?.ok && !result?.skipped) {
+          console.error('CHECKIN_NOTIFICATION_FAILED', {
+            booking_code,
+            reason: result?.error || result?.reason || 'unknown'
+          });
+        }
+      }).catch((notificationError) => {
+        console.error('CHECKIN_NOTIFICATION_ERROR', notificationError.message || notificationError);
+      });
+    }
 
     res.json({
       success: true,
