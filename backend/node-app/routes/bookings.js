@@ -12,6 +12,7 @@ const User = require('../models/User');
 const LoyaltyHistory = require('../models/LoyaltyHistory');
 const Settings = require('../models/Settings');
 const Coupon = require('../models/Coupon');
+const { awardPoints } = require('../utils/awardPoints');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
 const { validateCoupon } = require('../utils/coupons');
@@ -204,21 +205,31 @@ const generateQRCode = async (data) => {
   }
 };
 
-// Award loyalty points (idempotent by payment_id)
-const awardLoyaltyPoints = async (userId, paymentId, source) => {
-  // Check if points already awarded for this payment
-  const existing = await LoyaltyHistory.findOne({ reference: paymentId, type: 'earned' });
+// Award loyalty points (idempotent by reference id)
+const awardLoyaltyPoints = async (userId, referenceId, source) => {
+  const refId = String(referenceId || '').trim();
+  if (!refId) return false;
+
+  // Keep legacy history/user points in sync for older admin screens
+  const existing = await LoyaltyHistory.findOne({ reference: refId, type: 'earned' });
   if (existing) {
-    console.log(`Loyalty points already awarded for payment ${paymentId}`);
-    return false;
+    await awardPoints({
+      userId,
+      refType: source,
+      refId,
+      type: source,
+      points: LOYALTY_POINTS_PER_ORDER,
+      description: `Earned ${LOYALTY_POINTS_PER_ORDER} points from ${source} booking`
+    });
+    return true;
   }
 
-  // Award points
+  // Legacy entry
   const loyaltyEntry = new LoyaltyHistory({
     user_id: userId,
     points: LOYALTY_POINTS_PER_ORDER,
     type: 'earned',
-    reference: paymentId,
+    reference: refId,
     source,
     description: `Earned ${LOYALTY_POINTS_PER_ORDER} points from ${source} booking`
   });
@@ -226,6 +237,15 @@ const awardLoyaltyPoints = async (userId, paymentId, source) => {
 
   // Update user's total points
   await User.findByIdAndUpdate(userId, { $inc: { loyalty_points: LOYALTY_POINTS_PER_ORDER } });
+
+  await awardPoints({
+    userId,
+    refType: source,
+    refId,
+    type: source,
+    points: LOYALTY_POINTS_PER_ORDER,
+    description: `Earned ${LOYALTY_POINTS_PER_ORDER} points from ${source} booking`
+  });
   
   return true;
 };
@@ -346,10 +366,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       bookings.push(booking);
     }
 
-    // Award loyalty points once per payment
-    if (payment_id) {
-      await awardLoyaltyPoints(req.userId, payment_id, 'hourly');
-    }
+    await awardLoyaltyPoints(req.userId, payment_id || bookings[0]?._id, 'hourly');
 
     if (normalizedCouponCode) {
       await Coupon.findOneAndUpdate({ code: normalizedCouponCode }, { $inc: { redeemed_count: 1 } });
@@ -499,6 +516,8 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       await booking.save();
       bookings.push(booking);
     }
+
+    await awardLoyaltyPoints(req.userId, bookings[0]?._id, 'hourly');
 
     if (normalizedCouponCode) {
       await Coupon.findOneAndUpdate({ code: normalizedCouponCode }, { $inc: { redeemed_count: 1 } });
