@@ -174,19 +174,177 @@ router.post('/upload-image', (req, res) => {
 
 router.get('/dashboard', async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const paidStatuses = ['paid'];
+    const unpaidStatuses = ['pending_cash', 'pending_cliq'];
+
+    const sumPaidAmount = async (Model, createdAtFrom) => {
+      const pipeline = [
+        {
+          $match: {
+            payment_status: { $in: paidStatuses },
+            created_at: { $gte: createdAtFrom }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$amount', 0] } }
+          }
+        }
+      ];
+
+      const [result] = await Model.aggregate(pipeline);
+      return Number(result?.total || 0);
+    };
+
+    const toBranchSummary = async (Model) => {
+      const rows = await Model.aggregate([
+        {
+          $group: {
+            _id: { $ifNull: ['$branch', 'Main Branch'] },
+            total_orders: { $sum: 1 },
+            paid_revenue: {
+              $sum: {
+                $cond: [{ $eq: ['$payment_status', 'paid'] }, { $ifNull: ['$amount', 0] }, 0]
+              }
+            },
+            unpaid_orders: {
+              $sum: {
+                $cond: [{ $in: ['$payment_status', unpaidStatuses] }, 1, 0]
+              }
+            }
+          }
+        }
+      ]);
+
+      return rows.map((row) => ({
+        branch: row._id || 'Main Branch',
+        total_orders: row.total_orders || 0,
+        paid_revenue: Number(row.paid_revenue || 0),
+        unpaid_orders: row.unpaid_orders || 0
+      }));
+    };
+
+    const [
+      totalParents,
+      totalChildren,
+      todayHourlyBookings,
+      todayBirthdayBookings,
+      activeSubscriptions,
+      pendingCustomParties,
+      hourlyRevenueToday,
+      birthdayRevenueToday,
+      subscriptionRevenueToday,
+      hourlyRevenueMonth,
+      birthdayRevenueMonth,
+      subscriptionRevenueMonth,
+      activeSessionsNow,
+      todayCheckins,
+      overtimeOpenSessions,
+      hourlyUnpaidOrders,
+      birthdayUnpaidOrders,
+      subscriptionUnpaidOrders,
+      activeSessionBookings,
+      hourlyBranches,
+      birthdayBranches,
+      subscriptionBranches
+    ] = await Promise.all([
+      User.countDocuments({ role: 'parent' }),
+      Child.countDocuments(),
+      HourlyBooking.countDocuments({ created_at: { $gte: startOfToday } }),
+      BirthdayBooking.countDocuments({ created_at: { $gte: startOfToday } }),
+      UserSubscription.countDocuments({ status: 'active' }),
+      BirthdayBooking.countDocuments({ status: 'custom_pending' }),
+      sumPaidAmount(HourlyBooking, startOfToday),
+      sumPaidAmount(BirthdayBooking, startOfToday),
+      sumPaidAmount(UserSubscription, startOfToday),
+      sumPaidAmount(HourlyBooking, startOfMonth),
+      sumPaidAmount(BirthdayBooking, startOfMonth),
+      sumPaidAmount(UserSubscription, startOfMonth),
+      HourlyBooking.countDocuments({
+        status: 'checked_in',
+        check_in_time: { $exists: true },
+        session_end_time: { $gt: now }
+      }),
+      HourlyBooking.countDocuments({ check_in_time: { $gte: startOfToday } }),
+      HourlyBooking.countDocuments({
+        status: 'checked_in',
+        check_in_time: { $exists: true },
+        session_end_time: { $lt: now }
+      }),
+      HourlyBooking.countDocuments({ payment_status: { $in: unpaidStatuses } }),
+      BirthdayBooking.countDocuments({ payment_status: { $in: unpaidStatuses } }),
+      UserSubscription.countDocuments({ payment_status: { $in: unpaidStatuses } }),
+      HourlyBooking.find({
+        status: 'checked_in',
+        check_in_time: { $exists: true },
+        session_end_time: { $gt: now }
+      }).populate('slot_id', 'start_time').lean(),
+      toBranchSummary(HourlyBooking),
+      toBranchSummary(BirthdayBooking),
+      toBranchSummary(UserSubscription)
+    ]);
+
+    const zoneSeed = {
+      'صباحي (10:00-14:59)': 0,
+      'بعد الظهر (15:00-18:59)': 0,
+      'مسائي (19:00-00:00)': 0
+    };
+    activeSessionBookings.forEach((booking) => {
+      const startTime = booking?.slot_id?.start_time || '';
+      const hour = Number(String(startTime).split(':')[0]);
+
+      if (!Number.isFinite(hour)) return;
+      if (hour < 15) zoneSeed['صباحي (10:00-14:59)'] += 1;
+      else if (hour < 19) zoneSeed['بعد الظهر (15:00-18:59)'] += 1;
+      else zoneSeed['مسائي (19:00-00:00)'] += 1;
+    });
+
+    const zones_occupancy = Object.entries(zoneSeed).map(([zone, sessions]) => ({
+      zone,
+      active_sessions: sessions,
+      occupancy_share_pct: activeSessionsNow > 0 ? Math.round((sessions / activeSessionsNow) * 100) : 0
+    }));
+
+    const branchMap = new Map();
+    [...hourlyBranches, ...birthdayBranches, ...subscriptionBranches].forEach((row) => {
+      if (!branchMap.has(row.branch)) {
+        branchMap.set(row.branch, {
+          branch: row.branch,
+          total_orders: 0,
+          paid_revenue: 0,
+          unpaid_orders: 0
+        });
+      }
+
+      const acc = branchMap.get(row.branch);
+      acc.total_orders += row.total_orders;
+      acc.paid_revenue += row.paid_revenue;
+      acc.unpaid_orders += row.unpaid_orders;
+    });
+
+    const branch_summary = Array.from(branchMap.values()).sort((a, b) => b.paid_revenue - a.paid_revenue);
+
     const stats = {
-      total_parents: await User.countDocuments({ role: 'parent' }),
-      total_children: await Child.countDocuments(),
-      today_hourly_bookings: await HourlyBooking.countDocuments({
-        created_at: { $gte: new Date(today) }
-      }),
-      today_birthday_bookings: await BirthdayBooking.countDocuments({
-        created_at: { $gte: new Date(today) }
-      }),
-      active_subscriptions: await UserSubscription.countDocuments({ status: 'active' }),
-      pending_custom_parties: await BirthdayBooking.countDocuments({ status: 'custom_pending' })
+      total_parents: totalParents,
+      total_children: totalChildren,
+      today_hourly_bookings: todayHourlyBookings,
+      today_birthday_bookings: todayBirthdayBookings,
+      active_subscriptions: activeSubscriptions,
+      pending_custom_parties: pendingCustomParties,
+      revenue_today: hourlyRevenueToday + birthdayRevenueToday + subscriptionRevenueToday,
+      revenue_month: hourlyRevenueMonth + birthdayRevenueMonth + subscriptionRevenueMonth,
+      active_sessions_now: activeSessionsNow,
+      total_checkins_today: todayCheckins,
+      open_overtime_unpaid_orders:
+        overtimeOpenSessions + hourlyUnpaidOrders + birthdayUnpaidOrders + subscriptionUnpaidOrders,
+      zones_occupancy,
+      branch_summary
     };
 
     res.json({ stats });
