@@ -74,6 +74,8 @@ export default function AdminPage() {
   const [expandedParent, setExpandedParent] = useState(null);
   const [parentDetails, setParentDetails] = useState(null);
   const [loadingParent, setLoadingParent] = useState(false);
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [activatingBookingId, setActivatingBookingId] = useState(null);
 
   // Hero settings state
   const [heroSettings, setHeroSettings] = useState({
@@ -144,6 +146,13 @@ export default function AdminPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Debounced search for customers
   useEffect(() => {
@@ -506,6 +515,42 @@ export default function AdminPage() {
       return hourlyBookings.filter(b => isToday(b.booking_date || b.created_at));
     }
     return hourlyBookings;
+  };
+
+  const formatSessionTimer = (endTime) => {
+    if (!endTime) return null;
+    const remainingMs = new Date(endTime).getTime() - nowMs;
+    if (Number.isNaN(remainingMs)) return null;
+
+    const clamped = Math.max(0, remainingMs);
+    const totalSeconds = Math.floor(clamped / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const paymentMethodLabel = {
+    card: 'Card',
+    cash: 'Cash',
+    cliq: 'CliQ'
+  };
+
+  const handleActivateHourlySession = async (booking) => {
+    if (!booking?.booking_code) {
+      toast.error('Booking code is missing');
+      return;
+    }
+
+    setActivatingBookingId(booking.id);
+    try {
+      await api.post('/staff/checkin', { booking_code: booking.booking_code });
+      toast.success(`Session activated for ${booking.child?.name || 'child'}`);
+      await fetchHourlyBookings();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to activate session');
+    } finally {
+      setActivatingBookingId(null);
+    }
   };
 
   const getFilteredBirthdayBookings = () => {
@@ -1625,13 +1670,33 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{booking.booking_code}</span>
                           <Badge className={getStatusBadge(booking.status)}>{booking.status}</Badge>
+                          {booking.status === 'checked_in' && (
+                            <Badge className="bg-blue-600 text-white">
+                              Running: {formatSessionTimer(booking.session_end_time) || '--:--'}
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {booking.slot?.date} at {booking.slot?.start_time} - {booking.child?.name}
                         </p>
                         <p className="text-sm text-muted-foreground">{booking.user?.email}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Payment: {paymentMethodLabel[booking.payment_method] || booking.payment_method || 'N/A'} ({booking.payment_status || 'N/A'})
+                        </p>
                       </div>
-                      <p className="font-bold">${booking.amount}</p>
+                      <div className="flex flex-col items-end gap-2">
+                        <p className="font-bold">${booking.amount}</p>
+                        {booking.status === 'confirmed' && booking.payment_method && booking.payment_method !== 'card' && (
+                          <Button
+                            size="sm"
+                            className="h-8 rounded-full"
+                            onClick={() => handleActivateHourlySession(booking)}
+                            disabled={activatingBookingId === booking.id}
+                          >
+                            {activatingBookingId === booking.id ? 'Activating...' : 'Activate Session'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
