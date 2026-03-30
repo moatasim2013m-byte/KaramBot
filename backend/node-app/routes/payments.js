@@ -51,6 +51,12 @@ const FINALIZATION_LOCK_TIMEOUT_MS = Number.parseInt(process.env.PAYMENT_FINALIZ
 const isLoyaltyDuplicateError = (error) => {
   return error?.code === 'LOYALTY_DUPLICATE_REFERENCE' || error?.code === 11000;
 };
+const maskConfigValue = (value) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  if (normalized.length <= 6) return '***';
+  return `${normalized.slice(0, 3)}***${normalized.slice(-3)}`;
+};
 const maybeAwardProductLoyaltyPoints = async (transaction) => {
   const points = Math.round(Number(transaction?.amount || 0) * 10);
   if (!transaction?.user_id || points <= 0) return;
@@ -94,10 +100,14 @@ if (!supportedPaymentProviders.has(normalizedRequestedProvider)) {
 }
 if (requestedCapitalBankProvider) {
   if (capitalBankRestReady) {
+    const capitalBankEnv = getCapitalBankEnv();
     console.log(`[Payments] Active provider: ${paymentProvider} (CyberSource Secure Acceptance)`);
-    console.log(`[Payments] Capital Bank environment: ${getCapitalBankEnv()}`);
+    console.log(`[Payments] Capital Bank environment: ${capitalBankEnv}`);
     console.log(`[Payments] Capital Bank endpoint: ${getCyberSourcePaymentUrl()}`);
-    console.log(`[Payments] Profile ID: ${capitalBankConfig.profileId}`);
+    console.log(`[Payments] Profile ID: ${maskConfigValue(capitalBankConfig.profileId)}`);
+    if (!DEV_ENVIRONMENTS.has(process.env.NODE_ENV) && capitalBankEnv === 'test') {
+      console.warn('[Payments] WARNING: production runtime is configured with CAPITAL_BANK_ENV=test');
+    }
   } else {
     console.warn(`[Payments] Active provider fallback: manual. Missing env vars for ${paymentProvider}: ${missingCapitalBankEnvVars.join(', ')}`);
   }
