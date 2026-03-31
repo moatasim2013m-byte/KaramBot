@@ -16,6 +16,10 @@ const { awardPoints } = require('../utils/awardPoints');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
 const { validateCoupon } = require('../utils/coupons');
+const {
+  sendHourlyBookingWhatsAppConfirmation,
+  sendBirthdayBookingWhatsAppConfirmation
+} = require('../utils/whatsappBookingConfirmation');
 const { addMinutes, isBefore, isAfter } = require('date-fns');
 
 const router = express.Router();
@@ -382,6 +386,17 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       console.error('HOURLY_BOOKING_EMAIL_ERROR', emailErr.message || emailErr);
     }
 
+    await sendHourlyBookingWhatsAppConfirmation({
+      phone: user?.phone,
+      customerName: user?.name,
+      date: slot?.date,
+      time: slot?.start_time,
+      childCount: childIdList.length,
+      durationHours: bookings[0]?.duration_hours,
+      bookingReference: bookings[0]?.booking_code,
+      bookingId: bookings[0]?._id?.toString()
+    });
+
     reservedSlotId = null;
     reservedCount = 0;
 
@@ -538,6 +553,17 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
     } catch (emailErr) {
       console.error('HOURLY_OFFLINE_EMAIL_ERROR', emailErr.message || emailErr);
     }
+
+    await sendHourlyBookingWhatsAppConfirmation({
+      phone: user?.phone,
+      customerName: user?.name,
+      date: slot?.date,
+      time: slot?.start_time,
+      childCount: childIdList.length,
+      durationHours: bookings[0]?.duration_hours,
+      bookingReference: bookings[0]?.booking_code,
+      bookingId: bookings[0]?._id?.toString()
+    });
 
     reservedSlotId = null;
     reservedCount = 0;
@@ -737,6 +763,19 @@ router.post('/birthday', authMiddleware, async (req, res) => {
       console.error('BIRTHDAY_BOOKING_EMAIL_ERROR', emailErr.message || emailErr);
     }
 
+    if (booking.status === 'confirmed') {
+      await sendBirthdayBookingWhatsAppConfirmation({
+        phone: user?.phone,
+        customerName: user?.name,
+        date: slot?.date,
+        time: slot?.start_time,
+        childName: child?.name,
+        packageOrTheme: theme?.name,
+        bookingReference: booking?.booking_code,
+        bookingId: booking?._id?.toString()
+      });
+    }
+
     res.status(201).json({ booking: booking.toJSON() });
   } catch (error) {
     console.error('Create birthday booking error:', error);
@@ -842,6 +881,17 @@ router.post('/birthday/offline', authMiddleware, async (req, res) => {
     } catch (emailErr) {
       console.error('BIRTHDAY_OFFLINE_EMAIL_ERROR', emailErr.message || emailErr);
     }
+
+    await sendBirthdayBookingWhatsAppConfirmation({
+      phone: user?.phone,
+      customerName: user?.name,
+      date: slot?.date,
+      time: slot?.start_time,
+      childName: child?.name,
+      packageOrTheme: theme?.name,
+      bookingReference: booking?.booking_code,
+      bookingId: booking?._id?.toString()
+    });
 
     res.status(201).json({ 
       booking: booking.toJSON(),
