@@ -16,6 +16,10 @@ const Settings = require('../models/Settings');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
 const { awardReferralForFirstConfirmedOrder } = require('../utils/referrals');
+const {
+  sendHourlyBookingWhatsAppConfirmation,
+  sendBirthdayBookingWhatsAppConfirmation
+} = require('../utils/whatsappBookingConfirmation');
 
 const router = express.Router();
 
@@ -585,6 +589,7 @@ router.put('/bookings/hourly/:id', async (req, res) => {
     if (status !== undefined) booking.status = status;
     if (payment_status !== undefined) booking.payment_status = payment_status;
     await booking.save();
+    const becameConfirmed = previousStatus !== 'confirmed' && booking.status === 'confirmed';
 
     const becamePaid = wasPending && booking.payment_status === 'paid';
     if (becamePaid) {
@@ -605,6 +610,19 @@ router.put('/bookings/hourly/:id', async (req, res) => {
       } catch (emailErr) {
         console.error('ADMIN_HOURLY_FINAL_EMAIL_ERROR', emailErr.message || emailErr);
       }
+    }
+
+    if (becameConfirmed) {
+      await sendHourlyBookingWhatsAppConfirmation({
+        phone: booking.user_id?.phone,
+        customerName: booking.user_id?.name,
+        date: booking.slot_id?.date,
+        time: booking.slot_id?.start_time,
+        childCount: 1,
+        durationHours: booking.duration_hours,
+        bookingReference: booking.booking_code,
+        bookingId: booking._id?.toString()
+      });
     }
 
     res.json({ booking: booking.toJSON() });
@@ -630,6 +648,7 @@ router.put('/bookings/birthday/:id', async (req, res) => {
     if (status !== undefined) booking.status = status;
     if (payment_status !== undefined) booking.payment_status = payment_status;
     await booking.save();
+    const becameConfirmed = previousStatus !== 'confirmed' && booking.status === 'confirmed';
 
     const becamePaid = wasPending && booking.payment_status === 'paid';
     if (becamePaid) {
@@ -650,6 +669,19 @@ router.put('/bookings/birthday/:id', async (req, res) => {
       } catch (emailErr) {
         console.error('ADMIN_BIRTHDAY_FINAL_EMAIL_ERROR', emailErr.message || emailErr);
       }
+    }
+
+    if (becameConfirmed) {
+      await sendBirthdayBookingWhatsAppConfirmation({
+        phone: booking.user_id?.phone,
+        customerName: booking.user_id?.name,
+        date: booking.slot_id?.date,
+        time: booking.slot_id?.start_time,
+        childName: booking.child_id?.name || booking.child_name,
+        packageOrTheme: booking.theme_id?.name || (booking.is_custom ? 'طلب مخصص' : ''),
+        bookingReference: booking.booking_code,
+        bookingId: booking._id?.toString()
+      });
     }
 
     res.json({ booking: booking.toJSON() });
