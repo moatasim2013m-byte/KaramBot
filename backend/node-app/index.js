@@ -80,6 +80,7 @@ app.use(cors({
 app.use('/api/whatsapp', express.json({
   limit: '1mb',
   verify: (req, res, buffer) => {
+    // Meta signature validation must use exact raw request bytes.
     req.rawBody = buffer;
   }
 }), whatsappWebhookRoutes);

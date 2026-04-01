@@ -4,6 +4,10 @@ const express = require('express');
 const router = express.Router();
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
+const getVerifyToken = () => {
+  // Prefer the new env name while keeping backward compatibility.
+  return getTrimmedEnv('WHATSAPP_VERIFY_TOKEN') || getTrimmedEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
+};
 
 const isSignatureValidationEnabled = () => {
   const value = String(
@@ -61,9 +65,14 @@ router.get('/webhook', (req, res) => {
   const mode = String(req.query['hub.mode'] || '');
   const challenge = String(req.query['hub.challenge'] || '');
   const verifyToken = String(req.query['hub.verify_token'] || '');
-  const expectedVerifyToken = getTrimmedEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
+  const expectedVerifyToken = getVerifyToken();
 
-  if (mode === 'subscribe' && safeCompare(verifyToken, expectedVerifyToken)) {
+  if (
+    mode === 'subscribe' &&
+    expectedVerifyToken &&
+    verifyToken &&
+    safeCompare(verifyToken, expectedVerifyToken)
+  ) {
     return res.status(200).type('text/plain').send(challenge);
   }
 
@@ -80,37 +89,38 @@ router.post('/webhook', (req, res) => {
 
   const payload = req.body || {};
   const values = parseChanges(payload);
+  res.sendStatus(200);
 
-  console.log('WHATSAPP_WEBHOOK_RECEIVED', {
-    object: payload?.object || 'unknown',
-    entryCount: Array.isArray(payload?.entry) ? payload.entry.length : 0,
-    changeCount: values.length
+  setImmediate(() => {
+    console.log('WHATSAPP_WEBHOOK_RECEIVED', {
+      object: payload?.object || 'unknown',
+      entryCount: Array.isArray(payload?.entry) ? payload.entry.length : 0,
+      changeCount: values.length
+    });
+
+    values.forEach((value, index) => {
+      const messages = Array.isArray(value?.messages) ? value.messages : [];
+      const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+
+      if (messages.length > 0) {
+        console.log('WHATSAPP_WEBHOOK_MESSAGES', {
+          index,
+          count: messages.length,
+          from: messages.map(msg => msg?.from).filter(Boolean),
+          types: messages.map(msg => msg?.type).filter(Boolean)
+        });
+      }
+
+      if (statuses.length > 0) {
+        console.log('WHATSAPP_WEBHOOK_STATUSES', {
+          index,
+          count: statuses.length,
+          statuses: statuses.map(item => item?.status).filter(Boolean),
+          messageIds: statuses.map(item => item?.id).filter(Boolean)
+        });
+      }
+    });
   });
-
-  values.forEach((value, index) => {
-    const messages = Array.isArray(value?.messages) ? value.messages : [];
-    const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
-
-    if (messages.length > 0) {
-      console.log('WHATSAPP_WEBHOOK_MESSAGES', {
-        index,
-        count: messages.length,
-        from: messages.map(msg => msg?.from).filter(Boolean),
-        types: messages.map(msg => msg?.type).filter(Boolean)
-      });
-    }
-
-    if (statuses.length > 0) {
-      console.log('WHATSAPP_WEBHOOK_STATUSES', {
-        index,
-        count: statuses.length,
-        statuses: statuses.map(item => item?.status).filter(Boolean),
-        messageIds: statuses.map(item => item?.id).filter(Boolean)
-      });
-    }
-  });
-
-  return res.status(200).json({ received: true });
 });
 
 module.exports = router;
