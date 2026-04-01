@@ -890,8 +890,12 @@ export default function AdminPage() {
         throw new Error('Invalid upload response');
       }
 
-      setHeroSettings((prev) => ({ ...prev, hero_image: uploadRes.data.image_url }));
-      toast.success('تم رفع الصورة');
+      const uploadedImageUrl = uploadRes.data.image_url;
+      setHeroSettings((prev) => ({ ...prev, hero_image: uploadedImageUrl }));
+
+      // Persist hero image immediately so admin doesn't lose it if they leave before clicking save.
+      await api.put('/admin/settings', { hero_image: uploadedImageUrl });
+      toast.success('تم رفع الصورة وحفظها');
     } catch (error) {
       const backendMessage = error?.response?.data?.error;
       toast.error(backendMessage || 'فشل رفع الصورة');
