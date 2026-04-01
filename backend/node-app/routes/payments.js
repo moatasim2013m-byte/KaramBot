@@ -12,11 +12,16 @@ const SubscriptionPlan = require('../models/SubscriptionPlan');
 const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const UserSubscription = require('../models/UserSubscription');
+const User = require('../models/User');
 const Coupon = require('../models/Coupon');
 const { authMiddleware } = require('../middleware/auth');
 const loyaltyRouter = require('./loyalty');
 const { awardPoints } = loyaltyRouter;
 const { validateCoupon } = require('../utils/coupons');
+const {
+  sendHourlyBookingWhatsAppConfirmation,
+  sendBirthdayBookingWhatsAppConfirmation
+} = require('../utils/whatsappBookingConfirmation');
 const {
   buildSecureAcceptanceFields,
   getCapitalBankEnv,
@@ -430,6 +435,56 @@ const finalizePaidTransaction = async (transaction) => {
   throw new Error('Unsupported transaction type');
 };
 
+const sendWhatsAppAfterSuccessfulBookingFinalization = async (transaction, finalizationResult) => {
+  if (!transaction || !finalizationResult || !['hourly', 'birthday'].includes(finalizationResult.resourceType)) {
+    return { ok: false, skipped: true, reason: 'not_booking' };
+  }
+
+  const user = await User.findById(transaction.user_id).select('name phone');
+  if (!user?.phone) {
+    return { ok: false, skipped: true, reason: 'missing_phone' };
+  }
+
+  if (finalizationResult.resourceType === 'hourly') {
+    const firstBooking = finalizationResult.bookings?.[0];
+    if (!firstBooking?._id) return { ok: false, skipped: true, reason: 'missing_booking' };
+
+    const bookingDoc = await HourlyBooking.findById(firstBooking._id).populate('slot_id');
+    if (!bookingDoc) return { ok: false, skipped: true, reason: 'booking_not_found' };
+
+    return sendHourlyBookingWhatsAppConfirmation({
+      phone: user.phone,
+      customerName: user.name,
+      date: bookingDoc.slot_id?.date,
+      time: bookingDoc.slot_id?.start_time,
+      childCount: finalizationResult.bookings?.length || 1,
+      durationHours: bookingDoc.duration_hours,
+      bookingReference: bookingDoc.booking_code,
+      bookingId: bookingDoc._id?.toString()
+    });
+  }
+
+  const birthdayBooking = finalizationResult.booking;
+  if (!birthdayBooking?._id) return { ok: false, skipped: true, reason: 'missing_booking' };
+
+  const bookingDoc = await BirthdayBooking.findById(birthdayBooking._id)
+    .populate('slot_id')
+    .populate('child_id')
+    .populate('theme_id');
+  if (!bookingDoc) return { ok: false, skipped: true, reason: 'booking_not_found' };
+
+  return sendBirthdayBookingWhatsAppConfirmation({
+    phone: user.phone,
+    customerName: user.name,
+    date: bookingDoc.slot_id?.date,
+    time: bookingDoc.slot_id?.start_time,
+    childName: bookingDoc.child_id?.name,
+    packageOrTheme: bookingDoc.theme_id?.name,
+    bookingReference: bookingDoc.booking_code,
+    bookingId: bookingDoc._id?.toString()
+  });
+};
+
 const finalizeTransactionIfPaid = async (transaction) => {
   if (!transaction || transaction.status !== 'paid') return transaction;
   if (transaction.metadata?.finalization?.status === 'succeeded') return transaction;
@@ -462,13 +517,20 @@ const finalizeTransactionIfPaid = async (transaction) => {
 
   try {
     const result = await finalizePaidTransaction(locked);
+    const whatsappResult = await sendWhatsAppAfterSuccessfulBookingFinalization(locked, result);
+
     return PaymentTransaction.findByIdAndUpdate(
       locked._id,
       {
         $set: {
           'metadata.finalization.status': 'succeeded',
           'metadata.finalization.completed_at': new Date(),
-          'metadata.finalization.result': result
+          'metadata.finalization.result': result,
+          'metadata.finalization.whatsapp_confirmation': {
+            attempted: !whatsappResult?.skipped,
+            sent: Boolean(whatsappResult?.ok),
+            reason: whatsappResult?.reason || null
+          }
         }
       },
       { new: true }
@@ -752,13 +814,19 @@ router.post('/finalize/:sessionId', authMiddleware, async (req, res) => {
 
     try {
       const result = await finalizePaidTransaction(locked);
+      const whatsappResult = await sendWhatsAppAfterSuccessfulBookingFinalization(locked, result);
       const finalized = await PaymentTransaction.findByIdAndUpdate(
         locked._id,
         {
           $set: {
             'metadata.finalization.status': 'succeeded',
             'metadata.finalization.completed_at': new Date(),
-            'metadata.finalization.result': result
+            'metadata.finalization.result': result,
+            'metadata.finalization.whatsapp_confirmation': {
+              attempted: !whatsappResult?.skipped,
+              sent: Boolean(whatsappResult?.ok),
+              reason: whatsappResult?.reason || null
+            }
           }
         },
         { new: true }

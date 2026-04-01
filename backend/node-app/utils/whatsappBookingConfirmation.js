@@ -4,23 +4,23 @@ const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
 const isWhatsAppEnabled = () => getTrimmedEnv('WHATSAPP_ENABLED').toLowerCase() === 'true';
 
-const normalizeJordanPhoneForWhatsApp = (input) => {
+const normalizePhoneForWhatsApp = (input) => {
   const raw = String(input || '').trim();
   if (!raw) return '';
 
-  let sanitized = raw.replace(/\s+/g, '');
+  let sanitized = raw.replace(/\s+/g, '').replace(/[()-]/g, '');
 
-  if (sanitized.startsWith('+')) {
-    sanitized = `+${sanitized.slice(1).replace(/\D/g, '')}`;
-  } else {
-    sanitized = sanitized.replace(/\D/g, '');
-  }
+  if (sanitized.startsWith('00')) sanitized = sanitized.slice(2);
+  sanitized = sanitized.startsWith('+')
+    ? sanitized.slice(1).replace(/\D/g, '')
+    : sanitized.replace(/\D/g, '');
 
-  if (sanitized.startsWith('+962')) sanitized = sanitized.slice(1);
+  // Legacy support for Jordan local numbers
   if (sanitized.startsWith('077')) sanitized = `96277${sanitized.slice(3)}`;
   else if (/^07\d+$/.test(sanitized)) sanitized = `9627${sanitized.slice(2)}`;
 
-  if (!/^9627\d{8}$/.test(sanitized)) return '';
+  // WhatsApp Cloud API expects E.164 digits without "+"
+  if (!/^\d{8,15}$/.test(sanitized)) return '';
   return sanitized;
 };
 
@@ -95,7 +95,7 @@ const postWhatsAppText = async ({ to, messageBody }) => {
     return { ok: false, skipped: true, reason: 'missing_config' };
   }
 
-  const endpoint = `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`;
+  const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
@@ -140,7 +140,7 @@ const sendHourlyBookingWhatsAppConfirmation = async ({
 }) => {
   if (!isWhatsAppEnabled()) return { ok: false, skipped: true, reason: 'disabled' };
 
-  const normalizedPhone = normalizeJordanPhoneForWhatsApp(phone);
+  const normalizedPhone = normalizePhoneForWhatsApp(phone);
   if (!normalizedPhone) {
     console.warn('WHATSAPP_BOOKING_CONFIRMATION_INVALID_PHONE', { bookingType: 'hourly', bookingId });
     return { ok: false, skipped: true, reason: 'invalid_phone' };
@@ -177,7 +177,7 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
 }) => {
   if (!isWhatsAppEnabled()) return { ok: false, skipped: true, reason: 'disabled' };
 
-  const normalizedPhone = normalizeJordanPhoneForWhatsApp(phone);
+  const normalizedPhone = normalizePhoneForWhatsApp(phone);
   if (!normalizedPhone) {
     console.warn('WHATSAPP_BOOKING_CONFIRMATION_INVALID_PHONE', { bookingType: 'birthday', bookingId });
     return { ok: false, skipped: true, reason: 'invalid_phone' };
