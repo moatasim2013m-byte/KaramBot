@@ -388,6 +388,34 @@ const buildSecureAcceptanceFields = ({
     ...(overrideCustomCancelPage ? { override_custom_cancel_page: String(overrideCustomCancelPage) } : {})
   };
 
+  const requiredFields = [
+    'access_key',
+    'profile_id',
+    'transaction_uuid',
+    'signed_field_names',
+    'signed_date_time',
+    'transaction_type',
+    'reference_number',
+    'amount',
+    'currency',
+    'locale',
+    'bill_to_forename',
+    'bill_to_surname',
+    'bill_to_email',
+    'bill_to_address_country',
+    'bill_to_address_city',
+    'bill_to_address_line1'
+  ];
+  const missingFields = requiredFields.filter((fieldName) => !String(fields[fieldName] || '').trim());
+  if (missingFields.length > 0) {
+    console.error('[CyberSource Secure Acceptance] Missing fields in signed payload', {
+      missing_fields: missingFields,
+      reference_number: fields.reference_number,
+      transaction_uuid: fields.transaction_uuid
+    });
+    throw new Error(`Missing required Secure Acceptance fields: ${missingFields.join(', ')}`);
+  }
+
   const { signature, dataToSign, signedFieldNames: parsedSignedFields } = signFields(fields, secretKey);
   fields.signature = signature;
 
