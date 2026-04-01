@@ -76,8 +76,9 @@ app.use(cors({
   credentials: true
 }));
 
-app.use('/api/webhooks/whatsapp', express.json({
-  limit: '3mb',
+
+app.use('/api/whatsapp', express.json({
+  limit: '1mb',
   verify: (req, res, buffer) => {
     req.rawBody = buffer;
   }
@@ -183,7 +184,6 @@ const profileRoutes = require('./routes/profile');
 const themesRoutes = require('./routes/themes');
 const faqBotRoutes = require('./routes/faqBot');
 const productsRoutes = require('./routes/products');
-const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 
 // Routes
 // Apply strict auth limiter to sensitive endpoints
