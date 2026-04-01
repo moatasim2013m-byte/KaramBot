@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import { 
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
-  Loader2, AlertTriangle, Users, RefreshCw
+  Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
+  Plus, Edit2, Trash2, X, Filter
 } from 'lucide-react';
 
 export default function StaffPage() {
@@ -37,6 +38,20 @@ export default function StaffPage() {
   
   // Birthday parties
   const [todayParties, setTodayParties] = useState([]);
+  
+  // Inbox state
+  const [conversations, setConversations] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [customerProfile, setCustomerProfile] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [inboxStats, setInboxStats] = useState(null);
+  const [quickReplies, setQuickReplies] = useState([]);
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [inboxSearch, setInboxSearch] = useState('');
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
 
   // Check if user is staff or admin
   useEffect(() => {
@@ -174,6 +189,124 @@ export default function StaffPage() {
     }
   };
 
+  // ==================== INBOX FUNCTIONS ====================
+  
+  const fetchInboxStats = useCallback(async () => {
+    try {
+      const response = await api.get('/staff/inbox/stats');
+      setInboxStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch inbox stats:', error);
+    }
+  }, [api]);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      setInboxLoading(true);
+      const params = new URLSearchParams();
+      if (inboxSearch) params.append('search', inboxSearch);
+      if (showUnreadOnly) params.append('unread_only', 'true');
+      
+      const response = await api.get(`/staff/inbox/conversations?${params}`);
+      setConversations(response.data.conversations || []);
+    } catch (error) {
+      console.error('Failed to fetch conversations:', error);
+      toast.error('فشل تحميل المحادثات');
+    } finally {
+      setInboxLoading(false);
+    }
+  }, [api, inboxSearch, showUnreadOnly]);
+
+  const fetchMessages = useCallback(async (waId) => {
+    try {
+      const response = await api.get(`/staff/inbox/messages/${waId}`);
+      setMessages(response.data.messages || []);
+    } catch (error) {
+      console.error('Failed to fetch messages:', error);
+      toast.error('فشل تحميل الرسائل');
+    }
+  }, [api]);
+
+  const fetchCustomerProfile = useCallback(async (waId) => {
+    try {
+      const response = await api.get(`/staff/inbox/customer-profile/${waId}`);
+      setCustomerProfile(response.data);
+    } catch (error) {
+      console.error('Failed to fetch customer profile:', error);
+    }
+  }, [api]);
+
+  const fetchQuickReplies = useCallback(async () => {
+    try {
+      const response = await api.get('/staff/inbox/quick-replies?platform=whatsapp');
+      setQuickReplies(response.data.quick_replies || []);
+    } catch (error) {
+      console.error('Failed to fetch quick replies:', error);
+    }
+  }, [api]);
+
+  const handleConversationSelect = (conv) => {
+    setSelectedConversation(conv);
+    setMessages([]);
+    setCustomerProfile(null);
+    fetchMessages(conv.wa_id);
+    fetchCustomerProfile(conv.wa_id);
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!replyText.trim() || !selectedConversation) return;
+
+    setSending(true);
+    try {
+      await api.post('/staff/inbox/send', {
+        wa_id: selectedConversation.wa_id,
+        message: replyText
+      });
+
+      toast.success('تم إرسال الرسالة');
+      setReplyText('');
+      
+      // Refresh messages
+      await fetchMessages(selectedConversation.wa_id);
+      await fetchConversations();
+      await fetchInboxStats();
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      toast.error('فشل إرسال الرسالة');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleQuickReplySelect = (quickReply) => {
+    setReplyText(quickReply.message);
+    setShowQuickReplies(false);
+    
+    // Track usage
+    api.post(`/staff/inbox/quick-replies/${quickReply.id}/use`).catch(console.error);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'inbox') {
+      fetchInboxStats();
+      fetchConversations();
+      fetchQuickReplies();
+      
+      // Poll for new messages every 8 seconds
+      const pollInterval = setInterval(() => {
+        fetchConversations();
+        if (selectedConversation) {
+          fetchMessages(selectedConversation.wa_id);
+        }
+      }, 8000);
+      
+      return () => clearInterval(pollInterval);
+    }
+  }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, selectedConversation, fetchMessages]);
+
+  // ==================== END INBOX FUNCTIONS ====================
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -222,6 +355,12 @@ export default function StaffPage() {
               <Cake className="h-4 w-4" /> Today's Parties
               {todayParties.length > 0 && (
                 <Badge className="ml-1 bg-accent">{todayParties.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="inbox" className="rounded-full gap-2" data-testid="tab-inbox">
+              <MessageSquare className="h-4 w-4" /> Inbox
+              {inboxStats?.unread_messages > 0 && (
+                <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>
               )}
             </TabsTrigger>
           </TabsList>
@@ -497,6 +636,263 @@ export default function StaffPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Inbox Tab */}
+          <TabsContent value="inbox">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-250px)]">
+              {/* Conversations List */}
+              <div className="lg:col-span-1 flex flex-col">
+                <Card className="rounded-2xl flex-1 flex flex-col">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="font-heading flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 text-primary" />
+                        Conversations
+                      </CardTitle>
+                      <Button 
+                        size="sm" 
+                        variant="ghost"
+                        onClick={() => {
+                          fetchConversations();
+                          fetchInboxStats();
+                        }}
+                        className="rounded-full"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {inboxStats && (
+                      <div className="flex gap-2 mt-2">
+                        <Badge variant="outline">{inboxStats.total_conversations} total</Badge>
+                        {inboxStats.unread_messages > 0 && (
+                          <Badge className="bg-red-500">{inboxStats.unread_messages} unread</Badge>
+                        )}
+                      </div>
+                    )}
+                  </CardHeader>
+                  
+                  <div className="px-4 pb-3 space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        value={inboxSearch}
+                        onChange={(e) => setInboxSearch(e.target.value)}
+                        placeholder="Search conversations..."
+                        className="pl-9 rounded-xl"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={showUnreadOnly ? 'default' : 'outline'}
+                      onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+                      className="w-full rounded-xl"
+                    >
+                      <Filter className="h-4 w-4 mr-2" />
+                      {showUnreadOnly ? 'Show All' : 'Unread Only'}
+                    </Button>
+                  </div>
+
+                  <CardContent className="flex-1 overflow-y-auto p-2">
+                    {inboxLoading ? (
+                      <div className="flex justify-center items-center py-12">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : conversations.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-12">No conversations</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {conversations.map((conv) => (
+                          <button
+                            key={conv.wa_id}
+                            onClick={() => handleConversationSelect(conv)}
+                            className={`w-full text-left p-3 rounded-xl transition-all ${
+                              selectedConversation?.wa_id === conv.wa_id
+                                ? 'bg-primary/10 border-2 border-primary'
+                                : 'bg-white hover:bg-muted/50 border border-transparent'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <span className="font-semibold truncate">{conv.profile_name}</span>
+                              {conv.unread_count > 0 && (
+                                <Badge className="bg-red-500 text-xs">{conv.unread_count}</Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground truncate mb-1">
+                              {conv.last_message.direction === 'inbound' ? '↓ ' : '↑ '}
+                              {conv.last_message.text || '[Media]'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(conv.last_message.timestamp).toLocaleString('ar-JO', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Message Thread */}
+              <div className="lg:col-span-2 flex flex-col">
+                {!selectedConversation ? (
+                  <Card className="rounded-2xl flex-1 flex items-center justify-center">
+                    <div className="text-center text-muted-foreground">
+                      <MessageSquare className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                      <p>Select a conversation to view messages</p>
+                    </div>
+                  </Card>
+                ) : (
+                  <Card className="rounded-2xl flex-1 flex flex-col">
+                    {/* Chat Header */}
+                    <CardHeader className="border-b pb-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="font-heading">
+                            {selectedConversation.profile_name}
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            WhatsApp: {selectedConversation.wa_id}
+                          </p>
+                          {customerProfile?.found && (
+                            <div className="flex gap-2 mt-2">
+                              <Badge variant="outline" className="text-xs">
+                                Customer: {customerProfile.user.name}
+                              </Badge>
+                              {customerProfile.children?.length > 0 && (
+                                <Badge variant="outline" className="text-xs">
+                                  {customerProfile.children.length} {customerProfile.children.length === 1 ? 'child' : 'children'}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowQuickReplies(!showQuickReplies)}
+                          className="rounded-full"
+                        >
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          Quick Replies
+                        </Button>
+                      </div>
+                    </CardHeader>
+
+                    {/* Messages */}
+                    <CardContent className="flex-1 overflow-y-auto p-4 bg-muted/20">
+                      {messages.length === 0 ? (
+                        <div className="text-center text-muted-foreground py-12">
+                          <p>No messages yet</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {messages.map((msg) => (
+                            <div
+                              key={msg.id}
+                              className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div
+                                className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                                  msg.direction === 'outbound'
+                                    ? 'bg-primary text-white'
+                                    : 'bg-white border'
+                                }`}
+                              >
+                                {msg.message_type === 'text' ? (
+                                  <p className="whitespace-pre-wrap">{msg.text_body}</p>
+                                ) : (
+                                  <p className="italic opacity-70">[{msg.message_type}]</p>
+                                )}
+                                <div className={`flex items-center gap-2 mt-1 text-xs ${
+                                  msg.direction === 'outbound' ? 'text-white/70' : 'text-muted-foreground'
+                                }`}>
+                                  <span>
+                                    {new Date(msg.timestamp).toLocaleTimeString('ar-JO', {
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </span>
+                                  {msg.direction === 'outbound' && msg.status && (
+                                    <span>• {msg.status}</span>
+                                  )}
+                                  {msg.sent_by_staff && (
+                                    <span>• {msg.sent_by_staff.name}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+
+                    {/* Quick Replies Dropdown */}
+                    {showQuickReplies && quickReplies.length > 0 && (
+                      <div className="border-t bg-muted/30 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-semibold">Quick Replies</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setShowQuickReplies(false)}
+                            className="rounded-full h-6 w-6 p-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                          {quickReplies.map((qr) => (
+                            <button
+                              key={qr.id}
+                              onClick={() => handleQuickReplySelect(qr)}
+                              className="text-left p-2 rounded-lg bg-white hover:bg-primary/10 border text-sm transition-colors"
+                            >
+                              <p className="font-semibold truncate">{qr.label}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {qr.message.substring(0, 50)}...
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Reply Input */}
+                    <div className="border-t p-4">
+                      <form onSubmit={handleSendMessage} className="flex gap-2">
+                        <Input
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder="Type your message..."
+                          className="flex-1 rounded-xl"
+                          disabled={sending}
+                        />
+                        <Button
+                          type="submit"
+                          disabled={sending || !replyText.trim()}
+                          className="rounded-full px-6"
+                        >
+                          {sending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Send className="h-4 w-4 mr-2" />
+                              Send
+                            </>
+                          )}
+                        </Button>
+                      </form>
+                    </div>
+                  </Card>
+                )}
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

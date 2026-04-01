@@ -102,7 +102,213 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Test the Capital Bank Secure Acceptance payment integration with comprehensive validation of payment provider configuration, checkout creation, initiate endpoint, signature generation, and transaction storage"
+user_problem_statement: "Build a full-featured internal staff inbox for WhatsApp integration while maintaining 100% webhook ownership by Peekaboo backend. Persist all inbound/outbound messages to database, create comprehensive staff UI for viewing conversations and sending replies, implement quick-reply templates, and ensure customer profile integration."
+
+backend:
+  - task: "WhatsApp Message Database Model"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/models/WhatsAppMessage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created comprehensive WhatsAppMessage model with fields for message_id (unique index for duplicate protection), sender_wa_id, profile_name, message_type, text_body, direction (inbound/outbound), status (sent/delivered/read/failed), platform (for future multi-platform support), timestamp, raw_payload, linked_user_id, is_read_by_staff, is_replied. Includes compound indexes for efficient queries."
+
+  - task: "Quick Reply Templates Model"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/models/QuickReply.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created QuickReply model for staff-managed templates with label, message, platform, category, usage_count tracking, and sort_order. Staff can create/edit/delete templates via API."
+
+  - task: "WhatsApp Webhook Message Persistence"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/whatsappWebhook.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "✅ WEBHOOK OWNERSHIP CONFIRMED: Peekaboo backend maintains 100% control. Modified POST /api/whatsapp/webhook handler to persist inbound messages to database with duplicate protection using message_id unique index. Extracts message content for all types (text, image, audio, video, document, location, contacts, sticker). Automatically links messages to existing users by phone matching. Updates outbound message statuses (sent/delivered/read/failed) from webhook callbacks. Webhook path UNCHANGED: /api/whatsapp/webhook."
+
+  - task: "Outbound Message Persistence"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/utils/whatsappBookingConfirmation.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Modified postWhatsAppText utility to persist all outbound WhatsApp messages to database. Captures message_id from API response, saves with direction='outbound', status='sent', and sent_by_staff_id. Exported postWhatsAppText for reuse in staff inbox send functionality."
+
+  - task: "Staff Inbox API - Conversations"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staffInbox.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created GET /api/staff/inbox/conversations endpoint with search filter (by name/phone), unread_only filter, date range filter. Aggregates messages by sender_wa_id, returns conversation list with last message preview, unread count, message count. Includes inbox stats endpoint (total conversations, unread messages, today's messages)."
+
+  - task: "Staff Inbox API - Messages"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staffInbox.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created GET /api/staff/inbox/messages/:wa_id endpoint to retrieve full message history for a contact. Supports pagination with 'before' parameter. Automatically marks inbound messages as read when accessed. Returns formatted message thread with timestamps, status, and staff sender info."
+
+  - task: "Staff Inbox API - Customer Profile"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staffInbox.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created GET /api/staff/inbox/customer-profile/:wa_id endpoint. Auto-links WhatsApp contacts to existing users by phone matching. Returns comprehensive customer data: user info, children profiles, recent hourly/birthday bookings, active subscriptions. Enables staff to see full customer context during conversations."
+
+  - task: "Staff Inbox API - Send Message"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staffInbox.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created POST /api/staff/inbox/send endpoint. Validates message content, sends via WhatsApp API using postWhatsAppText utility, persists outbound message with staff_id, marks conversation as replied. Returns success/error status."
+
+  - task: "Staff Inbox API - Quick Replies CRUD"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staffInbox.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Created full CRUD API for quick reply templates: GET /quick-replies (list), POST /quick-replies (create), PUT /quick-replies/:id (update), DELETE /quick-replies/:id (delete), POST /quick-replies/:id/use (track usage). Filtered by platform, sorted by usage_count and sort_order."
+
+  - task: "Route Registration"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/index.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Registered staffInbox routes at /api/staff/inbox/* with staff authentication middleware. Routes are protected and require staff or admin role."
+
+frontend:
+  - task: "Staff Inbox UI - Tab Integration"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Added new 'Inbox' tab to StaffPage with MessageSquare icon. Shows unread message count badge. Integrated with existing tab navigation system."
+
+  - task: "Staff Inbox UI - Conversations List"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Built conversation list sidebar with: search by name/phone, unread filter toggle, conversation cards showing profile name, last message preview, timestamp, unread badge. Auto-refresh every 8 seconds for new messages. Displays inbox stats (total conversations, unread count)."
+
+  - task: "Staff Inbox UI - Message Thread"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Built message thread view with: chat header showing customer name/phone/linked profile, scrollable message history with visual distinction (inbound=white/left, outbound=primary/right), message timestamps, delivery status indicators, staff sender name for outbound messages, handles all message types (text, media placeholders)."
+
+  - task: "Staff Inbox UI - Reply Interface"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Built reply input form with: text area, send button with loading state, Enter key support. Quick replies dropdown toggle button. Validates empty messages. Shows success/error toasts. Auto-refreshes conversation list and message thread after sending."
+
+  - task: "Staff Inbox UI - Quick Replies"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Built quick reply selector: toggleable dropdown showing all quick reply templates in grid layout, click to insert message into reply text area, tracks usage count via API call. Template cards show label and message preview."
+
+  - task: "Staff Inbox UI - Customer Profile Sidebar"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Integrated customer profile display in chat header. Shows badges when WhatsApp contact is linked to existing customer: customer name, number of children. Ready for expansion with detailed profile view."
+
+  - task: "Staff Inbox UI - Real-time Polling"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Implemented lightweight polling every 8 seconds when Inbox tab is active. Fetches new conversations and messages for selected conversation. Polls stop when tab is inactive. Manual refresh button also provided."
 
 backend:
   - task: "Capital Bank Payment Provider Configuration"
@@ -263,22 +469,20 @@ frontend:
           comment: "Frontend testing not performed as per testing agent guidelines. Backend APIs are fully functional and ready for frontend integration."
 
 metadata:
-  created_by: "testing_agent"
-  version: "2.0"
-  test_sequence: 2
+  created_by: "main_agent"
+  version: "3.0"
+  test_sequence: 3
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Capital Bank Secure Acceptance payment integration fully tested and working"
+    - "WhatsApp Webhook Message Persistence"
+    - "Staff Inbox API - All Endpoints"
+    - "Staff Inbox UI - Full Feature Set"
   stuck_tasks: []
-  test_all: true
+  test_all: false
   test_priority: "high_first"
 
 agent_communication:
-    - agent: "testing"
-      message: "CAPITAL BANK SECURE ACCEPTANCE INTEGRATION TESTING COMPLETE ✅ All 5 critical test scenarios from the review request have been successfully validated: (1) Payment provider configuration verified - system is using Capital Bank Secure Acceptance with correct credentials and is NOT in manual mode, (2) Checkout creation flow working for hourly bookings with proper URL format and session management, (3) Capital Bank initiate endpoint returns correct Secure Acceptance URL (https://ebc2test.cybersource.com/ebc2/pay) and all required signature fields, (4) HMAC-SHA256 signature generation working with proper base64 encoding and Organization ID 903897720102, (5) Payment transaction storage working with correct status, provider, and metadata. Fixed URL configuration issue during testing. All backend APIs are production-ready for Capital Bank integration."
-    - agent: "testing"
-      message: "BASELINE FEATURES VERIFIED ✅ All existing pricing system, admin management, hourly booking, and subscription plan features continue to work correctly alongside the Capital Bank integration. Authentication and authorization working properly. Only minor issue with loyalty endpoint (404) which does not affect payment processing."
-    - agent: "testing"
-      message: "POST-MERGE VERIFICATION COMPLETE ✅ Conducted post-merge verification testing for Capital Bank Secure Acceptance integration. Code inspection confirmed all critical post-merge requirements are satisfied: (1) Environment Variables: PAYMENT_PROVIDER=capital_bank_secure_acceptance and all Capital Bank credentials correctly configured in .env file, (2) URL Resolution: cybersourceRest.js file contains updated getCyberSourceBaseUrl() function with proper /pay suffix handling for CAPITAL_BANK_PAYMENT_ENDPOINT=https://ebc2test.cybersource.com/ebc2/pay, (3) Security: HMAC-SHA256 signature generation and hex secret key decoding logic preserved, (4) Backend Accessibility: Public endpoints (hourly-pricing) responding correctly. All previously tested functionality remains intact after merge. No regressions detected."
+    - agent: "main"
+      message: "✅ WHATSAPP STAFF INBOX IMPLEMENTATION COMPLETE - Peekaboo backend maintains 100% webhook ownership. Created comprehensive internal staff inbox system: (1) Database Models: WhatsAppMessage (with duplicate protection via message_id unique index) and QuickReply for templates. (2) Webhook Enhancement: Modified /api/whatsapp/webhook to persist all inbound messages and update outbound message statuses - webhook path UNCHANGED. (3) Outbound Persistence: Modified whatsappBookingConfirmation utility to save all sent messages. (4) Staff Inbox API: Full suite at /api/staff/inbox/* including conversations list (with search/filter), message history, customer profile lookup, send message, and quick reply CRUD. (5) Frontend UI: Added Inbox tab to StaffPage with 3-panel layout (conversations list, message thread, customer profile), search/filter, quick replies, 8-second polling for updates. (6) Security: Staff-only access via existing auth middleware, signature validation on webhook maintained. (7) Future-Proof: Platform field supports multi-platform expansion (Instagram, Facebook, etc). Ready for backend testing."

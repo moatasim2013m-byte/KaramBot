@@ -204,5 +204,6 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
 
 module.exports = {
   sendHourlyBookingWhatsAppConfirmation,
-  sendBirthdayBookingWhatsAppConfirmation
+  sendBirthdayBookingWhatsAppConfirmation,
+  postWhatsAppText // Export for staff inbox use
 };

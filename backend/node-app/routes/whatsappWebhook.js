@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
+const WhatsAppMessage = require('../models/WhatsAppMessage');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -57,6 +59,154 @@ const parseChanges = (payload) => {
   return allChanges;
 };
 
+// Helper to normalize phone for user lookup
+const normalizePhoneForLookup = (waId) => {
+  const sanitized = String(waId || '').replace(/\D/g, '');
+  
+  // Try multiple formats for Jordan numbers
+  const formats = [
+    sanitized, // Original
+    `+${sanitized}`, // With +
+    sanitized.startsWith('962') ? `0${sanitized.slice(3)}` : null, // 962XXXXXXXX -> 0XXXXXXXX
+    sanitized.startsWith('962') ? `+${sanitized}` : null // +962XXXXXXXX
+  ].filter(Boolean);
+  
+  return formats;
+};
+
+// Persist inbound message to database
+const persistInboundMessage = async (message, profileName) => {
+  try {
+    const messageId = message?.id;
+    if (!messageId) {
+      console.warn('WHATSAPP_MESSAGE_NO_ID', { message });
+      return;
+    }
+    
+    // Check for duplicate
+    const existing = await WhatsAppMessage.findOne({ message_id: messageId });
+    if (existing) {
+      console.log('WHATSAPP_MESSAGE_DUPLICATE_SKIPPED', { messageId });
+      return;
+    }
+    
+    const senderWaId = message?.from;
+    if (!senderWaId) {
+      console.warn('WHATSAPP_MESSAGE_NO_SENDER', { messageId });
+      return;
+    }
+    
+    // Extract message content based on type
+    const messageType = message?.type || 'unsupported';
+    let textBody = '';
+    let mediaUrl = '';
+    let mediaMimeType = '';
+    
+    if (messageType === 'text') {
+      textBody = message?.text?.body || '';
+    } else if (messageType === 'image') {
+      mediaUrl = message?.image?.id || '';
+      mediaMimeType = message?.image?.mime_type || '';
+      textBody = message?.image?.caption || '';
+    } else if (messageType === 'audio') {
+      mediaUrl = message?.audio?.id || '';
+      mediaMimeType = message?.audio?.mime_type || '';
+    } else if (messageType === 'video') {
+      mediaUrl = message?.video?.id || '';
+      mediaMimeType = message?.video?.mime_type || '';
+      textBody = message?.video?.caption || '';
+    } else if (messageType === 'document') {
+      mediaUrl = message?.document?.id || '';
+      mediaMimeType = message?.document?.mime_type || '';
+      textBody = message?.document?.filename || '';
+    } else if (messageType === 'location') {
+      const loc = message?.location;
+      textBody = `📍 Location: ${loc?.latitude}, ${loc?.longitude}`;
+    } else if (messageType === 'contacts') {
+      textBody = '👤 Contact shared';
+    } else if (messageType === 'sticker') {
+      mediaUrl = message?.sticker?.id || '';
+      textBody = '🎭 Sticker';
+    }
+    
+    // Try to link to existing user
+    let linkedUserId = null;
+    const phoneFormats = normalizePhoneForLookup(senderWaId);
+    const existingUser = await User.findOne({
+      phone: { $in: phoneFormats }
+    });
+    
+    if (existingUser) {
+      linkedUserId = existingUser._id;
+    }
+    
+    // Parse timestamp
+    const timestamp = message?.timestamp 
+      ? new Date(parseInt(message.timestamp) * 1000)
+      : new Date();
+    
+    // Save to database
+    const newMessage = new WhatsAppMessage({
+      message_id: messageId,
+      sender_wa_id: senderWaId,
+      profile_name: profileName || '',
+      message_type: messageType,
+      text_body: textBody,
+      media_url: mediaUrl,
+      media_mime_type: mediaMimeType,
+      direction: 'inbound',
+      platform: 'whatsapp',
+      timestamp,
+      raw_payload: message,
+      linked_user_id: linkedUserId,
+      is_read_by_staff: false,
+      is_replied: false
+    });
+    
+    await newMessage.save();
+    console.log('WHATSAPP_MESSAGE_PERSISTED', { 
+      messageId, 
+      senderWaId, 
+      messageType,
+      linkedUser: Boolean(linkedUserId)
+    });
+  } catch (error) {
+    console.error('WHATSAPP_MESSAGE_PERSIST_ERROR', {
+      error: error.message,
+      messageId: message?.id
+    });
+  }
+};
+
+// Update message status (for outbound messages)
+const updateMessageStatus = async (statusUpdate) => {
+  try {
+    const messageId = statusUpdate?.id;
+    const status = statusUpdate?.status; // sent, delivered, read, failed
+    
+    if (!messageId || !status) {
+      return;
+    }
+    
+    const validStatuses = ['sent', 'delivered', 'read', 'failed'];
+    if (!validStatuses.includes(status)) {
+      return;
+    }
+    
+    await WhatsAppMessage.updateOne(
+      { message_id: messageId },
+      { $set: { status } }
+    );
+    
+    console.log('WHATSAPP_MESSAGE_STATUS_UPDATED', { messageId, status });
+  } catch (error) {
+    console.error('WHATSAPP_MESSAGE_STATUS_UPDATE_ERROR', {
+      error: error.message,
+      messageId: statusUpdate?.id
+    });
+  }
+};
+
 router.get('/webhook', (req, res) => {
   const mode = String(req.query['hub.mode'] || '');
   const challenge = String(req.query['hub.challenge'] || '');
@@ -95,35 +245,44 @@ router.post('/webhook', (req, res) => {
   const values = parseChanges(payload);
   res.sendStatus(200);
 
-  setImmediate(() => {
+  setImmediate(async () => {
     console.log('WHATSAPP_WEBHOOK_RECEIVED', {
       object: payload?.object || 'unknown',
       entryCount: Array.isArray(payload?.entry) ? payload.entry.length : 0,
       changeCount: values.length
     });
 
-    values.forEach((value, index) => {
+    for (const value of values) {
       const messages = Array.isArray(value?.messages) ? value.messages : [];
       const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+      const profileName = value?.contacts?.[0]?.profile?.name || '';
 
+      // Persist inbound messages
       if (messages.length > 0) {
         console.log('WHATSAPP_WEBHOOK_MESSAGES', {
-          index,
           count: messages.length,
           from: messages.map(msg => msg?.from).filter(Boolean),
           types: messages.map(msg => msg?.type).filter(Boolean)
         });
+        
+        for (const message of messages) {
+          await persistInboundMessage(message, profileName);
+        }
       }
 
+      // Update outbound message statuses
       if (statuses.length > 0) {
         console.log('WHATSAPP_WEBHOOK_STATUSES', {
-          index,
           count: statuses.length,
           statuses: statuses.map(item => item?.status).filter(Boolean),
           messageIds: statuses.map(item => item?.id).filter(Boolean)
         });
+        
+        for (const status of statuses) {
+          await updateMessageStatus(status);
+        }
       }
-    });
+    }
   });
 });
 
