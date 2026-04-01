@@ -713,7 +713,7 @@ export default function StaffPage() {
                             }`}
                           >
                             <div className="flex justify-between items-start mb-1">
-                              <span className="font-semibold truncate">{conv.profile_name}</span>
+                              <span className="font-semibold truncate">{conv.profile_name || 'No Name Available'}</span>
                               {conv.unread_count > 0 && (
                                 <Badge className="bg-red-500 text-xs">{conv.unread_count}</Badge>
                               )}
@@ -754,7 +754,7 @@ export default function StaffPage() {
                       <div className="flex items-center justify-between">
                         <div>
                           <CardTitle className="font-heading">
-                            {selectedConversation.profile_name}
+                            {selectedConversation.profile_name || 'No Name Available'}
                           </CardTitle>
                           <p className="text-sm text-muted-foreground">
                             WhatsApp: {selectedConversation.wa_id}

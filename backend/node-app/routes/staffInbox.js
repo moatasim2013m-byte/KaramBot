@@ -77,7 +77,7 @@ router.get('/conversations', async (req, res) => {
     // Format response
     const formattedConversations = filteredConversations.map(conv => ({
       wa_id: conv._id,
-      profile_name: conv.last_message?.profile_name || 'Unknown',
+      profile_name: conv.last_message?.profile_name || conv._id,
       last_message: {
         text: conv.last_message?.text_body || '[Media]',
         timestamp: conv.last_message?.timestamp,
