@@ -22,5 +22,8 @@
     "resend": "^6.8.0",
     "sharp": "^0.34.5",
     "uuid": "^13.0.0"
+  },
+  "scripts": {
+    "test:whatsapp-webhook": "node scripts/test-whatsapp-webhook.js"
   }
 }

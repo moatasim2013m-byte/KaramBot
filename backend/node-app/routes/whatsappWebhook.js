@@ -5,6 +5,14 @@ const router = express.Router();
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
+const isSignatureValidationEnabled = () => {
+  const value = String(
+    process.env.WHATSAPP_WEBHOOK_VALIDATE_SIGNATURE || 'true'
+  ).trim().toLowerCase();
+
+  return value !== 'false';
+};
+
 const safeCompare = (a, b) => {
   const aBuffer = Buffer.from(String(a || ''), 'utf8');
   const bBuffer = Buffer.from(String(b || ''), 'utf8');
@@ -14,8 +22,13 @@ const safeCompare = (a, b) => {
 };
 
 const isValidWhatsAppSignature = (rawBodyBuffer, signatureHeader) => {
-  const appSecret = getTrimmedEnv('WHATSAPP_APP_SECRET');
-  if (!appSecret) return true;
+  if (!isSignatureValidationEnabled()) return true;
+
+  const appSecret = getTrimmedEnv('META_APP_SECRET');
+  if (!appSecret) {
+    console.error('WHATSAPP_WEBHOOK_META_APP_SECRET_MISSING');
+    return false;
+  }
 
   if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
     return false;
@@ -30,50 +43,71 @@ const isValidWhatsAppSignature = (rawBodyBuffer, signatureHeader) => {
   return safeCompare(receivedSignature, expectedSignature);
 };
 
-const countWebhookChanges = (payload) => {
+const parseChanges = (payload) => {
   const entries = Array.isArray(payload?.entry) ? payload.entry : [];
-  return entries.reduce((total, entry) => {
-    const changes = Array.isArray(entry?.changes) ? entry.changes.length : 0;
-    return total + changes;
-  }, 0);
+
+  const allChanges = [];
+  for (const entry of entries) {
+    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+    for (const change of changes) {
+      allChanges.push(change?.value || {});
+    }
+  }
+
+  return allChanges;
 };
 
-router.get('/', (req, res) => {
+router.get('/webhook', (req, res) => {
   const mode = String(req.query['hub.mode'] || '');
   const challenge = String(req.query['hub.challenge'] || '');
   const verifyToken = String(req.query['hub.verify_token'] || '');
   const expectedVerifyToken = getTrimmedEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
 
-  if (!expectedVerifyToken) {
-    console.error('WHATSAPP_WEBHOOK_VERIFY_TOKEN_MISSING');
-    return res.status(500).send('Webhook verify token is not configured');
+  if (mode === 'subscribe' && safeCompare(verifyToken, expectedVerifyToken)) {
+    return res.status(200).type('text/plain').send(challenge);
   }
 
-  if (mode === 'subscribe' && verifyToken === expectedVerifyToken) {
-    return res.status(200).send(challenge);
-  }
-
-  return res.status(403).json({ error: 'Webhook verification failed' });
+  return res.sendStatus(403);
 });
 
-router.post('/', (req, res) => {
+router.post('/webhook', (req, res) => {
   const signature = String(req.get('x-hub-signature-256') || '');
-  const rawBody = req.rawBody;
 
-  if (!isValidWhatsAppSignature(rawBody, signature)) {
+  if (!isValidWhatsAppSignature(req.rawBody, signature)) {
     console.error('WHATSAPP_WEBHOOK_INVALID_SIGNATURE');
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
   const payload = req.body || {};
-  if (payload.object !== 'whatsapp_business_account') {
-    return res.status(200).json({ received: true, ignored: true });
-  }
+  const values = parseChanges(payload);
 
-  const changeCount = countWebhookChanges(payload);
   console.log('WHATSAPP_WEBHOOK_RECEIVED', {
-    object: payload.object,
-    changes: changeCount
+    object: payload?.object || 'unknown',
+    entryCount: Array.isArray(payload?.entry) ? payload.entry.length : 0,
+    changeCount: values.length
+  });
+
+  values.forEach((value, index) => {
+    const messages = Array.isArray(value?.messages) ? value.messages : [];
+    const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+
+    if (messages.length > 0) {
+      console.log('WHATSAPP_WEBHOOK_MESSAGES', {
+        index,
+        count: messages.length,
+        from: messages.map(msg => msg?.from).filter(Boolean),
+        types: messages.map(msg => msg?.type).filter(Boolean)
+      });
+    }
+
+    if (statuses.length > 0) {
+      console.log('WHATSAPP_WEBHOOK_STATUSES', {
+        index,
+        count: statuses.length,
+        statuses: statuses.map(item => item?.status).filter(Boolean),
+        messageIds: statuses.map(item => item?.id).filter(Boolean)
+      });
+    }
   });
 
   return res.status(200).json({ received: true });
