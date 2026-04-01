@@ -125,9 +125,15 @@ export const Footer = () => {
                   <Phone className="h-4 w-4" />
                   <span className="ltr-text" dir="ltr">0777775652</span>
                 </a>
-                <a href="https://wa.me/962777775652" target="_blank" rel="noopener noreferrer" className="footer-btn-new footer-btn-whatsapp-new text-sm">
+                <a
+                  href="https://wa.me/962777775652?text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7%D8%8C%20%D8%A8%D8%AF%D9%8A%20%D8%A3%D8%B3%D8%AA%D9%81%D8%B3%D8%B1%20%D8%B9%D9%86%20%D8%A7%D9%84%D8%AD%D8%AC%D8%B2%20%D9%81%D9%8A%20%D8%A8%D9%8A%D9%83%D8%A7%D8%A8%D9%88"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="footer-btn-new footer-btn-whatsapp-new text-sm"
+                  aria-label="تواصل معنا عبر واتساب"
+                >
                   <MessageCircle className="h-4 w-4" />
-                  <span>واتساب</span>
+                  <span>تواصل معنا عبر واتساب</span>
                 </a>
               </div>
               
