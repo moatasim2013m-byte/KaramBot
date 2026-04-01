@@ -39,6 +39,7 @@ const cors = require('cors');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 
 const app = express();
 app.set('trust proxy', 1);
