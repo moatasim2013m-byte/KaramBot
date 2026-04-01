@@ -4,10 +4,6 @@ const express = require('express');
 const router = express.Router();
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
-const getVerifyToken = () => {
-  // Prefer the new env name while keeping backward compatibility.
-  return getTrimmedEnv('WHATSAPP_VERIFY_TOKEN') || getTrimmedEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
-};
 
 const isSignatureValidationEnabled = () => {
   const value = String(
@@ -65,15 +61,23 @@ router.get('/webhook', (req, res) => {
   const mode = String(req.query['hub.mode'] || '');
   const challenge = String(req.query['hub.challenge'] || '');
   const verifyToken = String(req.query['hub.verify_token'] || '');
-  const expectedVerifyToken = getVerifyToken();
+  const expectedVerifyToken = getTrimmedEnv('VERIFY_TOKEN');
+  const isTokenMatch =
+    expectedVerifyToken &&
+    verifyToken &&
+    safeCompare(verifyToken, expectedVerifyToken);
+
+  console.log('WHATSAPP_WEBHOOK_VERIFY_ATTEMPT', {
+    mode,
+    tokenMatched: Boolean(isTokenMatch),
+    verifyTokenEnvExists: Boolean(expectedVerifyToken)
+  });
 
   if (
     mode === 'subscribe' &&
-    expectedVerifyToken &&
-    verifyToken &&
-    safeCompare(verifyToken, expectedVerifyToken)
+    isTokenMatch
   ) {
-    return res.status(200).type('text/plain').send(challenge);
+    return res.status(200).send(challenge);
   }
 
   return res.sendStatus(403);
