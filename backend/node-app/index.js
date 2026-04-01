@@ -39,6 +39,7 @@ const cors = require('cors');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -74,6 +75,21 @@ app.use(cors({
   origin: corsOrigin,
   credentials: true
 }));
+
+app.use('/api/webhooks/whatsapp', express.json({
+  limit: '3mb',
+  verify: (req, res, buffer) => {
+    req.rawBody = buffer;
+  }
+}), whatsappWebhookRoutes);
+
+// Backward-compatible alias for providers configured with the older path shape
+app.use('/api/whatsapp/webhook', express.json({
+  limit: '3mb',
+  verify: (req, res, buffer) => {
+    req.rawBody = buffer;
+  }
+}), whatsappWebhookRoutes);
 
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
