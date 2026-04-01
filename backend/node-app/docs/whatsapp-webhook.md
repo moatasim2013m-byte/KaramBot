@@ -67,7 +67,8 @@ curl -i -X POST "http://localhost:8080/api/whatsapp/webhook" \
 
 1. In **Meta for Developers** -> your app -> **WhatsApp** -> **Configuration**.
 2. Set **Callback URL** to your public backend endpoint:
-   - `https://<your-domain>/api/whatsapp/webhook`
+   - `https://peekaboojor.com/api/whatsapp/webhook` (production domain)
+   - For non-production environments, use that environment's public HTTPS domain.
 3. Set **Verify Token** to exactly the same value as `WHATSAPP_WEBHOOK_VERIFY_TOKEN` on your server.
 4. Click **Verify and Save**.
 5. Under webhook fields, subscribe to **messages**.
