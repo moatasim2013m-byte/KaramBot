@@ -83,14 +83,6 @@ app.use('/api/webhooks/whatsapp', express.json({
   }
 }), whatsappWebhookRoutes);
 
-// Backward-compatible alias for providers configured with the older path shape
-app.use('/api/whatsapp/webhook', express.json({
-  limit: '3mb',
-  verify: (req, res, buffer) => {
-    req.rawBody = buffer;
-  }
-}), whatsappWebhookRoutes);
-
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
@@ -191,6 +183,7 @@ const profileRoutes = require('./routes/profile');
 const themesRoutes = require('./routes/themes');
 const faqBotRoutes = require('./routes/faqBot');
 const productsRoutes = require('./routes/products');
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 
 // Routes
 // Apply strict auth limiter to sensitive endpoints
