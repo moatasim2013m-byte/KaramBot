@@ -75,6 +75,19 @@ export default function StaffPage() {
   const [qrEditId, setQrEditId] = useState(null);
   const [qrSaving, setQrSaving] = useState(false);
 
+  // Campaigns state
+  const [campaigns, setCampaigns] = useState([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignForm, setCampaignForm] = useState({
+    name: '',
+    message_type: 'template',
+    template_name: '',
+    template_language: 'ar',
+    free_form_message: '',
+    ttl_hours: ''
+  });
+  const [campaignSubmitting, setCampaignSubmitting] = useState(false);
+
   // Check if user is staff or admin
   useEffect(() => {
     if (user && user.role !== 'staff' && user.role !== 'admin') {
@@ -387,6 +400,54 @@ export default function StaffPage() {
 
   // ==================== END INBOX FUNCTIONS ====================
 
+  // ==================== CAMPAIGN FUNCTIONS ====================
+
+  const fetchCampaigns = useCallback(async () => {
+    setCampaignsLoading(true);
+    try {
+      const response = await api.get('/staff/campaigns');
+      setCampaigns(response.data.campaigns || []);
+    } catch (error) {
+      console.error('Failed to fetch campaigns:', error);
+    } finally {
+      setCampaignsLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (activeTab === 'campaigns') {
+      fetchCampaigns();
+    }
+  }, [activeTab, fetchCampaigns]);
+
+  const handleCreateCampaign = async (e) => {
+    e.preventDefault();
+    setCampaignSubmitting(true);
+    try {
+      const payload = {
+        name: campaignForm.name,
+        message_type: campaignForm.message_type,
+        template_name: campaignForm.message_type === 'template' ? campaignForm.template_name : undefined,
+        template_language: campaignForm.message_type === 'template' ? campaignForm.template_language : undefined,
+        free_form_message: campaignForm.message_type === 'free_form' ? campaignForm.free_form_message : undefined,
+        ttl_hours: campaignForm.message_type === 'template' && campaignForm.ttl_hours !== ''
+          ? Number(campaignForm.ttl_hours)
+          : undefined
+      };
+      await api.post('/staff/campaigns', payload);
+      toast.success('تم إنشاء الحملة بنجاح');
+      setCampaignForm({ name: '', message_type: 'template', template_name: '', template_language: 'ar', free_form_message: '', ttl_hours: '' });
+      fetchCampaigns();
+    } catch (error) {
+      const msg = error.response?.data?.error || 'فشل إنشاء الحملة';
+      toast.error(msg);
+    } finally {
+      setCampaignSubmitting(false);
+    }
+  };
+
+  // ==================== END CAMPAIGN FUNCTIONS ====================
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -442,6 +503,9 @@ export default function StaffPage() {
               {inboxStats?.unread_messages > 0 && (
                 <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="campaigns" className="rounded-full gap-2" data-testid="tab-campaigns">
+              <Send className="h-4 w-4" /> الحملات
             </TabsTrigger>
           </TabsList>
 
@@ -1105,6 +1169,133 @@ export default function StaffPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </TabsContent>
+
+          {/* Campaigns Tab */}
+          <TabsContent value="campaigns">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Create Campaign Form */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Plus className="h-5 w-5" />
+                    إنشاء حملة جديدة
+                  </CardTitle>
+                  <CardDescription>أرسل رسائل WhatsApp لجمهورك</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleCreateCampaign} className="space-y-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="campaign-name">اسم الحملة</Label>
+                      <Input
+                        id="campaign-name"
+                        value={campaignForm.name}
+                        onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })}
+                        placeholder="مثال: عرض العيد"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="campaign-type">نوع الرسالة</Label>
+                      <select
+                        id="campaign-type"
+                        className="w-full border rounded-md px-3 py-2 text-sm"
+                        value={campaignForm.message_type}
+                        onChange={(e) => setCampaignForm({ ...campaignForm, message_type: e.target.value })}
+                      >
+                        <option value="template">قالب معتمد (Template)</option>
+                        <option value="free_form">نص حر (Free-form)</option>
+                      </select>
+                    </div>
+                    {campaignForm.message_type === 'template' && (
+                      <>
+                        <div className="space-y-1">
+                          <Label htmlFor="template-name">اسم القالب</Label>
+                          <Input
+                            id="template-name"
+                            value={campaignForm.template_name}
+                            onChange={(e) => setCampaignForm({ ...campaignForm, template_name: e.target.value })}
+                            placeholder="مثال: eid_offer"
+                            required={campaignForm.message_type === 'template'}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="ttl-hours">مدة الصلاحية (ساعات)</Label>
+                          <Input
+                            id="ttl-hours"
+                            type="number"
+                            min={12}
+                            max={720}
+                            value={campaignForm.ttl_hours}
+                            onChange={(e) => setCampaignForm({ ...campaignForm, ttl_hours: e.target.value })}
+                            placeholder="اختياري — 12 إلى 720"
+                          />
+                        </div>
+                      </>
+                    )}
+                    {campaignForm.message_type === 'free_form' && (
+                      <div className="space-y-1">
+                        <Label htmlFor="free-form-message">نص الرسالة</Label>
+                        <textarea
+                          id="free-form-message"
+                          className="w-full border rounded-md px-3 py-2 text-sm min-h-[80px]"
+                          value={campaignForm.free_form_message}
+                          onChange={(e) => setCampaignForm({ ...campaignForm, free_form_message: e.target.value })}
+                          placeholder="اكتب رسالتك هنا..."
+                          required={campaignForm.message_type === 'free_form'}
+                        />
+                      </div>
+                    )}
+                    <Button type="submit" disabled={campaignSubmitting} className="w-full gap-2">
+                      {campaignSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      إنشاء الحملة
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {/* Campaigns List */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Send className="h-5 w-5" />
+                      الحملات
+                    </CardTitle>
+                    <Button variant="ghost" size="sm" onClick={fetchCampaigns} disabled={campaignsLoading}>
+                      <RefreshCw className={`h-4 w-4 ${campaignsLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {campaignsLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  ) : campaigns.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8 text-sm">لا توجد حملات بعد</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {campaigns.map((c) => (
+                        <div key={c.id} className="border rounded-lg p-3 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm">{c.name}</span>
+                            <Badge variant={c.status === 'completed' ? 'default' : c.status === 'running' ? 'secondary' : 'outline'}>
+                              {c.status}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                            <span>{c.message_type === 'template' ? 'قالب' : 'نص حر'}</span>
+                            {c.ttl_hours && <span>صلاحية: {c.ttl_hours}س</span>}
+                            <span>{c.recipient_count} مستلم</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         </Tabs>

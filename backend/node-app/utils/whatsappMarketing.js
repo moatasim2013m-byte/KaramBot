@@ -23,9 +23,10 @@ const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
  *                                        e.g. [{ type: "body", parameters: [{ type: "text", text: "John" }] }]
  * @param {*}      [params.staffId]    - ObjectId of staff member triggering the send (for audit)
  * @param {*}      [params.campaignId] - ObjectId of parent campaign (for audit/stats)
+ * @param {number} [params.ttl_seconds] - Time-to-live in seconds (720*3600 to 30*24*3600, i.e. 12h–30d)
  * @returns {Promise<{ok: boolean, messageId?: string, reason?: string, error?: string, status?: number, responseText?: string}>}
  */
-const postWhatsAppTemplate = async ({ to, templateName, languageCode, components, staffId, campaignId }) => {
+const postWhatsAppTemplate = async ({ to, templateName, languageCode, components, staffId, campaignId, ttl_seconds }) => {
   const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
   const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
 
@@ -47,13 +48,15 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
+        recipient_type: 'individual',
         to,
         type: 'template',
         template: {
           name: templateName,
           language: { code: languageCode || 'ar' },
           components: components || []
-        }
+        },
+        ...(ttl_seconds ? { ttl: { seconds: ttl_seconds } } : {})
       }),
       signal: controller.signal
     });

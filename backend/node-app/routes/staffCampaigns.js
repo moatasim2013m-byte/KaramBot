@@ -129,7 +129,8 @@ router.post('/', async (req, res) => {
       template_components,
       free_form_message,
       audience_filters,
-      scheduled_at
+      scheduled_at,
+      ttl_hours
     } = req.body;
 
     if (!name) {
@@ -143,6 +144,14 @@ router.post('/', async (req, res) => {
     }
     if (message_type === 'free_form' && !free_form_message) {
       return res.status(400).json({ error: 'free_form_message is required for free_form campaigns' });
+    }
+
+    // Validate ttl_hours: only relevant for template campaigns; must be 12–720 if supplied
+    if (ttl_hours !== undefined && ttl_hours !== null && ttl_hours !== '') {
+      const parsed = Number(ttl_hours);
+      if (!Number.isInteger(parsed) || parsed < 12 || parsed > 720) {
+        return res.status(400).json({ error: 'يجب أن تكون مدة الصلاحية عددًا صحيحًا بين 12 و 720 ساعة' });
+      }
     }
 
     const campaign = new Campaign({
@@ -162,7 +171,10 @@ router.post('/', async (req, res) => {
         template_language: template_language || 'ar',
         template_components: template_components || [],
         free_form_message: free_form_message || null,
-        audience_filters: audience_filters || {}
+        audience_filters: audience_filters || {},
+        ttl_hours: (message_type === 'template' && ttl_hours !== undefined && ttl_hours !== null && ttl_hours !== '')
+          ? Number(ttl_hours)
+          : null
       }
     });
 
@@ -226,6 +238,7 @@ router.get('/', async (req, res) => {
       name: c.name,
       status: c.status,
       message_type: c.metadata?.message_type || (c.allow_24h_window ? 'free_form' : 'template'),
+      ttl_hours: c.metadata?.ttl_hours || null,
       recipient_count: c.stats?.total_recipients || 0,
       executed_at: c.metadata?.executed_at || null,
       created_at: c.createdAt,
@@ -314,6 +327,7 @@ router.post('/:id/execute', async (req, res) => {
     const templateLanguage = campaign.metadata.template_language || 'ar';
     const templateComponents = campaign.metadata.template_components || [];
     const freeFormMessage = campaign.metadata.free_form_message;
+    const ttlHours = campaign.metadata.ttl_hours || null;
 
     // Respond 202 immediately
     res.status(202).json({
@@ -332,7 +346,8 @@ router.post('/:id/execute', async (req, res) => {
       templateName,
       templateLanguage,
       templateComponents,
-      freeFormMessage
+      freeFormMessage,
+      ttlHours
     }).catch(err => console.error('STAFF_CAMPAIGN_BROADCAST_FATAL', { campaignId: String(campaignId), error: err.message }));
   } catch (error) {
     console.error('Staff execute campaign error:', error);
@@ -353,7 +368,8 @@ async function runBroadcast({
   templateName,
   templateLanguage,
   templateComponents,
-  freeFormMessage
+  freeFormMessage,
+  ttlHours
 }) {
   const BATCH_SIZE = 20;
   const BATCH_DELAY_MS = 1000;
@@ -383,7 +399,8 @@ async function runBroadcast({
               languageCode: templateLanguage,
               components: templateComponents,
               staffId,
-              campaignId
+              campaignId,
+              ttl_seconds: ttlHours ? ttlHours * 3600 : undefined
             });
           }
 
