@@ -298,5 +298,6 @@ module.exports = {
   sendHourlyBookingWhatsAppConfirmation,
   sendBirthdayBookingWhatsAppConfirmation,
   normalizePhoneForWhatsApp,
-  postWhatsAppText // Export for staff inbox use
+  postWhatsAppText, // Export for staff inbox use
+  markWhatsAppMessageRead
 };
