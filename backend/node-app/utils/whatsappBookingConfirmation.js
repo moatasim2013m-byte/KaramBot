@@ -86,7 +86,7 @@ const buildBirthdayBookingMessage = ({
   return lines.join('\n');
 };
 
-const postWhatsAppText = async ({ to, messageBody }) => {
+const postWhatsAppText = async ({ to, messageBody, staffId }) => {
   const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
   const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
 
@@ -120,7 +120,35 @@ const postWhatsAppText = async ({ to, messageBody }) => {
       return { ok: false, status: response.status, responseText: responseText.slice(0, 500) };
     }
 
-    return { ok: true };
+    let responseData = {};
+    let messageId = null;
+    try {
+      responseData = JSON.parse(responseText);
+      messageId = responseData?.messages?.[0]?.id;
+    } catch (e) {
+      console.error('Failed to parse WhatsApp API response:', e);
+    }
+
+    if (staffId && messageId) {
+      try {
+        const WhatsAppMessage = require('../models/WhatsAppMessage');
+        await WhatsAppMessage.create({
+          message_id: messageId,
+          sender_wa_id: to,
+          direction: 'outbound',
+          message_type: 'text',
+          text_body: messageBody,
+          platform: 'whatsapp',
+          status: 'sent',
+          sent_by_staff_id: staffId,
+          timestamp: new Date()
+        });
+      } catch (dbError) {
+        console.error('Failed to persist outbound message:', dbError);
+      }
+    }
+
+    return { ok: true, messageId };
   } catch (error) {
     return { ok: false, error: error.message };
   } finally {

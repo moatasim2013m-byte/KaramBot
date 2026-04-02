@@ -14,6 +14,23 @@ import {
   Plus, Edit2, Trash2, X, Filter
 } from 'lucide-react';
 
+// Helper function for relative timestamps
+const getRelativeTime = (timestamp) => {
+  const now = new Date();
+  const msgTime = new Date(timestamp);
+  const diffMs = now - msgTime;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return 'just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return msgTime.toLocaleDateString();
+};
+
 export default function StaffPage() {
   const { api, user } = useAuth();
   const navigate = useNavigate();
@@ -675,7 +692,7 @@ export default function StaffPage() {
                       <div className="flex gap-2 mt-2">
                         <Badge variant="outline">{inboxStats.total_conversations} total</Badge>
                         {inboxStats.unread_messages > 0 && (
-                          <Badge className="bg-red-500">{inboxStats.unread_messages} unread</Badge>
+                          <Badge className="bg-red-500 pulse-badge">{inboxStats.unread_messages} unread</Badge>
                         )}
                       </div>
                     )}
@@ -724,7 +741,7 @@ export default function StaffPage() {
                             <div className="flex justify-between items-start mb-1">
                               <span className="font-semibold truncate">{conv.profile_name || 'No Name Available'}</span>
                               {conv.unread_count > 0 && (
-                                <Badge className="bg-red-500 text-xs">{conv.unread_count}</Badge>
+                                <Badge className="bg-red-500 text-xs pulse-badge">{conv.unread_count}</Badge>
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground truncate mb-1">
@@ -732,12 +749,7 @@ export default function StaffPage() {
                               {conv.last_message.text || '[Media]'}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {new Date(conv.last_message.timestamp).toLocaleString('ar-JO', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
+                              {getRelativeTime(conv.last_message.timestamp)}
                             </p>
                           </button>
                         ))}
@@ -804,7 +816,7 @@ export default function StaffPage() {
                           {messages.map((msg) => (
                             <div
                               key={msg.id}
-                              className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                              className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'} message-animated`}
                             >
                               <div
                                 className={`max-w-[70%] rounded-2xl px-4 py-2 ${
@@ -904,6 +916,38 @@ export default function StaffPage() {
             </div>
           </TabsContent>
         </Tabs>
+
+      <style>{`
+        @keyframes messageSlideUp {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes pulseBadge {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.6;
+          }
+        }
+
+        .message-animated {
+          animation: messageSlideUp 0.3s ease-out;
+        }
+
+        .pulse-badge {
+          animation: pulseBadge 2s infinite;
+        }
+      `}</style>
+
       </div>
     </div>
   );
