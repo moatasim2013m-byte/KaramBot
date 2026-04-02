@@ -1,6 +1,21 @@
 import { useMemo, useState } from "react";
 
-const QUICK_QUESTIONS = ["الأسعار", "الموقع", "ساعات الدوام", "الحجز", "سياسة الاسترجاع"];
+const QUICK_REPLIES = [
+  {
+    question: "👋 ترحيب",
+    localAnswer:
+      "أهلًا وسهلًا 👋 نورتوا بيكابو! نقدر نساعدكم في الأسعار، الموقع، أوقات الدوام، الحجز، وسياسة الاسترجاع."
+  },
+  {
+    question: "الأسعار",
+    localAnswer:
+      "أسعارنا الحالية: اللعب بالساعة صباحي 3.5 دينار/ساعة (10 ص - 2 م)، ومسائي 7-13 دينار. حفلات الميلاد: 80 / 120 / 160 دينار. اشتراكات الزيارات: 5 زيارات 30 دينار، 10 زيارات 55 دينار، 20 زيارة 100 دينار."
+  },
+  { question: "الموقع" },
+  { question: "ساعات الدوام" },
+  { question: "الحجز" },
+  { question: "سياسة الاسترجاع" }
+];
 
 const RAW_API_URL = (process.env.REACT_APP_BACKEND_URL || "").trim();
 
@@ -28,14 +43,14 @@ export default function FaqBotWidget() {
     ? "calc(env(safe-area-inset-bottom, 0px) + 10px)"
     : "calc(env(safe-area-inset-bottom, 0px) + 18px)";
 
-  const askQuestion = async (question) => {
-    if (!question || loading) return;
+  const askQuestion = async (questionText) => {
+    if (!questionText || loading) return;
 
-    setMessages((prev) => [...prev, { role: "user", text: question }]);
+    setMessages((prev) => [...prev, { role: "user", text: questionText }]);
     setLoading(true);
 
     try {
-      const response = await fetch(`${apiBase}/bot/faq?q=${encodeURIComponent(question)}`);
+      const response = await fetch(`${apiBase}/bot/faq?q=${encodeURIComponent(questionText)}`);
       const data = await response.json();
       setMessages((prev) => [...prev, { role: "bot", text: data.answer || "ما قدرت ألقى جواب الآن." }]);
     } catch (error) {
@@ -44,6 +59,21 @@ export default function FaqBotWidget() {
       setLoading(false);
       setQuestion("");
     }
+  };
+
+  const handleQuickReplyClick = (reply) => {
+    if (!reply || loading) return;
+
+    if (reply.localAnswer) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", text: reply.question },
+        { role: "bot", text: reply.localAnswer }
+      ]);
+      return;
+    }
+
+    askQuestion(reply.question);
   };
 
   const onSubmit = (event) => {
@@ -90,11 +120,11 @@ export default function FaqBotWidget() {
           </div>
 
           <div style={{ padding: "10px", borderTop: "1px solid #f0f0f0", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {QUICK_QUESTIONS.map((question) => (
+            {QUICK_REPLIES.map((reply) => (
               <button
-                key={question}
+                key={reply.question}
                 type="button"
-                onClick={() => askQuestion(question)}
+                onClick={() => handleQuickReplyClick(reply)}
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: "999px",
@@ -104,7 +134,7 @@ export default function FaqBotWidget() {
                   fontSize: "13px"
                 }}
               >
-                {question}
+                {reply.question}
               </button>
             ))}
           </div>
