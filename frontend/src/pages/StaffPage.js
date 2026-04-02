@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -17,6 +17,7 @@ import {
 export default function StaffPage() {
   const { api, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('scanner');
   
@@ -60,6 +61,14 @@ export default function StaffPage() {
     }
     setLoading(false);
   }, [user, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedTab = params.get('tab');
+    if (requestedTab === 'inbox') {
+      setActiveTab('inbox');
+    }
+  }, [location.search]);
 
   const fetchActiveSessions = useCallback(async () => {
     try {
