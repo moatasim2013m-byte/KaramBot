@@ -293,6 +293,20 @@ router.post('/send', async (req, res) => {
       return res.status(400).json({ error: 'Invalid phone number format' });
     }
     
+    // COMPLIANCE: Mark customer's most recent message as read (Meta best practice)
+    // This triggers blue double-tick on customer's end
+    const lastInbound = await WhatsAppMessage.findOne({
+      sender_wa_id: wa_id,
+      direction: 'inbound',
+      platform: 'whatsapp'
+    }).sort({ timestamp: -1 });
+    
+    if (lastInbound?.message_id) {
+      markWhatsAppMessageRead(lastInbound.message_id).catch(err =>
+        console.error('MARK_READ_ERROR', err.message)
+      );
+    }
+    
     // Send via WhatsApp API
     const result = await postWhatsAppText({
       to: normalizedWaId,

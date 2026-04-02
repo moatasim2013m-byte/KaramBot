@@ -164,6 +164,62 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
   }
 };
 
+/**
+ * Mark WhatsApp message as read (sends read receipt to customer)
+ * Based on Meta official demo: fbsamples/whatsapp-business-jaspers-market
+ * 
+ * @param {string} inboundMessageId - WhatsApp message ID (from webhook, not MongoDB _id)
+ * @returns {Promise<void>}
+ */
+const markWhatsAppMessageRead = async (inboundMessageId) => {
+  const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
+  const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
+
+  // Return early if credentials missing
+  if (!accessToken || !phoneNumberId) {
+    return;
+  }
+
+  if (!inboundMessageId) {
+    return;
+  }
+
+  const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: inboundMessageId,
+        typing_indicator: { type: 'text' }
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      console.error('WHATSAPP_MARK_READ_ERROR', {
+        status: response.status,
+        message_id: inboundMessageId
+      });
+    }
+  } catch (error) {
+    console.error('WHATSAPP_MARK_READ_ERROR', {
+      error: error.message,
+      message_id: inboundMessageId
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const sendHourlyBookingWhatsAppConfirmation = async ({
   phone,
   customerName,
