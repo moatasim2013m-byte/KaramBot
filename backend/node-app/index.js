@@ -186,6 +186,8 @@ const profileRoutes = require('./routes/profile');
 const themesRoutes = require('./routes/themes');
 const faqBotRoutes = require('./routes/faqBot');
 const productsRoutes = require('./routes/products');
+const campaignsRoutes = require('./routes/campaigns');
+const templatesRoutes = require('./routes/templates');
 
 // Routes
 // Apply strict auth limiter to sensitive endpoints
