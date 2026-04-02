@@ -1,6 +1,45 @@
 import { useMemo, useState } from "react";
 
-const QUICK_QUESTIONS = ["الأسعار", "الموقع", "ساعات الدوام", "الحجز", "سياسة الاسترجاع"];
+const QUICK_REPLIES = [
+  {
+    question: "👋 ترحيب",
+    localAnswer:
+      "أهلًا وسهلًا فيكم في بيكابو 💛 صالة ألعاب داخلية وداي كير للأطفال في إربد من عمر سنة إلى 10 سنوات. جاهزين نساعدكم فورًا في الأسعار، الباقات، الموقع، الدوام، والحجز."
+  },
+  {
+    question: "ساعات الدوام",
+    localAnswer: "نستقبلكم يوميًا من 10:00 صباحًا إلى 11:00 مساءً، ويومي الخميس والجمعة حتى 12:00 منتصف الليل. للاستفسار: 0777775652."
+  },
+  {
+    question: "الموقع",
+    localAnswer:
+      "العنوان: إربد، شارع الشهيد وصفي التل (شارع أبو راشد)، مجمع السيف التجاري، الطابق الثاني، بجانب وحشة سنتر، مقابل مطعم عرفة. 📞 0777775652"
+  },
+  {
+    question: "الأسعار",
+    localAnswer:
+      "الأسعار: ساعة واحدة متوفرة، وساعتين بـ 10 دنانير. حفلات أعياد الميلاد تبدأ من 90 دينار وتصل إلى 250 دينار. اشتراكات متوفرة: 250، 200، 150، 99، 79 دينار."
+  },
+  {
+    question: "الباقات",
+    localAnswer:
+      "باقات الاشتراك: 149 دينار (نصف يوم)، 199 دينار (يوم كامل)، 250 دينار (الباقة الشاملة)، 99 دينار (12 زيارة)، 79 دينار (8 زيارات). إضافة منطقة الرمل لأي باقة: 20 دينار."
+  },
+  {
+    question: "المناطق والأعمار",
+    localAnswer:
+      "المناطق المتوفرة: 1) المنطقة الرئيسية (1-10 سنوات). أقل من 3 سنوات مع مرافق واحد، والمرافق الإضافي 3 دنانير. 2) Day Care (1-4 سنوات) بإشراف مختص وبدون مرافق داخل المنطقة. 3) منطقة الرمل (1-10 سنوات). ومتوفرة جلسات مريحة للأهالي مع كافيه ومتابعة الأطفال أثناء اللعب."
+  },
+  {
+    question: "ليش بيكابو مميز؟",
+    localAnswer:
+      "ليش بيكابو مميز؟ ✅ بيئة آمنة. ✅ تعلم عن طريق اللعب. ✅ فريق مختصات تربية. ✅ خدمة انتظار بعد المدرسة. ✅ خدمة توصيل مقابل 40 دينار للاتجاه الواحد."
+  },
+  {
+    question: "الحجز",
+    localAnswer: "للحجز والاستفسار السريع تواصلوا معنا على 0777775652، أو احجزوا من الموقع وسيقوم الفريق بتأكيد الحجز."
+  }
+];
 
 const RAW_API_URL = (process.env.REACT_APP_BACKEND_URL || "").trim();
 
@@ -28,14 +67,14 @@ export default function FaqBotWidget() {
     ? "calc(env(safe-area-inset-bottom, 0px) + 10px)"
     : "calc(env(safe-area-inset-bottom, 0px) + 18px)";
 
-  const askQuestion = async (question) => {
-    if (!question || loading) return;
+  const askQuestion = async (questionText) => {
+    if (!questionText || loading) return;
 
-    setMessages((prev) => [...prev, { role: "user", text: question }]);
+    setMessages((prev) => [...prev, { role: "user", text: questionText }]);
     setLoading(true);
 
     try {
-      const response = await fetch(`${apiBase}/bot/faq?q=${encodeURIComponent(question)}`);
+      const response = await fetch(`${apiBase}/bot/faq?q=${encodeURIComponent(questionText)}`);
       const data = await response.json();
       setMessages((prev) => [...prev, { role: "bot", text: data.answer || "ما قدرت ألقى جواب الآن." }]);
     } catch (error) {
@@ -44,6 +83,21 @@ export default function FaqBotWidget() {
       setLoading(false);
       setQuestion("");
     }
+  };
+
+  const handleQuickReplyClick = (reply) => {
+    if (!reply || loading) return;
+
+    if (reply.localAnswer) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "user", text: reply.question },
+        { role: "bot", text: reply.localAnswer }
+      ]);
+      return;
+    }
+
+    askQuestion(reply.question);
   };
 
   const onSubmit = (event) => {
@@ -90,11 +144,11 @@ export default function FaqBotWidget() {
           </div>
 
           <div style={{ padding: "10px", borderTop: "1px solid #f0f0f0", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {QUICK_QUESTIONS.map((question) => (
+            {QUICK_REPLIES.map((reply) => (
               <button
-                key={question}
+                key={reply.question}
                 type="button"
-                onClick={() => askQuestion(question)}
+                onClick={() => handleQuickReplyClick(reply)}
                 style={{
                   border: "1px solid #ddd",
                   borderRadius: "999px",
@@ -104,7 +158,7 @@ export default function FaqBotWidget() {
                   fontSize: "13px"
                 }}
               >
-                {question}
+                {reply.question}
               </button>
             ))}
           </div>
