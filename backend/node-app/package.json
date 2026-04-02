@@ -24,6 +24,7 @@
     "uuid": "^13.0.0"
   },
   "scripts": {
-    "test:whatsapp-webhook": "node scripts/test-whatsapp-webhook.js"
+    "test:whatsapp-webhook": "node scripts/test-whatsapp-webhook.js",
+    "diagnose:meta-token": "node scripts/diagnose-meta-token.js"
   }
 }
