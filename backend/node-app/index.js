@@ -187,6 +187,7 @@ const themesRoutes = require('./routes/themes');
 const faqBotRoutes = require('./routes/faqBot');
 const productsRoutes = require('./routes/products');
 const campaignsRoutes = require('./routes/campaigns');
+const staffCampaignRoutes = require('./routes/staffCampaigns');
 const templatesRoutes = require('./routes/templates');
 const consentRoutes = require('./routes/consent');
 
@@ -203,6 +204,7 @@ app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/admin/cron', adminCronRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/staff/inbox', staffInboxRoutes);
+app.use('/api/staff/campaigns', staffCampaignRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/gallery', galleryRoutes);
