@@ -186,6 +186,9 @@ const profileRoutes = require('./routes/profile');
 const themesRoutes = require('./routes/themes');
 const faqBotRoutes = require('./routes/faqBot');
 const productsRoutes = require('./routes/products');
+const campaignsRoutes = require('./routes/campaigns');
+const templatesRoutes = require('./routes/templates');
+const consentRoutes = require('./routes/consent');
 
 // Routes
 // Apply strict auth limiter to sensitive endpoints
@@ -209,6 +212,7 @@ app.use('/api/bot', faqBotRoutes);
 app.use('/api', productsRoutes);
 app.use('/api/campaigns', campaignsRoutes);
 app.use('/api/templates', templatesRoutes);
+app.use('/api', consentRoutes);
 
 // Public settings endpoint (for homepage hero config)
 const Settings = require('./models/Settings');
