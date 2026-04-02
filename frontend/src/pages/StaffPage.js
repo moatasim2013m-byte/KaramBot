@@ -822,7 +822,7 @@ export default function StaffPage() {
                     </div>
 
                     {/* Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ background: 'linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%)' }}>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 inbox-messages-bg">
                       {messages.length === 0 ? (
                         <div className="text-center text-gray-400 py-12">
                           <p className="text-sm">No messages yet</p>
@@ -869,7 +869,7 @@ export default function StaffPage() {
 
                     {/* Quick Replies Panel */}
                     {showQuickReplies && quickReplies.length > 0 && (
-                      <div className="border-t flex-shrink-0" style={{ background: 'linear-gradient(135deg, #66A9E9 0%, #4a8fd4 100%)' }}>
+                      <div className="border-t flex-shrink-0 inbox-quick-replies-bg">
                         <div className="flex items-center justify-between px-4 py-2">
                           <span className="text-sm font-semibold text-white">⚡ Quick Replies</span>
                           <button
@@ -906,12 +906,12 @@ export default function StaffPage() {
                           value={replyText}
                           onChange={(e) => setReplyText(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
+                            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
                               e.preventDefault();
                               handleSendMessage();
                             }
                           }}
-                          placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+                          placeholder="اكتب رسالة... (Enter للإرسال)"
                           rows={2}
                           disabled={sending}
                           className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50"
@@ -965,6 +965,14 @@ export default function StaffPage() {
 
         .pulse-badge {
           animation: pulseBadge 2s infinite;
+        }
+
+        .inbox-messages-bg {
+          background: linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%);
+        }
+
+        .inbox-quick-replies-bg {
+          background: linear-gradient(135deg, #66A9E9 0%, #4a8fd4 100%);
         }
       `}</style>
 
