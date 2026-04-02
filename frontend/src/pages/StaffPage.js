@@ -279,8 +279,7 @@ export default function StaffPage() {
     fetchCustomerProfile(conv.wa_id);
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
+  const handleSendMessage = async () => {
     if (!replyText.trim() || !selectedConversation) return;
 
     setSending(true);
@@ -886,7 +885,7 @@ export default function StaffPage() {
 
                     {/* Reply Input */}
                     <div className="border-t p-4">
-                      <form onSubmit={handleSendMessage} className="flex gap-2">
+                      <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2">
                         <Input
                           value={replyText}
                           onChange={(e) => setReplyText(e.target.value)}
@@ -895,7 +894,8 @@ export default function StaffPage() {
                           disabled={sending}
                         />
                         <Button
-                          type="submit"
+                          type="button"
+                          onClick={handleSendMessage}
                           disabled={sending || !replyText.trim()}
                           className="rounded-full px-6"
                         >
