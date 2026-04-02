@@ -75,18 +75,11 @@ const normalizePhoneForLookup = (waId) => {
 };
 
 // Persist inbound message to database
-const persistInboundMessage = async (message, profileName) => {
+const persistInboundMessage = async (message, profileName, changeValue = {}, webhookObject = '') => {
   try {
     const messageId = message?.id;
     if (!messageId) {
       console.warn('WHATSAPP_MESSAGE_NO_ID', { message });
-      return;
-    }
-    
-    // Check for duplicate
-    const existing = await WhatsAppMessage.findOne({ message_id: messageId });
-    if (existing) {
-      console.log('WHATSAPP_MESSAGE_DUPLICATE_SKIPPED', { messageId });
       return;
     }
     
@@ -145,8 +138,17 @@ const persistInboundMessage = async (message, profileName) => {
       ? new Date(parseInt(message.timestamp) * 1000)
       : new Date();
     
-    // Save to database
-    const newMessage = new WhatsAppMessage({
+    const compactPayload = {
+      object: webhookObject || '',
+      metadata: {
+        messaging_product: changeValue?.messaging_product || '',
+        phone_number_id: changeValue?.metadata?.phone_number_id || ''
+      },
+      contacts: Array.isArray(changeValue?.contacts) ? changeValue.contacts : [],
+      message
+    };
+
+    const messageDoc = {
       message_id: messageId,
       sender_wa_id: senderWaId,
       profile_name: profileName || '',
@@ -156,21 +158,38 @@ const persistInboundMessage = async (message, profileName) => {
       media_mime_type: mediaMimeType,
       direction: 'inbound',
       platform: 'whatsapp',
+      messaging_product: changeValue?.messaging_product || 'whatsapp',
+      business_phone_number_id: changeValue?.metadata?.phone_number_id || '',
       timestamp,
-      raw_payload: message,
+      raw_payload: compactPayload,
       linked_user_id: linkedUserId,
       is_read_by_staff: false,
       is_replied: false
-    });
-    
-    await newMessage.save();
-    console.log('WHATSAPP_MESSAGE_PERSISTED', { 
-      messageId, 
-      senderWaId, 
+    };
+
+    // Atomic duplicate protection by message_id
+    const result = await WhatsAppMessage.updateOne(
+      { message_id: messageId },
+      { $setOnInsert: messageDoc },
+      { upsert: true }
+    );
+
+    if (result.upsertedCount === 0) {
+      console.log('WHATSAPP_MESSAGE_DUPLICATE_SKIPPED', { messageId });
+      return;
+    }
+
+    console.log('WHATSAPP_MESSAGE_PERSISTED', {
+      messageId,
+      senderWaId,
       messageType,
       linkedUser: Boolean(linkedUserId)
     });
   } catch (error) {
+    if (error?.code === 11000) {
+      console.log('WHATSAPP_MESSAGE_DUPLICATE_SKIPPED', { messageId: message?.id });
+      return;
+    }
     console.error('WHATSAPP_MESSAGE_PERSIST_ERROR', {
       error: error.message,
       messageId: message?.id
@@ -266,7 +285,7 @@ router.post('/webhook', (req, res) => {
         });
         
         for (const message of messages) {
-          await persistInboundMessage(message, profileName);
+          await persistInboundMessage(message, profileName, value, payload?.object);
         }
       }
 
