@@ -7,7 +7,11 @@ const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const UserSubscription = require('../models/UserSubscription');
 const { authMiddleware, staffMiddleware } = require('../middleware/auth');
-const { postWhatsAppText, normalizePhoneForWhatsApp } = require('../utils/whatsappBookingConfirmation');
+const {
+  postWhatsAppText,
+  normalizePhoneForWhatsApp,
+  markWhatsAppMessageRead
+} = require('../utils/whatsappBookingConfirmation');
 
 const router = express.Router();
 
