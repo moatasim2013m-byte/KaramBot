@@ -86,7 +86,7 @@ const buildBirthdayBookingMessage = ({
   return lines.join('\n');
 };
 
-const postWhatsAppText = async ({ to, messageBody }) => {
+const postWhatsAppText = async ({ to, messageBody, staffId = null }) => {
   const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
   const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
 
@@ -117,11 +117,72 @@ const postWhatsAppText = async ({ to, messageBody }) => {
 
     const responseText = await response.text();
     if (!response.ok) {
+      console.error('WHATSAPP_API_ERROR', {
+        status: response.status,
+        response: responseText.slice(0, 500)
+      });
       return { ok: false, status: response.status, responseText: responseText.slice(0, 500) };
     }
 
-    return { ok: true };
+    // Parse response and extract message_id
+    let responseData = {};
+    let messageId = null;
+    try {
+      responseData = JSON.parse(responseText);
+      messageId = responseData?.messages?.[0]?.id;
+      
+      if (!messageId) {
+        console.warn('WHATSAPP_API_NO_MESSAGE_ID', { responseData });
+      }
+    } catch (e) {
+      console.error('WHATSAPP_API_PARSE_ERROR', {
+        error: e.message,
+        responseText: responseText.slice(0, 200)
+      });
+    }
+
+    // Save outbound message to database if staffId provided
+    if (staffId && messageId) {
+      try {
+        const WhatsAppMessage = require('../models/WhatsAppMessage');
+        await WhatsAppMessage.create({
+          message_id: messageId,
+          sender_wa_id: to,
+          direction: 'outbound',
+          message_type: 'text',
+          text_body: messageBody,
+          platform: 'whatsapp',
+          status: 'sent',
+          sent_by_staff_id: staffId,
+          timestamp: new Date(),
+          // Campaign fields (null for staff inbox messages)
+          campaign_id: null,
+          broadcast_id: null,
+          is_template_message: false,
+          template_id: null,
+          consent_verified: false
+        });
+        
+        console.log('WHATSAPP_OUTBOUND_PERSISTED', {
+          message_id: messageId,
+          to,
+          staff_id: staffId
+        });
+      } catch (dbError) {
+        console.error('WHATSAPP_DB_PERSIST_ERROR', {
+          error: dbError.message,
+          message_id: messageId
+        });
+        // Don't fail the send - message was sent successfully to WhatsApp
+      }
+    }
+
+    return { ok: true, messageId };
   } catch (error) {
+    console.error('WHATSAPP_SEND_ERROR', {
+      error: error.message,
+      to
+    });
     return { ok: false, error: error.message };
   } finally {
     clearTimeout(timeout);
