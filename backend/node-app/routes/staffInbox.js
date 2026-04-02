@@ -7,7 +7,11 @@ const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const UserSubscription = require('../models/UserSubscription');
 const { authMiddleware, staffMiddleware } = require('../middleware/auth');
-const { postWhatsAppText, markWhatsAppMessageRead } = require('../utils/whatsappBookingConfirmation');
+const {
+  postWhatsAppText,
+  normalizePhoneForWhatsApp,
+  markWhatsAppMessageRead
+} = require('../utils/whatsappBookingConfirmation');
 
 const router = express.Router();
 
@@ -286,6 +290,12 @@ router.post('/send', async (req, res) => {
     if (message.trim().length === 0) {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
+
+    // Normalize phone number to E.164 digits (no +) for Meta API compliance
+    const normalizedWaId = normalizePhoneForWhatsApp(wa_id);
+    if (!normalizedWaId) {
+      return res.status(400).json({ error: 'Invalid phone number format' });
+    }
     
     // COMPLIANCE: Mark customer's most recent message as read (Meta best practice)
     // This triggers blue double-tick on customer's end
@@ -303,7 +313,7 @@ router.post('/send', async (req, res) => {
     
     // Send via WhatsApp API
     const result = await postWhatsAppText({
-      to: wa_id,
+      to: normalizedWaId,
       messageBody: message,
       staffId: req.user._id
     });

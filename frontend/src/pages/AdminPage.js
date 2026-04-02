@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { 
   LayoutDashboard, Users, Clock, Cake, Star, Settings, Image, 
-  Plus, Edit, Trash2, Loader2, Gift, Calendar, DollarSign, Home, Upload, Search, UserPlus, Eye, Ban, Check, X
+  Plus, Edit, Trash2, Loader2, Gift, Calendar, DollarSign, Home, Upload, Search, UserPlus, Eye, Ban, Check, X, MessageSquare
 } from 'lucide-react';
 import mascotImg from '../assets/mascot.png';
 
@@ -968,9 +968,19 @@ export default function AdminPage() {
               Admin Panel
             </h1>
           </div>
-          <Button onClick={() => navigate('/reception')} className="w-full sm:w-auto rounded-full gap-2 bg-[var(--peekaboo-green)] hover:bg-[var(--peekaboo-green)]/90">
-            Reception Scanner
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              onClick={() => navigate('/staff?tab=inbox')}
+              variant="outline"
+              className="w-full sm:w-auto rounded-full gap-2 border-[var(--peekaboo-green)] text-[var(--peekaboo-green)] hover:bg-[var(--peekaboo-green)]/10"
+            >
+              <MessageSquare className="h-4 w-4" />
+              WhatsApp Inbox
+            </Button>
+            <Button onClick={() => navigate('/reception')} className="w-full sm:w-auto rounded-full gap-2 bg-[var(--peekaboo-green)] hover:bg-[var(--peekaboo-green)]/90">
+              Reception Scanner
+            </Button>
+          </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
