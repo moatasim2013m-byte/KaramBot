@@ -193,25 +193,25 @@ const postWhatsAppText = async ({ to, messageBody, staffId = null }) => {
  * Mark WhatsApp message as read (sends read receipt to customer)
  * Based on Meta official demo: fbsamples/whatsapp-business-jaspers-market
  * 
- * @param {string} messageId - WhatsApp message ID (from webhook, not MongoDB _id)
- * @returns {Promise<{ok: boolean, error?: string}>}
+ * @param {string} inboundMessageId - WhatsApp message ID (from webhook, not MongoDB _id)
+ * @returns {Promise<void>}
  */
-const markMessageAsRead = async (messageId) => {
+const markWhatsAppMessageRead = async (inboundMessageId) => {
   const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
   const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
 
+  // Return early if credentials missing
   if (!accessToken || !phoneNumberId) {
-    console.warn('WHATSAPP_MARK_READ_CONFIG_MISSING');
-    return { ok: false, error: 'missing_config' };
+    return;
   }
 
-  if (!messageId) {
-    return { ok: false, error: 'message_id required' };
+  if (!inboundMessageId) {
+    return;
   }
 
   const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
     const response = await fetch(endpoint, {
@@ -223,29 +223,23 @@ const markMessageAsRead = async (messageId) => {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         status: 'read',
-        message_id: messageId
+        message_id: inboundMessageId,
+        typing_indicator: { type: 'text' }
       }),
       signal: controller.signal
     });
 
-    const responseText = await response.text();
     if (!response.ok) {
       console.error('WHATSAPP_MARK_READ_ERROR', {
         status: response.status,
-        response: responseText.slice(0, 500),
-        message_id: messageId
+        message_id: inboundMessageId
       });
-      return { ok: false, error: `API error: ${response.status}` };
     }
-
-    console.log('WHATSAPP_MARKED_AS_READ', { message_id: messageId });
-    return { ok: true };
   } catch (error) {
-    console.error('WHATSAPP_MARK_READ_EXCEPTION', {
+    console.error('WHATSAPP_MARK_READ_ERROR', {
       error: error.message,
-      message_id: messageId
+      message_id: inboundMessageId
     });
-    return { ok: false, error: error.message };
   } finally {
     clearTimeout(timeout);
   }
@@ -329,5 +323,5 @@ module.exports = {
   sendHourlyBookingWhatsAppConfirmation,
   sendBirthdayBookingWhatsAppConfirmation,
   postWhatsAppText, // Export for staff inbox use
-  markMessageAsRead // Export for read receipts
+  markWhatsAppMessageRead // Export for read receipts
 };
