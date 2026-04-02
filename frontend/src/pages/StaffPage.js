@@ -52,6 +52,10 @@ export default function StaffPage() {
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [inboxSearch, setInboxSearch] = useState('');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [showQRManager, setShowQRManager] = useState(false);
+  const [qrForm, setQrForm] = useState({ label: '', message: '', category: 'other' });
+  const [qrEditId, setQrEditId] = useState(null);
+  const [qrSaving, setQrSaving] = useState(false);
 
   // Check if user is staff or admin
   useEffect(() => {
@@ -285,6 +289,57 @@ export default function StaffPage() {
     
     // Track usage
     api.post(`/staff/inbox/quick-replies/${quickReply.id}/use`).catch(console.error);
+  };
+
+  const handleSaveQuickReply = async () => {
+    setQrSaving(true);
+    try {
+      if (qrEditId) {
+        // Update existing quick reply
+        await api.put(`/staff/inbox/quick-replies/${qrEditId}`, qrForm);
+      } else {
+        // Create new quick reply
+        await api.post('/staff/inbox/quick-replies', { 
+          ...qrForm, 
+          platform: 'whatsapp' 
+        });
+      }
+      
+      // Refresh list
+      await fetchQuickReplies();
+      
+      // Reset form
+      setQrForm({ label: '', message: '', category: 'other' });
+      setQrEditId(null);
+      
+      toast.success('تم حفظ الرد السريع');
+    } catch (error) {
+      console.error('Save quick reply error:', error);
+      toast.error('فشل حفظ الرد السريع');
+    } finally {
+      setQrSaving(false);
+    }
+  };
+
+  const handleEditQuickReply = (qr) => {
+    setQrEditId(qr.id);
+    setQrForm({ 
+      label: qr.label, 
+      message: qr.message, 
+      category: qr.category 
+    });
+    setShowQRManager(true);
+  };
+
+  const handleDeleteQuickReply = async (id) => {
+    try {
+      await api.delete(`/staff/inbox/quick-replies/${id}`);
+      await fetchQuickReplies();
+      toast.success('تم حذف الرد السريع');
+    } catch (error) {
+      console.error('Delete quick reply error:', error);
+      toast.error('فشل حذف الرد السريع');
+    }
   };
 
   useEffect(() => {
@@ -833,33 +888,146 @@ export default function StaffPage() {
                     </CardContent>
 
                     {/* Quick Replies Dropdown */}
-                    {showQuickReplies && quickReplies.length > 0 && (
+                    {showQuickReplies && (
                       <div className="border-t bg-muted/30 p-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-semibold">Quick Replies</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setShowQuickReplies(false)}
-                            className="rounded-full h-6 w-6 p-0"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                          {quickReplies.map((qr) => (
-                            <button
-                              key={qr.id}
-                              onClick={() => handleQuickReplySelect(qr)}
-                              className="text-left p-2 rounded-lg bg-white hover:bg-primary/10 border text-sm transition-colors"
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setShowQRManager(!showQRManager)}
+                              className="rounded-full h-6 w-6 p-0"
                             >
-                              <p className="font-semibold truncate">{qr.label}</p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {qr.message.substring(0, 50)}...
-                              </p>
-                            </button>
-                          ))}
+                              {showQRManager ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setShowQuickReplies(false)}
+                              className="rounded-full h-6 w-6 p-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
+                        
+                        {/* Existing Quick Reply Buttons Grid */}
+                        {!showQRManager && quickReplies.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                            {quickReplies.map((qr) => (
+                              <button
+                                key={qr.id}
+                                onClick={() => handleQuickReplySelect(qr)}
+                                className="text-left p-2 rounded-lg bg-white hover:bg-primary/10 border text-sm transition-colors"
+                              >
+                                <p className="font-semibold truncate">{qr.label}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {qr.message.substring(0, 50)}...
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Quick Reply Manager Section */}
+                        {showQRManager && (
+                          <div className="space-y-3">
+                            {/* Part A - Empty State */}
+                            {quickReplies.length === 0 && (
+                              <p className="text-xs text-center text-white/70 py-4">
+                                لا توجد ردود سريعة بعد
+                              </p>
+                            )}
+
+                            {/* Part B - List of Existing Quick Replies */}
+                            {quickReplies.length > 0 && (
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {quickReplies.map((qr) => (
+                                  <div
+                                    key={qr.id}
+                                    className="flex items-center justify-between bg-white/10 rounded px-2 py-1"
+                                  >
+                                    <span className="text-xs font-semibold text-white truncate flex-1">
+                                      {qr.label}
+                                    </span>
+                                    <div className="flex gap-1">
+                                      <button
+                                        onClick={() => handleEditQuickReply(qr)}
+                                        className="p-1 hover:bg-white/20 rounded"
+                                      >
+                                        <Edit2 className="h-3 w-3 text-white" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteQuickReply(qr.id)}
+                                        className="p-1 hover:bg-white/20 rounded"
+                                      >
+                                        <Trash2 className="h-3 w-3 text-white" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Part C - Create/Edit Form */}
+                            <div className="space-y-2 pt-2 border-t border-white/20">
+                              <input
+                                type="text"
+                                value={qrForm.label}
+                                onChange={(e) => setQrForm({ ...qrForm, label: e.target.value })}
+                                placeholder="اسم الرد السريع"
+                                className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/50 w-full"
+                              />
+                              <textarea
+                                rows={2}
+                                value={qrForm.message}
+                                onChange={(e) => setQrForm({ ...qrForm, message: e.target.value })}
+                                placeholder="نص الرسالة..."
+                                className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/50 w-full resize-none"
+                              />
+                              <select
+                                value={qrForm.category}
+                                onChange={(e) => setQrForm({ ...qrForm, category: e.target.value })}
+                                className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white w-full"
+                              >
+                                <option value="greeting">تحية</option>
+                                <option value="booking">حجز</option>
+                                <option value="payment">دفع</option>
+                                <option value="inquiry">استفسار</option>
+                                <option value="closing">إغلاق</option>
+                                <option value="other">أخرى</option>
+                              </select>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={handleSaveQuickReply}
+                                  disabled={qrSaving || !qrForm.label.trim() || !qrForm.message.trim()}
+                                  className="bg-white text-[#66A9E9] text-xs font-semibold rounded-lg px-3 py-1 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                  {qrSaving ? (
+                                    <>
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      حفظ...
+                                    </>
+                                  ) : (
+                                    qrEditId ? 'تحديث' : 'حفظ'
+                                  )}
+                                </button>
+                                {qrEditId && (
+                                  <button
+                                    onClick={() => {
+                                      setQrForm({ label: '', message: '', category: 'other' });
+                                      setQrEditId(null);
+                                    }}
+                                    className="bg-white/20 text-white text-xs font-semibold rounded-lg px-3 py-1"
+                                  >
+                                    إلغاء
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
