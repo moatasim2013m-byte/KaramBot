@@ -7,7 +7,7 @@ const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const UserSubscription = require('../models/UserSubscription');
 const { authMiddleware, staffMiddleware } = require('../middleware/auth');
-const { postWhatsAppText } = require('../utils/whatsappBookingConfirmation');
+const { postWhatsAppText, markMessageAsRead } = require('../utils/whatsappBookingConfirmation');
 
 const router = express.Router();
 
@@ -285,6 +285,32 @@ router.post('/send', async (req, res) => {
     
     if (message.trim().length === 0) {
       return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+    
+    // COMPLIANCE: Mark customer's most recent message as read (Meta best practice)
+    // This triggers blue double-tick on customer's end
+    try {
+      const lastUnreadInbound = await WhatsAppMessage.findOne({
+        sender_wa_id: wa_id,
+        direction: 'inbound',
+        platform: 'whatsapp'
+      })
+        .sort({ timestamp: -1 })
+        .select('message_id');
+      
+      if (lastUnreadInbound && lastUnreadInbound.message_id) {
+        await markMessageAsRead(lastUnreadInbound.message_id);
+        console.log('STAFF_INBOX_MARKED_READ', { 
+          wa_id, 
+          message_id: lastUnreadInbound.message_id 
+        });
+      }
+    } catch (markReadError) {
+      // Don't fail send if mark-as-read fails
+      console.warn('STAFF_INBOX_MARK_READ_FAILED', {
+        error: markReadError.message,
+        wa_id
+      });
     }
     
     // Send via WhatsApp API

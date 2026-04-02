@@ -189,6 +189,68 @@ const postWhatsAppText = async ({ to, messageBody, staffId = null }) => {
   }
 };
 
+/**
+ * Mark WhatsApp message as read (sends read receipt to customer)
+ * Based on Meta official demo: fbsamples/whatsapp-business-jaspers-market
+ * 
+ * @param {string} messageId - WhatsApp message ID (from webhook, not MongoDB _id)
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+const markMessageAsRead = async (messageId) => {
+  const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
+  const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
+
+  if (!accessToken || !phoneNumberId) {
+    console.warn('WHATSAPP_MARK_READ_CONFIG_MISSING');
+    return { ok: false, error: 'missing_config' };
+  }
+
+  if (!messageId) {
+    return { ok: false, error: 'message_id required' };
+  }
+
+  const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId
+      }),
+      signal: controller.signal
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      console.error('WHATSAPP_MARK_READ_ERROR', {
+        status: response.status,
+        response: responseText.slice(0, 500),
+        message_id: messageId
+      });
+      return { ok: false, error: `API error: ${response.status}` };
+    }
+
+    console.log('WHATSAPP_MARKED_AS_READ', { message_id: messageId });
+    return { ok: true };
+  } catch (error) {
+    console.error('WHATSAPP_MARK_READ_EXCEPTION', {
+      error: error.message,
+      message_id: messageId
+    });
+    return { ok: false, error: error.message };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 const sendHourlyBookingWhatsAppConfirmation = async ({
   phone,
   customerName,
@@ -266,5 +328,6 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
 module.exports = {
   sendHourlyBookingWhatsAppConfirmation,
   sendBirthdayBookingWhatsAppConfirmation,
-  postWhatsAppText // Export for staff inbox use
+  postWhatsAppText, // Export for staff inbox use
+  markMessageAsRead // Export for read receipts
 };
