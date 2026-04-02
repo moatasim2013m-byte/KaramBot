@@ -37,26 +37,26 @@ export default function StaffPage() {
   const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('scanner');
-  
+
   // Scanner state
   const [bookingCode, setBookingCode] = useState('');
   const [scanResult, setScanResult] = useState(null);
   const [scanning, setScanning] = useState(false);
-  
+
   // Active sessions
   const [activeSessions, setActiveSessions] = useState([]);
   const [pendingCheckins, setPendingCheckins] = useState([]);
-  
+
   // Subscription state
   const [childSearch, setChildSearch] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedChild, setSelectedChild] = useState(null);
   const [childSubscription, setChildSubscription] = useState(null);
   const [consuming, setConsuming] = useState(false);
-  
+
   // Birthday parties
   const [todayParties, setTodayParties] = useState([]);
-  
+
   // Inbox state
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -78,11 +78,19 @@ export default function StaffPage() {
   const selectedConversationRef = useRef(null);
   const messageSnapshotRef = useRef('');
 
-  // Check if user is staff or admin
+  // Campaign state
+  const [campaigns, setCampaigns] = useState([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [showCampaignForm, setShowCampaignForm] = useState(false);
+  const [campaignForm, setCampaignForm] = useState(CAMPAIGN_FORM_INITIAL);
+  const [campaignSaving, setCampaignSaving] = useState(false);
+  const [executingId, setExecutingId] = useState(null);
+  const [pausingId, setPausingId] = useState(null);
+  const [expandedCampaignId, setExpandedCampaignId] = useState(null);
+  const [campaignStats, setCampaignStats] = useState({});
+
   useEffect(() => {
-    if (user && user.role !== 'staff' && user.role !== 'admin') {
-      navigate('/');
-    }
+    if (user && user.role !== 'staff' && user.role !== 'admin') navigate('/');
     setLoading(false);
   }, [user, navigate]);
 
@@ -98,139 +106,93 @@ export default function StaffPage() {
     try {
       const response = await api.get('/staff/active-sessions');
       setActiveSessions(response.data.sessions || []);
-    } catch (error) {
-      console.error('Failed to fetch active sessions:', error);
-    }
+    } catch (error) { console.error('Failed to fetch active sessions:', error); }
   }, [api]);
 
   const fetchPendingCheckins = useCallback(async () => {
     try {
       const response = await api.get('/staff/pending-checkins');
       setPendingCheckins(response.data.bookings || []);
-    } catch (error) {
-      console.error('Failed to fetch pending check-ins:', error);
-    }
+    } catch (error) { console.error('Failed to fetch pending check-ins:', error); }
   }, [api]);
 
   const fetchTodayParties = useCallback(async () => {
     try {
       const response = await api.get('/staff/today-birthdays');
       setTodayParties(response.data.parties || []);
-    } catch (error) {
-      console.error('Failed to fetch birthday parties:', error);
-    }
+    } catch (error) { console.error('Failed to fetch birthday parties:', error); }
   }, [api]);
 
   useEffect(() => {
     fetchActiveSessions();
     fetchPendingCheckins();
     fetchTodayParties();
-    
-    // Poll active sessions every 30 seconds
     const interval = setInterval(fetchActiveSessions, 30000);
     return () => clearInterval(interval);
   }, [fetchActiveSessions, fetchPendingCheckins, fetchTodayParties]);
 
-  // QR Scanner - Check in
   const handleCheckin = async (e) => {
     e.preventDefault();
-    if (!bookingCode.trim()) {
-      toast.error('Please enter a booking code');
-      return;
-    }
-
+    if (!bookingCode.trim()) { toast.error('Please enter a booking code'); return; }
     setScanning(true);
     setScanResult(null);
-
     try {
-      const response = await api.post('/staff/checkin', {
-        booking_code: bookingCode.toUpperCase().trim()
-      });
-      
-      setScanResult({
-        success: true,
-        data: response.data
-      });
+      const response = await api.post('/staff/checkin', { booking_code: bookingCode.toUpperCase().trim() });
+      setScanResult({ success: true, data: response.data });
       toast.success('Check-in successful!');
       setBookingCode('');
       fetchActiveSessions();
       fetchPendingCheckins();
     } catch (error) {
-      setScanResult({
-        success: false,
-        error: error.response?.data?.error || 'Check-in failed'
-      });
+      setScanResult({ success: false, error: error.response?.data?.error || 'Check-in failed' });
       toast.error(error.response?.data?.error || 'Check-in failed');
-    } finally {
-      setScanning(false);
-    }
+    } finally { setScanning(false); }
   };
 
-  // Search children for subscription
   const handleChildSearch = async (value) => {
     setChildSearch(value);
     setSelectedChild(null);
     setChildSubscription(null);
-    
-    if (value.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
+    if (value.length < 2) { setSearchResults([]); return; }
     try {
       const response = await api.get(`/staff/search-child?name=${encodeURIComponent(value)}`);
       setSearchResults(response.data.children || []);
-    } catch (error) {
-      console.error('Search failed:', error);
-    }
+    } catch (error) { console.error('Search failed:', error); }
   };
 
   const handleSelectChild = async (child) => {
     setSelectedChild(child);
     setSearchResults([]);
     setChildSearch(child.name);
-
     try {
       const response = await api.get(`/staff/subscription/${child.id}`);
       setChildSubscription(response.data.subscription);
     } catch (error) {
       setChildSubscription(null);
-      if (error.response?.status !== 404) {
-        toast.error('Failed to fetch subscription');
-      }
+      if (error.response?.status !== 404) toast.error('Failed to fetch subscription');
     }
   };
 
   const handleConsumeVisit = async () => {
     if (!selectedChild) return;
-
     setConsuming(true);
     try {
-      const response = await api.post('/staff/consume-visit', {
-        child_id: selectedChild.id
-      });
-      
+      const response = await api.post('/staff/consume-visit', { child_id: selectedChild.id });
       toast.success(`Visit consumed! ${response.data.remaining_visits} visits remaining`);
-      
-      // Refresh subscription info
       const subResponse = await api.get(`/staff/subscription/${selectedChild.id}`);
       setChildSubscription(subResponse.data.subscription);
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to consume visit');
-    } finally {
-      setConsuming(false);
-    }
+    } finally { setConsuming(false); }
   };
 
-  // ==================== INBOX FUNCTIONS ====================
-  
+  // ==================== INBOX ====================
+
   const fetchInboxStats = useCallback(async () => {
     try {
       const response = await api.get('/staff/inbox/stats');
       setInboxStats(response.data);
-    } catch (error) {
-      console.error('Failed to fetch inbox stats:', error);
-    }
+    } catch (error) { console.error('Failed to fetch inbox stats:', error); }
   }, [api]);
 
   const fetchConversations = useCallback(async ({ silent = false } = {}) => {
@@ -241,7 +203,6 @@ export default function StaffPage() {
       const params = new URLSearchParams();
       if (inboxSearch) params.append('search', inboxSearch);
       if (showUnreadOnly) params.append('unread_only', 'true');
-      
       const response = await api.get(`/staff/inbox/conversations?${params}`);
       setConversations(response.data.conversations || []);
     } catch (error) {
@@ -273,21 +234,18 @@ export default function StaffPage() {
     try {
       const response = await api.get(`/staff/inbox/customer-profile/${waId}`);
       setCustomerProfile(response.data);
-    } catch (error) {
-      console.error('Failed to fetch customer profile:', error);
-    }
+    } catch (error) { console.error('Failed to fetch customer profile:', error); }
   }, [api]);
 
   const fetchQuickReplies = useCallback(async () => {
     try {
       const response = await api.get('/staff/inbox/quick-replies?platform=whatsapp');
       setQuickReplies(response.data.quick_replies || []);
-    } catch (error) {
-      console.error('Failed to fetch quick replies:', error);
-    }
+    } catch (error) { console.error('Failed to fetch quick replies:', error); }
   }, [api]);
 
   const handleConversationSelect = (conv) => {
+    setConversations(prev => prev.map(c => c.wa_id === conv.wa_id ? { ...c, unread_count: 0 } : c));
     setSelectedConversation(conv);
     selectedConversationRef.current = conv;
     setMessages([]);
@@ -300,34 +258,23 @@ export default function StaffPage() {
 
   const handleSendMessage = async () => {
     if (!replyText.trim() || !selectedConversation) return;
-
     setSending(true);
     try {
-      await api.post('/staff/inbox/send', {
-        wa_id: selectedConversation.wa_id,
-        message: replyText
-      });
-
+      await api.post('/staff/inbox/send', { wa_id: selectedConversation.wa_id, message: replyText });
       toast.success('تم إرسال الرسالة');
       setReplyText('');
-      
-      // Refresh messages
       await fetchMessages(selectedConversation.wa_id);
-      await fetchConversations();
+      await fetchConversations(false);
       await fetchInboxStats();
     } catch (error) {
       console.error('Failed to send message:', error);
       toast.error('فشل إرسال الرسالة');
-    } finally {
-      setSending(false);
-    }
+    } finally { setSending(false); }
   };
 
   const handleQuickReplySelect = (quickReply) => {
     setReplyText(quickReply.message);
     setShowQuickReplies(false);
-    
-    // Track usage
     api.post(`/staff/inbox/quick-replies/${quickReply.id}/use`).catch(console.error);
   };
 
@@ -335,39 +282,22 @@ export default function StaffPage() {
     setQrSaving(true);
     try {
       if (qrEditId) {
-        // Update existing quick reply
         await api.put(`/staff/inbox/quick-replies/${qrEditId}`, qrForm);
       } else {
-        // Create new quick reply
-        await api.post('/staff/inbox/quick-replies', { 
-          ...qrForm, 
-          platform: 'whatsapp' 
-        });
+        await api.post('/staff/inbox/quick-replies', { ...qrForm, platform: 'whatsapp' });
       }
-      
-      // Refresh list
       await fetchQuickReplies();
-      
-      // Reset form
       setQrForm({ label: '', message: '', category: 'other' });
       setQrEditId(null);
-      
       toast.success('تم حفظ الرد السريع');
     } catch (error) {
-      console.error('Save quick reply error:', error);
       toast.error('فشل حفظ الرد السريع');
-    } finally {
-      setQrSaving(false);
-    }
+    } finally { setQrSaving(false); }
   };
 
   const handleEditQuickReply = (qr) => {
     setQrEditId(qr.id);
-    setQrForm({ 
-      label: qr.label, 
-      message: qr.message, 
-      category: qr.category 
-    });
+    setQrForm({ label: qr.label, message: qr.message, category: qr.category });
     setShowQRManager(true);
   };
 
@@ -376,10 +306,7 @@ export default function StaffPage() {
       await api.delete(`/staff/inbox/quick-replies/${id}`);
       await fetchQuickReplies();
       toast.success('تم حذف الرد السريع');
-    } catch (error) {
-      console.error('Delete quick reply error:', error);
-      toast.error('فشل حذف الرد السريع');
-    }
+    } catch (error) { toast.error('فشل حذف الرد السريع'); }
   };
 
   useEffect(() => {
@@ -395,22 +322,107 @@ export default function StaffPage() {
   useEffect(() => {
     if (activeTab === 'inbox') {
       fetchInboxStats();
-      fetchConversations();
+      fetchConversations(true);
       fetchQuickReplies();
-      
-      // Poll for new messages every 8 seconds
       const pollInterval = setInterval(() => {
         fetchConversations({ silent: true });
         if (selectedConversationRef.current) {
           fetchMessages(selectedConversationRef.current.wa_id);
         }
       }, 8000);
-      
       return () => clearInterval(pollInterval);
     }
   }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, fetchMessages]);
 
-  // ==================== END INBOX FUNCTIONS ====================
+  // ==================== CAMPAIGNS ====================
+
+  const fetchCampaigns = useCallback(async () => {
+    setCampaignsLoading(true);
+    try {
+      const response = await api.get('/staff/campaigns');
+      setCampaigns(response.data.campaigns || []);
+    } catch (error) { console.error('Failed to fetch campaigns:', error); }
+    finally { setCampaignsLoading(false); }
+  }, [api]);
+
+  const handleCreateCampaign = async () => {
+    setCampaignSaving(true);
+    try {
+      const payload = {
+        name: campaignForm.name,
+        message_type: campaignForm.message_type,
+        audience_filters: campaignForm.audience_filters,
+        ...(campaignForm.message_type === 'free_form'
+          ? { free_form_message: campaignForm.free_form_message }
+          : {
+              template_name: campaignForm.template_name,
+              template_language: campaignForm.template_language,
+              ...(campaignForm.ttl_hours ? { ttl_hours: parseInt(campaignForm.ttl_hours) } : {})
+            }
+        )
+      };
+      await api.post('/staff/campaigns', payload);
+      toast.success('تم إنشاء الحملة');
+      setCampaignForm(CAMPAIGN_FORM_INITIAL);
+      setShowCampaignForm(false);
+      await fetchCampaigns();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل إنشاء الحملة');
+    } finally { setCampaignSaving(false); }
+  };
+
+  const handleExecuteCampaign = async (id) => {
+    setExecutingId(id);
+    try {
+      const response = await api.post(`/staff/campaigns/${id}/execute`);
+      toast.success(`تم إطلاق الحملة · ${response.data.recipient_count} مستلم`);
+      await fetchCampaigns();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل إطلاق الحملة');
+    } finally { setExecutingId(null); }
+  };
+
+  const handlePauseCampaign = async (id) => {
+    setPausingId(id);
+    try {
+      await api.post(`/staff/campaigns/${id}/pause`);
+      toast.success('تم إيقاف الحملة');
+      await fetchCampaigns();
+    } catch (error) {
+      toast.error('فشل إيقاف الحملة');
+    } finally { setPausingId(null); }
+  };
+
+  const handleToggleCampaignStats = async (id) => {
+    if (expandedCampaignId === id) { setExpandedCampaignId(null); return; }
+    setExpandedCampaignId(id);
+    try {
+      const response = await api.get(`/staff/campaigns/${id}/stats`);
+      setCampaignStats(prev => ({ ...prev, [id]: response.data.stats }));
+    } catch (error) { console.error('Failed to fetch campaign stats:', error); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'campaigns') fetchCampaigns();
+  }, [activeTab, fetchCampaigns]);
+
+  // ==================== END CAMPAIGNS ====================
+
+  const statusBadgeClass = (status) => {
+    switch (status) {
+      case 'draft': return 'bg-gray-100 text-gray-700';
+      case 'running': return 'bg-blue-100 text-blue-700 animate-pulse';
+      case 'completed': return 'bg-green-100 text-green-700';
+      case 'failed': return 'bg-red-100 text-red-700';
+      case 'paused': return 'bg-yellow-100 text-yellow-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const statusLabel = (status) => {
+    const map = { draft: 'مسودة', running: 'جارية', completed: 'مكتملة', failed: 'فشلت', paused: 'موقوفة' };
+    return map[status] || status;
+  };
 
   if (loading) {
     return (
@@ -428,13 +440,9 @@ export default function StaffPage() {
             <Users className="inline-block h-8 w-8 text-primary mr-2" />
             Staff Panel
           </h1>
-          <Button 
-            variant="outline" 
-            onClick={() => {
-              fetchActiveSessions();
-              fetchPendingCheckins();
-              fetchTodayParties();
-            }}
+          <Button
+            variant="outline"
+            onClick={() => { fetchActiveSessions(); fetchPendingCheckins(); fetchTodayParties(); }}
             className="rounded-full gap-2"
           >
             <RefreshCw className="h-4 w-4" />
@@ -443,30 +451,27 @@ export default function StaffPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-white border rounded-full p-1">
+          <TabsList className="bg-white border rounded-full p-1 flex-wrap gap-1">
             <TabsTrigger value="scanner" className="rounded-full gap-2" data-testid="tab-scanner">
               <QrCode className="h-4 w-4" /> QR Scanner
             </TabsTrigger>
             <TabsTrigger value="sessions" className="rounded-full gap-2" data-testid="tab-sessions">
               <Clock className="h-4 w-4" /> Active Sessions
-              {activeSessions.length > 0 && (
-                <Badge className="ml-1 bg-primary">{activeSessions.length}</Badge>
-              )}
+              {activeSessions.length > 0 && <Badge className="ml-1 bg-primary">{activeSessions.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="subscriptions" className="rounded-full gap-2" data-testid="tab-subscriptions">
               <Star className="h-4 w-4" /> Subscriptions
             </TabsTrigger>
             <TabsTrigger value="birthdays" className="rounded-full gap-2" data-testid="tab-birthdays">
               <Cake className="h-4 w-4" /> Today's Parties
-              {todayParties.length > 0 && (
-                <Badge className="ml-1 bg-accent">{todayParties.length}</Badge>
-              )}
+              {todayParties.length > 0 && <Badge className="ml-1 bg-accent">{todayParties.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="inbox" className="rounded-full gap-2" data-testid="tab-inbox">
               <MessageSquare className="h-4 w-4" /> Inbox
-              {inboxStats?.unread_messages > 0 && (
-                <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>
-              )}
+              {inboxStats?.unread_messages > 0 && <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="campaigns" className="rounded-full gap-2" data-testid="tab-campaigns">
+              <Megaphone className="h-4 w-4" /> حملات
             </TabsTrigger>
           </TabsList>
 
@@ -479,37 +484,19 @@ export default function StaffPage() {
                     <QrCode className="h-5 w-5 text-primary" />
                     Check-in Scanner
                   </CardTitle>
-                  <CardDescription>
-                    Enter the booking code from the parent's QR to start their session
-                  </CardDescription>
+                  <CardDescription>Enter the booking code from the parent's QR to start their session</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleCheckin} className="space-y-4">
                     <div>
                       <Label>Booking Code</Label>
-                      <Input
-                        value={bookingCode}
-                        onChange={(e) => setBookingCode(e.target.value)}
-                        placeholder="PK-H-XXXXXXXX"
-                        className="rounded-xl h-14 text-lg uppercase mt-2"
-                        data-testid="booking-code-input"
-                      />
+                      <Input value={bookingCode} onChange={(e) => setBookingCode(e.target.value)} placeholder="PK-H-XXXXXXXX" className="rounded-xl h-14 text-lg uppercase mt-2" data-testid="booking-code-input" />
                     </div>
-                    <Button 
-                      type="submit" 
-                      disabled={scanning || !bookingCode.trim()}
-                      className="w-full rounded-full h-12"
-                      data-testid="checkin-btn"
-                    >
-                      {scanning ? (
-                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                      ) : (
-                        <CheckCircle className="h-5 w-5 mr-2" />
-                      )}
+                    <Button type="submit" disabled={scanning || !bookingCode.trim()} className="w-full rounded-full h-12" data-testid="checkin-btn">
+                      {scanning ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <CheckCircle className="h-5 w-5 mr-2" />}
                       Check In
                     </Button>
                   </form>
-
                   {scanResult && (
                     <div className={`mt-6 p-4 rounded-xl ${scanResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
                       {scanResult.success ? (
@@ -517,9 +504,7 @@ export default function StaffPage() {
                           <CheckCircle className="h-10 w-10 text-green-600 mx-auto mb-2" />
                           <p className="font-semibold text-green-700">Check-in Successful!</p>
                           <p className="text-green-600">{scanResult.data.session?.child_name}</p>
-                          <p className="text-sm text-green-600">
-                            Session ends: {new Date(scanResult.data.session?.session_end_time).toLocaleTimeString()}
-                          </p>
+                          <p className="text-sm text-green-600">Session ends: {new Date(scanResult.data.session?.session_end_time).toLocaleTimeString()}</p>
                         </div>
                       ) : (
                         <div className="text-center">
@@ -532,8 +517,6 @@ export default function StaffPage() {
                   )}
                 </CardContent>
               </Card>
-
-              {/* Pending Check-ins */}
               <Card className="rounded-2xl">
                 <CardHeader>
                   <CardTitle className="font-heading">Pending Check-ins Today</CardTitle>
@@ -564,10 +547,7 @@ export default function StaffPage() {
           <TabsContent value="sessions">
             <Card className="rounded-2xl">
               <CardHeader>
-                <CardTitle className="font-heading flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-primary" />
-                  Active Play Sessions
-                </CardTitle>
+                <CardTitle className="font-heading flex items-center gap-2"><Clock className="h-5 w-5 text-primary" /> Active Play Sessions</CardTitle>
                 <CardDescription>Currently playing - monitor session times</CardDescription>
               </CardHeader>
               <CardContent>
@@ -590,8 +570,7 @@ export default function StaffPage() {
                           </div>
                           {session.warning && (
                             <div className="flex items-center gap-1 text-destructive mt-2 text-sm">
-                              <AlertTriangle className="h-4 w-4" />
-                              Session ending soon!
+                              <AlertTriangle className="h-4 w-4" /> Session ending soon!
                             </div>
                           )}
                         </CardContent>
@@ -607,10 +586,7 @@ export default function StaffPage() {
           <TabsContent value="subscriptions">
             <Card className="rounded-2xl">
               <CardHeader>
-                <CardTitle className="font-heading flex items-center gap-2">
-                  <Star className="h-5 w-5 text-secondary" />
-                  Subscription Visit Consumption
-                </CardTitle>
+                <CardTitle className="font-heading flex items-center gap-2"><Star className="h-5 w-5 text-secondary" /> Subscription Visit Consumption</CardTitle>
                 <CardDescription>Search for a child and consume a subscription visit</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -618,73 +594,37 @@ export default function StaffPage() {
                   <Label>Search Child by Name</Label>
                   <div className="relative mt-2">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      value={childSearch}
-                      onChange={(e) => handleChildSearch(e.target.value)}
-                      placeholder="Type child's name..."
-                      className="pl-10 rounded-xl h-12"
-                      data-testid="child-search-input"
-                    />
+                    <Input value={childSearch} onChange={(e) => handleChildSearch(e.target.value)} placeholder="Type child's name..." className="pl-10 rounded-xl h-12" data-testid="child-search-input" />
                   </div>
-                  
                   {searchResults.length > 0 && (
                     <div className="mt-2 border rounded-xl overflow-hidden">
                       {searchResults.map((child) => (
-                        <button
-                          key={child.id}
-                          onClick={() => handleSelectChild(child)}
-                          className="w-full px-4 py-3 text-left hover:bg-muted transition-colors border-b last:border-b-0"
-                        >
+                        <button key={child.id} onClick={() => handleSelectChild(child)} className="w-full px-4 py-3 text-left hover:bg-muted transition-colors border-b last:border-b-0">
                           {child.name}
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-
                 {selectedChild && (
                   <div className="p-4 rounded-xl bg-muted/50">
                     <p className="font-semibold mb-2">Selected: {selectedChild.name}</p>
-                    
                     {childSubscription ? (
                       <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Plan</p>
-                            <p className="font-semibold">{childSubscription.plan_name}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Status</p>
+                          <div><p className="text-muted-foreground">Plan</p><p className="font-semibold">{childSubscription.plan_name}</p></div>
+                          <div><p className="text-muted-foreground">Status</p>
                             <Badge className={childSubscription.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
                               {childSubscription.status === 'pending' ? 'Not activated' : childSubscription.status}
                             </Badge>
                           </div>
-                          <div>
-                            <p className="text-muted-foreground">Remaining</p>
-                            <p className="font-semibold text-2xl text-secondary">{childSubscription.remaining_visits}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Expires</p>
-                            <p className="font-semibold">
-                              {childSubscription.expires_at 
-                                ? new Date(childSubscription.expires_at).toLocaleDateString()
-                                : 'After first use'
-                              }
-                            </p>
+                          <div><p className="text-muted-foreground">Remaining</p><p className="font-semibold text-2xl text-secondary">{childSubscription.remaining_visits}</p></div>
+                          <div><p className="text-muted-foreground">Expires</p>
+                            <p className="font-semibold">{childSubscription.expires_at ? new Date(childSubscription.expires_at).toLocaleDateString() : 'After first use'}</p>
                           </div>
                         </div>
-                        
-                        <Button
-                          onClick={handleConsumeVisit}
-                          disabled={consuming || childSubscription.remaining_visits === 0}
-                          className="w-full rounded-full bg-secondary hover:bg-secondary/90"
-                          data-testid="consume-visit-btn"
-                        >
-                          {consuming ? (
-                            <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                          ) : (
-                            <Star className="h-5 w-5 mr-2" />
-                          )}
+                        <Button onClick={handleConsumeVisit} disabled={consuming || childSubscription.remaining_visits === 0} className="w-full rounded-full bg-secondary hover:bg-secondary/90" data-testid="consume-visit-btn">
+                          {consuming ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Star className="h-5 w-5 mr-2" />}
                           Consume 1 Visit
                         </Button>
                       </div>
@@ -701,10 +641,7 @@ export default function StaffPage() {
           <TabsContent value="birthdays">
             <Card className="rounded-2xl">
               <CardHeader>
-                <CardTitle className="font-heading flex items-center gap-2">
-                  <Cake className="h-5 w-5 text-accent" />
-                  Today's Birthday Parties
-                </CardTitle>
+                <CardTitle className="font-heading flex items-center gap-2"><Cake className="h-5 w-5 text-accent" /> Today's Birthday Parties</CardTitle>
                 <CardDescription>Read-only view of scheduled parties</CardDescription>
               </CardHeader>
               <CardContent>
@@ -725,9 +662,7 @@ export default function StaffPage() {
                               </div>
                               <p className="text-muted-foreground">Theme: {party.theme}</p>
                               <p className="text-sm text-muted-foreground">Guests: {party.guest_count}</p>
-                              {party.special_notes && (
-                                <p className="text-sm text-accent mt-2">Notes: {party.special_notes}</p>
-                              )}
+                              {party.special_notes && <p className="text-sm text-accent mt-2">Notes: {party.special_notes}</p>}
                             </div>
                             <div className="text-right">
                               <p className="text-2xl font-heading font-bold">{party.slot_time}</p>
@@ -980,120 +915,52 @@ export default function StaffPage() {
                             </button>
                           ))}
                         </div>
-                        
-                        {/* Existing Quick Reply Buttons Grid */}
-                        {!showQRManager && quickReplies.length > 0 && (
-                          <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                        {quickReplies.length > 0 && !showQRManager && (
+                          <div className="grid grid-cols-2 gap-2 px-4 pb-3 max-h-36 overflow-y-auto">
                             {quickReplies.map((qr) => (
-                              <button
-                                key={qr.id}
-                                onClick={() => handleQuickReplySelect(qr)}
-                                className="text-left p-2 rounded-lg bg-white hover:bg-primary/10 border text-sm transition-colors"
-                              >
-                                <p className="font-semibold truncate">{qr.label}</p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {qr.message.substring(0, 50)}...
-                                </p>
+                              <button key={qr.id} onClick={() => handleQuickReplySelect(qr)} className="text-left p-2.5 rounded-xl bg-white/20 hover:bg-white/30 border border-white/20 transition-all text-white">
+                                <p className="font-semibold text-xs truncate">{qr.label}</p>
+                                <p className="text-xs text-white/70 truncate mt-0.5">{qr.message.substring(0, 55)}…</p>
                               </button>
                             ))}
                           </div>
                         )}
-
-                        {/* Quick Reply Manager Section */}
                         {showQRManager && (
-                          <div className="space-y-3">
-                            {/* Part A - Empty State */}
-                            {quickReplies.length === 0 && (
-                              <p className="text-xs text-center text-white/70 py-4">
-                                لا توجد ردود سريعة بعد
-                              </p>
-                            )}
-
-                            {/* Part B - List of Existing Quick Replies */}
+                          <div className="px-4 pb-3 space-y-2">
+                            {quickReplies.length === 0 && <p className="text-xs text-center text-white/70 py-2">لا توجد ردود سريعة بعد</p>}
                             {quickReplies.length > 0 && (
                               <div className="space-y-1 max-h-32 overflow-y-auto">
                                 {quickReplies.map((qr) => (
-                                  <div
-                                    key={qr.id}
-                                    className="flex items-center justify-between bg-white/10 rounded px-2 py-1"
-                                  >
-                                    <span className="text-xs font-semibold text-white truncate flex-1">
-                                      {qr.label}
-                                    </span>
-                                    <div className="flex gap-1">
-                                      <button
-                                        onClick={() => handleEditQuickReply(qr)}
-                                        className="p-1 hover:bg-white/20 rounded"
-                                      >
-                                        <Edit2 className="h-3 w-3 text-white" />
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteQuickReply(qr.id)}
-                                        className="p-1 hover:bg-white/20 rounded"
-                                      >
-                                        <Trash2 className="h-3 w-3 text-white" />
-                                      </button>
+                                  <div key={qr.id} className="flex items-center justify-between bg-white/10 rounded px-2 py-1">
+                                    <span className="text-xs font-semibold text-white truncate flex-1">{qr.label}</span>
+                                    <div className="flex gap-1 flex-shrink-0">
+                                      <button onClick={() => handleEditQuickReply(qr)} className="p-1 hover:bg-white/20 rounded"><Edit2 className="h-3 w-3 text-white" /></button>
+                                      <button onClick={() => handleDeleteQuickReply(qr.id)} className="p-1 hover:bg-white/20 rounded"><Trash2 className="h-3 w-3 text-white" /></button>
                                     </div>
                                   </div>
                                 ))}
                               </div>
                             )}
-
-                            {/* Part C - Create/Edit Form */}
-                            <div className="space-y-2 pt-2 border-t border-white/20">
-                              <input
-                                type="text"
-                                value={qrForm.label}
-                                onChange={(e) => setQrForm({ ...qrForm, label: e.target.value })}
-                                placeholder="اسم الرد السريع"
-                                className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/50 w-full"
-                              />
-                              <textarea
-                                rows={2}
-                                value={qrForm.message}
-                                onChange={(e) => setQrForm({ ...qrForm, message: e.target.value })}
-                                placeholder="نص الرسالة..."
-                                className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/50 w-full resize-none"
-                              />
-                              <select
-                                value={qrForm.category}
-                                onChange={(e) => setQrForm({ ...qrForm, category: e.target.value })}
-                                className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white w-full"
-                              >
-                                <option value="greeting">تحية</option>
-                                <option value="booking">حجز</option>
-                                <option value="payment">دفع</option>
-                                <option value="inquiry">استفسار</option>
-                                <option value="closing">إغلاق</option>
-                                <option value="other">أخرى</option>
-                              </select>
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={handleSaveQuickReply}
-                                  disabled={qrSaving || !qrForm.label.trim() || !qrForm.message.trim()}
-                                  className="bg-white text-[#66A9E9] text-xs font-semibold rounded-lg px-3 py-1 disabled:opacity-50 flex items-center gap-1"
-                                >
-                                  {qrSaving ? (
-                                    <>
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      حفظ...
-                                    </>
-                                  ) : (
-                                    qrEditId ? 'تحديث' : 'حفظ'
-                                  )}
+                            <input value={qrForm.label} onChange={(e) => setQrForm(prev => ({ ...prev, label: e.target.value }))} placeholder="اسم الرد السريع" className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/50 w-full" />
+                            <textarea value={qrForm.message} onChange={(e) => setQrForm(prev => ({ ...prev, message: e.target.value }))} placeholder="نص الرسالة..." rows={2} className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white placeholder:text-white/50 w-full resize-none" />
+                            <select value={qrForm.category} onChange={(e) => setQrForm(prev => ({ ...prev, category: e.target.value }))} className="bg-white/20 border border-white/30 rounded-lg px-2 py-1 text-xs text-white w-full">
+                              <option value="greeting">تحية</option>
+                              <option value="booking">حجز</option>
+                              <option value="payment">دفع</option>
+                              <option value="inquiry">استفسار</option>
+                              <option value="closing">إغلاق</option>
+                              <option value="other">أخرى</option>
+                            </select>
+                            <div className="flex gap-2">
+                              <button onClick={handleSaveQuickReply} disabled={qrSaving || !qrForm.label || !qrForm.message} className="bg-white text-[#66A9E9] text-xs font-semibold rounded-lg px-3 py-1 disabled:opacity-50 flex items-center gap-1">
+                                {qrSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                                {qrEditId ? 'تحديث' : 'حفظ'}
+                              </button>
+                              {qrEditId && (
+                                <button onClick={() => { setQrForm({ label: '', message: '', category: 'other' }); setQrEditId(null); }} className="bg-white/20 text-white text-xs rounded-lg px-3 py-1">
+                                  إلغاء
                                 </button>
-                                {qrEditId && (
-                                  <button
-                                    onClick={() => {
-                                      setQrForm({ label: '', message: '', category: 'other' });
-                                      setQrEditId(null);
-                                    }}
-                                    className="bg-white/20 text-white text-xs font-semibold rounded-lg px-3 py-1"
-                                  >
-                                    إلغاء
-                                  </button>
-                                )}
-                              </div>
+                              )}
                             </div>
                           </div>
                         )}
