@@ -117,6 +117,10 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
 
     const responseText = await response.text();
     if (!response.ok) {
+      console.error('WHATSAPP_API_ERROR', {
+        status: response.status,
+        response: responseText.slice(0, 500)
+      });
       return { ok: false, status: response.status, responseText: responseText.slice(0, 500) };
     }
 
@@ -150,6 +154,10 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
 
     return { ok: true, messageId };
   } catch (error) {
+    console.error('WHATSAPP_SEND_ERROR', {
+      error: error.message,
+      to
+    });
     return { ok: false, error: error.message };
   } finally {
     clearTimeout(timeout);
