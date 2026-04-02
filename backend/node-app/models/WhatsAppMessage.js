@@ -66,6 +66,17 @@ const whatsAppMessageSchema = new mongoose.Schema({
     default: 'whatsapp',
     index: true
   },
+
+  // WhatsApp webhook metadata (keeps our backend as source-of-truth context)
+  messaging_product: {
+    type: String,
+    default: 'whatsapp'
+  },
+
+  business_phone_number_id: {
+    type: String,
+    default: ''
+  },
   
   // Timestamp from WhatsApp
   timestamp: {
