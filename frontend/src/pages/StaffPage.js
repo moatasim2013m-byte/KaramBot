@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -14,9 +14,27 @@ import {
   Plus, Edit2, Trash2, X, Filter
 } from 'lucide-react';
 
+// Helper function for relative timestamps
+const getRelativeTime = (timestamp) => {
+  const now = new Date();
+  const msgTime = new Date(timestamp);
+  const diffMs = now - msgTime;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return 'just now';
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return msgTime.toLocaleDateString();
+};
+
 export default function StaffPage() {
   const { api, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('scanner');
   
@@ -64,6 +82,14 @@ export default function StaffPage() {
     }
     setLoading(false);
   }, [user, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedTab = params.get('tab');
+    if (requestedTab === 'inbox') {
+      setActiveTab('inbox');
+    }
+  }, [location.search]);
 
   const fetchActiveSessions = useCallback(async () => {
     try {
@@ -257,8 +283,7 @@ export default function StaffPage() {
     fetchCustomerProfile(conv.wa_id);
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
+  const handleSendMessage = async () => {
     if (!replyText.trim() || !selectedConversation) return;
 
     setSending(true);
@@ -698,218 +723,230 @@ export default function StaffPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-250px)]">
               {/* Conversations List */}
               <div className="lg:col-span-1 flex flex-col">
-                <Card className="rounded-2xl flex-1 flex flex-col">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="font-heading flex items-center gap-2">
-                        <MessageSquare className="h-5 w-5 text-primary" />
-                        Conversations
-                      </CardTitle>
-                      <Button 
-                        size="sm" 
-                        variant="ghost"
-                        onClick={() => {
-                          fetchConversations();
-                          fetchInboxStats();
-                        }}
-                        className="rounded-full"
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    {inboxStats && (
-                      <div className="flex gap-2 mt-2">
-                        <Badge variant="outline">{inboxStats.total_conversations} total</Badge>
-                        {inboxStats.unread_messages > 0 && (
-                          <Badge className="bg-red-500">{inboxStats.unread_messages} unread</Badge>
-                        )}
+                <div className="rounded-2xl border bg-white shadow-sm flex-1 flex flex-col overflow-hidden">
+                  {/* Conversations Header */}
+                  <div className="px-4 py-3 border-b bg-gradient-to-r from-[#66A9E9]/10 to-white flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-[#66A9E9] flex items-center justify-center">
+                        <MessageSquare className="h-4 w-4 text-white" />
                       </div>
-                    )}
-                  </CardHeader>
-                  
-                  <div className="px-4 pb-3 space-y-2">
+                      <span className="font-semibold text-sm">Conversations</span>
+                      {inboxStats?.unread_messages > 0 && (
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#D9232E] text-white text-xs font-bold pulse-badge">
+                          {inboxStats.unread_messages}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { fetchConversations(); fetchInboxStats(); }}
+                      className="w-7 h-7 rounded-full hover:bg-[#66A9E9]/10 flex items-center justify-center transition-colors"
+                    >
+                      <RefreshCw className="h-4 w-4 text-[#66A9E9]" />
+                    </button>
+                  </div>
+
+                  {/* Search & Filter */}
+                  <div className="px-3 py-2 space-y-2 border-b bg-gray-50">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                      <input
                         value={inboxSearch}
                         onChange={(e) => setInboxSearch(e.target.value)}
                         placeholder="Search conversations..."
-                        className="pl-9 rounded-xl"
+                        className="w-full pl-8 pr-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9]"
                       />
                     </div>
-                    <Button
-                      size="sm"
-                      variant={showUnreadOnly ? 'default' : 'outline'}
+                    <button
                       onClick={() => setShowUnreadOnly(!showUnreadOnly)}
-                      className="w-full rounded-xl"
+                      className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        showUnreadOnly
+                          ? 'bg-[#D9232E] text-white shadow-sm'
+                          : 'bg-white border border-gray-200 text-gray-600 hover:border-[#D9232E] hover:text-[#D9232E]'
+                      }`}
                     >
-                      <Filter className="h-4 w-4 mr-2" />
+                      <Filter className="h-3 w-3" />
                       {showUnreadOnly ? 'Show All' : 'Unread Only'}
-                    </Button>
+                    </button>
                   </div>
 
-                  <CardContent className="flex-1 overflow-y-auto p-2">
+                  {/* Conversation List */}
+                  <div className="flex-1 overflow-y-auto">
                     {inboxLoading ? (
                       <div className="flex justify-center items-center py-12">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <Loader2 className="h-6 w-6 animate-spin text-[#66A9E9]" />
                       </div>
                     ) : conversations.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-12">No conversations</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {conversations.map((conv) => (
-                          <button
-                            key={conv.wa_id}
-                            onClick={() => handleConversationSelect(conv)}
-                            className={`w-full text-left p-3 rounded-xl transition-all ${
-                              selectedConversation?.wa_id === conv.wa_id
-                                ? 'bg-primary/10 border-2 border-primary'
-                                : 'bg-white hover:bg-muted/50 border border-transparent'
-                            }`}
-                          >
-                            <div className="flex justify-between items-start mb-1">
-                              <span className="font-semibold truncate">{conv.profile_name || 'No Name Available'}</span>
-                              {conv.unread_count > 0 && (
-                                <Badge className="bg-red-500 text-xs">{conv.unread_count}</Badge>
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground truncate mb-1">
-                              {conv.last_message.direction === 'inbound' ? '↓ ' : '↑ '}
-                              {conv.last_message.text || '[Media]'}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {new Date(conv.last_message.timestamp).toLocaleString('ar-JO', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </p>
-                          </button>
-                        ))}
+                      <div className="text-center py-12 text-gray-400">
+                        <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                        <p className="text-sm">No conversations</p>
                       </div>
+                    ) : (
+                      conversations.map((conv) => (
+                        <button
+                          key={conv.wa_id}
+                          onClick={() => handleConversationSelect(conv)}
+                          className={`w-full text-left px-4 py-3 border-b transition-all hover:bg-[#66A9E9]/5 ${
+                            selectedConversation?.wa_id === conv.wa_id
+                              ? 'bg-[#66A9E9]/10 border-l-4 border-l-[#66A9E9]'
+                              : 'border-l-4 border-l-transparent'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#66A9E9] to-[#4a8fd4] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                              {(conv.profile_name || conv.wa_id).charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <span className="font-semibold text-sm truncate text-gray-800">
+                                  {conv.profile_name || 'Unknown'}
+                                </span>
+                                <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
+                                  {getRelativeTime(conv.last_message.timestamp)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs text-gray-500 truncate">
+                                  {conv.last_message.direction === 'inbound' ? '' : '↑ '}
+                                  {conv.last_message.text || '[Media]'}
+                                </p>
+                                {conv.unread_count > 0 && (
+                                  <span className="ml-1 flex-shrink-0 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#D9232E] text-white text-xs font-bold pulse-badge px-1">
+                                    {conv.unread_count}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      ))
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               </div>
 
               {/* Message Thread */}
               <div className="lg:col-span-2 flex flex-col">
                 {!selectedConversation ? (
-                  <Card className="rounded-2xl flex-1 flex items-center justify-center">
-                    <div className="text-center text-muted-foreground">
-                      <MessageSquare className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                      <p>Select a conversation to view messages</p>
+                  <div className="rounded-2xl border bg-white shadow-sm flex-1 flex items-center justify-center">
+                    <div className="text-center text-gray-400">
+                      <div className="w-20 h-20 rounded-full bg-[#66A9E9]/10 flex items-center justify-center mx-auto mb-4">
+                        <MessageSquare className="h-10 w-10 text-[#66A9E9]/40" />
+                      </div>
+                      <p className="font-medium text-gray-500">Select a conversation</p>
+                      <p className="text-sm mt-1 text-gray-400">Choose a chat from the list to start replying</p>
                     </div>
-                  </Card>
+                  </div>
                 ) : (
-                  <Card className="rounded-2xl flex-1 flex flex-col">
+                  <div className="rounded-2xl border bg-white shadow-sm flex-1 flex flex-col overflow-hidden">
                     {/* Chat Header */}
-                    <CardHeader className="border-b pb-3">
-                      <div className="flex items-center justify-between">
+                    <div className="px-5 py-3 border-b bg-gradient-to-r from-[#66A9E9]/10 to-white flex items-center justify-between flex-shrink-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#66A9E9] to-[#4a8fd4] flex items-center justify-center text-white font-bold">
+                          {(selectedConversation.profile_name || selectedConversation.wa_id).charAt(0).toUpperCase()}
+                        </div>
                         <div>
-                          <CardTitle className="font-heading">
-                            {selectedConversation.profile_name || 'No Name Available'}
-                          </CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            WhatsApp: {selectedConversation.wa_id}
+                          <p className="font-semibold text-gray-800 leading-tight">
+                            {selectedConversation.profile_name || 'Unknown'}
                           </p>
+                          <p className="text-xs text-gray-400">+{selectedConversation.wa_id}</p>
                           {customerProfile?.found && (
-                            <div className="flex gap-2 mt-2">
-                              <Badge variant="outline" className="text-xs">
-                                Customer: {customerProfile.user.name}
-                              </Badge>
+                            <div className="flex gap-1.5 mt-1">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[#F2E533]/30 text-yellow-800 border border-[#F2E533]/60">
+                                {customerProfile.user.name}
+                              </span>
                               {customerProfile.children?.length > 0 && (
-                                <Badge variant="outline" className="text-xs">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[#66A9E9]/15 text-[#3a7fc1] border border-[#66A9E9]/30">
                                   {customerProfile.children.length} {customerProfile.children.length === 1 ? 'child' : 'children'}
-                                </Badge>
+                                </span>
                               )}
                             </div>
                           )}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setShowQuickReplies(!showQuickReplies)}
-                          className="rounded-full"
-                        >
-                          <MessageSquare className="h-4 w-4 mr-2" />
-                          Quick Replies
-                        </Button>
                       </div>
-                    </CardHeader>
+                      <button
+                        onClick={() => setShowQuickReplies(!showQuickReplies)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                          showQuickReplies
+                            ? 'bg-[#66A9E9] text-white border-[#66A9E9]'
+                            : 'bg-white text-[#66A9E9] border-[#66A9E9]/40 hover:bg-[#66A9E9]/10'
+                        }`}
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Quick Replies
+                      </button>
+                    </div>
 
                     {/* Messages */}
-                    <CardContent className="flex-1 overflow-y-auto p-4 bg-muted/20">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 inbox-messages-bg">
                       {messages.length === 0 ? (
-                        <div className="text-center text-muted-foreground py-12">
-                          <p>No messages yet</p>
+                        <div className="text-center text-gray-400 py-12">
+                          <p className="text-sm">No messages yet</p>
                         </div>
                       ) : (
-                        <div className="space-y-4">
-                          {messages.map((msg) => (
+                        messages.map((msg) => (
+                          <div
+                            key={msg.id}
+                            className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'} message-animated`}
+                          >
                             <div
-                              key={msg.id}
-                              className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                              className={`max-w-[72%] rounded-2xl px-4 py-2.5 shadow-sm ${
+                                msg.direction === 'outbound'
+                                  ? 'bg-[#66A9E9] text-white rounded-tr-sm'
+                                  : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'
+                              }`}
                             >
-                              <div
-                                className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                                  msg.direction === 'outbound'
-                                    ? 'bg-primary text-white'
-                                    : 'bg-white border'
-                                }`}
-                              >
-                                {msg.message_type === 'text' ? (
-                                  <p className="whitespace-pre-wrap">{msg.text_body}</p>
-                                ) : (
-                                  <p className="italic opacity-70">[{msg.message_type}]</p>
+                              {msg.message_type === 'text' ? (
+                                <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text_body}</p>
+                              ) : (
+                                <p className="text-sm italic opacity-70">[{msg.message_type}]</p>
+                              )}
+                              <div className={`flex items-center gap-1.5 mt-1 text-xs ${
+                                msg.direction === 'outbound' ? 'text-white/70 justify-end' : 'text-gray-400'
+                              }`}>
+                                <span>
+                                  {new Date(msg.timestamp).toLocaleTimeString('ar-JO', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </span>
+                                {msg.direction === 'outbound' && msg.status && (
+                                  <span>· {msg.status}</span>
                                 )}
-                                <div className={`flex items-center gap-2 mt-1 text-xs ${
-                                  msg.direction === 'outbound' ? 'text-white/70' : 'text-muted-foreground'
-                                }`}>
-                                  <span>
-                                    {new Date(msg.timestamp).toLocaleTimeString('ar-JO', {
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
-                                  </span>
-                                  {msg.direction === 'outbound' && msg.status && (
-                                    <span>• {msg.status}</span>
-                                  )}
-                                  {msg.sent_by_staff && (
-                                    <span>• {msg.sent_by_staff.name}</span>
-                                  )}
-                                </div>
+                                {msg.sent_by_staff && (
+                                  <span>· {msg.sent_by_staff.name}</span>
+                                )}
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-
-                    {/* Quick Replies Dropdown */}
-                    {showQuickReplies && (
-                      <div className="border-t bg-muted/30 p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-semibold">Quick Replies</span>
-                          <div className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setShowQRManager(!showQRManager)}
-                              className="rounded-full h-6 w-6 p-0"
-                            >
-                              {showQRManager ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setShowQuickReplies(false)}
-                              className="rounded-full h-6 w-6 p-0"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
                           </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Quick Replies Panel */}
+                    {showQuickReplies && quickReplies.length > 0 && (
+                      <div className="border-t flex-shrink-0 inbox-quick-replies-bg">
+                        <div className="flex items-center justify-between px-4 py-2">
+                          <span className="text-sm font-semibold text-white">⚡ Quick Replies</span>
+                          <button
+                            onClick={() => setShowQuickReplies(false)}
+                            className="w-6 h-6 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5 text-white" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 px-4 pb-3 max-h-36 overflow-y-auto">
+                          {quickReplies.map((qr) => (
+                            <button
+                              key={qr.id}
+                              onClick={() => handleQuickReplySelect(qr)}
+                              className="text-left p-2.5 rounded-xl bg-white/20 hover:bg-white/30 border border-white/20 transition-all text-white"
+                            >
+                              <p className="font-semibold text-xs truncate">{qr.label}</p>
+                              <p className="text-xs text-white/70 truncate mt-0.5">
+                                {qr.message.substring(0, 55)}…
+                              </p>
+                            </button>
+                          ))}
                         </div>
                         
                         {/* Existing Quick Reply Buttons Grid */}
@@ -1032,37 +1069,85 @@ export default function StaffPage() {
                     )}
 
                     {/* Reply Input */}
-                    <div className="border-t p-4">
-                      <form onSubmit={handleSendMessage} className="flex gap-2">
-                        <Input
+                    <div className="border-t bg-white px-4 py-3 flex-shrink-0">
+                      <form
+                        onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
+                        className="flex items-end gap-3"
+                      >
+                        <textarea
                           value={replyText}
                           onChange={(e) => setReplyText(e.target.value)}
-                          placeholder="Type your message..."
-                          className="flex-1 rounded-xl"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
+                          }}
+                          placeholder="اكتب رسالة... (Enter للإرسال)"
+                          rows={2}
                           disabled={sending}
+                          className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50"
                         />
-                        <Button
+                        <button
                           type="submit"
                           disabled={sending || !replyText.trim()}
-                          className="rounded-full px-6"
+                          className="flex-shrink-0 w-11 h-11 rounded-full bg-[#66A9E9] hover:bg-[#4a8fd4] disabled:bg-gray-200 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95"
                         >
                           {sending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="h-5 w-5 text-white animate-spin" />
                           ) : (
-                            <>
-                              <Send className="h-4 w-4 mr-2" />
-                              Send
-                            </>
+                            <Send className="h-5 w-5 text-white" />
                           )}
-                        </Button>
+                        </button>
                       </form>
+                      <p className="text-xs text-gray-400 mt-1.5 pl-1">WhatsApp · {selectedConversation.wa_id}</p>
                     </div>
-                  </Card>
+                  </div>
                 )}
               </div>
             </div>
           </TabsContent>
         </Tabs>
+
+      <style>{`
+        @keyframes messageSlideUp {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes pulseBadge {
+          0%,
+          100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.6;
+          }
+        }
+
+        .message-animated {
+          animation: messageSlideUp 0.3s ease-out;
+        }
+
+        .pulse-badge {
+          animation: pulseBadge 2s infinite;
+        }
+
+        .inbox-messages-bg {
+          background: linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%);
+        }
+
+        .inbox-quick-replies-bg {
+          background: linear-gradient(135deg, #66A9E9 0%, #4a8fd4 100%);
+        }
+      `}</style>
+
       </div>
     </div>
   );
