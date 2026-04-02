@@ -25,6 +25,7 @@
   },
   "scripts": {
     "test:whatsapp-webhook": "node scripts/test-whatsapp-webhook.js",
-    "diagnose:meta-token": "node scripts/diagnose-meta-token.js"
+    "diagnose:meta-token": "node scripts/diagnose-meta-token.js",
+    "meta:me": "node scripts/get-meta-me.js"
   }
 }
