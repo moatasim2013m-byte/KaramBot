@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { 
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
-  Plus, Edit2, Trash2, X, Filter
+  Plus, Edit2, Trash2, X, Filter, ArrowLeft
 } from 'lucide-react';
 
 // Helper function for relative timestamps
@@ -70,10 +70,13 @@ export default function StaffPage() {
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [inboxSearch, setInboxSearch] = useState('');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [isMobileThreadOpen, setIsMobileThreadOpen] = useState(false);
   const [showQRManager, setShowQRManager] = useState(false);
   const [qrForm, setQrForm] = useState({ label: '', message: '', category: 'other' });
   const [qrEditId, setQrEditId] = useState(null);
   const [qrSaving, setQrSaving] = useState(false);
+  const selectedConversationRef = useRef(null);
+  const messageSnapshotRef = useRef('');
 
   // Check if user is staff or admin
   useEffect(() => {
@@ -230,9 +233,11 @@ export default function StaffPage() {
     }
   }, [api]);
 
-  const fetchConversations = useCallback(async () => {
+  const fetchConversations = useCallback(async ({ silent = false } = {}) => {
     try {
-      setInboxLoading(true);
+      if (!silent) {
+        setInboxLoading(true);
+      }
       const params = new URLSearchParams();
       if (inboxSearch) params.append('search', inboxSearch);
       if (showUnreadOnly) params.append('unread_only', 'true');
@@ -243,14 +248,21 @@ export default function StaffPage() {
       console.error('Failed to fetch conversations:', error);
       toast.error('فشل تحميل المحادثات');
     } finally {
-      setInboxLoading(false);
+      if (!silent) {
+        setInboxLoading(false);
+      }
     }
   }, [api, inboxSearch, showUnreadOnly]);
 
   const fetchMessages = useCallback(async (waId) => {
     try {
       const response = await api.get(`/staff/inbox/messages/${waId}`);
-      setMessages(response.data.messages || []);
+      const nextMessages = response.data.messages || [];
+      const nextSnapshot = nextMessages.map((msg) => `${msg.id}-${msg.status || ''}-${msg.timestamp}`).join('|');
+      if (nextSnapshot !== messageSnapshotRef.current) {
+        messageSnapshotRef.current = nextSnapshot;
+        setMessages(nextMessages);
+      }
     } catch (error) {
       console.error('Failed to fetch messages:', error);
       toast.error('فشل تحميل الرسائل');
@@ -277,8 +289,11 @@ export default function StaffPage() {
 
   const handleConversationSelect = (conv) => {
     setSelectedConversation(conv);
+    selectedConversationRef.current = conv;
     setMessages([]);
     setCustomerProfile(null);
+    messageSnapshotRef.current = '';
+    setIsMobileThreadOpen(true);
     fetchMessages(conv.wa_id);
     fetchCustomerProfile(conv.wa_id);
   };
@@ -368,6 +383,16 @@ export default function StaffPage() {
   };
 
   useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    if (activeTab !== 'inbox') {
+      setIsMobileThreadOpen(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
     if (activeTab === 'inbox') {
       fetchInboxStats();
       fetchConversations();
@@ -375,15 +400,15 @@ export default function StaffPage() {
       
       // Poll for new messages every 8 seconds
       const pollInterval = setInterval(() => {
-        fetchConversations();
-        if (selectedConversation) {
-          fetchMessages(selectedConversation.wa_id);
+        fetchConversations({ silent: true });
+        if (selectedConversationRef.current) {
+          fetchMessages(selectedConversationRef.current.wa_id);
         }
       }, 8000);
       
       return () => clearInterval(pollInterval);
     }
-  }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, selectedConversation, fetchMessages]);
+  }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, fetchMessages]);
 
   // ==================== END INBOX FUNCTIONS ====================
 
@@ -720,9 +745,9 @@ export default function StaffPage() {
 
           {/* Inbox Tab */}
           <TabsContent value="inbox">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-250px)]">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-auto lg:h-[calc(100vh-250px)]">
               {/* Conversations List */}
-              <div className="lg:col-span-1 flex flex-col">
+              <div className={`lg:col-span-1 flex flex-col ${isMobileThreadOpen ? 'hidden lg:flex' : ''}`}>
                 <div className="rounded-2xl border bg-white shadow-sm flex-1 flex flex-col overflow-hidden">
                   {/* Conversations Header */}
                   <div className="px-4 py-3 border-b bg-gradient-to-r from-[#66A9E9]/10 to-white flex items-center justify-between">
@@ -825,7 +850,7 @@ export default function StaffPage() {
               </div>
 
               {/* Message Thread */}
-              <div className="lg:col-span-2 flex flex-col">
+              <div className={`lg:col-span-2 flex flex-col ${isMobileThreadOpen ? 'flex' : 'hidden lg:flex'}`}>
                 {!selectedConversation ? (
                   <div className="rounded-2xl border bg-white shadow-sm flex-1 flex items-center justify-center">
                     <div className="text-center text-gray-400">
@@ -841,6 +866,13 @@ export default function StaffPage() {
                     {/* Chat Header */}
                     <div className="px-5 py-3 border-b bg-gradient-to-r from-[#66A9E9]/10 to-white flex items-center justify-between flex-shrink-0">
                       <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setIsMobileThreadOpen(false)}
+                          className="lg:hidden w-8 h-8 rounded-full hover:bg-[#66A9E9]/10 flex items-center justify-center"
+                          aria-label="Back to conversations"
+                        >
+                          <ArrowLeft className="h-4 w-4 text-[#66A9E9]" />
+                        </button>
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#66A9E9] to-[#4a8fd4] flex items-center justify-center text-white font-bold">
                           {(selectedConversation.profile_name || selectedConversation.wa_id).charAt(0).toUpperCase()}
                         </div>
