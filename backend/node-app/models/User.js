@@ -14,7 +14,43 @@ const userSchema = new mongoose.Schema({
   reset_token: { type: String },
   reset_token_expires: { type: Date },
   last_winback_at: { type: Date, default: null },
-  created_at: { type: Date, default: Date.now }
+  created_at: { type: Date, default: Date.now },
+  
+  // ========== WHATSAPP MARKETING CONSENT FIELDS ==========
+  
+  // WhatsApp marketing opt-in status (COMPLIANCE: Required for campaigns)
+  whatsapp_marketing_consent: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  
+  // Date when user provided consent
+  whatsapp_consent_date: {
+    type: Date,
+    default: null
+  },
+  
+  // Source of consent (for audit trail)
+  whatsapp_consent_source: {
+    type: String,
+    enum: ['booking_signup', 'form_submission', 'manual_opt_in', 'api', null],
+    default: null
+  },
+  
+  // Opt-out timestamp (null = opted in, date = opted out)
+  whatsapp_opted_out_at: {
+    type: Date,
+    default: null,
+    index: true
+  },
+  
+  // Last time user sent inbound WhatsApp message (for 24h window tracking)
+  last_inbound_whatsapp_time: {
+    type: Date,
+    default: null,
+    index: true
+  }
 });
 
 // Remove _id from JSON responses

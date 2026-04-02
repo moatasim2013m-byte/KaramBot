@@ -117,6 +117,50 @@ const whatsAppMessageSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
     index: true
+  },
+  
+  // ========== CAMPAIGN FIELDS (for marketing broadcasts) ==========
+  
+  // Campaign reference (null if not from campaign)
+  campaign_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Campaign',
+    default: null,
+    index: true
+  },
+  
+  // Broadcast reference (null if not from broadcast)
+  broadcast_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CampaignBroadcast',
+    default: null,
+    index: true
+  },
+  
+  // Template message flag
+  is_template_message: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  
+  // Meta template ID used (for template messages)
+  template_id: {
+    type: String,
+    default: null,
+    index: true
+  },
+  
+  // Actual variable values substituted in template
+  template_variables_used: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  
+  // Consent verification flag (for campaign messages)
+  consent_verified: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt
