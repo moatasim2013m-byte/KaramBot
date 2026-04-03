@@ -3,8 +3,6 @@
  * Fetches temporary download URLs for media stored as Meta media IDs
  */
 
-const { fetchMetaWithRetry } = require('./metaApiClient');
-
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
 
 const META_TIMEOUT_MS = 15000;
@@ -101,37 +99,26 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   }
 
   try {
-    const FormDataNode = require('form-data');
-    const form = new FormDataNode();
+    const form = new FormData();
 
     // Meta requires these three fields exactly as documented:
     // POST /PHONE_NUMBER_ID/media with messaging_product, type, and file
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
-    form.append('file', buffer, {
-      filename: filename || (mimeType === 'image/png' ? 'image.png' : 'image.jpg'),
-      contentType: mimeType,
-      knownLength: buffer.length
-    });
-
-    const formHeaders = form.getHeaders();
+    const finalFilename = filename || (mimeType === 'image/png' ? 'image.png' : 'image.jpg');
+    const fileBlob = new Blob([buffer], { type: mimeType });
+    form.append('file', fileBlob, finalFilename);
     const uploadUrl = `https://graph.facebook.com/v23.0/${phoneNumberId}/media`;
-
-    // Use Node's built-in fetch with the form-data stream
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
-
     const response = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...formHeaders
+        Authorization: `Bearer ${accessToken}`
       },
       body: form,
-      signal: controller.signal,
-      duplex: 'half'
+      signal: controller.signal
     });
-
     clearTimeout(timeout);
     const responseText = await response.text();
 
