@@ -23,9 +23,9 @@ const uploadMemory = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png'];
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Only JPEG and PNG images are allowed'));
+    else cb(new Error('يجب أن تكون الصورة من نوع JPEG أو PNG أو WebP'));
   }
 });
 
