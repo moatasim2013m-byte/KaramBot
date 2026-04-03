@@ -21,9 +21,9 @@ const uploadMemory = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowed = ['image/jpeg', 'image/png'];
     if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Only JPEG, PNG and WebP images are allowed'));
+    else cb(new Error('Only JPEG and PNG images are allowed'));
   }
 });
 
@@ -669,7 +669,8 @@ router.post('/send-image', (req, res) => {
       );
 
       if (!uploadResult.ok) {
-        return res.status(502).json({ error: 'Failed to upload image to Meta', details: uploadResult.error });
+        const statusCode = uploadResult.statusCode === 400 ? 400 : 502;
+        return res.status(statusCode).json({ error: 'Failed to upload image to Meta', details: uploadResult.error });
       }
 
       const mediaId = uploadResult.mediaId;

@@ -375,6 +375,14 @@ export default function StaffPage() {
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('يسمح فقط بصور JPEG و PNG');
+      if (imageInputRef.current) imageInputRef.current.value = '';
+      return;
+    }
+
     setImageFile(file);
     const url = URL.createObjectURL(file);
     setImagePreview(url);
@@ -398,7 +406,8 @@ export default function StaffPage() {
       if (imageInputRef.current) imageInputRef.current.value = '';
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل إرسال الصورة');
+      const metaError = error.response?.data?.details || error.response?.data?.error;
+      toast.error(metaError ? `فشل تحميل الصورة: ${metaError}` : 'فشل إرسال الصورة');
     } finally { setSendingImage(false); }
   };
 
@@ -1132,7 +1141,7 @@ export default function StaffPage() {
                         <input
                           ref={imageInputRef}
                           type="file"
-                          accept="image/jpeg,image/png,image/webp"
+                          accept="image/jpeg,image/png"
                           className="hidden"
                           onChange={handleImageSelect}
                         />
