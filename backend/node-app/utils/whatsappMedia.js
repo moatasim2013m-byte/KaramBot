@@ -71,6 +71,15 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
 
+  const allowedTypes = ['image/jpeg', 'image/png'];
+  if (!allowedTypes.includes(mimeType)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: `Unsupported image type: ${mimeType}. Only JPEG and PNG allowed.`
+    };
+  }
+
   try {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
@@ -96,13 +105,13 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
 
     const responseText = await response.text();
     if (!response.ok) {
-      return { ok: false, error: responseText.slice(0, 200) };
+      return { ok: false, statusCode: response.status, error: responseText.slice(0, 200) };
     }
 
     const data = JSON.parse(responseText);
     return { ok: true, mediaId: data.id };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, statusCode: 500, error: err.message };
   }
 }
 
