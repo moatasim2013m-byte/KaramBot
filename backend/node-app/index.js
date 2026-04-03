@@ -1,5 +1,6 @@
 require('dotenv').config();
 const crypto = require('crypto');
+const { logger, pinoHttpMiddleware, writeCloudError } = require('./utils/logger');
 const initialEnvPresence = {
   MONGO_URL: Boolean(process.env.MONGO_URL),
   JWT_SECRET: Boolean(process.env.JWT_SECRET),
@@ -13,26 +14,19 @@ const initialEnvPresence = {
 
 
 // ==================== BOOT DIAGNOSTICS ====================
-console.log("[BOOT] node:", process.version);
-console.log("[BOOT] env:", process.env.NODE_ENV || "undefined");
-console.log("[BOOT] port:", process.env.PORT || "undefined");
-console.log("[BOOT] env_present:", initialEnvPresence);
+logger.info({ event: 'boot', node: process.version }, 'Boot diagnostics');
+logger.info({ event: 'boot_env', env: process.env.NODE_ENV || 'undefined', port: process.env.PORT || 'undefined' }, 'Environment');
+logger.info({ event: 'boot_env_presence', env_present: initialEnvPresence }, 'Env presence');
 
 // ==================== PROCESS ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
-  reportError({
-    message: '[UNHANDLED_REJECTION]',
-    error: reason instanceof Error ? reason : new Error(String(reason)),
-    context: { event: 'unhandled_rejection' }
-  });
+  logger.error({ event: 'unhandled_rejection', reason: reason?.message || reason, stack: reason?.stack || 'no stack' }, 'Unhandled rejection');
+  writeCloudError({ event: 'unhandled_rejection', reason: reason?.message || reason, stack: reason?.stack || 'no stack' });
 });
 
 process.on('uncaughtException', (err) => {
-  reportError({
-    message: '[UNCAUGHT_EXCEPTION]',
-    error: err,
-    context: { event: 'uncaught_exception' }
-  });
+  logger.fatal({ event: 'uncaught_exception', error: err.message, stack: err.stack }, 'Uncaught exception');
+  writeCloudError({ event: 'uncaught_exception', error: err.message, stack: err.stack });
 });
 
 if (!process.env.RESEND_API_KEY) {
@@ -66,6 +60,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Request-Id', id);
   return next();
 });
+app.use(pinoHttpMiddleware);
 
 const allowedOrigins =
   process.env.CORS_ORIGINS === '*'
@@ -283,21 +278,19 @@ if (frontendBuildPath && fs.existsSync(indexHtmlPath)) {
 
 // ==================== GLOBAL ERROR HANDLER ====================
 app.use((err, req, res, next) => {
-  const rid = (req && req.req_id) ? req.req_id : 'no_req_id';
-  reportError({
-    message: 'API request failed',
-    error: err,
-    context: {
-      event: 'api_error',
-      requestId: rid,
-      method: req?.method,
-      path: req?.originalUrl,
-      wa_id: req?.body?.wa_id,
-      mimeType: req?.file?.mimetype,
-      metaError: err?.response?.data || null
-    }
-  });
-  res.status(err.status || 500).json({ error: 'حدث خطأ في الخادم', req_id: rid, details: err.message });
+  const rid = (req && req.req_id) ? req.req_id : "no_req_id";
+  const payload = {
+    event: err.event || 'global_error',
+    req_id: rid,
+    wa_id: err.wa_id,
+    mimeType: err.mimeType,
+    metaError: err.metaError || err.message || String(err),
+    statusCode: err.status || 500,
+    stack: err.stack
+  };
+  logger.error(payload, 'Global error handler');
+  writeCloudError(payload);
+  res.status(err.status || 500).json({ error: 'حدث خطأ في الخادم', req_id: rid });
 });
 
 // ==================== ENV VALIDATION (before server start) ====================
