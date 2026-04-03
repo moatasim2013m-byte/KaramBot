@@ -101,6 +101,9 @@ export default function StaffPage() {
   const [pausingId, setPausingId] = useState(null);
   const [expandedCampaignId, setExpandedCampaignId] = useState(null);
   const [campaignStats, setCampaignStats] = useState({});
+  const [campaignRecipients, setCampaignRecipients] = useState({});
+  const [loadingRecipientsId, setLoadingRecipientsId] = useState(null);
+  const [removingRecipientKey, setRemovingRecipientKey] = useState('');
   const [audiencePreview, setAudiencePreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [savingLabel, setSavingLabel] = useState(false);
@@ -652,10 +655,37 @@ export default function StaffPage() {
   const handleToggleCampaignStats = async (id) => {
     if (expandedCampaignId === id) { setExpandedCampaignId(null); return; }
     setExpandedCampaignId(id);
+    setLoadingRecipientsId(id);
     try {
-      const response = await api.get(`/staff/campaigns/${id}/stats`);
-      setCampaignStats(prev => ({ ...prev, [id]: response.data.stats }));
+      const [statsResponse, recipientsResponse] = await Promise.all([
+        api.get(`/staff/campaigns/${id}/stats`),
+        api.get(`/staff/campaigns/${id}/recipients`)
+      ]);
+      setCampaignStats(prev => ({ ...prev, [id]: statsResponse.data.stats }));
+      setCampaignRecipients(prev => ({
+        ...prev,
+        [id]: recipientsResponse.data
+      }));
     } catch (error) { console.error('Failed to fetch campaign stats:', error); }
+    finally { setLoadingRecipientsId(null); }
+  };
+
+  const handleRemoveRecipientFromCampaign = async (campaignId, waId) => {
+    const key = `${campaignId}:${waId}`;
+    setRemovingRecipientKey(key);
+    try {
+      await api.delete(`/staff/campaigns/${campaignId}/recipients/${encodeURIComponent(waId)}`);
+      toast.success('تم استبعاد الرقم من الحملة');
+      const recipientsResponse = await api.get(`/staff/campaigns/${campaignId}/recipients`);
+      setCampaignRecipients(prev => ({
+        ...prev,
+        [campaignId]: recipientsResponse.data
+      }));
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'تعذر استبعاد الرقم من الحملة');
+    } finally {
+      setRemovingRecipientKey('');
+    }
   };
 
   useEffect(() => {
@@ -1498,21 +1528,71 @@ export default function StaffPage() {
                           </Button>
                         </div>
                         {expandedCampaignId === campaign.id && (
-                          <div className="grid grid-cols-4 gap-2 pt-2 border-t">
-                            {(() => {
-                              const s = campaignStats[campaign.id] || campaign.live_stats || { sent: 0, delivered: 0, read: 0, failed: 0 };
-                              return [
-                                { label: 'تم الإرسال', value: s.sent, color: 'text-blue-600' },
-                                { label: 'وصلت', value: s.delivered, color: 'text-green-600' },
-                                { label: 'قُرئت', value: s.read, color: 'text-primary' },
-                                { label: 'فشلت', value: s.failed, color: 'text-red-500' }
-                              ].map(stat => (
-                                <div key={stat.label} className="text-center bg-muted/50 rounded-xl py-2">
-                                  <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
-                                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                          <div className="space-y-3 pt-2 border-t">
+                            <div className="grid grid-cols-4 gap-2">
+                              {(() => {
+                                const s = campaignStats[campaign.id] || campaign.live_stats || { sent: 0, delivered: 0, read: 0, failed: 0 };
+                                return [
+                                  { label: 'تم الإرسال', value: s.sent, color: 'text-blue-600' },
+                                  { label: 'وصلت', value: s.delivered, color: 'text-green-600' },
+                                  { label: 'قُرئت', value: s.read, color: 'text-primary' },
+                                  { label: 'فشلت', value: s.failed, color: 'text-red-500' }
+                                ].map(stat => (
+                                  <div key={stat.label} className="text-center bg-muted/50 rounded-xl py-2">
+                                    <p className={`text-xl font-bold ${stat.color}`}>{stat.value}</p>
+                                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+
+                            <div className="bg-muted/30 rounded-xl p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-semibold">قائمة جمهور الحملة</p>
+                                {campaignRecipients[campaign.id] && (
+                                  <p className="text-xs text-muted-foreground">
+                                    الإجمالي: {campaignRecipients[campaign.id].recipient_count} · المستبعد: {campaignRecipients[campaign.id].excluded_count}
+                                  </p>
+                                )}
+                              </div>
+
+                              {loadingRecipientsId === campaign.id ? (
+                                <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-primary" /></div>
+                              ) : (
+                                <div className="space-y-1 max-h-56 overflow-y-auto">
+                                  {(campaignRecipients[campaign.id]?.recipients || []).length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">لا يوجد مستلمون مطابقون حالياً.</p>
+                                  ) : (
+                                    (campaignRecipients[campaign.id]?.recipients || []).map((recipient) => (
+                                      <div key={recipient.wa_id} className="flex items-center justify-between bg-white rounded-lg px-2 py-1.5 border">
+                                        <div>
+                                          <p className="text-xs font-medium">{recipient.profile_name || 'بدون اسم'}</p>
+                                          <p className="text-[11px] text-muted-foreground">{recipient.wa_id}</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          {recipient.excluded ? (
+                                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 text-red-700">مستبعد</span>
+                                          ) : (
+                                            (campaign.status === 'draft' || campaign.status === 'paused') && (
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="rounded-full h-7 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                                                onClick={() => handleRemoveRecipientFromCampaign(campaign.id, recipient.wa_id)}
+                                                disabled={removingRecipientKey === `${campaign.id}:${recipient.wa_id}`}
+                                              >
+                                                {removingRecipientKey === `${campaign.id}:${recipient.wa_id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                                استبعاد
+                                              </Button>
+                                            )
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
                                 </div>
-                              ));
-                            })()}
+                              )}
+                            </div>
                           </div>
                         )}
                       </CardContent>

@@ -99,8 +99,19 @@ async function buildAudience(audienceFilters) {
   const optedOutSet = new Set(optedOutUsers.map(u => String(u.phone)));
 
   return contacts
-    .map(c => normalizePhoneForWhatsApp(c._id))
-    .filter(waId => waId && !optedOutSet.has(waId));
+    .map(c => ({
+      wa_id: normalizePhoneForWhatsApp(c._id),
+      profile_name: c.profile_name || '',
+      linked_user_id: c.linked_user_id || null,
+      last_inbound_at: c.last_inbound_at || null
+    }))
+    .filter(c => c.wa_id && !optedOutSet.has(c.wa_id));
+}
+
+function getExcludedWaIds(campaign) {
+  const excluded = campaign?.metadata?.excluded_wa_ids;
+  if (!Array.isArray(excluded)) return [];
+  return excluded.map(waId => normalizePhoneForWhatsApp(waId)).filter(Boolean);
 }
 
 // POST / — create campaign
@@ -221,6 +232,58 @@ router.get('/preview', async (req, res) => {
   }
 });
 
+// GET /:id/recipients — list campaign audience with exclusion flags
+router.get('/:id/recipients', async (req, res) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id).lean();
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    const recipients = await buildAudience(campaign.metadata?.audience_filters || {});
+    const excludedSet = new Set(getExcludedWaIds(campaign));
+
+    const result = recipients.map(recipient => ({
+      ...recipient,
+      excluded: excludedSet.has(recipient.wa_id)
+    }));
+
+    res.json({
+      campaign_id: req.params.id,
+      recipient_count: result.length,
+      excluded_count: result.filter(r => r.excluded).length,
+      recipients: result
+    });
+  } catch (error) {
+    console.error('Campaign recipients list error:', error);
+    res.status(500).json({ error: 'Failed to list campaign recipients' });
+  }
+});
+
+// DELETE /:id/recipients/:waId — exclude one recipient from campaign
+router.delete('/:id/recipients/:waId', async (req, res) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+    if (!['draft', 'paused'].includes(campaign.status)) {
+      return res.status(400).json({ error: 'Can only remove recipients for draft or paused campaigns' });
+    }
+
+    const waId = normalizePhoneForWhatsApp(req.params.waId);
+    if (!waId) return res.status(400).json({ error: 'Invalid WhatsApp number' });
+
+    campaign.metadata = campaign.metadata || {};
+    const existing = new Set(getExcludedWaIds(campaign));
+    existing.add(waId);
+    campaign.metadata.excluded_wa_ids = Array.from(existing);
+    campaign.markModified('metadata');
+    await campaign.save();
+
+    res.json({ success: true, campaign_id: req.params.id, excluded_wa_ids: campaign.metadata.excluded_wa_ids });
+  } catch (error) {
+    console.error('Campaign recipient exclusion error:', error);
+    res.status(500).json({ error: 'Failed to remove recipient from campaign' });
+  }
+});
+
 // GET /:id — single campaign
 router.get('/:id', async (req, res) => {
   try {
@@ -254,7 +317,9 @@ router.post('/:id/execute', async (req, res) => {
       return res.status(400).json({ error: 'Campaign already executed or running' });
 
     const audienceFilters = campaign.metadata?.audience_filters || {};
-    const recipients = await buildAudience(audienceFilters);
+    const allRecipients = await buildAudience(audienceFilters);
+    const excludedSet = new Set(getExcludedWaIds(campaign));
+    const recipients = allRecipients.map(r => r.wa_id).filter(waId => !excludedSet.has(waId));
     if (recipients.length === 0)
       return res.status(400).json({ error: 'No valid recipients found for this campaign' });
 
