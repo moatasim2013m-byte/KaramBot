@@ -16,6 +16,10 @@ const { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta } = require('../ut
 const TemplateDefinition = require('../models/TemplateDefinition');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
 const multer = require('multer');
+const rateLimit = require('express-rate-limit');
+const { fetchMetaWithRetry } = require('../utils/metaApiClient');
+const { logger } = require('../utils/logger');
+const { inboxEvents, emitInboxUpdate } = require('../utils/inboxEvents');
 
 const uploadMemory = multer({
   storage: multer.memoryStorage(),
@@ -28,9 +32,36 @@ const uploadMemory = multer({
 });
 
 const router = express.Router();
+const sendLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many send attempts. Please retry in 1 minute.' }
+});
 
 // Apply staff middleware to all routes
 router.use(authMiddleware, staffMiddleware);
+router.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const onUpdate = (payload) => {
+    res.write(`event: inbox-update\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const heartbeat = setInterval(() => {
+    res.write(`event: heartbeat\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
+  }, 25000);
+
+  inboxEvents.on('inbox:update', onUpdate);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    inboxEvents.removeListener('inbox:update', onUpdate);
+  });
+});
 
 // ==================== CONVERSATIONS ====================
 
@@ -293,7 +324,7 @@ router.get('/customer-profile/:wa_id', async (req, res) => {
 // ==================== SEND MESSAGE ====================
 
 // Send message to contact
-router.post('/send', async (req, res) => {
+router.post('/send', sendLimiter, async (req, res) => {
   try {
     const { wa_id, message } = req.body;
     
@@ -354,8 +385,9 @@ router.post('/send', async (req, res) => {
       message: 'Message sent successfully',
       message_id: result.messageId
     });
+    emitInboxUpdate(wa_id, 'staff_text_send');
   } catch (error) {
-    console.error('Send message error:', error);
+    logger.error({ event: 'staff_send_text_error', wa_id: req.body?.wa_id, error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to send message' });
   }
 });
@@ -525,7 +557,7 @@ router.post('/contact-label', async (req, res) => {
 });
 
 // POST /start-conversation — initiate outbound message to a new number
-router.post('/start-conversation', async (req, res) => {
+router.post('/start-conversation', sendLimiter, async (req, res) => {
   try {
     const { wa_id, message } = req.body;
     if (!wa_id || !message) {
@@ -550,8 +582,9 @@ router.post('/start-conversation', async (req, res) => {
       });
     }
     res.json({ success: true, wa_id: normalizedWaId, message_id: result.messageId });
+    emitInboxUpdate(normalizedWaId, 'staff_start_conversation');
   } catch (error) {
-    console.error('Start conversation error:', error);
+    logger.error({ event: 'staff_start_conversation_error', wa_id: req.body?.wa_id, error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to start conversation' });
   }
 });
@@ -585,7 +618,7 @@ router.get('/media/:mediaId', async (req, res) => {
 });
 
 // POST /send-template — send an approved template to a contact
-router.post('/send-template', async (req, res) => {
+router.post('/send-template', sendLimiter, async (req, res) => {
   try {
     const { wa_id, template_name, language_code, components } = req.body;
     if (!wa_id || !template_name) {
@@ -638,14 +671,15 @@ router.post('/send-template', async (req, res) => {
     }
 
     res.json({ success: true, message_id: result.messageId });
+    emitInboxUpdate(wa_id, 'staff_template_send');
   } catch (error) {
-    console.error('Send template error:', error);
+    logger.error({ event: 'staff_send_template_error', wa_id: req.body?.wa_id, template_name: req.body?.template_name, error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to send template' });
   }
 });
 
 // POST /send-image — staff sends an image to a contact
-router.post('/send-image', (req, res) => {
+router.post('/send-image', sendLimiter, (req, res) => {
   uploadMemory.single('image')(req, res, async (uploadErr) => {
     if (uploadErr) {
       return res.status(400).json({ error: uploadErr.message || 'Upload failed' });
@@ -678,10 +712,7 @@ router.post('/send-image', (req, res) => {
       const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
 
       // Step 2: send image message via WhatsApp API
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-
-      const sendResponse = await fetch(
+      const sendResponse = await fetchMetaWithRetry(
         `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
         {
           method: 'POST',
@@ -698,13 +729,12 @@ router.post('/send-image', (req, res) => {
               id: mediaId,
               caption: caption || ''
             }
-          }),
-          signal: controller.signal
-        }
+          })
+        },
+        { event: 'wa_image_send', wa_id: normalizedWaId, mimeType: req.file.mimetype }
       );
-      clearTimeout(timeout);
 
-      const sendText = await sendResponse.text();
+      const sendText = sendResponse.text || '';
       if (!sendResponse.ok) {
         return res.status(502).json({ error: 'Failed to send image', details: sendText.slice(0, 200) });
       }
@@ -734,9 +764,17 @@ router.post('/send-image', (req, res) => {
       }
 
       res.json({ success: true, message_id: messageId, media_id: mediaId });
+      emitInboxUpdate(wa_id, 'staff_image_send');
     } catch (error) {
-      console.error('Send image error:', error);
-      res.status(500).json({ error: 'Failed to send image' });
+      logger.error({
+        event: 'staff_send_image_error',
+        wa_id,
+        mimeType: req.file?.mimetype,
+        metaError: error?.response?.data || null,
+        error: error.message,
+        stack: error.stack
+      });
+      res.status(500).json({ error: 'Failed to send image', details: error.message });
     }
   });
 });

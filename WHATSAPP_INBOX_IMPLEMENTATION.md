@@ -18,6 +18,14 @@ The Peekaboo backend retains full ownership and control of:
 
 ## 📋 IMPLEMENTATION SUMMARY
 
+### **April 3, 2026 Hardening Patch**
+
+- Staff image uploads are now restricted end-to-end to `image/jpeg` and `image/png` only (frontend picker + backend MIME validation + explicit API error details).
+- Inbox realtime updates now use **Server-Sent Events** via `GET /api/staff/inbox/events` instead of aggressive 8-second polling on conversations/stats/messages.
+- Meta API calls for text/template/image now use timeout + retry (exponential backoff for 429/5xx) through `utils/metaApiClient.js`.
+- Added structured logging utilities (`utils/logger.js`) and wired global/process-level error reporting to improve Cloud Run error visibility.
+- Added rate limiting for send endpoints (`/send`, `/send-image`, `/send-template`, `/start-conversation`) to protect WhatsApp quota usage.
+
 ### **Phase 1: Database Models**
 
 #### WhatsAppMessage Model

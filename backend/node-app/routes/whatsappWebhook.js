@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
 const User = require('../models/User');
+const { emitInboxUpdate } = require('../utils/inboxEvents');
 
 const router = express.Router();
 
@@ -185,6 +186,7 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       messageType,
       linkedUser: Boolean(linkedUserId)
     });
+    emitInboxUpdate(senderWaId, 'inbound_message');
   } catch (error) {
     if (error?.code === 11000) {
       console.log('WHATSAPP_MESSAGE_DUPLICATE_SKIPPED', { messageId: message?.id });
@@ -218,6 +220,7 @@ const updateMessageStatus = async (statusUpdate) => {
     );
     
     console.log('WHATSAPP_MESSAGE_STATUS_UPDATED', { messageId, status });
+    emitInboxUpdate(null, 'status_update');
   } catch (error) {
     console.error('WHATSAPP_MESSAGE_STATUS_UPDATE_ERROR', {
       error: error.message,

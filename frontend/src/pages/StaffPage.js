@@ -8,13 +8,24 @@ import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { 
+import {
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
   PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
   Image as ImageIcon
 } from 'lucide-react';
+
+const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
+  error?.response?.data?.details ||
+  error?.response?.data?.error ||
+  error?.message ||
+  fallback;
+const getMediaSrc = (mediaUrl) => {
+  if (!mediaUrl) return '';
+  if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl;
+  return `/api/staff/inbox/media/${mediaUrl}`;
+};
 
 const getRelativeTime = (timestamp) => {
   const now = new Date();
@@ -105,6 +116,7 @@ export default function StaffPage() {
   const [imagePreview, setImagePreview] = useState(null);
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef(null);
+  const inboxEventsRef = useRef(null);
 
   useEffect(() => {
     if (user && user.role !== 'staff' && user.role !== 'admin') navigate('/');
@@ -218,7 +230,7 @@ export default function StaffPage() {
       setConversations(response.data.conversations || []);
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
-      toast.error('فشل تحميل المحادثات');
+      toast.error(getApiErrorMessage(error, 'فشل تحميل المحادثات'));
     } finally { if (isInitialLoad) setInboxLoading(false); }
   }, [api, inboxSearch, showUnreadOnly]);
 
@@ -228,7 +240,7 @@ export default function StaffPage() {
       setMessages(response.data.messages || []);
     } catch (error) {
       console.error('Failed to fetch messages:', error);
-      toast.error('فشل تحميل الرسائل');
+      toast.error(getApiErrorMessage(error, 'فشل تحميل الرسائل'));
     }
   }, [api]);
 
@@ -275,7 +287,7 @@ export default function StaffPage() {
       await fetchInboxStats();
     } catch (error) {
       console.error('Failed to send message:', error);
-      toast.error('فشل إرسال الرسالة');
+      toast.error(getApiErrorMessage(error, 'فشل إرسال الرسالة'));
     } finally { setSending(false); }
   };
 
@@ -298,7 +310,7 @@ export default function StaffPage() {
       setQrEditId(null);
       toast.success('تم حفظ الرد السريع');
     } catch (error) {
-      toast.error('فشل حفظ الرد السريع');
+      toast.error(getApiErrorMessage(error, 'فشل حفظ الرد السريع'));
     } finally { setQrSaving(false); }
   };
 
@@ -313,7 +325,7 @@ export default function StaffPage() {
       await api.delete(`/staff/inbox/quick-replies/${id}`);
       await fetchQuickReplies();
       toast.success('تم حذف الرد السريع');
-    } catch (error) { toast.error('فشل حذف الرد السريع'); }
+    } catch (error) { toast.error(getApiErrorMessage(error, 'فشل حذف الرد السريع')); }
   };
 
   const handleSaveLabel = async () => {
@@ -328,7 +340,7 @@ export default function StaffPage() {
       setLabelInput('');
       await fetchConversations(false);
     } catch (error) {
-      toast.error('فشل حفظ الاسم');
+      toast.error(getApiErrorMessage(error, 'فشل حفظ الاسم'));
     } finally {
       setSavingLabel(false);
     }
@@ -348,7 +360,7 @@ export default function StaffPage() {
       setShowNewChat(false);
       await fetchConversations(false);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل بدء المحادثة');
+      toast.error(getApiErrorMessage(error, 'فشل بدء المحادثة'));
     } finally {
       setStartingChat(false);
     }
@@ -368,21 +380,18 @@ export default function StaffPage() {
       setShowTemplatePicker(false);
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل إرسال القالب');
+      toast.error(getApiErrorMessage(error, 'فشل إرسال القالب'));
     } finally { setSendingTemplate(false); }
   };
 
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const allowedTypes = ['image/jpeg', 'image/png'];
-    if (!allowedTypes.includes(file.type)) {
-      toast.error('يسمح فقط بصور JPEG و PNG');
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      toast.error('يسمح فقط بصور JPG أو PNG');
       if (imageInputRef.current) imageInputRef.current.value = '';
       return;
     }
-
     setImageFile(file);
     const url = URL.createObjectURL(file);
     setImagePreview(url);
@@ -406,8 +415,7 @@ export default function StaffPage() {
       if (imageInputRef.current) imageInputRef.current.value = '';
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      const metaError = error.response?.data?.details || error.response?.data?.error;
-      toast.error(metaError ? `فشل تحميل الصورة: ${metaError}` : 'فشل إرسال الصورة');
+      toast.error(getApiErrorMessage(error, 'فشل إرسال الصورة'));
     } finally { setSendingImage(false); }
   };
 
@@ -421,12 +429,20 @@ export default function StaffPage() {
       fetchConversations(true);
       fetchQuickReplies();
       fetchTemplates();
-      const pollInterval = setInterval(() => {
+      const eventSource = new EventSource('/api/staff/inbox/events', { withCredentials: true });
+      inboxEventsRef.current = eventSource;
+      eventSource.addEventListener('inbox-update', () => {
         fetchConversations();
         fetchInboxStats();
         if (selectedConversation) fetchMessages(selectedConversation.wa_id);
-      }, 8000);
-      return () => clearInterval(pollInterval);
+      });
+      eventSource.onerror = () => {
+        toast.error('انقطع البث المباشر. سيتم إعادة المحاولة تلقائياً');
+      };
+      return () => {
+        eventSource.close();
+        inboxEventsRef.current = null;
+      };
     }
   }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, fetchTemplates, selectedConversation, fetchMessages]);
 
@@ -900,10 +916,10 @@ export default function StaffPage() {
                               ) : msg.message_type === 'image' && msg.media_url ? (
                                 <div className="space-y-1">
                                   <img
-                                    src={`/api/staff/inbox/media/${msg.media_url}`}
+                                    src={getMediaSrc(msg.media_url)}
                                     alt="صورة"
                                     className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
-                                    onClick={() => window.open(`/api/staff/inbox/media/${msg.media_url}`, '_blank')}
+                                    onClick={() => window.open(getMediaSrc(msg.media_url), '_blank')}
                                     onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
                                   />
                                   <p className="text-xs italic opacity-70 hidden">📷 صورة</p>
@@ -912,17 +928,17 @@ export default function StaffPage() {
                               ) : msg.message_type === 'video' && msg.media_url ? (
                                 <div className="space-y-1">
                                   <video
-                                    src={`/api/staff/inbox/media/${msg.media_url}`}
+                                    src={getMediaSrc(msg.media_url)}
                                     controls
                                     className="max-w-[220px] rounded-xl"
                                   />
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
                               ) : msg.message_type === 'audio' && msg.media_url ? (
-                                <audio src={`/api/staff/inbox/media/${msg.media_url}`} controls className="max-w-[220px]" />
+                                <audio src={getMediaSrc(msg.media_url)} controls className="max-w-[220px]" />
                               ) : msg.message_type === 'document' && msg.media_url ? (
                                 <a
-                                  href={`/api/staff/inbox/media/${msg.media_url}`}
+                                  href={getMediaSrc(msg.media_url)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="flex items-center gap-2 text-sm underline"
@@ -931,7 +947,7 @@ export default function StaffPage() {
                                 </a>
                               ) : msg.message_type === 'sticker' && msg.media_url ? (
                                 <img
-                                  src={`/api/staff/inbox/media/${msg.media_url}`}
+                                  src={getMediaSrc(msg.media_url)}
                                   alt="ملصق"
                                   className="max-w-[100px]"
                                 />

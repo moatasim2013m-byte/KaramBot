@@ -1,4 +1,6 @@
 const DEFAULT_TIMEOUT_MS = 10000;
+const { fetchMetaWithRetry } = require('./metaApiClient');
+const { logger } = require('./logger');
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
@@ -96,11 +98,8 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
   }
 
   const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetchMetaWithRetry(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -111,15 +110,16 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
         to,
         type: 'text',
         text: { body: messageBody }
-      }),
-      signal: controller.signal
-    });
+      })
+    }, { event: 'wa_text_send', wa_id: to, timeoutMs: DEFAULT_TIMEOUT_MS });
 
-    const responseText = await response.text();
+    const responseText = response.text || '';
     if (!response.ok) {
-      console.error('WHATSAPP_API_ERROR', {
+      logger.error({
+        event: 'wa_text_send_error',
+        wa_id: to,
         status: response.status,
-        response: responseText.slice(0, 500)
+        metaError: responseText.slice(0, 500)
       });
       return { ok: false, status: response.status, responseText: responseText.slice(0, 500) };
     }
@@ -130,7 +130,7 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
       responseData = JSON.parse(responseText);
       messageId = responseData?.messages?.[0]?.id;
     } catch (e) {
-      console.error('Failed to parse WhatsApp API response:', e);
+      logger.error({ event: 'wa_text_parse_error', wa_id: to, error: e.message });
     }
 
     if (staffId && messageId) {
@@ -148,19 +148,14 @@ const postWhatsAppText = async ({ to, messageBody, staffId }) => {
           timestamp: new Date()
         });
       } catch (dbError) {
-        console.error('Failed to persist outbound message:', dbError);
+        logger.error({ event: 'wa_text_persist_error', wa_id: to, error: dbError.message });
       }
     }
 
     return { ok: true, messageId };
   } catch (error) {
-    console.error('WHATSAPP_SEND_ERROR', {
-      error: error.message,
-      to
-    });
+    logger.error({ event: 'wa_text_send_exception', error: error.message, wa_id: to, stack: error.stack });
     return { ok: false, error: error.message };
-  } finally {
-    clearTimeout(timeout);
   }
 };
 
@@ -185,11 +180,8 @@ const markWhatsAppMessageRead = async (inboundMessageId) => {
   }
 
   const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetchMetaWithRetry(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -200,23 +192,22 @@ const markWhatsAppMessageRead = async (inboundMessageId) => {
         status: 'read',
         message_id: inboundMessageId,
         typing_indicator: { type: 'text' }
-      }),
-      signal: controller.signal
-    });
+      })
+    }, { event: 'wa_mark_read', message_id: inboundMessageId });
 
     if (!response.ok) {
-      console.error('WHATSAPP_MARK_READ_ERROR', {
+      logger.error({
+        event: 'wa_mark_read_error',
         status: response.status,
         message_id: inboundMessageId
       });
     }
   } catch (error) {
-    console.error('WHATSAPP_MARK_READ_ERROR', {
+    logger.error({
+      event: 'wa_mark_read_exception',
       error: error.message,
       message_id: inboundMessageId
     });
-  } finally {
-    clearTimeout(timeout);
   }
 };
 
