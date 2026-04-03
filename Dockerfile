@@ -21,7 +21,10 @@ RUN cd frontend && npm run build
 
 # --- 2. BACKEND SETUP ---
 COPY backend/node-app/package*.json ./backend/node-app/
-RUN cd backend/node-app && npm ci --omit=dev
+# Prefer deterministic installs from lockfile. If lockfile and package.json are
+# temporarily out of sync, fall back to npm install so image builds are not
+# blocked; a follow-up commit should refresh package-lock.json.
+RUN cd backend/node-app && (npm ci --omit=dev || npm install --omit=dev)
 COPY backend/ ./backend/
 
 # --- 3. STARTUP ---
