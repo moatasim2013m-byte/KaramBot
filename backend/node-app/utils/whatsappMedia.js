@@ -99,38 +99,41 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
     return {
       ok: false,
-      error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed by Staff Inbox.`
+      error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed.`
     };
   }
 
   try {
-    const form = new FormData();
+    const FormDataNode = require('form-data');
+    const form = new FormDataNode();
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
-    form.append(
-      'file',
-      new Blob([buffer], { type: mimeType }),
-      filename || 'image.jpg'
-    );
-
-    const response = await metaFetchWithRetry(`https://graph.facebook.com/v23.0/${phoneNumberId}/media`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        ...form.getHeaders()
-      },
-      body: form
+    form.append('file', buffer, {
+      filename: filename || 'image.jpg',
+      contentType: mimeType
     });
+
+    const response = await metaFetchWithRetry(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...form.getHeaders()
+        },
+        body: form
+      }
+    );
 
     const responseText = await response.text();
     if (!response.ok) {
       return { ok: false, error: responseText.slice(0, 200), status: response.status };
     }
 
-    const data = JSON.parse(result.text || '{}');
+    const data = JSON.parse(responseText);
     return { ok: true, mediaId: data.id };
   } catch (err) {
-    return { ok: false, statusCode: 500, error: err.message };
+    return { ok: false, error: err.message, statusCode: 500 };
   }
 }
 
