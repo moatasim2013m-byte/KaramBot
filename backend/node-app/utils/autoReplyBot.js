@@ -86,7 +86,7 @@ const buildLocationText = async () => {
 const buildDaycareText = async () => {
   try {
     const plans = await SubscriptionPlan.find({ is_active: true }).sort({ price: 1 }).lean();
-    if (!plans.length) throw new Error('empty');
+    if (!plans.length) throw new Error('No active daycare plans found');
 
     const lines = plans.map((p) => {
       const nameDisplay = p.name_ar || p.name;
@@ -99,7 +99,8 @@ const buildDaycareText = async () => {
     });
 
     return lines.join('\n');
-  } catch (_) {
+  } catch (err) {
+    console.error('buildDaycareText error:', err.message);
     return '• نصف يوم: 149 د.أ (6 ساعات)\n• يوم كامل: 199 د.أ (12 ساعة)';
   }
 };
@@ -107,7 +108,7 @@ const buildDaycareText = async () => {
 const buildBirthdayText = async () => {
   try {
     const packages = await Theme.find({ package_type: 'birthday', is_active: true }).sort({ price: 1 }).lean();
-    if (!packages.length) throw new Error('empty');
+    if (!packages.length) throw new Error('No active birthday packages found');
 
     const lines = packages.map((pkg) => {
       const nameDisplay = pkg.name_ar || pkg.name;
@@ -124,7 +125,8 @@ const buildBirthdayText = async () => {
     });
 
     return lines.join('\n');
-  } catch (_) {
+  } catch (err) {
+    console.error('buildBirthdayText error:', err.message);
     return '• Basic: 90 د.أ — 10 أطفال + ساعتا لعب\n• VIP: 150 د.أ — Basic + ستاند\n• Premium: 250 د.أ — VIP + هدايا';
   }
 };
