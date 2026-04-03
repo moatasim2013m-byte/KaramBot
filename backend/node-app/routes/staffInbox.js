@@ -703,7 +703,8 @@ router.post('/send-image', sendLimiter, (req, res) => {
       );
 
       if (!uploadResult.ok) {
-        return res.status(502).json({ error: 'Failed to upload image to Meta', details: uploadResult.error });
+        const statusCode = uploadResult.statusCode === 400 ? 400 : 502;
+        return res.status(statusCode).json({ error: 'Failed to upload image to Meta', details: uploadResult.error });
       }
 
       const mediaId = uploadResult.mediaId;

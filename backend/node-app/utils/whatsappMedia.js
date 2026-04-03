@@ -107,7 +107,7 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
     const data = JSON.parse(result.text || '{}');
     return { ok: true, mediaId: data.id };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, statusCode: 500, error: err.message };
   }
 }
 
