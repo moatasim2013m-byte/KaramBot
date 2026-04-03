@@ -72,6 +72,14 @@ export default function AdminPage() {
     hourly_3hr: 13,
     hourly_extra_hr: 3
   });
+  const [autoReplyConfig, setAutoReplyConfig] = useState({
+    enabled: false,
+    cooldownMinutes: 30,
+    footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
+    fallbackReply:
+      'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
+  });
+  const [savingAutoReply, setSavingAutoReply] = useState(false);
   const [expandedParent, setExpandedParent] = useState(null);
   const [parentDetails, setParentDetails] = useState(null);
   const [loadingParent, setLoadingParent] = useState(false);
@@ -165,6 +173,13 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerSearch, activeTab]);
 
+  useEffect(() => {
+    if (activeTab === 'whatsapp_settings') {
+      fetchWhatsAppAutoReplyConfig();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   // Show 403 page if not admin
   if (!isAdmin) {
     return (
@@ -212,13 +227,14 @@ export default function AdminPage() {
   const fetchDashboard = async () => {
     setLoading(true);
     try {
-      const [dashRes, themesRes, plansRes, galleryRes, settingsRes, pricingRes] = await Promise.all([
+      const [dashRes, themesRes, plansRes, galleryRes, settingsRes, pricingRes, autoReplyRes] = await Promise.all([
         api.get('/admin/dashboard'),
         api.get('/themes'),
         api.get('/admin/plans'),
         api.get('/gallery'),
         api.get('/admin/settings'),
-        api.get('/admin/pricing')
+        api.get('/admin/pricing'),
+        api.get('/admin/whatsapp-auto-reply')
       ]);
 
       setStats(dashRes.data.stats || {});
@@ -227,6 +243,7 @@ export default function AdminPage() {
       setGallery(galleryRes.data.media || []);
       setSettings(settingsRes.data.settings || {});
       setPricing(pricingRes.data.pricing || {});
+      setAutoReplyConfig(autoReplyRes.data.config || autoReplyConfig);
       
       // Load hero settings from settings
       const s = settingsRes.data.settings || {};
@@ -279,6 +296,35 @@ export default function AdminPage() {
       setSubscriptions(response.data.subscriptions || []);
     } catch (error) {
       console.error('Failed to fetch subscriptions:', error);
+    }
+  };
+
+
+  const fetchWhatsAppAutoReplyConfig = async () => {
+    try {
+      const response = await api.get('/admin/whatsapp-auto-reply');
+      setAutoReplyConfig(response.data.config || autoReplyConfig);
+    } catch (error) {
+      console.error('Failed to fetch WhatsApp auto-reply config:', error);
+      toast.error('فشل تحميل إعدادات الرد الذكي');
+    }
+  };
+
+  const saveWhatsAppAutoReplyConfig = async () => {
+    setSavingAutoReply(true);
+    try {
+      const payload = {
+        ...autoReplyConfig,
+        cooldownMinutes: Number(autoReplyConfig.cooldownMinutes || 30)
+      };
+      const response = await api.put('/admin/whatsapp-auto-reply', payload);
+      setAutoReplyConfig(response.data.config || payload);
+      toast.success('تم حفظ إعدادات الرد الذكي');
+    } catch (error) {
+      console.error('Failed to save WhatsApp auto-reply config:', error);
+      toast.error(error.response?.data?.error || 'فشل حفظ إعدادات الرد الذكي');
+    } finally {
+      setSavingAutoReply(false);
     }
   };
 
@@ -2435,6 +2481,65 @@ export default function AdminPage() {
                       <RefreshCw className="h-4 w-4" /> مزامنة القوالب
                     </Button>
                   </div>
+
+                  <div className="p-4 rounded-xl bg-green-50 border border-green-200 space-y-3">
+                    <p className="text-sm font-semibold text-green-800 mb-1">الرد الذكي التلقائي</p>
+                    <p className="text-xs text-green-700">يرد تلقائيًا على رسائل العملاء حسب الكلمات المفتاحية مثل الأسعار، الموقع، الحجز، والاشتراكات.</p>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <Label className="text-sm">تفعيل الرد الذكي</Label>
+                      <Button
+                        size="sm"
+                        variant={autoReplyConfig.enabled ? 'default' : 'outline'}
+                        onClick={() => setAutoReplyConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                        className="rounded-full"
+                      >
+                        {autoReplyConfig.enabled ? 'مفعل' : 'غير مفعل'}
+                      </Button>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm">مدة الانتظار بين الردود (دقائق)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={autoReplyConfig.cooldownMinutes}
+                        onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, cooldownMinutes: e.target.value }))}
+                        className="rounded-xl mt-1 bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-sm">نص تذييل الرد</Label>
+                      <Input
+                        value={autoReplyConfig.footer || ''}
+                        onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, footer: e.target.value }))}
+                        className="rounded-xl mt-1 bg-white"
+                        placeholder="مثال: للحجز عبر الموقع ..."
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-sm">الرد الافتراضي (عند عدم مطابقة كلمات)</Label>
+                      <Textarea
+                        value={autoReplyConfig.fallbackReply || ''}
+                        onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, fallbackReply: e.target.value }))}
+                        className="rounded-xl mt-1 bg-white"
+                        rows={3}
+                      />
+                    </div>
+
+                    <Button
+                      size="sm"
+                      onClick={saveWhatsAppAutoReplyConfig}
+                      disabled={savingAutoReply}
+                      className="rounded-full gap-2 bg-green-600 hover:bg-green-700"
+                    >
+                      {savingAutoReply ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      حفظ إعدادات الرد الذكي
+                    </Button>
+                  </div>
+
                   <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-100">
                     <p className="text-sm font-semibold text-yellow-800 mb-1">حالة الحساب</p>
                     <p className="text-xs text-yellow-700">Display Name: Pending Review · تأكد من إكمال مراجعة الاسم في Meta Business Manager</p>

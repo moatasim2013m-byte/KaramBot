@@ -4,6 +4,7 @@ const WhatsAppMessage = require('../models/WhatsAppMessage');
 const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { emitInboxUpdate } = require('../utils/inboxEvents');
+const { maybeAutoReply } = require('../utils/autoReplyBot');
 
 const router = express.Router();
 const META_GRAPH_API_VERSION = 'v22.0';
@@ -237,6 +238,12 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       linkedUser: Boolean(linkedUserId)
     });
     emitInboxUpdate(senderWaId, 'inbound_message');
+    maybeAutoReply({
+      messageId,
+      senderWaId,
+      messageType,
+      textBody
+    }).catch(err => console.error('AUTO_REPLY_TRIGGER_ERROR', err.message));
   } catch (error) {
     if (error?.code === 11000) {
       console.log('WHATSAPP_MESSAGE_DUPLICATE_SKIPPED', { messageId: message?.id });
