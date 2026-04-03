@@ -424,6 +424,53 @@ export default function StaffPage() {
     } finally { setSendingTemplate(false); }
   };
 
+  const compressImage = (file, maxSizeMB = 4) => {
+    return new Promise((resolve) => {
+      const maxBytes = maxSizeMB * 1024 * 1024;
+      if (file.size <= maxBytes) {
+        resolve(file);
+        return;
+      }
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        const MAX_DIM = 1920;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round(height * MAX_DIM / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round(width * MAX_DIM / height);
+            height = MAX_DIM;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        let quality = 0.85;
+        const tryCompress = () => {
+          canvas.toBlob((blob) => {
+            if (!blob) { resolve(file); return; }
+            if (blob.size <= maxBytes || quality <= 0.4) {
+              const compressed = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+              resolve(compressed);
+            } else {
+              quality -= 0.1;
+              tryCompress();
+            }
+          }, 'image/jpeg', quality);
+        };
+        tryCompress();
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  };
+
   const handleImageSelect = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -446,7 +493,8 @@ export default function StaffPage() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const formData = new FormData();
-        formData.append('image', file);
+        const compressed = await compressImage(file);
+        formData.append('image', compressed);
         formData.append('wa_id', selectedConversation.wa_id);
         if (i === 0 && replyText.trim()) formData.append('caption', replyText.trim());
         await api.post('/staff/inbox/send-image', formData);
@@ -458,7 +506,8 @@ export default function StaffPage() {
       if (imageInputRef.current) imageInputRef.current.value = '';
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل إرسال الصورة');
+      const errMsg = error.response?.data?.error || error.response?.data?.details || 'فشل إرسال الصورة';
+      toast.error(errMsg);
     } finally { setSendingImage(false); }
   };
 
