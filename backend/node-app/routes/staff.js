@@ -8,6 +8,7 @@ const User = require('../models/User');
 const { authMiddleware, staffMiddleware } = require('../middleware/auth');
 const { addMinutes, format } = require('date-fns');
 const { sendCheckinConfirmation } = require('../utils/checkinNotifications');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
@@ -15,22 +16,20 @@ const router = express.Router();
 router.use(authMiddleware, staffMiddleware);
 
 // Get today's active sessions (checked-in hourly bookings)
-router.get('/active-sessions', async (req, res) => {
-  try {
-    const now = new Date();
-    
-    const activeSessions = await HourlyBooking.find({
-      status: 'checked_in',
-      session_end_time: { $gt: now }
-    })
+const getActiveSessionsPayload = async () => {
+  const now = new Date();
+  const activeSessions = await HourlyBooking.find({
+    status: 'checked_in',
+    session_end_time: { $gt: now }
+  })
     .populate('child_id')
     .populate('slot_id')
     .sort({ check_in_time: -1 });
 
-    const sessions = activeSessions.map(session => {
+  return {
+    sessions: activeSessions.map((session) => {
       const remaining_ms = session.session_end_time - now;
       const remaining_minutes = Math.max(0, Math.ceil(remaining_ms / 60000));
-      
       return {
         id: session._id.toString(),
         booking_code: session.booking_code,
@@ -41,13 +40,35 @@ router.get('/active-sessions', async (req, res) => {
         remaining_minutes,
         warning: remaining_minutes <= 5
       };
-    });
+    })
+  };
+};
 
-    res.json({ sessions });
+router.get('/active-sessions', async (req, res) => {
+  try {
+    res.json(await getActiveSessionsPayload());
   } catch (error) {
-    console.error('Get active sessions error:', error);
+    logger.error({ event: 'active_sessions_fetch_failed', error: error.message, stack: error.stack }, 'Get active sessions error');
     res.status(500).json({ error: 'Failed to get active sessions' });
   }
+});
+
+router.get('/stream/active-sessions', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const push = async () => {
+    const payload = await getActiveSessionsPayload();
+    res.write(`event: active_sessions\ndata: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  try { await push(); } catch (error) { logger.error({ event: 'active_sessions_stream_init_failed', error: error.message }); }
+  const interval = setInterval(() => {
+    push().catch((error) => logger.error({ event: 'active_sessions_stream_tick_failed', error: error.message }));
+  }, 10000);
+  req.on('close', () => clearInterval(interval));
 });
 
 // Get today's confirmed hourly bookings (pending check-in)

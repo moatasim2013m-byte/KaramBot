@@ -47,7 +47,7 @@ const CAMPAIGN_FORM_INITIAL = {
 };
 
 export default function StaffPage() {
-  const { api, user } = useAuth();
+  const { api, user, token } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(true);
@@ -106,6 +106,12 @@ export default function StaffPage() {
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef(null);
 
+  const createAuthedEventSource = useCallback((path) => {
+    if (!token) return null;
+    const separator = path.includes('?') ? '&' : '?';
+    return new EventSource(`${path}${separator}access_token=${encodeURIComponent(token)}`);
+  }, [token]);
+
   useEffect(() => {
     if (user && user.role !== 'staff' && user.role !== 'admin') navigate('/');
     setLoading(false);
@@ -142,9 +148,25 @@ export default function StaffPage() {
     fetchActiveSessions();
     fetchPendingCheckins();
     fetchTodayParties();
-    const interval = setInterval(fetchActiveSessions, 30000);
-    return () => clearInterval(interval);
   }, [fetchActiveSessions, fetchPendingCheckins, fetchTodayParties]);
+
+  useEffect(() => {
+    const activeSessionsStream = createAuthedEventSource('/api/staff/stream/active-sessions');
+    if (!activeSessionsStream) return undefined;
+
+    activeSessionsStream.addEventListener('active_sessions', (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        setActiveSessions(payload.sessions || []);
+      } catch (error) {
+        console.error('Failed to parse active sessions stream:', error);
+      }
+    });
+    activeSessionsStream.onerror = () => {
+      // EventSource auto-reconnects
+    };
+    return () => activeSessionsStream.close();
+  }, [createAuthedEventSource]);
 
   const handleCheckin = async (e) => {
     e.preventDefault();
@@ -412,14 +434,58 @@ export default function StaffPage() {
       fetchConversations(true);
       fetchQuickReplies();
       fetchTemplates();
-      const pollInterval = setInterval(() => {
-        fetchConversations();
-        fetchInboxStats();
-        if (selectedConversation) fetchMessages(selectedConversation.wa_id);
-      }, 8000);
-      return () => clearInterval(pollInterval);
+      const convParams = new URLSearchParams();
+      if (inboxSearch) convParams.append('search', inboxSearch);
+      if (showUnreadOnly) convParams.append('unread_only', 'true');
+
+      const conversationsStream = createAuthedEventSource(`/api/staff/inbox/stream/conversations?${convParams.toString()}`);
+      const statsStream = createAuthedEventSource('/api/staff/inbox/stream/stats');
+      const messagesStream = selectedConversation
+        ? createAuthedEventSource(`/api/staff/inbox/stream/messages/${selectedConversation.wa_id}`)
+        : null;
+
+      conversationsStream?.addEventListener('conversations', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          setConversations(payload.conversations || []);
+        } catch (error) {
+          console.error('Failed to parse conversations stream:', error);
+        }
+      });
+      statsStream?.addEventListener('stats', (event) => {
+        try {
+          setInboxStats(JSON.parse(event.data));
+        } catch (error) {
+          console.error('Failed to parse stats stream:', error);
+        }
+      });
+      messagesStream?.addEventListener('messages', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          setMessages(payload.messages || []);
+        } catch (error) {
+          console.error('Failed to parse messages stream:', error);
+        }
+      });
+
+      return () => {
+        conversationsStream?.close();
+        statsStream?.close();
+        messagesStream?.close();
+      };
     }
-  }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, fetchTemplates, selectedConversation, fetchMessages]);
+    return undefined;
+  }, [
+    activeTab,
+    fetchInboxStats,
+    fetchConversations,
+    fetchQuickReplies,
+    fetchTemplates,
+    selectedConversation,
+    createAuthedEventSource,
+    inboxSearch,
+    showUnreadOnly
+  ]);
 
   const fetchCampaigns = useCallback(async () => {
     setCampaignsLoading(true);
@@ -891,10 +957,10 @@ export default function StaffPage() {
                               ) : msg.message_type === 'image' && msg.media_url ? (
                                 <div className="space-y-1">
                                   <img
-                                    src={`/api/staff/inbox/media/${msg.media_url}`}
+                                    src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
                                     alt="صورة"
                                     className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
-                                    onClick={() => window.open(`/api/staff/inbox/media/${msg.media_url}`, '_blank')}
+                                    onClick={() => window.open(msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`, '_blank')}
                                     onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
                                   />
                                   <p className="text-xs italic opacity-70 hidden">📷 صورة</p>
@@ -903,17 +969,17 @@ export default function StaffPage() {
                               ) : msg.message_type === 'video' && msg.media_url ? (
                                 <div className="space-y-1">
                                   <video
-                                    src={`/api/staff/inbox/media/${msg.media_url}`}
+                                    src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
                                     controls
                                     className="max-w-[220px] rounded-xl"
                                   />
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
                               ) : msg.message_type === 'audio' && msg.media_url ? (
-                                <audio src={`/api/staff/inbox/media/${msg.media_url}`} controls className="max-w-[220px]" />
+                                <audio src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`} controls className="max-w-[220px]" />
                               ) : msg.message_type === 'document' && msg.media_url ? (
                                 <a
-                                  href={`/api/staff/inbox/media/${msg.media_url}`}
+                                  href={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="flex items-center gap-2 text-sm underline"
@@ -922,7 +988,7 @@ export default function StaffPage() {
                                 </a>
                               ) : msg.message_type === 'sticker' && msg.media_url ? (
                                 <img
-                                  src={`/api/staff/inbox/media/${msg.media_url}`}
+                                  src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
                                   alt="ملصق"
                                   className="max-w-[100px]"
                                 />

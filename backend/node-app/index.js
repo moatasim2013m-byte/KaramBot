@@ -1,5 +1,6 @@
 require('dotenv').config();
 const crypto = require('crypto');
+const { logger, pinoHttpMiddleware, writeCloudError } = require('./utils/logger');
 const initialEnvPresence = {
   MONGO_URL: Boolean(process.env.MONGO_URL),
   JWT_SECRET: Boolean(process.env.JWT_SECRET),
@@ -13,20 +14,19 @@ const initialEnvPresence = {
 
 
 // ==================== BOOT DIAGNOSTICS ====================
-console.log("[BOOT] node:", process.version);
-console.log("[BOOT] env:", process.env.NODE_ENV || "undefined");
-console.log("[BOOT] port:", process.env.PORT || "undefined");
-console.log("[BOOT] env_present:", initialEnvPresence);
+logger.info({ event: 'boot', node: process.version }, 'Boot diagnostics');
+logger.info({ event: 'boot_env', env: process.env.NODE_ENV || 'undefined', port: process.env.PORT || 'undefined' }, 'Environment');
+logger.info({ event: 'boot_env_presence', env_present: initialEnvPresence }, 'Env presence');
 
 // ==================== PROCESS ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[UNHANDLED_REJECTION]', reason);
-  console.error('[UNHANDLED_REJECTION_STACK]', reason?.stack || 'no stack');
+  logger.error({ event: 'unhandled_rejection', reason: reason?.message || reason, stack: reason?.stack || 'no stack' }, 'Unhandled rejection');
+  writeCloudError({ event: 'unhandled_rejection', reason: reason?.message || reason, stack: reason?.stack || 'no stack' });
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT_EXCEPTION]', err.message);
-  console.error('[UNCAUGHT_EXCEPTION_STACK]', err.stack);
+  logger.fatal({ event: 'uncaught_exception', error: err.message, stack: err.stack }, 'Uncaught exception');
+  writeCloudError({ event: 'uncaught_exception', error: err.message, stack: err.stack });
 });
 
 if (!process.env.RESEND_API_KEY) {
@@ -59,6 +59,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Request-Id', id);
   return next();
 });
+app.use(pinoHttpMiddleware);
 
 const allowedOrigins =
   process.env.CORS_ORIGINS === '*'
@@ -276,8 +277,17 @@ if (frontendBuildPath && fs.existsSync(indexHtmlPath)) {
 // ==================== GLOBAL ERROR HANDLER ====================
 app.use((err, req, res, next) => {
   const rid = (req && req.req_id) ? req.req_id : "no_req_id";
-  console.error(`[GLOBAL_ERROR][${rid}]`, err.message || err);
-  console.error(`[GLOBAL_ERROR_STACK][${rid}]`, err.stack);
+  const payload = {
+    event: err.event || 'global_error',
+    req_id: rid,
+    wa_id: err.wa_id,
+    mimeType: err.mimeType,
+    metaError: err.metaError || err.message || String(err),
+    statusCode: err.status || 500,
+    stack: err.stack
+  };
+  logger.error(payload, 'Global error handler');
+  writeCloudError(payload);
   res.status(err.status || 500).json({ error: 'حدث خطأ في الخادم', req_id: rid });
 });
 
