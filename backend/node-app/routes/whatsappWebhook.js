@@ -5,6 +5,7 @@ const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { emitInboxUpdate } = require('../utils/inboxEvents');
 const { maybeAutoReply } = require('../utils/autoReplyBot');
+const TemplateDefinition = require('../models/TemplateDefinition');
 
 const router = express.Router();
 const META_GRAPH_API_VERSION = 'v22.0';
@@ -51,15 +52,16 @@ const isValidWhatsAppSignature = (rawBodyBuffer, signatureHeader) => {
 
 const parseChanges = (payload) => {
   const entries = Array.isArray(payload?.entry) ? payload.entry : [];
-
   const allChanges = [];
   for (const entry of entries) {
     const changes = Array.isArray(entry?.changes) ? entry.changes : [];
     for (const change of changes) {
-      allChanges.push(change?.value || {});
+      allChanges.push({
+        field: change?.field || '',
+        value: change?.value || {}
+      });
     }
   }
-
   return allChanges;
 };
 
@@ -302,6 +304,77 @@ const updateMessageStatus = async (statusUpdate) => {
   }
 };
 
+const handleTemplateStatusUpdate = async (value) => {
+  try {
+    const event = value?.event;
+    const templateName = value?.message_template_name;
+    const templateId = String(value?.message_template_id || '');
+    if (!event || (!templateName && !templateId)) return;
+
+    const statusMap = {
+      APPROVED: 'approved',
+      REJECTED: 'rejected',
+      DISABLED: 'disabled',
+      PAUSED: 'paused',
+      FLAGGED: 'paused',
+      PENDING_REVIEW: 'pending_review',
+      PENDING: 'pending_review'
+    };
+
+    const newStatus = statusMap[event];
+    if (!newStatus) return;
+
+    const query = templateId ? { meta_template_id: templateId } : { name: templateName };
+    const updated = await TemplateDefinition.findOneAndUpdate(
+      query,
+      {
+        $set: {
+          status: newStatus,
+          rejected_reason: event === 'REJECTED' ? (value?.reason || null) : null,
+          synced_from_meta_at: new Date()
+        }
+      },
+      { new: true }
+    );
+
+    if (updated) {
+      console.log('TEMPLATE_STATUS_UPDATED', { name: updated.name, event, newStatus });
+    } else {
+      console.warn('TEMPLATE_STATUS_NOT_FOUND', { templateName, templateId, event });
+    }
+  } catch (err) {
+    console.error('TEMPLATE_STATUS_UPDATE_ERROR', err.message);
+  }
+};
+
+const handleTemplateCategoryUpdate = async (value) => {
+  try {
+    const templateId = String(value?.message_template_id || '');
+    const newCategory = (value?.new_category || '').toLowerCase();
+    if (!templateId || !newCategory) return;
+
+    const validCategories = ['marketing', 'utility', 'authentication'];
+    if (!validCategories.includes(newCategory)) return;
+
+    const updated = await TemplateDefinition.findOneAndUpdate(
+      { meta_template_id: templateId },
+      { $set: { category: newCategory, synced_from_meta_at: new Date() } },
+      { new: true }
+    );
+
+    if (updated) {
+      console.log('TEMPLATE_CATEGORY_UPDATED', {
+        name: updated.name,
+        templateId,
+        newCategory,
+        previous: value?.previous_category
+      });
+    }
+  } catch (err) {
+    console.error('TEMPLATE_CATEGORY_UPDATE_ERROR', err.message);
+  }
+};
+
 router.get('/webhook', (req, res) => {
   const mode = String(req.query['hub.mode'] || '');
   const challenge = String(req.query['hub.challenge'] || '');
@@ -347,7 +420,20 @@ router.post('/webhook', (req, res) => {
       changeCount: values.length
     });
 
-    for (const value of values) {
+    for (const change of values) {
+      const field = change.field;
+      const value = change.value;
+
+      if (field === 'message_template_status_update') {
+        await handleTemplateStatusUpdate(value);
+        continue;
+      }
+
+      if (field === 'template_category_update') {
+        await handleTemplateCategoryUpdate(value);
+        continue;
+      }
+
       const messages = Array.isArray(value?.messages) ? value.messages : [];
       const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
       const profileName = value?.contacts?.[0]?.profile?.name || '';
