@@ -89,6 +89,14 @@ export default function StaffPage() {
   const [pausingId, setPausingId] = useState(null);
   const [expandedCampaignId, setExpandedCampaignId] = useState(null);
   const [campaignStats, setCampaignStats] = useState({});
+  const [audiencePreview, setAudiencePreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [savingLabel, setSavingLabel] = useState(false);
+  const [labelInput, setLabelInput] = useState('');
+  const [showNewChat, setShowNewChat] = useState(false);
+  const [newChatPhone, setNewChatPhone] = useState('');
+  const [newChatMessage, setNewChatMessage] = useState('');
+  const [startingChat, setStartingChat] = useState(false);
 
   useEffect(() => {
     if (user && user.role !== 'staff' && user.role !== 'admin') navigate('/');
@@ -293,6 +301,44 @@ export default function StaffPage() {
     } catch (error) { toast.error('فشل حذف الرد السريع'); }
   };
 
+  const handleSaveLabel = async () => {
+    if (!selectedConversation || !labelInput.trim()) return;
+    setSavingLabel(true);
+    try {
+      await api.post('/staff/inbox/contact-label', {
+        wa_id: selectedConversation.wa_id,
+        label: labelInput.trim()
+      });
+      toast.success('تم حفظ الاسم');
+      setLabelInput('');
+      await fetchConversations(false);
+    } catch (error) {
+      toast.error('فشل حفظ الاسم');
+    } finally {
+      setSavingLabel(false);
+    }
+  };
+
+  const handleStartConversation = async () => {
+    if (!newChatPhone.trim() || !newChatMessage.trim()) return;
+    setStartingChat(true);
+    try {
+      await api.post('/staff/inbox/start-conversation', {
+        wa_id: newChatPhone.trim(),
+        message: newChatMessage.trim()
+      });
+      toast.success('تم إرسال الرسالة');
+      setNewChatPhone('');
+      setNewChatMessage('');
+      setShowNewChat(false);
+      await fetchConversations(false);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل بدء المحادثة');
+    } finally {
+      setStartingChat(false);
+    }
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -340,10 +386,28 @@ export default function StaffPage() {
       toast.success('تم إنشاء الحملة');
       setCampaignForm(CAMPAIGN_FORM_INITIAL);
       setShowCampaignForm(false);
+      setAudiencePreview(null);
       await fetchCampaigns();
     } catch (error) {
       toast.error(error.response?.data?.error || 'فشل إنشاء الحملة');
     } finally { setCampaignSaving(false); }
+  };
+
+  const fetchAudiencePreview = async () => {
+    setPreviewLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (campaignForm.audience_filters.has_booking) params.append('has_booking', 'true');
+      if (campaignForm.audience_filters.has_active_subscription) params.append('has_active_subscription', 'true');
+      if (campaignForm.audience_filters.last_message_after) params.append('last_message_after', campaignForm.audience_filters.last_message_after);
+      if (campaignForm.audience_filters.last_message_before) params.append('last_message_before', campaignForm.audience_filters.last_message_before);
+      const response = await api.get(`/staff/campaigns/preview?${params}`);
+      setAudiencePreview(response.data.estimated_recipients);
+    } catch (error) {
+      console.error('Preview failed:', error);
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const handleExecuteCampaign = async (id) => {
@@ -643,10 +707,44 @@ export default function StaffPage() {
                       <span className="font-semibold text-sm">Conversations</span>
                       {inboxStats?.unread_messages > 0 && <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#D9232E] text-white text-xs font-bold pulse-badge">{inboxStats.unread_messages}</span>}
                     </div>
-                    <button onClick={() => { fetchConversations(); fetchInboxStats(); }} className="w-7 h-7 rounded-full hover:bg-[#66A9E9]/10 flex items-center justify-center transition-colors">
-                      <RefreshCw className="h-4 w-4 text-[#66A9E9]" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setShowNewChat(!showNewChat)}
+                        className="w-7 h-7 rounded-full hover:bg-[#66A9E9]/10 flex items-center justify-center transition-colors"
+                        title="محادثة جديدة"
+                      >
+                        <Plus className="h-4 w-4 text-[#66A9E9]" />
+                      </button>
+                      <button onClick={() => { fetchConversations(); fetchInboxStats(); }} className="w-7 h-7 rounded-full hover:bg-[#66A9E9]/10 flex items-center justify-center transition-colors">
+                        <RefreshCw className="h-4 w-4 text-[#66A9E9]" />
+                      </button>
+                    </div>
                   </div>
+                  {showNewChat && (
+                    <div className="px-3 py-2 space-y-2 border-b bg-blue-50">
+                      <p className="text-xs font-semibold text-[#3a7fc1]">محادثة جديدة</p>
+                      <input
+                        value={newChatPhone}
+                        onChange={(e) => setNewChatPhone(e.target.value)}
+                        placeholder="رقم الهاتف (مثال: 962791234567)"
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#66A9E9]"
+                      />
+                      <textarea
+                        value={newChatMessage}
+                        onChange={(e) => setNewChatMessage(e.target.value)}
+                        placeholder="نص الرسالة..."
+                        rows={2}
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-[#66A9E9]"
+                      />
+                      <button
+                        onClick={handleStartConversation}
+                        disabled={startingChat || !newChatPhone.trim() || !newChatMessage.trim()}
+                        className="w-full text-xs bg-[#66A9E9] text-white py-1.5 rounded-lg disabled:opacity-50"
+                      >
+                        {startingChat ? 'جاري الإرسال...' : 'إرسال'}
+                      </button>
+                    </div>
+                  )}
                   <div className="px-3 py-2 space-y-2 border-b bg-gray-50">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -790,6 +888,24 @@ export default function StaffPage() {
                                 </div>
                               </div>
                             )}
+                            <div>
+                              <p className="text-xs text-gray-400 mb-1">حفظ اسم مخصص</p>
+                              <div className="flex gap-2">
+                                <input
+                                  value={labelInput}
+                                  onChange={(e) => setLabelInput(e.target.value)}
+                                  placeholder="اكتب اسم العميل..."
+                                  className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#66A9E9]"
+                                />
+                                <button
+                                  onClick={handleSaveLabel}
+                                  disabled={savingLabel || !labelInput.trim()}
+                                  className="text-xs bg-[#66A9E9] text-white px-3 py-1 rounded-lg disabled:opacity-50"
+                                >
+                                  {savingLabel ? '...' : 'حفظ'}
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </details>
                       </div>
@@ -946,6 +1062,19 @@ export default function StaffPage() {
                           <input type="date" value={campaignForm.audience_filters.last_message_before} onChange={(e) => setCampaignForm(prev => ({ ...prev, audience_filters: { ...prev.audience_filters, last_message_before: e.target.value } }))} className="w-full mt-1 rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={fetchAudiencePreview}
+                        disabled={previewLoading}
+                        className="text-xs text-[#66A9E9] underline mt-1"
+                      >
+                        {previewLoading ? 'جاري الحساب...' : 'احسب حجم الجمهور'}
+                      </button>
+                      {audiencePreview !== null && (
+                        <p className="text-sm font-semibold text-green-700 mt-1">
+                          المستلمون المتوقعون: {audiencePreview} شخص
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">الجمهور يُبنى من سجل رسائل واتساب فقط</p>
                     </div>
                     <Button onClick={handleCreateCampaign} disabled={campaignSaving || !campaignForm.name || (campaignForm.message_type === 'free_form' && !campaignForm.free_form_message) || (campaignForm.message_type === 'template' && !campaignForm.template_name)} className="w-full rounded-full">

@@ -491,4 +491,55 @@ router.post('/quick-replies/:id/use', async (req, res) => {
   }
 });
 
+// POST /contact-label — save a custom display name for a wa_id
+router.post('/contact-label', async (req, res) => {
+  try {
+    const { wa_id, label } = req.body;
+    if (!wa_id || !label) {
+      return res.status(400).json({ error: 'wa_id and label are required' });
+    }
+    // Store label by updating profile_name on all messages from this wa_id
+    await WhatsAppMessage.updateMany(
+      { sender_wa_id: wa_id },
+      { $set: { profile_name: label.trim() } }
+    );
+    res.json({ success: true, wa_id, label: label.trim() });
+  } catch (error) {
+    console.error('Save contact label error:', error);
+    res.status(500).json({ error: 'Failed to save label' });
+  }
+});
+
+// POST /start-conversation — initiate outbound message to a new number
+router.post('/start-conversation', async (req, res) => {
+  try {
+    const { wa_id, message } = req.body;
+    if (!wa_id || !message) {
+      return res.status(400).json({ error: 'wa_id and message are required' });
+    }
+    if (message.trim().length === 0) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+    const normalizedWaId = normalizePhoneForWhatsApp(wa_id);
+    if (!normalizedWaId) {
+      return res.status(400).json({ error: 'Invalid phone number format' });
+    }
+    const result = await postWhatsAppText({
+      to: normalizedWaId,
+      messageBody: message,
+      staffId: req.user._id
+    });
+    if (!result.ok) {
+      return res.status(500).json({
+        error: 'Failed to send message',
+        details: result.error || result.reason
+      });
+    }
+    res.json({ success: true, wa_id: normalizedWaId, message_id: result.messageId });
+  } catch (error) {
+    console.error('Start conversation error:', error);
+    res.status(500).json({ error: 'Failed to start conversation' });
+  }
+});
+
 module.exports = router;
