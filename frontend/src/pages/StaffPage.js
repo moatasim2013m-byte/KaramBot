@@ -12,7 +12,8 @@ import {
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
-  PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText
+  PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
+  Image as ImageIcon
 } from 'lucide-react';
 
 const getRelativeTime = (timestamp) => {
@@ -100,6 +101,10 @@ export default function StaffPage() {
   const [templates, setTemplates] = useState([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [sendingImage, setSendingImage] = useState(false);
+  const imageInputRef = useRef(null);
 
   useEffect(() => {
     if (user && user.role !== 'staff' && user.role !== 'admin') navigate('/');
@@ -365,6 +370,36 @@ export default function StaffPage() {
     } catch (error) {
       toast.error(error.response?.data?.error || 'فشل إرسال القالب');
     } finally { setSendingTemplate(false); }
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    const url = URL.createObjectURL(file);
+    setImagePreview(url);
+  };
+
+  const handleSendImage = async () => {
+    if (!imageFile || !selectedConversation) return;
+    setSendingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', imageFile);
+      formData.append('wa_id', selectedConversation.wa_id);
+      if (replyText.trim()) formData.append('caption', replyText.trim());
+      await api.post('/staff/inbox/send-image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      toast.success('تم إرسال الصورة');
+      setImageFile(null);
+      setImagePreview(null);
+      setReplyText('');
+      if (imageInputRef.current) imageInputRef.current.value = '';
+      await fetchMessages(selectedConversation.wa_id);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل إرسال الصورة');
+    } finally { setSendingImage(false); }
   };
 
   useEffect(() => {
@@ -1074,6 +1109,17 @@ export default function StaffPage() {
                     )}
 
                     <div className="border-t bg-white px-4 py-3 flex-shrink-0">
+                      {imagePreview && (
+                        <div className="mb-2 relative inline-block">
+                          <img src={imagePreview} alt="preview" className="h-20 w-20 rounded-xl object-cover border border-gray-200" />
+                          <button
+                            onClick={() => { setImageFile(null); setImagePreview(null); if (imageInputRef.current) imageInputRef.current.value = ''; }}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                       <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-end gap-3">
                         <button
                           type="button"
@@ -1083,9 +1129,29 @@ export default function StaffPage() {
                         >
                           <FileText className="h-4 w-4" />
                         </button>
+                        <input
+                          ref={imageInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={handleImageSelect}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => imageInputRef.current?.click()}
+                          title="إرسال صورة"
+                          className="flex-shrink-0 w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition-all"
+                        >
+                          <ImageIcon className="h-4 w-4" />
+                        </button>
                         <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
-                        <button type="submit" disabled={sending || !replyText.trim()} className="flex-shrink-0 w-11 h-11 rounded-full bg-[#66A9E9] hover:bg-[#4a8fd4] disabled:bg-gray-200 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95">
-                          {sending ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white" />}
+                        <button
+                          type={imageFile ? 'button' : 'submit'}
+                          onClick={imageFile ? handleSendImage : undefined}
+                          disabled={sending || sendingImage || (!replyText.trim() && !imageFile)}
+                          className="flex-shrink-0 w-11 h-11 rounded-full bg-[#66A9E9] hover:bg-[#4a8fd4] disabled:bg-gray-200 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95"
+                        >
+                          {(sending || sendingImage) ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white" />}
                         </button>
                       </form>
                       <p className="text-xs text-gray-400 mt-1.5 pl-1">WhatsApp · {selectedConversation.wa_id}</p>

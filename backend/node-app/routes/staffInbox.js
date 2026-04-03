@@ -12,9 +12,20 @@ const {
   normalizePhoneForWhatsApp,
   markWhatsAppMessageRead
 } = require('../utils/whatsappBookingConfirmation');
-const { getMetaMediaUrl, downloadMetaMedia } = require('../utils/whatsappMedia');
+const { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta } = require('../utils/whatsappMedia');
 const TemplateDefinition = require('../models/TemplateDefinition');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
+const multer = require('multer');
+
+const uploadMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only JPEG, PNG and WebP images are allowed'));
+  }
+});
 
 const router = express.Router();
 
@@ -631,6 +642,102 @@ router.post('/send-template', async (req, res) => {
     console.error('Send template error:', error);
     res.status(500).json({ error: 'Failed to send template' });
   }
+});
+
+// POST /send-image — staff sends an image to a contact
+router.post('/send-image', (req, res) => {
+  uploadMemory.single('image')(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ error: uploadErr.message || 'Upload failed' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    const { wa_id, caption } = req.body;
+    if (!wa_id) return res.status(400).json({ error: 'wa_id is required' });
+
+    const normalizedWaId = normalizePhoneForWhatsApp(wa_id);
+    if (!normalizedWaId) return res.status(400).json({ error: 'Invalid phone number format' });
+
+    try {
+      // Step 1: upload image to Meta
+      const uploadResult = await uploadMediaToMeta(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname || 'image.jpg'
+      );
+
+      if (!uploadResult.ok) {
+        return res.status(502).json({ error: 'Failed to upload image to Meta', details: uploadResult.error });
+      }
+
+      const mediaId = uploadResult.mediaId;
+      const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+      const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+
+      // Step 2: send image message via WhatsApp API
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+
+      const sendResponse = await fetch(
+        `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedWaId,
+            type: 'image',
+            image: {
+              id: mediaId,
+              caption: caption || ''
+            }
+          }),
+          signal: controller.signal
+        }
+      );
+      clearTimeout(timeout);
+
+      const sendText = await sendResponse.text();
+      if (!sendResponse.ok) {
+        return res.status(502).json({ error: 'Failed to send image', details: sendText.slice(0, 200) });
+      }
+
+      const sendData = JSON.parse(sendText);
+      const messageId = sendData?.messages?.[0]?.id || `img_${Date.now()}`;
+
+      // Step 3: persist outbound message
+      try {
+        await WhatsAppMessage.create({
+          message_id: messageId,
+          sender_wa_id: wa_id,
+          profile_name: '',
+          message_type: 'image',
+          text_body: caption || '',
+          media_url: mediaId,
+          media_mime_type: req.file.mimetype,
+          direction: 'outbound',
+          platform: 'whatsapp',
+          status: 'sent',
+          timestamp: new Date(),
+          sent_by_staff_id: req.user._id,
+          is_read_by_staff: true
+        });
+      } catch (persistErr) {
+        if (persistErr?.code !== 11000) console.error('IMAGE_SEND_PERSIST_ERROR', persistErr.message);
+      }
+
+      res.json({ success: true, message_id: messageId, media_id: mediaId });
+    } catch (error) {
+      console.error('Send image error:', error);
+      res.status(500).json({ error: 'Failed to send image' });
+    }
+  });
 });
 
 module.exports = router;

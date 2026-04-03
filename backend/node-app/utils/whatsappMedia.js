@@ -3,6 +3,8 @@
  * Fetches temporary download URLs for media stored as Meta media IDs
  */
 
+const FormData = require('form-data');
+
 /**
  * Given a Meta media ID, returns a temporary HTTPS download URL.
  * The URL expires after ~5 minutes per Meta docs.
@@ -60,4 +62,48 @@ async function downloadMetaMedia(mediaUrl) {
   }
 }
 
-module.exports = { getMetaMediaUrl, downloadMetaMedia };
+/**
+ * Upload a media buffer to Meta's media endpoint.
+ * Returns { ok: true, mediaId } or { ok: false, error }
+ */
+async function uploadMediaToMeta(buffer, mimeType, filename) {
+  const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
+
+  try {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mimeType);
+    form.append('file', buffer, { filename: filename || 'image.jpg', contentType: mimeType });
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(
+      `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...form.getHeaders()
+        },
+        body: form,
+        signal: controller.signal
+      }
+    );
+    clearTimeout(timeout);
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: responseText.slice(0, 200) };
+    }
+
+    const data = JSON.parse(responseText);
+    return { ok: true, mediaId: data.id };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+module.exports = { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta };
