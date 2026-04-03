@@ -302,7 +302,8 @@ router.get('/customer-profile/:wa_id', async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        created_at: user.createdAt
+        created_at: user.createdAt,
+        whatsapp_opted_out_at: user.whatsapp_opted_out_at || null
       },
       children: children.map(c => ({
         id: c._id,
@@ -820,6 +821,37 @@ router.post('/send-image', sendLimiter, (req, res) => {
       res.status(500).json({ error: 'Failed to send image' });
     }
   });
+});
+
+
+router.post('/opt-out', async (req, res) => {
+  try {
+    const { wa_id, opt_out } = req.body;
+    if (!wa_id || opt_out === undefined) {
+      return res.status(400).json({ error: 'wa_id and opt_out (true/false) are required' });
+    }
+
+    const message = await WhatsAppMessage.findOne({ sender_wa_id: wa_id })
+      .populate('linked_user_id');
+
+    if (!message || !message.linked_user_id) {
+      return res.status(404).json({ error: 'No linked user found for this contact' });
+    }
+
+    const user = message.linked_user_id;
+    user.whatsapp_opted_out_at = opt_out ? new Date() : null;
+    await user.save();
+
+    res.json({
+      success: true,
+      wa_id,
+      opted_out: opt_out,
+      whatsapp_opted_out_at: user.whatsapp_opted_out_at
+    });
+  } catch (error) {
+    console.error('Opt-out error:', error);
+    res.status(500).json({ error: 'Failed to update opt-out status' });
+  }
 });
 
 module.exports = router;
