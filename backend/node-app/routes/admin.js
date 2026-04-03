@@ -4,6 +4,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Child = require('../models/Child');
 const TimeSlot = require('../models/TimeSlot');
@@ -1516,7 +1517,7 @@ router.get('/business-info', async (req, res) => {
 router.put('/business-info', async (req, res) => {
   try {
     const { whatsapp_hours, whatsapp_location } = req.body || {};
-    if (!whatsapp_hours || !whatsapp_location) {
+    if (!whatsapp_hours?.trim() || !whatsapp_location?.trim()) {
       return res.status(400).json({ error: 'whatsapp_hours and whatsapp_location are required' });
     }
     await Settings.findOneAndUpdate(
@@ -1550,10 +1551,17 @@ router.get('/daycare-packages', async (req, res) => {
 
 router.put('/daycare-packages/:id', async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid package ID' });
+    }
     const { name, name_ar, price, duration_hours, duration_minutes, includes, time_slots, is_active } = req.body || {};
+    const parsedPrice = parseFloat(price);
+    if (!parsedPrice || parsedPrice <= 0) {
+      return res.status(400).json({ error: 'price must be a positive number' });
+    }
     const updated = await SubscriptionPlan.findByIdAndUpdate(
-      req.params.id,
-      { name, name_ar, price: parseFloat(price), duration_hours: Number(duration_hours) || 0, duration_minutes: Number(duration_minutes) || 0, includes: includes || [], time_slots: time_slots || [], is_active: Boolean(is_active) },
+      new mongoose.Types.ObjectId(req.params.id),
+      { name, name_ar, price: parsedPrice, duration_hours: Number(duration_hours) || 0, duration_minutes: Number(duration_minutes) || 0, includes: Array.isArray(includes) ? includes : [], time_slots: Array.isArray(time_slots) ? time_slots : [], is_active: Boolean(is_active) },
       { new: true }
     );
     if (!updated) return res.status(404).json({ error: 'Package not found' });
@@ -1567,17 +1575,18 @@ router.put('/daycare-packages/:id', async (req, res) => {
 router.post('/daycare-packages', async (req, res) => {
   try {
     const { name, name_ar, description, description_ar, price, visits, duration_hours, duration_minutes, includes, time_slots, is_daily_pass } = req.body || {};
-    if (!name || price == null || visits == null) {
-      return res.status(400).json({ error: 'name, price, and visits are required' });
+    const parsedPrice = parseFloat(price);
+    if (!name || !parsedPrice || parsedPrice <= 0 || visits == null) {
+      return res.status(400).json({ error: 'name, price (positive), and visits are required' });
     }
     const pkg = await SubscriptionPlan.create({
       name, name_ar, description, description_ar,
-      price: parseFloat(price),
+      price: parsedPrice,
       visits: Number(visits) || 1,
       duration_hours: Number(duration_hours) || 0,
       duration_minutes: Number(duration_minutes) || 0,
-      includes: includes || [],
-      time_slots: time_slots || [],
+      includes: Array.isArray(includes) ? includes : [],
+      time_slots: Array.isArray(time_slots) ? time_slots : [],
       is_daily_pass: Boolean(is_daily_pass),
       is_active: true
     });
@@ -1602,10 +1611,17 @@ router.get('/birthday-packages', async (req, res) => {
 
 router.put('/birthday-packages/:id', async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid package ID' });
+    }
     const { name, name_ar, description, description_ar, price, includes, is_active } = req.body || {};
+    const parsedPrice = parseFloat(price);
+    if (!parsedPrice || parsedPrice <= 0) {
+      return res.status(400).json({ error: 'price must be a positive number' });
+    }
     const updated = await Theme.findOneAndUpdate(
-      { _id: req.params.id, package_type: 'birthday' },
-      { name, name_ar, description, description_ar, price: parseFloat(price), includes: includes || {}, is_active: Boolean(is_active) },
+      { _id: new mongoose.Types.ObjectId(req.params.id), package_type: 'birthday' },
+      { name, name_ar, description, description_ar, price: parsedPrice, includes: includes && typeof includes === 'object' ? includes : {}, is_active: Boolean(is_active) },
       { new: true }
     );
     if (!updated) return res.status(404).json({ error: 'Birthday package not found' });
@@ -1619,14 +1635,15 @@ router.put('/birthday-packages/:id', async (req, res) => {
 router.post('/birthday-packages', async (req, res) => {
   try {
     const { name, name_ar, description, description_ar, price, includes } = req.body || {};
-    if (!name || price == null) {
-      return res.status(400).json({ error: 'name and price are required' });
+    const parsedPrice = parseFloat(price);
+    if (!name || !parsedPrice || parsedPrice <= 0) {
+      return res.status(400).json({ error: 'name and price (positive) are required' });
     }
     const pkg = await Theme.create({
       name, name_ar, description, description_ar,
-      price: parseFloat(price),
+      price: parsedPrice,
       package_type: 'birthday',
-      includes: includes || {},
+      includes: includes && typeof includes === 'object' ? includes : {},
       is_active: true
     });
     res.status(201).json({ message: 'Birthday package created', package: pkg });

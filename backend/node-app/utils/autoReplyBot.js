@@ -67,7 +67,9 @@ const buildHoursText = async () => {
   try {
     const doc = await Settings.findOne({ key: 'whatsapp_hours' }).lean();
     if (doc && doc.value) return String(doc.value);
-  } catch (_) { /* fallback */ }
+  } catch (err) {
+    console.error('buildHoursText error:', err.message);
+  }
   return 'الأحد-الخميس: 10ص-11م، الجمعة-السبت: 10ص-12ص';
 };
 
@@ -75,7 +77,9 @@ const buildLocationText = async () => {
   try {
     const doc = await Settings.findOne({ key: 'whatsapp_location' }).lean();
     if (doc && doc.value) return String(doc.value);
-  } catch (_) { /* fallback */ }
+  } catch (err) {
+    console.error('buildLocationText error:', err.message);
+  }
   return 'إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني';
 };
 

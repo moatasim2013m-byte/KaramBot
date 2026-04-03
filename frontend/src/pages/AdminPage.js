@@ -99,14 +99,14 @@ export default function AdminPage() {
   const [daycarePackages, setDaycarePackages] = useState([]);
   const [editingDaycarePackage, setEditingDaycarePackage] = useState(null);
   const [savingDaycarePackage, setSavingDaycarePackage] = useState(false);
-  const [newDaycarePackage, setNewDaycarePackage] = useState({ name: '', name_ar: '', price: '', visits: 1, duration_hours: 0, duration_minutes: 0, time_slots: '', includes: '' });
+  const [newDaycarePackage, setNewDaycarePackage] = useState({ name: '', name_ar: '', price: 0, visits: 1, duration_hours: 0, duration_minutes: 0, time_slots: '', includes: '' });
   const [addingDaycarePackage, setAddingDaycarePackage] = useState(false);
 
   // Birthday packages state
   const [birthdayPackages, setBirthdayPackages] = useState([]);
   const [editingBirthdayPackage, setEditingBirthdayPackage] = useState(null);
   const [savingBirthdayPackage, setSavingBirthdayPackage] = useState(false);
-  const [newBirthdayPackage, setNewBirthdayPackage] = useState({ name: '', name_ar: '', price: '', kids_count: 10, play_hours: 2, meals: 10, stands: 0, gifts_per_kid: false, premium_gift: false });
+  const [newBirthdayPackage, setNewBirthdayPackage] = useState({ name: '', name_ar: '', price: 0, kids_count: 10, play_hours: 2, meals: 10, stands: 0, gifts_per_kid: false, premium_gift: false });
   const [addingBirthdayPackage, setAddingBirthdayPackage] = useState(false);
   const [expandedParent, setExpandedParent] = useState(null);
   const [parentDetails, setParentDetails] = useState(null);
@@ -972,14 +972,16 @@ export default function AdminPage() {
     e.preventDefault();
     setAddingDaycarePackage(true);
     try {
+      const parseCommaSeparated = (val) =>
+        typeof val === 'string' ? val.split(',').map(s => s.trim()).filter(Boolean) : [];
       const payload = {
         ...newDaycarePackage,
-        time_slots: newDaycarePackage.time_slots ? newDaycarePackage.time_slots.split(',').map(s => s.trim()) : [],
-        includes: newDaycarePackage.includes ? newDaycarePackage.includes.split(',').map(s => s.trim()) : []
+        time_slots: parseCommaSeparated(newDaycarePackage.time_slots),
+        includes: parseCommaSeparated(newDaycarePackage.includes)
       };
       await api.post('/admin/daycare-packages', payload);
       toast.success('تمت إضافة باقة الداي كير');
-      setNewDaycarePackage({ name: '', name_ar: '', price: '', visits: 1, duration_hours: 0, duration_minutes: 0, time_slots: '', includes: '' });
+      setNewDaycarePackage({ name: '', name_ar: '', price: 0, visits: 1, duration_hours: 0, duration_minutes: 0, time_slots: '', includes: '' });
       const res = await api.get('/admin/daycare-packages');
       setDaycarePackages(res.data.packages || []);
     } catch (error) {
@@ -1018,7 +1020,7 @@ export default function AdminPage() {
         includes: { kids_count: Number(kids_count), play_hours: Number(play_hours), meals: Number(meals), stands: Number(stands), gifts_per_kid: Boolean(gifts_per_kid), premium_gift: Boolean(premium_gift) }
       });
       toast.success('تمت إضافة باقة عيد الميلاد');
-      setNewBirthdayPackage({ name: '', name_ar: '', price: '', kids_count: 10, play_hours: 2, meals: 10, stands: 0, gifts_per_kid: false, premium_gift: false });
+      setNewBirthdayPackage({ name: '', name_ar: '', price: 0, kids_count: 10, play_hours: 2, meals: 10, stands: 0, gifts_per_kid: false, premium_gift: false });
       const res = await api.get('/admin/birthday-packages');
       setBirthdayPackages(res.data.packages || []);
     } catch (error) {
