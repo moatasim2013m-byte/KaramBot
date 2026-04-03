@@ -14,7 +14,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { 
   LayoutDashboard, Users, Clock, Cake, Star, Settings, Image, 
-  Plus, Edit, Trash2, Loader2, Gift, Calendar, DollarSign, Home, Upload, Search, UserPlus, Eye, Ban, Check, X, MessageSquare
+  Plus, Edit, Trash2, Loader2, Gift, Calendar, DollarSign, Home, Upload, Search, UserPlus, Eye, Ban, Check, X, MessageSquare,
+  Megaphone, FileText, Palette, RefreshCw, QrCode
 } from 'lucide-react';
 import mascotImg from '../assets/mascot.png';
 
@@ -960,68 +961,105 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-muted/30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8">
+
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div className="flex items-center gap-3">
             <img src={mascotImg} alt="" className="h-12 w-12 rounded-full border-2 border-[var(--peekaboo-green)] shadow" />
-            <h1 className="font-heading text-2xl sm:text-3xl font-bold leading-tight" data-testid="admin-title">
-              <LayoutDashboard className="inline-block h-8 w-8 text-primary mr-2" />
+            <h1 className="font-heading text-2xl sm:text-3xl font-bold" data-testid="admin-title">
               Admin Panel
             </h1>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Button
-              onClick={() => navigate('/staff?tab=inbox')}
-              variant="outline"
-              className="w-full sm:w-auto rounded-full gap-2 border-[var(--peekaboo-green)] text-[var(--peekaboo-green)] hover:bg-[var(--peekaboo-green)]/10"
-            >
-              <MessageSquare className="h-4 w-4" />
-              WhatsApp Inbox
-            </Button>
-            <Button onClick={() => navigate('/reception')} className="w-full sm:w-auto rounded-full gap-2 bg-[var(--peekaboo-green)] hover:bg-[var(--peekaboo-green)]/90">
-              Reception Scanner
+          <div className="flex gap-2">
+            <Button onClick={() => navigate('/reception')} className="rounded-full gap-2 bg-[var(--peekaboo-green)] hover:bg-[var(--peekaboo-green)]/90">
+              <QrCode className="h-4 w-4" /> Reception Scanner
             </Button>
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="bg-white border rounded-2xl sm:rounded-full p-1 flex-wrap gap-1 h-auto">
-            <TabsTrigger value="dashboard" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <LayoutDashboard className="h-4 w-4" /> Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="pricing" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <DollarSign className="h-4 w-4" /> Pricing
-            </TabsTrigger>
-            <TabsTrigger value="users" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Users className="h-4 w-4" /> Parents
-            </TabsTrigger>
-            <TabsTrigger value="customers" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <UserPlus className="h-4 w-4" /> العملاء
-            </TabsTrigger>
-            <TabsTrigger value="hourly" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Clock className="h-4 w-4" /> Hourly
-            </TabsTrigger>
-            <TabsTrigger value="birthday" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Cake className="h-4 w-4" /> Birthday
-            </TabsTrigger>
-            <TabsTrigger value="subscriptions" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Star className="h-4 w-4" /> Subscriptions
-            </TabsTrigger>
-            <TabsTrigger value="themes" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Cake className="h-4 w-4" /> Themes
-            </TabsTrigger>
-            <TabsTrigger value="products" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Gift className="h-4 w-4" /> Products
-            </TabsTrigger>
-            <TabsTrigger value="gallery" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Image className="h-4 w-4" /> Gallery
-            </TabsTrigger>
-            <TabsTrigger value="homepage" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Home className="h-4 w-4" /> الصفحة الرئيسية
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="rounded-full gap-2 text-xs sm:text-sm px-3 sm:px-4">
-              <Settings className="h-4 w-4" /> Settings
-            </TabsTrigger>
-          </TabsList>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <div className="flex flex-col lg:flex-row gap-6">
+
+            {/* Sidebar */}
+            <div className="w-full lg:w-56 flex-shrink-0">
+              <div className="lg:sticky lg:top-8 flex lg:flex-col flex-row flex-wrap gap-1 overflow-x-auto pb-2 lg:pb-0">
+
+                {/* Dashboard */}
+                <button
+                  onClick={() => handleTabChange('dashboard')}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'dashboard' ? 'bg-primary text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}
+                >
+                  <LayoutDashboard className="h-4 w-4 flex-shrink-0" /> لوحة التحكم
+                </button>
+
+                {/* Sales Group */}
+                <div className="hidden lg:block pt-3 w-full">
+                  <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">المبيعات</p>
+                </div>
+                {[
+                  { value: 'hourly', label: 'حجوزات بالساعة', icon: <Clock className="h-4 w-4" /> },
+                  { value: 'birthday', label: 'حفلات أعياد ميلاد', icon: <Cake className="h-4 w-4" /> },
+                  { value: 'subscriptions', label: 'الاشتراكات', icon: <Star className="h-4 w-4" /> },
+                  { value: 'pricing', label: 'الأسعار', icon: <DollarSign className="h-4 w-4" /> },
+                ].map(item => (
+                  <button key={item.value} onClick={() => handleTabChange(item.value)}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === item.value ? 'bg-primary text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+
+                {/* Customers Group */}
+                <div className="hidden lg:block pt-3 w-full">
+                  <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">العملاء</p>
+                </div>
+                {[
+                  { value: 'users', label: 'الآباء', icon: <Users className="h-4 w-4" /> },
+                  { value: 'customers', label: 'الأطفال', icon: <Users className="h-4 w-4" /> },
+                ].map(item => (
+                  <button key={item.value} onClick={() => handleTabChange(item.value)}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === item.value ? 'bg-primary text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+
+                {/* Marketing Group */}
+                <div className="hidden lg:block pt-3 w-full">
+                  <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">التسويق</p>
+                </div>
+                {[
+                  { value: 'whatsapp_inbox', label: 'صندوق الوارد', icon: <MessageSquare className="h-4 w-4" />, external: '/staff?tab=inbox' },
+                  { value: 'whatsapp_campaigns', label: 'الحملات', icon: <Megaphone className="h-4 w-4" />, external: '/staff?tab=campaigns' },
+                  { value: 'templates', label: 'القوالب', icon: <FileText className="h-4 w-4" /> },
+                ].map(item => (
+                  <button key={item.value}
+                    onClick={() => item.external ? navigate(item.external) : handleTabChange(item.value)}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === item.value ? 'bg-[#66A9E9] text-white shadow-sm' : 'text-gray-600 hover:bg-[#66A9E9]/10'}`}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+
+                {/* Settings Group */}
+                <div className="hidden lg:block pt-3 w-full">
+                  <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">الإعدادات</p>
+                </div>
+                {[
+                  { value: 'themes', label: 'الثيمات', icon: <Palette className="h-4 w-4" /> },
+                  { value: 'products', label: 'المنتجات', icon: <Gift className="h-4 w-4" /> },
+                  { value: 'gallery', label: 'المعرض', icon: <Image className="h-4 w-4" /> },
+                  { value: 'homepage', label: 'الصفحة الرئيسية', icon: <Home className="h-4 w-4" /> },
+                  { value: 'settings', label: 'الإعدادات', icon: <Settings className="h-4 w-4" /> },
+                ].map(item => (
+                  <button key={item.value} onClick={() => handleTabChange(item.value)}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === item.value ? 'bg-primary text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+
+              </div>
+            </div>
+
+            {/* Main content area */}
+            <div className="flex-1 min-w-0">
 
           {/* Dashboard */}
           <TabsContent value="dashboard">
@@ -2316,6 +2354,37 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+            {/* Templates tab */}
+            <TabsContent value="templates">
+              <Card className="rounded-2xl">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-[#66A9E9]" /> قوالب واتساب
+                  </CardTitle>
+                  <CardDescription>القوالب المعتمدة من Meta لإرسال الحملات</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const res = await api.post('/templates/sync');
+                        toast.success(`تم المزامنة · ${res.data.synced_count} قالب`);
+                      } catch (e) {
+                        toast.error('فشل المزامنة — تحقق من WHATSAPP_WABA_ID');
+                      }
+                    }}
+                    className="rounded-full gap-2 mb-4"
+                  >
+                    <RefreshCw className="h-4 w-4" /> مزامنة القوالب من Meta
+                  </Button>
+                  <p className="text-sm text-muted-foreground">بعد المزامنة ستظهر القوالب هنا. يمكنك استخدامها في الحملات.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            </div>
+          </div>
         </Tabs>
 
         {/* Adjust Points Dialog */}
