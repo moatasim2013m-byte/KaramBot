@@ -30,6 +30,13 @@ const uploadMemory = multer({
 });
 
 const router = express.Router();
+const INTERNAL_AUTO_REPLY_MARKER_REGEX = /^auto_trigger_/;
+
+const withVisibleInboxMessages = (query = {}) => ({
+  ...query,
+  message_id: { $not: INTERNAL_AUTO_REPLY_MARKER_REGEX }
+});
+
 const sendLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -65,7 +72,7 @@ router.get('/events', (req, res) => {
 
 const getConversationsPayload = async (query) => {
   const { search, unread_only, date_from, date_to } = query;
-  const matchStage = { platform: 'whatsapp' };
+  const matchStage = withVisibleInboxMessages({ platform: 'whatsapp' });
 
   if (date_from || date_to) {
     matchStage.timestamp = {};
@@ -129,17 +136,17 @@ const getStatsPayload = async () => {
   today.setHours(0, 0, 0, 0);
 
   const [totalConversations, unreadCount, todayMessages] = await Promise.all([
-    WhatsAppMessage.distinct('sender_wa_id', { platform: 'whatsapp' }),
-    WhatsAppMessage.countDocuments({
+    WhatsAppMessage.distinct('sender_wa_id', withVisibleInboxMessages({ platform: 'whatsapp' })),
+    WhatsAppMessage.countDocuments(withVisibleInboxMessages({
       platform: 'whatsapp',
       direction: 'inbound',
       is_read_by_staff: false
-    }),
-    WhatsAppMessage.countDocuments({
+    })),
+    WhatsAppMessage.countDocuments(withVisibleInboxMessages({
       platform: 'whatsapp',
       direction: 'inbound',
       timestamp: { $gte: today }
-    })
+    }))
   ]);
 
   return {
@@ -199,7 +206,7 @@ router.get('/stream/stats', async (req, res) => {
 // ==================== MESSAGES ====================
 
 const getMessagesPayload = async (wa_id, { limit = 100, before } = {}) => {
-  const query = { sender_wa_id: wa_id, platform: 'whatsapp' };
+  const query = withVisibleInboxMessages({ sender_wa_id: wa_id, platform: 'whatsapp' });
   if (before) query.timestamp = { $lt: new Date(before) };
 
   const messages = await WhatsAppMessage.find(query)
@@ -259,7 +266,7 @@ router.get('/customer-profile/:wa_id', async (req, res) => {
     const { wa_id } = req.params;
     
     // Find message to check linked user
-    const message = await WhatsAppMessage.findOne({ sender_wa_id: wa_id })
+    const message = await WhatsAppMessage.findOne(withVisibleInboxMessages({ sender_wa_id: wa_id }))
       .populate('linked_user_id');
     
     if (!message || !message.linked_user_id) {
@@ -856,7 +863,7 @@ router.post('/opt-out', async (req, res) => {
       return res.status(400).json({ error: 'wa_id and opt_out (true/false) are required' });
     }
 
-    const message = await WhatsAppMessage.findOne({ sender_wa_id: wa_id })
+    const message = await WhatsAppMessage.findOne(withVisibleInboxMessages({ sender_wa_id: wa_id }))
       .populate('linked_user_id');
 
     if (!message || !message.linked_user_id) {
