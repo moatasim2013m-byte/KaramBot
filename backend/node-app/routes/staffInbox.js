@@ -365,7 +365,7 @@ router.post('/send', sendLimiter, async (req, res) => {
     // COMPLIANCE: Mark customer's most recent message as read (Meta best practice)
     // This triggers blue double-tick on customer's end
     const lastInbound = await WhatsAppMessage.findOne({
-      sender_wa_id: wa_id,
+      sender_wa_id: normalizedWaId,
       direction: 'inbound',
       platform: 'whatsapp'
     }).sort({ timestamp: -1 });
@@ -400,7 +400,7 @@ router.post('/send', sendLimiter, async (req, res) => {
     // Mark conversation as replied
     await WhatsAppMessage.updateMany(
       {
-        sender_wa_id: wa_id,
+        sender_wa_id: normalizedWaId,
         direction: 'inbound',
         is_replied: false
       },
@@ -412,7 +412,7 @@ router.post('/send', sendLimiter, async (req, res) => {
       message: 'Message sent successfully',
       message_id: result.messageId
     });
-    emitInboxUpdate(wa_id, 'staff_text_send');
+    emitInboxUpdate(normalizedWaId, 'staff_text_send');
   } catch (error) {
     logWhatsAppSendFailure({
       event: 'whatsapp_text_send_exception',
@@ -703,7 +703,7 @@ router.post('/send-template', sendLimiter, async (req, res) => {
     try {
       await WhatsAppMessage.create({
         message_id: result.messageId || `tpl_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-        sender_wa_id: wa_id,
+        sender_wa_id: normalizedWaId,
         profile_name: '',
         message_type: 'template',
         text_body: templateDoc.body_text || `[Template: ${template_name}]`,
@@ -721,7 +721,7 @@ router.post('/send-template', sendLimiter, async (req, res) => {
     }
 
     res.json({ success: true, message_id: result.messageId });
-    emitInboxUpdate(wa_id, 'staff_template_send');
+    emitInboxUpdate(normalizedWaId, 'staff_template_send');
   } catch (error) {
     logWhatsAppSendFailure({
       event: 'whatsapp_template_send_exception',
@@ -790,7 +790,7 @@ router.post('/send-image', sendLimiter, (req, res) => {
       try {
         await WhatsAppMessage.create({
           message_id: messageId,
-          sender_wa_id: wa_id,
+          sender_wa_id: normalizedWaId,
           profile_name: '',
           message_type: 'image',
           text_body: caption || '',
@@ -808,7 +808,7 @@ router.post('/send-image', sendLimiter, (req, res) => {
       }
 
       res.json({ success: true, message_id: messageId, media_id: mediaId });
-      emitInboxUpdate(wa_id, 'staff_image_send');
+      emitInboxUpdate(normalizedWaId, 'staff_image_send');
     } catch (error) {
       logWhatsAppSendFailure({
         event: 'whatsapp_image_send_exception',
