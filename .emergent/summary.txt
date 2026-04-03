@@ -1,142 +1,156 @@
-<analysis>**original_problem_statement:**
-The user wants to build a launch-ready web app for an indoor playground named Peekaboo.
-
-**PRODUCT REQUIREMENTS:**
-- **Users:** Parent (Customer), Admin, and Staff.
-- **Goal:** Allow parents to buy hourly tickets for specific time slots, book birthday parties with themes, and buy subscriptions. Admins and Staff should manage operations.
-- **Admin Control:** The admin panel must have full control over pricing (hourly, subscriptions, themes), offers, and business hours/blackouts. All prices and business rules must be editable from the admin panel, not hardcoded.
-- **Authentication:** Email + password login, password reset via email. Role-based access is critical.
-- **Core Features (MVP):**
-    - **Hourly Tickets:** Parents select a duration and time slot. A QR code is generated for check-in. Capacity must be managed.
-    - **Birthday Parties:** Parents book a party for a specific date/slot and choose from admin-managed themes.
-    - **Subscriptions:** Parents can purchase visit-based subscription packages.
-    - **Loyalty Program:** Points are awarded for purchases.
-- **Localization:** Arabic is the primary language for the UI. English is secondary.
-- **Tech Stack:** The user mandated a **Node.js/Express** backend, React frontend, and MongoDB database.
+<analysis>**original_problem_statement**: 
+- Ensure Peekaboo’s backend remains the primary owner of WhatsApp integration (webhooks) and create a sophisticated internal staff inbox for viewing/responding to messages.
+- Implement Meta WhatsApp Business API-Compliant Marketing Campaigns & Broadcasts (Campaign, CampaignBroadcast, TemplateDefinition models).
+- Enforce strict Meta compliance: Template approval, 24h window validation, Opt-in tracking, TTL support, and read receipts.
 
 **User's preferred language**: English
+*(INSTRUCTION to next agent: Respond in English ONLY)*
 
-**what currently exists?**
-The application is stable and fully functional. A major UI/UX and branding overhaul has been completed, resulting in a polished, playful, and consistent premium kids brand look and feel for all customer-facing pages. This includes a global sky with clouds and balloons theme, updated typography (using the 'Cairo' font), and refined brand color tokens, all managed via CSS variables in . All customer-facing pages are now fully localized to Arabic with right-to-left (RTL) support.
+**what currently exists?** 
+A full-stack React and Express app with WhatsApp webhook integration. The staff dashboard now includes a WhatsApp Inbox tab with complete real-time messaging, read receipts, and profile fallbacks. The backend handles Meta Business marketing campaigns with models to manage template definitions, campaign execution, and broadcast logs.
 
-Core functionality has been enhanced:
-- **Session Stability:** A critical bug causing unexpected logouts has been fixed. The session now persists reliably across page refreshes and navigations.
-- **Multi-Child Booking:** The tickets page now supports booking for multiple children in a single transaction.
-- **Profile Management:** Parents can now add/manage their children and view/edit their phone number from their profile page.
-- **Admin Controls:** The admin panel now includes a Homepage tab to dynamically edit the hero section's image, title, subtitle, and call-to-action button. A backend bug preventing these settings from being displayed on the homepage has been resolved.
+**Last working item**: 
+- **Last item agent was working**: Applying three critical compliance gaps to the campaigns backend (specifically routing). The user requested changes to , but since this file doesn't exist, the agent accurately deduced it should be . The agent attempted to add the required  and  imports, but the  tool failed due to a string mismatch.
+- **Status**: IN PROGRESS
+- **Agent Testing Done**: N
+- **Which testing method agent to use?**: manual testing by curl / python -c (as requested in the test steps provided by the user)
+- **User Testing Done**: N
 
-**Last working item**:
-- **Last item agent was working:** Fixing a bug where updating the hero image in the admin panel did not reflect on the homepage. The agent identified that the public  endpoint was incorrectly using  and only returning a single setting document, instead of aggregating all settings. The agent fixed the endpoint to use  and correctly aggregate all  settings into one object. A cache-busting timestamp was also added to the image URL on save.
-- **Status:** USER VERIFICATION PENDING
-- **Agent Testing Done:** Y (The agent verified that text-based settings were flowing correctly from the admin panel to the homepage after the fix. The data flow is confirmed to be working.)
-- **Which testing method agent to use?** Manual testing. The next agent should log in as admin, navigate to the Homepage tab, upload a new hero image, save it, and then visit the live homepage to confirm the image has been updated.
-- **User Testing Done:** N
+**All Pending/In progress Issue list**: 
+Issue 1: Fix three critical compliance gaps in the campaign backend routes (P0)
+- **Attempted fixes**: Tried to add  and  imports at the top of . The string replacement failed because the target string was slightly off.
+- **Next debug checklist**: 
+  - File: 
+  - 1. Add  and  to the imports.
+  - 2. Find  function and replace Step 5 to query MongoDB and exclude users where  is not null.
+  - 3. In  route, add template approval validation block () before setting . Fix the duplicate  declaration below it.
+  - 4. Add a  endpoint to estimate audience size *before* the  route block.
+- **Why fix this issue and what will be achieved with the fix?**: It meets Meta's compliance requirements for campaigns (excluding opted-out contacts, requiring approved templates) and adds necessary UI support via a preview endpoint.
+- **Status**: IN PROGRESS
+- **Is recurring issue?**: N
+- **Should Test frontend/backend/both after fix?**: backend
+- **Blocked on other issue**: None
 
-**All Pending/In progress Issue list**:
-- None.
+**In progress Task List**: 
+Task 1: Complete Campaign Backend Compliance implementation
+- **Where to resume**: In , execute the 4 changes outlined in the latest user prompt.
+- **What will be achieved with this?**: Complete compliance with Meta's strict marketing requirements.
+- **Status**: IN PROGRESS
+- **Should Test frontend/backend/both after fix?**: backend
+- **Blocked on something**: Nothing
 
-**In progress Task List**:
-- None.
+**Upcoming and Future Tasks**:
+- Test the  endpoint with varying audience filters (e.g., ).
+- Test executing a template campaign with a non-existent or pending template to confirm the 400 error is thrown.
 
-**Upcoming and Future Tasks**
-- **Upcoming Tasks:**
-    - **P1: Profile Page - Active Session Countdown:** Implement the UI on the parent's profile page to show any active play sessions for their children, including a live countdown timer for the remaining time. (File: ).
-- **Future Tasks:**
-    - **Refactor AdminPage.js:** The  component is very large and could be broken down into smaller, more manageable components for each tab to improve maintainability.
-    - **Add Language Toggle:** Implement a UI switch to allow users to toggle between Arabic and English.
-    - **Create Test Checklist:** Deliver the 8-step test checklist for staff + parent that was originally requested.
+**Completed work in this session**:
+- Created  MongoDB model and persisting inbound messages via .
+- Developed Staff Inbox UI in  and  backend routes.
+- Handled profile_name fallback in Staff Inbox for users with no WA profile name.
+- Implemented Meta WA Business API-Compliant Marketing Campaigns (Models: , , ).
+- Fixed WhatsApp send button failure by extracting message_id and saving outbound messages to MongoDB in .
+- Implemented WA Read Receipts (Meta compliance) via .
+- Added Campaign UI TTL (Time-To-Live) support by applying Claude's frontend patch file to .
 
-**Completed work in this session**
-- **Full UI/UX Overhaul:** Completed a comprehensive visual redesign across all customer-facing pages (, , , , , , , , ) using a new design system based on CSS variables.
-- **Complete Arabic Localization:** Translated all remaining English text on customer-facing pages to Arabic and ensured full RTL support.
-- **Brand Polish:** Implemented a premium kids brand aesthetic, including a sky/clouds/balloons background theme for customer pages, refined typography and colors, and playful hover/active effects on navigation links.
-- **Session Stability Fix:** Resolved a critical bug that caused users to be logged out prematurely. The session now persists correctly across page refreshes by only logging out on explicit 401 errors.
-- **Multi-Child Booking:** Implemented the feature allowing parents to book tickets for multiple children in one transaction.
-- **Profile & Registration Enhancement:** Added a required mobile number field to the registration page and made it viewable/editable in the parent's profile. Confirmed the existing Add/List Children feature was fully functional and localized.
-- **Admin Hero Management:** Added a new Homepage tab to the admin panel for editing the hero image and text.
-- **Backend Data Flow Fix:** Corrected the public  endpoint to properly aggregate all settings, allowing changes made in the admin panel to be reflected on the homepage.
+**Earlier issues found/mentioned but not fixed**:
+- None explicitly left behind. The agent correctly navigated missing files/misnamed files requested by the user. 
 
-**Earlier issues found/mentioned but not fixed**
-- None.
+**Known issue recurrence from previous fork**:
+- Recurrence count: 0
+- Status: NONE
 
-**Known issue recurrence from previous fork**
-- None.
+**Code Architecture**:
+-  -> Contains Express server.
+  -  -> Mongoose schemas (, , , etc.)
+  -  -> API definitions (, , )
+  -  -> Helpers ()
+-  -> React application
+  -  -> Contains UI for staff dashboard including QR Scanner, Inbox, and Campaigns.
 
-**Code Architecture**
+**Key Technical Concepts**:
+- React Frontend (Tailwind)
+- Express.js Backend
+- MongoDB (Mongoose)
+- Meta WhatsApp Cloud API / Marketing Messages API
+- Webhooks handling & Signature verification (META_APP_SECRET)
 
+**key DB schema**:
+- : { message_id, sender_wa_id, profile_name, message_type, text_body, direction, status, sent_by_staff_id, platform }
+- : { name, description, template_id, audience_filter, personalization, require_consent, allow_24h_window, status, metadata: { ttl_hours } }
+- : { meta_template_id, name, status, body_text, variables }
 
-**Key Technical Concepts**
-- **Hybrid Backend:** Node.js/Express app managed by a Python/FastAPI wrapper.
-- **Session Management:** Robust session persistence using  for JWT tokens and an . The context rehydrates the user's auth state on page load and includes an Axios interceptor to gracefully handle 401 errors without logging out on transient network failures.
-- **Dynamic Theming:** Conditional CSS class application in a root  component (based on URL path) to apply different background themes for customer-facing routes versus admin routes.
-- **CSS Design System:** A comprehensive system built with CSS variables for brand colors, spacing, shadows, and typography. It also includes advanced CSS for background layers (gradients, SVGs) and keyframe animations for decorative elements (floating balloons).
-- **Centralized Settings Management:** Storing application settings (like hero content) as individual key-value documents in a MongoDB  collection and aggregating them via a public API endpoint for use in the frontend.
+**changes in tech stack**:
+- None
 
-**key DB schema**
-- **User:** Updated to include a  field.
-- **Settings:** A collection used to store key-value pairs for site-wide configuration, such as , , and .
-
-**changes in tech stack**
-- None.
-
-**All files of reference**
-- : The core of the session persistence and authentication state management.
-- : The central file for the entire application's visual identity, containing all design tokens, fonts, animations, and the sky theme.
-- : Contains routing logic, protected routes, and the conditional layout logic that applies different themes to customer vs. admin areas.
-- : A large component that now includes the logic for managing the homepage hero content.
-- : Updated to fetch and render dynamic content from the  endpoint.
-- : Updated to include the new public  endpoint.
+**All files of reference**:
+-  (Target file for current in-progress task)
+-  (Holds WhatsApp API outbound functions)
+-  (Inbox API endpoints)
+-  (Inbox & Campaign UI)
+- 
+- 
 
 **Areas that need refactoring**:
--  is a large, monolithic component that handles all admin tabs. It should be broken down into smaller, tab-specific components to improve code readability and maintainability.
+- User prompt nomenclature mismatch: User repeatedly asks to modify  and , but these files do not exist. The actual implementation in the codebase resides in  and . The next agent must remain vigilant and map user requests to the correct existing files instead of creating new ones blindly.
 
-**key api endpoints**
-- : **NEW** public endpoint that aggregates and returns all hero-related settings for the homepage.
-- : **UPDATED** to allow editing the user's phone number.
-- : **UPDATED** to include a  number during user registration.
-- : **UPDATED** to handle an array of  for multi-child booking.
+**key api endpoints**:
+- 
+- 
+- 
+- 
+-  (Currently being added)
 
-**Critical Info for New Agent**
-- The application is stable. The immediate priority is to verify the last fix (hero image update) and then move on to the next user-requested feature.
-- The development process has been following a credit control or micro-mission pattern. Expect prompts to be very specific, with strict rules about which files to touch. Adhere to this focused approach.
-- All customer-facing UI is now in Arabic (RTL). Do not introduce any English text into the parent/customer experience. The admin panel remains in a mix of English/Arabic, which is acceptable.
-- The session stability issue is resolved. Do not modify  unless a new session-related bug is discovered.
+**Critical Info for New Agent**:
+- **CRITICAL**: The user prompt specifically asks you to modify . **THIS FILE DOES NOT EXIST**. The correct file you need to modify is . Do not create .
+- The last  failed because the target string in  didn't exactly match the pattern you provided. Use a broader or more precise  or  to correctly inject the imports.
 
-**documents and test reports created in this job**
--  (Updated during the session)
+**documents and test reports created in this job**:
+- 
+- 
+- 
+- 
+- 
 
-**Last 10 User Messages and any pending HUMAN messages**
-1. **User:** Fix session stability. (COMPLETED)
-2. **Agent:** Implemented a fix in  to only log out on 401 errors and persist the token in .
-3. **User:** Close the session stability task and remove debug logs. (COMPLETED)
-4. **Agent:** Removed  statements from .
-5. **User:** Close the session stability micro-mission (final confirmation). (COMPLETED)
-6. **Agent:** Confirmed task closure.
-7. **User:** Add a mobile number field to the register and profile pages. (COMPLETED)
-8. **Agent:** Implemented the phone number field on frontend and backend.
-9. **User:** Close the phone number micro-mission. (COMPLETED)
-10. **Agent:** Confirmed task closure.
-11. **User:** Fix the hero image update flow so changes in admin reflect on the homepage. (IN PROGRESS - Fix implemented, verification pending)
-12. **Agent:** Fixed the  endpoint and added cache-busting. Verified text updates work.
+**Last 10 User Messages and any pending HUMAN messages**:
+1. (Pending) Fix three critical compliance gaps in the campaign backend... Scope — ONE file only: /app/backend/node-app/routes/staffCampaigns.js
+2. PREVIOUS SESSION COMPLETE. Campaigns tab UI is done... Fix two compliance gaps in the WhatsApp Marketing Messages API (recipient_type, TTL support)...
+3. Uploaded artifact: whatsapp coding correction.zip. see claude feedback stick exactly to what he proposed.
+4. Run this exact command right now... ls /app/backend/node-app/utils/ ...
+5. Verify actual file paths in repo ...
+6. Uploaded artifact: Peekaboo_Phase2_Prompt.docx. Respond to attached.
+7. Fix backend only. Two changes in two files... Remove duplicate outbound persist block... Add mark-as-read before sending reply.
+8. reviewed the Meta official WhatsApp demo... backend fix from previous session is partially wrong.
+9. Fix WhatsApp Staff Inbox Send Button - Message Sending Failure.
+10. Great news! The WhatsApp marketing campaigns system is fully implemented and operational...
 
-**Project Health Check:**
-- **Broken:** None.
-- **Mocked:** None.
+**Project Health Check**:
+- Backend service starts cleanly on internal port 8002.
+- Frontend builds cleanly in ~38s.
 
-**3rd Party Integrations**
-- **Stripe (Payments):** Hybrid integration (Python for checkout, Node.js for webhooks).
-- **Resend (Emails):** For transactional emails.
+**3rd Party Integrations**:
+- WhatsApp Cloud API — requires User API Key (, , )
 
-**Testing status**
-- **Testing agent used after significant changes:** NO
-- **Troubleshoot agent used after agent stuck in loop:** NO
-- **Test files created:** None
-- **Known regressions:** None.
+**Testing status**:
+- Testing agent used after significant changes: NO (Tested via bash curl scripts and testing shells).
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: , 
+- Known regressions: None.
 
-**Credentials to test flow:**
-- **Admin:**  /  (Login via )
-- **Staff:**  /  (Login via )
-- **Parent:** Register a new user via the signup page.
+**Credentials to test flow**:
+- To test the inbox and campaigns, a  or  user token is required. (Auth route ).
+-  and  are required in  to successfully hit Meta endpoints.
 
-**What agent forgot to execute**
-- Nothing was forgotten from the specific tasks assigned during this session. The agent methodically completed each micro-mission. The initial  update task was not consistently followed after every major feature, but this is a minor process point.</analysis>
+**What agent forgot to execute**:
+The agent attempted but failed to complete the very last prompt requesting 3 changes in the  file:
+1. Adding  and  requires.
+2. Filtering out  inside .
+3. Adding Template Validation to  and removing duplicate .
+4. Creating a  route.
+
+**Debugging checklist for current issue**:
+Issue: Compliance gaps and  route pending in 
+Backend files to check: 
+- Lines 1-15: Safely inject  and .
+- Line ~40-60: Locate  and replace the mapping logic as requested.
+- Line ~150-200: Locate  and place  **before** it.
+- Locate : Inject template validation logic and remove the secondary  before .</analysis>
