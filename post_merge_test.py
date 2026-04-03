@@ -9,7 +9,7 @@ import json
 import sys
 
 # Configuration
-BACKEND_URL = "https://staff-messages.preview.emergentagent.com"
+BACKEND_URL = "https://whatsapp-campaigns-4.preview.emergentagent.com"
 API_BASE = f"{BACKEND_URL}/api"
 
 def log_test_result(test_name, status, message="", details=None):
