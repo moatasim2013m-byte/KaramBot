@@ -14,6 +14,7 @@ const DEFAULT_CONFIG = {
 };
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr'];
+const STAFF_REPLY_BLOCK_MINUTES = 10;
 
 const normalizeText = (value) =>
   String(value || '')
@@ -63,12 +64,17 @@ const keywordMap = [
 
 const loadAutoReplyConfig = async () => {
   const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
+  const legacyEnabledSetting = await Settings.findOne({ key: 'whatsapp_auto_reply_enabled' }).lean();
   const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
+  const legacyEnabled =
+    typeof legacyEnabledSetting?.value === 'boolean' ? legacyEnabledSetting.value : undefined;
+  const enabledFromConfig = typeof value?.enabled === 'boolean' ? value.enabled : undefined;
+  const enabled = typeof enabledFromConfig === 'boolean' ? enabledFromConfig : Boolean(legacyEnabled);
 
   return {
     ...DEFAULT_CONFIG,
     ...value,
-    enabled: Boolean(value?.enabled),
+    enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes))
   };
 };
@@ -120,6 +126,29 @@ const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
   return Boolean(recent);
 };
 
+const hasRecentStaffReply = async (senderWaId) => {
+  const cutoff = new Date(Date.now() - STAFF_REPLY_BLOCK_MINUTES * 60 * 1000);
+
+  const recent = await WhatsAppMessage.findOne({
+    sender_wa_id: senderWaId,
+    direction: 'outbound',
+    platform: 'whatsapp',
+    $or: [
+      { 'raw_payload.auto_reply': { $exists: false } },
+      { 'raw_payload.auto_reply': false }
+    ],
+    timestamp: { $gte: cutoff }
+  })
+    .sort({ timestamp: -1 })
+    .lean();
+
+  return Boolean(recent);
+};
+
+const logAutoReply = (event, payload = {}) => {
+  console.log(event, payload);
+};
+
 const persistAutoReplyMessage = async ({ waId, textBody, messageId, matchedKey }) => {
   if (!messageId) return;
 
@@ -150,19 +179,57 @@ const persistAutoReplyMessage = async ({ waId, textBody, messageId, matchedKey }
 
 const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) => {
   try {
-    if (!senderWaId || !messageId) return { skipped: true, reason: 'missing_payload' };
-    if (messageType !== 'text') return { skipped: true, reason: 'unsupported_message_type' };
+    logAutoReply('AUTO_REPLY_TRIGGERED', {
+      messageId,
+      senderWaId,
+      messageType,
+      hasTextBody: Boolean(textBody)
+    });
+
+    if (!senderWaId || !messageId) {
+      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'missing_payload' });
+      return { skipped: true, reason: 'missing_payload' };
+    }
+
+    if (messageType !== 'text') {
+      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'unsupported_message_type', messageType });
+      return { skipped: true, reason: 'unsupported_message_type' };
+    }
 
     const config = await loadAutoReplyConfig();
-    if (!config.enabled) return { skipped: true, reason: 'disabled' };
+    logAutoReply('AUTO_REPLY_CONFIG_LOADED', {
+      messageId,
+      enabled: config.enabled,
+      cooldownMinutes: config.cooldownMinutes
+    });
+    if (!config.enabled) {
+      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'disabled' });
+      return { skipped: true, reason: 'disabled' };
+    }
 
     const normalizedWaId = normalizePhoneForWhatsApp(senderWaId);
-    if (!normalizedWaId) return { skipped: true, reason: 'invalid_wa_id' };
+    if (!normalizedWaId) {
+      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'invalid_wa_id', senderWaId });
+      return { skipped: true, reason: 'invalid_wa_id' };
+    }
 
     const alreadyHandled = await WhatsAppMessage.findOne({
       message_id: `auto_trigger_${messageId}`
     }).lean();
-    if (alreadyHandled) return { skipped: true, reason: 'duplicate_trigger' };
+    if (alreadyHandled) {
+      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'duplicate_trigger' });
+      return { skipped: true, reason: 'duplicate_trigger' };
+    }
+
+    if (await hasRecentStaffReply(normalizedWaId)) {
+      logAutoReply('AUTO_REPLY_SKIPPED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        reason: 'recent_staff_reply',
+        blockMinutes: STAFF_REPLY_BLOCK_MINUTES
+      });
+      return { skipped: true, reason: 'recent_staff_reply' };
+    }
 
     if (await hasRecentAutoReply(normalizedWaId, config.cooldownMinutes)) {
       await WhatsAppMessage.create({
@@ -178,6 +245,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         is_read_by_staff: true,
         is_replied: false
       }).catch(() => {});
+      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, senderWaId: normalizedWaId, reason: 'cooldown_active' });
       return { skipped: true, reason: 'cooldown_active' };
     }
 
@@ -196,6 +264,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     });
 
     if (!sendResult?.ok) {
+      logAutoReply('AUTO_REPLY_SEND_FAILED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        reason: sendResult?.reason || sendResult?.error || 'send_failed'
+      });
       return { skipped: true, reason: sendResult?.reason || sendResult?.error || 'send_failed' };
     }
 
@@ -220,9 +293,15 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       is_replied: false
     }).catch(() => {});
 
+    logAutoReply('AUTO_REPLY_SENT', {
+      messageId,
+      senderWaId: normalizedWaId,
+      matchedKey: matched?.key || 'fallback',
+      outgoingMessageId: sendResult.messageId
+    });
     return { ok: true, matchedKey: matched?.key || 'fallback' };
   } catch (error) {
-    console.error('AUTO_REPLY_ERROR', error.message);
+    console.error('AUTO_REPLY_TRIGGER_ERROR', error.message);
     return { skipped: true, reason: 'exception', error: error.message };
   }
 };
