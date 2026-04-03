@@ -84,6 +84,16 @@ const resolvePhoneNumberId = (input) => {
   return getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
 };
 
+const containsEmoji = (text) => {
+  return /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u.test(String(text || ''));
+};
+
+const resolveVerifyToken = () => {
+  const legacyToken = getTrimmedEnv('VERIFY_TOKEN');
+  if (legacyToken) return legacyToken;
+  return getTrimmedEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN');
+};
+
 const validatePrompts = (prompts) => {
   if (!Array.isArray(prompts)) return 'prompts must be an array of strings';
   if (prompts.length > 4) return 'prompts supports up to 4 ice breakers';
@@ -93,6 +103,9 @@ const validatePrompts = (prompts) => {
     }
     if (item.trim().length > 80) {
       return 'each prompt must be at most 80 characters';
+    }
+    if (containsEmoji(item)) {
+      return 'prompts cannot include emojis';
     }
   }
   return null;
@@ -107,6 +120,9 @@ const validateCommands = (commands) => {
     if (!name || !description) return 'each command must include command_name and command_description';
     if (name.length > 32) return 'command_name must be at most 32 characters';
     if (description.length > 256) return 'command_description must be at most 256 characters';
+    if (containsEmoji(name) || containsEmoji(description)) {
+      return 'commands cannot include emojis in command_name or command_description';
+    }
   }
   return null;
 };
@@ -290,7 +306,7 @@ router.get('/webhook', (req, res) => {
   const mode = String(req.query['hub.mode'] || '');
   const challenge = String(req.query['hub.challenge'] || '');
   const verifyToken = String(req.query['hub.verify_token'] || '');
-  const expectedVerifyToken = getTrimmedEnv('VERIFY_TOKEN');
+  const expectedVerifyToken = resolveVerifyToken();
   const isTokenMatch =
     expectedVerifyToken &&
     verifyToken &&

@@ -22,14 +22,15 @@
 - `POST /api/whatsapp/conversational-automation` (admin auth required)
   - Updates WhatsApp conversational automation in Meta.
   - Accepts body keys:
-    - `prompts` (optional, max 4 items, each max 80 chars)
-    - `commands` (optional, max 30 items; `command_name` max 32 chars, `command_description` max 256 chars)
+    - `prompts` (optional, max 4 items, each max 80 chars, emojis are rejected)
+    - `commands` (optional, max 30 items; `command_name` max 32 chars, `command_description` max 256 chars, emojis are rejected)
     - `phone_number_id` (optional if `WHATSAPP_PHONE_NUMBER_ID` is set)
   - At least one of `prompts` or `commands` must be present.
 
 ## Environment variables
 
-- `WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (recommended)
+- `VERIFY_TOKEN` (legacy fallback for backwards compatibility)
 - `META_APP_SECRET`
 - `WHATSAPP_WEBHOOK_VALIDATE_SIGNATURE=true` (optional, defaults to enabled)
 - `WHATSAPP_ACCESS_TOKEN` (required for conversational automation API proxy routes)
