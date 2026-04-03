@@ -3,7 +3,6 @@
  * Fetches temporary download URLs for media stored as Meta media IDs
  */
 
-const FormDataNode = require('form-data');
 const { fetchMetaWithRetry } = require('./metaApiClient');
 
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
@@ -98,24 +97,27 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
 
   if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
-    return {
-      ok: false,
-      error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed.`
-    };
+    return { ok: false, error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed.` };
   }
 
   try {
+    const FormDataNode = require('form-data');
     const form = new FormDataNode();
+
+    // Meta requires these three fields exactly as documented:
+    // POST /PHONE_NUMBER_ID/media with messaging_product, type, and file
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
     form.append('file', buffer, {
-      filename: filename || 'image.jpg',
+      filename: filename || (mimeType === 'image/png' ? 'image.png' : 'image.jpg'),
       contentType: mimeType,
       knownLength: buffer.length
     });
 
+    const formHeaders = form.getHeaders();
     const uploadUrl = `https://graph.facebook.com/v23.0/${phoneNumberId}/media`;
 
+    // Use Node's built-in fetch with the form-data stream
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
@@ -123,25 +125,27 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        ...form.getHeaders()
+        ...formHeaders
       },
       body: form,
-      signal: controller.signal
+      signal: controller.signal,
+      duplex: 'half'
     });
 
     clearTimeout(timeout);
     const responseText = await response.text();
 
+    console.log('META_UPLOAD_RESPONSE', {
+      status: response.status,
+      body: responseText.slice(0, 300)
+    });
+
     if (!response.ok) {
-      console.error('META_UPLOAD_ERROR', { status: response.status, body: responseText.slice(0, 300) });
       return { ok: false, error: responseText.slice(0, 200), status: response.status };
     }
 
     const data = JSON.parse(responseText);
-    if (!data.id) {
-      return { ok: false, error: 'Meta returned no media ID', raw: responseText.slice(0, 200) };
-    }
-
+    if (!data.id) return { ok: false, error: 'Meta returned no media ID', raw: responseText.slice(0, 200) };
     return { ok: true, mediaId: data.id };
   } catch (err) {
     console.error('META_UPLOAD_EXCEPTION', err.message);
