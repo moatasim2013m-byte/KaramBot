@@ -4,6 +4,9 @@
  */
 
 const FormData = require('form-data');
+const { fetchMetaWithRetry } = require('./metaApiClient');
+
+const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
 
 /**
  * Given a Meta media ID, returns a temporary HTTPS download URL.
@@ -71,16 +74,20 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
 
+  if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
+    return {
+      ok: false,
+      error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed by Staff Inbox.`
+    };
+  }
+
   try {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
     form.append('file', buffer, { filename: filename || 'image.jpg', contentType: mimeType });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-
-    const response = await fetch(
+    const result = await fetchMetaWithRetry(
       `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
       {
         method: 'POST',
@@ -88,22 +95,20 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
           Authorization: `Bearer ${accessToken}`,
           ...form.getHeaders()
         },
-        body: form,
-        signal: controller.signal
-      }
+        body: form
+      },
+      { event: 'meta_media_upload', mimeType, phoneNumberId }
     );
-    clearTimeout(timeout);
 
-    const responseText = await response.text();
-    if (!response.ok) {
-      return { ok: false, error: responseText.slice(0, 200) };
+    if (!result.ok) {
+      return { ok: false, error: result.error || result.text?.slice(0, 500) || 'Meta upload failed' };
     }
 
-    const data = JSON.parse(responseText);
+    const data = JSON.parse(result.text || '{}');
     return { ok: true, mediaId: data.id };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 }
 
-module.exports = { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta };
+module.exports = { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta, ALLOWED_IMAGE_MIME_TYPES };

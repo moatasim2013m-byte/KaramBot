@@ -20,13 +20,19 @@ console.log("[BOOT] env_present:", initialEnvPresence);
 
 // ==================== PROCESS ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[UNHANDLED_REJECTION]', reason);
-  console.error('[UNHANDLED_REJECTION_STACK]', reason?.stack || 'no stack');
+  reportError({
+    message: '[UNHANDLED_REJECTION]',
+    error: reason instanceof Error ? reason : new Error(String(reason)),
+    context: { event: 'unhandled_rejection' }
+  });
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT_EXCEPTION]', err.message);
-  console.error('[UNCAUGHT_EXCEPTION_STACK]', err.stack);
+  reportError({
+    message: '[UNCAUGHT_EXCEPTION]',
+    error: err,
+    context: { event: 'uncaught_exception' }
+  });
 });
 
 if (!process.env.RESEND_API_KEY) {
@@ -40,6 +46,7 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+const { requestLogger, reportError } = require('./utils/logger');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -71,6 +78,7 @@ const corsOrigin =
     : (allowedOrigins.length ? allowedOrigins : true);
 
 // Middleware
+app.use(requestLogger);
 app.use(cors({
   origin: corsOrigin,
   credentials: true
@@ -275,10 +283,21 @@ if (frontendBuildPath && fs.existsSync(indexHtmlPath)) {
 
 // ==================== GLOBAL ERROR HANDLER ====================
 app.use((err, req, res, next) => {
-  const rid = (req && req.req_id) ? req.req_id : "no_req_id";
-  console.error(`[GLOBAL_ERROR][${rid}]`, err.message || err);
-  console.error(`[GLOBAL_ERROR_STACK][${rid}]`, err.stack);
-  res.status(err.status || 500).json({ error: 'حدث خطأ في الخادم', req_id: rid });
+  const rid = (req && req.req_id) ? req.req_id : 'no_req_id';
+  reportError({
+    message: 'API request failed',
+    error: err,
+    context: {
+      event: 'api_error',
+      requestId: rid,
+      method: req?.method,
+      path: req?.originalUrl,
+      wa_id: req?.body?.wa_id,
+      mimeType: req?.file?.mimetype,
+      metaError: err?.response?.data || null
+    }
+  });
+  res.status(err.status || 500).json({ error: 'حدث خطأ في الخادم', req_id: rid, details: err.message });
 });
 
 // ==================== ENV VALIDATION (before server start) ====================
