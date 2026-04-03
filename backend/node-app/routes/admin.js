@@ -4,6 +4,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Child = require('../models/Child');
 const TimeSlot = require('../models/TimeSlot');
@@ -1455,6 +1456,239 @@ router.put('/whatsapp-auto-reply', async (req, res) => {
   } catch (error) {
     console.error('Update WhatsApp auto-reply config error:', error);
     res.status(500).json({ error: 'Failed to update WhatsApp auto-reply config' });
+  }
+});
+
+// ==================== PLAY PRICING ====================
+
+const PLAY_PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
+const PLAY_PRICING_DEFAULTS = { hourly_1hr: 7, hourly_2hr: 10, hourly_3hr: 13, hourly_extra_hr: 3, extra_companion: 3, sand_area_addon: 20, transport_one_way: 40 };
+
+router.get('/play-pricing', async (req, res) => {
+  try {
+    const docs = await Settings.find({ key: { $in: PLAY_PRICING_KEYS } }).lean();
+    const pricing = { ...PLAY_PRICING_DEFAULTS };
+    docs.forEach(d => { pricing[d.key] = parseFloat(d.value); });
+    res.json({ pricing });
+  } catch (error) {
+    console.error('Get play-pricing error:', error);
+    res.status(500).json({ error: 'Failed to get play pricing' });
+  }
+});
+
+router.put('/play-pricing', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const updates = PLAY_PRICING_KEYS.map(key => ({
+      key,
+      value: parseFloat(body[key]) || PLAY_PRICING_DEFAULTS[key]
+    }));
+    for (const u of updates) {
+      await Settings.findOneAndUpdate(
+        { key: u.key },
+        { key: u.key, value: u.value, updated_at: new Date() },
+        { upsert: true }
+      );
+    }
+    res.json({ message: 'Play pricing updated successfully' });
+  } catch (error) {
+    console.error('Update play-pricing error:', error);
+    res.status(500).json({ error: 'Failed to update play pricing' });
+  }
+});
+
+// ==================== BUSINESS INFO (WhatsApp hours & location) ====================
+
+router.get('/business-info', async (req, res) => {
+  try {
+    const docs = await Settings.find({ key: { $in: ['whatsapp_hours', 'whatsapp_location'] } }).lean();
+    const info = {
+      whatsapp_hours: 'الأحد-الخميس: 10:00 ص - 11:00 م، الجمعة-السبت: 10:00 ص - 12:00 ص',
+      whatsapp_location: 'إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني'
+    };
+    docs.forEach(d => { info[d.key] = d.value; });
+    res.json({ info });
+  } catch (error) {
+    console.error('Get business-info error:', error);
+    res.status(500).json({ error: 'Failed to get business info' });
+  }
+});
+
+router.put('/business-info', async (req, res) => {
+  try {
+    const { whatsapp_hours, whatsapp_location } = req.body || {};
+    if (!whatsapp_hours?.trim() || !whatsapp_location?.trim()) {
+      return res.status(400).json({ error: 'whatsapp_hours and whatsapp_location are required' });
+    }
+    await Settings.findOneAndUpdate(
+      { key: 'whatsapp_hours' },
+      { key: 'whatsapp_hours', value: String(whatsapp_hours).trim(), updated_at: new Date() },
+      { upsert: true }
+    );
+    await Settings.findOneAndUpdate(
+      { key: 'whatsapp_location' },
+      { key: 'whatsapp_location', value: String(whatsapp_location).trim(), updated_at: new Date() },
+      { upsert: true }
+    );
+    res.json({ message: 'Business info updated successfully' });
+  } catch (error) {
+    console.error('Update business-info error:', error);
+    res.status(500).json({ error: 'Failed to update business info' });
+  }
+});
+
+// ==================== DAYCARE PACKAGES ====================
+
+router.get('/daycare-packages', async (req, res) => {
+  try {
+    const packages = await SubscriptionPlan.find({ is_active: true }).sort({ price: 1 }).lean();
+    res.json({ packages: packages.map(p => ({ ...p, id: p._id.toString() })) });
+  } catch (error) {
+    console.error('Get daycare-packages error:', error);
+    res.status(500).json({ error: 'Failed to get daycare packages' });
+  }
+});
+
+router.put('/daycare-packages/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid package ID' });
+    }
+    const { name, name_ar, price, duration_hours, duration_minutes, includes, time_slots, is_active } = req.body || {};
+    const parsedPrice = parseFloat(price);
+    if (!parsedPrice || parsedPrice <= 0) {
+      return res.status(400).json({ error: 'price must be a positive number' });
+    }
+    const safeIncludes = Array.isArray(includes) ? includes.map(String) : [];
+    const safeTimeSlots = Array.isArray(time_slots) ? time_slots.map(String) : [];
+    const updated = await SubscriptionPlan.findByIdAndUpdate(
+      new mongoose.Types.ObjectId(req.params.id),
+      {
+        name: String(name || ''),
+        name_ar: String(name_ar || ''),
+        price: parsedPrice,
+        duration_hours: Number(duration_hours) || 0,
+        duration_minutes: Number(duration_minutes) || 0,
+        includes: safeIncludes,
+        time_slots: safeTimeSlots,
+        is_active: Boolean(is_active)
+      },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ error: 'Package not found' });
+    res.json({ message: 'Daycare package updated', package: updated });
+  } catch (error) {
+    console.error('Update daycare-package error:', error);
+    res.status(500).json({ error: 'Failed to update daycare package' });
+  }
+});
+
+router.post('/daycare-packages', async (req, res) => {
+  try {
+    const { name, name_ar, description, description_ar, price, visits, duration_hours, duration_minutes, includes, time_slots, is_daily_pass } = req.body || {};
+    const parsedPrice = parseFloat(price);
+    if (!name || !parsedPrice || parsedPrice <= 0 || visits == null) {
+      return res.status(400).json({ error: 'name, price (positive), and visits are required' });
+    }
+    const safeIncludes = Array.isArray(includes) ? includes.map(String) : [];
+    const safeTimeSlots = Array.isArray(time_slots) ? time_slots.map(String) : [];
+    const pkg = await SubscriptionPlan.create({
+      name: String(name),
+      name_ar: name_ar ? String(name_ar) : undefined,
+      description: description ? String(description) : undefined,
+      description_ar: description_ar ? String(description_ar) : undefined,
+      price: parsedPrice,
+      visits: Number(visits) || 1,
+      duration_hours: Number(duration_hours) || 0,
+      duration_minutes: Number(duration_minutes) || 0,
+      includes: safeIncludes,
+      time_slots: safeTimeSlots,
+      is_daily_pass: Boolean(is_daily_pass),
+      is_active: true
+    });
+    res.status(201).json({ message: 'Daycare package created', package: pkg });
+  } catch (error) {
+    console.error('Create daycare-package error:', error);
+    res.status(500).json({ error: 'Failed to create daycare package' });
+  }
+});
+
+// ==================== BIRTHDAY PACKAGES ====================
+
+router.get('/birthday-packages', async (req, res) => {
+  try {
+    const packages = await Theme.find({ package_type: 'birthday', is_active: true }).sort({ price: 1 }).lean();
+    res.json({ packages: packages.map(p => ({ ...p, id: p._id.toString() })) });
+  } catch (error) {
+    console.error('Get birthday-packages error:', error);
+    res.status(500).json({ error: 'Failed to get birthday packages' });
+  }
+});
+
+const sanitizeBirthdayIncludes = (inc) => {
+  if (!inc || typeof inc !== 'object' || Array.isArray(inc)) return {};
+  return {
+    kids_count: Number(inc.kids_count) || 0,
+    play_hours: Number(inc.play_hours) || 0,
+    meals: Number(inc.meals) || 0,
+    stands: Number(inc.stands) || 0,
+    gifts_per_kid: Boolean(inc.gifts_per_kid),
+    premium_gift: Boolean(inc.premium_gift)
+  };
+};
+
+router.put('/birthday-packages/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid package ID' });
+    }
+    const { name, name_ar, description, description_ar, price, includes, is_active } = req.body || {};
+    const parsedPrice = parseFloat(price);
+    if (!parsedPrice || parsedPrice <= 0) {
+      return res.status(400).json({ error: 'price must be a positive number' });
+    }
+    const updated = await Theme.findOneAndUpdate(
+      { _id: new mongoose.Types.ObjectId(req.params.id), package_type: 'birthday' },
+      {
+        name: String(name || ''),
+        name_ar: String(name_ar || ''),
+        description: description ? String(description) : undefined,
+        description_ar: description_ar ? String(description_ar) : undefined,
+        price: parsedPrice,
+        includes: sanitizeBirthdayIncludes(includes),
+        is_active: Boolean(is_active)
+      },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ error: 'Birthday package not found' });
+    res.json({ message: 'Birthday package updated', package: updated });
+  } catch (error) {
+    console.error('Update birthday-package error:', error);
+    res.status(500).json({ error: 'Failed to update birthday package' });
+  }
+});
+
+router.post('/birthday-packages', async (req, res) => {
+  try {
+    const { name, name_ar, description, description_ar, price, includes } = req.body || {};
+    const parsedPrice = parseFloat(price);
+    if (!name || !parsedPrice || parsedPrice <= 0) {
+      return res.status(400).json({ error: 'name and price (positive) are required' });
+    }
+    const pkg = await Theme.create({
+      name: String(name),
+      name_ar: name_ar ? String(name_ar) : undefined,
+      description: description ? String(description) : undefined,
+      description_ar: description_ar ? String(description_ar) : undefined,
+      price: parsedPrice,
+      package_type: 'birthday',
+      includes: sanitizeBirthdayIncludes(includes),
+      is_active: true
+    });
+    res.status(201).json({ message: 'Birthday package created', package: pkg });
+  } catch (error) {
+    console.error('Create birthday-package error:', error);
+    res.status(500).json({ error: 'Failed to create birthday package' });
   }
 });
 

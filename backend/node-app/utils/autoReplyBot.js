@@ -1,5 +1,7 @@
 const Settings = require('../models/Settings');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
+const SubscriptionPlan = require('../models/SubscriptionPlan');
+const Theme = require('../models/Theme');
 const {
   normalizePhoneForWhatsApp,
   postWhatsAppText
@@ -13,7 +15,7 @@ const DEFAULT_CONFIG = {
     'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
 };
 
-const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr'];
+const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
 
 const normalizeText = (value) =>
@@ -29,12 +31,116 @@ const normalizeText = (value) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+// ─── DB fetch helpers ────────────────────────────────────────────────────────
+
+const buildPlayPricingText = async () => {
+  const docs = await Settings.find({ key: { $in: PRICING_KEYS } }).lean();
+
+  const prices = {
+    hourly_1hr: 7,
+    hourly_2hr: 10,
+    hourly_3hr: 13,
+    hourly_extra_hr: 3,
+    extra_companion: 3,
+    sand_area_addon: 20,
+    transport_one_way: 40
+  };
+
+  docs.forEach((doc) => {
+    prices[doc.key] = Number(doc.value || prices[doc.key]);
+  });
+
+  const lines = [
+    `• ساعة: ${prices.hourly_1hr} د.أ`,
+    `• ساعتان: ${prices.hourly_2hr} د.أ`,
+    `• 3 ساعات: ${prices.hourly_3hr} د.أ`,
+    `• كل ساعة إضافية: ${prices.hourly_extra_hr} د.أ`,
+    `• مرافق إضافي: ${prices.extra_companion} د.أ`,
+    `• منطقة الرمل (إضافة): ${prices.sand_area_addon} د.أ`,
+    `• خدمة التوصيل (اتجاه واحد): ${prices.transport_one_way} د.أ`
+  ];
+
+  return lines.join('\n');
+};
+
+const buildHoursText = async () => {
+  try {
+    const doc = await Settings.findOne({ key: 'whatsapp_hours' }).lean();
+    if (doc && doc.value) return String(doc.value);
+  } catch (err) {
+    console.error('buildHoursText error:', err.message);
+  }
+  return 'الأحد-الخميس: 10ص-11م، الجمعة-السبت: 10ص-12ص';
+};
+
+const buildLocationText = async () => {
+  try {
+    const doc = await Settings.findOne({ key: 'whatsapp_location' }).lean();
+    if (doc && doc.value) return String(doc.value);
+  } catch (err) {
+    console.error('buildLocationText error:', err.message);
+  }
+  return 'إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني';
+};
+
+const buildDaycareText = async () => {
+  try {
+    const plans = await SubscriptionPlan.find({ is_active: true }).sort({ price: 1 }).lean();
+    if (!plans.length) throw new Error('No active daycare plans found');
+
+    const lines = plans.map((p) => {
+      const nameDisplay = p.name_ar || p.name;
+      const durationParts = [];
+      if (p.duration_hours) durationParts.push(`${p.duration_hours} ساعة`);
+      if (p.duration_minutes) durationParts.push(`${p.duration_minutes} دقيقة`);
+      const durationStr = durationParts.length ? ` (${durationParts.join(' و')})` : '';
+      const timeSlotsStr = p.time_slots && p.time_slots.length ? ` | ${p.time_slots.join(', ')}` : '';
+      return `• ${nameDisplay}: ${p.price} د.أ${durationStr}${timeSlotsStr}`;
+    });
+
+    return lines.join('\n');
+  } catch (err) {
+    console.error('buildDaycareText error:', err.message);
+    return '• نصف يوم: 149 د.أ (6 ساعات)\n• يوم كامل: 199 د.أ (12 ساعة)';
+  }
+};
+
+const buildBirthdayText = async () => {
+  try {
+    const packages = await Theme.find({ package_type: 'birthday', is_active: true }).sort({ price: 1 }).lean();
+    if (!packages.length) throw new Error('No active birthday packages found');
+
+    const lines = packages.map((pkg) => {
+      const nameDisplay = pkg.name_ar || pkg.name;
+      const inc = pkg.includes || {};
+      const details = [];
+      if (inc.kids_count) details.push(`${inc.kids_count} طفل`);
+      if (inc.play_hours) details.push(`${inc.play_hours} ساعة لعب`);
+      if (inc.meals) details.push(`${inc.meals} وجبة`);
+      if (inc.stands) details.push(`${inc.stands} ستاند`);
+      if (inc.gifts_per_kid) details.push('هدايا للأطفال');
+      if (inc.premium_gift) details.push('هدية مميزة');
+      const detailsStr = details.length ? ` — ${details.join(', ')}` : '';
+      return `• ${nameDisplay}: ${pkg.price} د.أ${detailsStr}`;
+    });
+
+    return lines.join('\n');
+  } catch (err) {
+    console.error('buildBirthdayText error:', err.message);
+    return '• Basic: 90 د.أ — 10 أطفال + ساعتا لعب\n• VIP: 150 د.أ — Basic + ستاند\n• Premium: 250 د.أ — VIP + هدايا';
+  }
+};
+
+// ─── Keyword map ─────────────────────────────────────────────────────────────
+
 const keywordMap = [
   {
     key: 'pricing',
     keywords: ['سعر', 'اسعار', 'الاسعار', 'الأسعار', 'تكلفه', 'price', 'pricing', 'cost'],
-    buildReply: ({ pricingText, footer }) =>
-      ['أكيد 🌟 هاي أسعار اللعب الحالية:', pricingText, footer].filter(Boolean).join('\n')
+    buildReply: async ({ footer }) => {
+      const pricingText = await buildPlayPricingText();
+      return ['أكيد 🌟 هاي أسعار اللعب الحالية:', pricingText, footer].filter(Boolean).join('\n');
+    }
   },
   {
     key: 'hours',
@@ -45,8 +151,26 @@ const keywordMap = [
   {
     key: 'location',
     keywords: ['موقع', 'العنوان', 'وين', 'location', 'address', 'اربد', 'إربد'],
-    reply:
-      'موقعنا: إربد - شارع الشهيد وصفي التل (أبو راشد) - مجمع السيف التجاري، الطابق الثاني، بجانب وحشة سنتر.'
+    buildReply: async ({ footer }) => {
+      const locationText = await buildLocationText();
+      return [`📍 موقعنا:\n${locationText}`, footer].filter(Boolean).join('\n');
+    }
+  },
+  {
+    key: 'birthday',
+    keywords: ['عيد', 'ميلاد', 'حفل', 'حفله', 'حفلة', 'birthday', 'party'],
+    buildReply: async ({ footer }) => {
+      const birthdayText = await buildBirthdayText();
+      return [`🎂 باقات أعياد الميلاد:\n${birthdayText}`, footer].filter(Boolean).join('\n');
+    }
+  },
+  {
+    key: 'daycare',
+    keywords: ['داي كير', 'دايكير', 'daycare', 'حضانه', 'حضانة', 'رعايه', 'رعاية'],
+    buildReply: async ({ footer }) => {
+      const daycareText = await buildDaycareText();
+      return [`👶 باقات الداي كير:\n${daycareText}\n\nللتفاصيل اتصلي: 0777775652 📞`, footer].filter(Boolean).join('\n');
+    }
   },
   {
     key: 'birthday',
@@ -153,28 +277,6 @@ const loadAutoReplyConfig = async () => {
     enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes))
   };
-};
-
-const buildPricingText = async () => {
-  const docs = await Settings.find({ key: { $in: PRICING_KEYS } }).lean();
-
-  const prices = {
-    hourly_1hr: 7,
-    hourly_2hr: 10,
-    hourly_3hr: 13,
-    hourly_extra_hr: 3
-  };
-
-  docs.forEach((doc) => {
-    prices[doc.key] = Number(doc.value || prices[doc.key]);
-  });
-
-  return [
-    `• ساعة: ${prices.hourly_1hr} د.أ`,
-    `• ساعتان: ${prices.hourly_2hr} د.أ`,
-    `• 3 ساعات: ${prices.hourly_3hr} د.أ`,
-    `• كل ساعة إضافية: ${prices.hourly_extra_hr} د.أ`
-  ].join('\n');
 };
 
 const detectKeyword = (textBody) => {
@@ -326,12 +428,16 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     }
 
     const matched = detectKeyword(textBody);
-    const pricingText = matched?.key === 'pricing' ? await buildPricingText() : '';
-    const replyText = matched
-      ? (matched.buildReply
-          ? matched.buildReply({ pricingText, footer: config.footer })
-          : [matched.reply, config.footer].filter(Boolean).join('\n'))
-      : config.fallbackReply;
+    let replyText;
+    if (matched) {
+      if (matched.buildReply) {
+        replyText = await matched.buildReply({ footer: config.footer });
+      } else {
+        replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
+      }
+    } else {
+      replyText = config.fallbackReply;
+    }
 
     const sendResult = await postWhatsAppText({
       to: normalizedWaId,
@@ -384,5 +490,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
 module.exports = {
   maybeAutoReply,
-  DEFAULT_CONFIG
+  DEFAULT_CONFIG,
+  buildPlayPricingText,
+  buildHoursText,
+  buildLocationText,
+  buildDaycareText,
+  buildBirthdayText
 };
