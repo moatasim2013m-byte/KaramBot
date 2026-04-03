@@ -397,6 +397,31 @@ router.post('/send', sendLimiter, async (req, res) => {
         details: result.error || result.reason
       });
     }
+
+    // Persist outbound message so it shows in thread and receives status webhooks
+    const outboundDoc = {
+      message_id: result.messageId || `staff_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      sender_wa_id: normalizedWaId,
+      profile_name: '',
+      message_type: 'text',
+      text_body: message,
+      direction: 'outbound',
+      platform: 'whatsapp',
+      status: 'sent',
+      timestamp: new Date(),
+      sent_by_staff_id: req.user._id,
+      is_read_by_staff: true,
+      is_replied: false
+    };
+
+    try {
+      await WhatsAppMessage.create(outboundDoc);
+    } catch (persistErr) {
+      // Duplicate key (11000) is safe to ignore - message already exists
+      if (persistErr?.code !== 11000) {
+        console.error('STAFF_OUTBOUND_PERSIST_ERROR', persistErr.message);
+      }
+    }
     
     // Mark conversation as replied
     await WhatsAppMessage.updateMany(
