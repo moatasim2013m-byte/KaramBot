@@ -1030,6 +1030,8 @@ export default function AdminPage() {
                   { value: 'whatsapp_inbox', label: 'صندوق الوارد', icon: <MessageSquare className="h-4 w-4" />, external: '/staff?tab=inbox' },
                   { value: 'whatsapp_campaigns', label: 'الحملات', icon: <Megaphone className="h-4 w-4" />, external: '/staff?tab=campaigns' },
                   { value: 'templates', label: 'القوالب', icon: <FileText className="h-4 w-4" /> },
+                  { value: 'quick_replies_admin', label: 'الردود السريعة', icon: <MessageSquare className="h-4 w-4" /> },
+                  { value: 'whatsapp_settings', label: 'إعدادات الواتساب', icon: <Settings className="h-4 w-4" /> },
                 ].map(item => (
                   <button key={item.value}
                     onClick={() => item.external ? navigate(item.external) : handleTabChange(item.value)}
@@ -2379,6 +2381,64 @@ export default function AdminPage() {
                     <RefreshCw className="h-4 w-4" /> مزامنة القوالب من Meta
                   </Button>
                   <p className="text-sm text-muted-foreground">بعد المزامنة ستظهر القوالب هنا. يمكنك استخدامها في الحملات.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="quick_replies_admin">
+              <Card className="rounded-2xl">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5 text-[#66A9E9]" /> إدارة الردود السريعة
+                  </CardTitle>
+                  <CardDescription>الردود السريعة المستخدمة في صندوق الوارد</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">يمكن إدارة الردود السريعة مباشرة من صندوق الوارد عند فتح أي محادثة.</p>
+                  <Button onClick={() => navigate('/staff?tab=inbox')} className="rounded-full gap-2">
+                    <MessageSquare className="h-4 w-4" /> فتح صندوق الوارد
+                  </Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="whatsapp_settings">
+              <Card className="rounded-2xl">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="h-5 w-5 text-[#66A9E9]" /> إعدادات واتساب
+                  </CardTitle>
+                  <CardDescription>إدارة إعدادات حساب واتساب للأعمال</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="p-4 rounded-xl bg-muted/50 space-y-2">
+                    <p className="text-sm font-semibold">رقم الهاتف</p>
+                    <p className="text-sm text-muted-foreground">+962 7 7777 5652 · PEEKABOO-Jordan</p>
+                    <p className="text-xs text-muted-foreground">Phone Number ID: 1070295776173680</p>
+                    <p className="text-xs text-muted-foreground">WABA ID: 1176705417481897</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-100">
+                    <p className="text-sm font-semibold text-blue-800 mb-1">مزامنة القوالب</p>
+                    <p className="text-xs text-blue-600 mb-3">اسحب القوالب المعتمدة من Meta إلى قاعدة البيانات لاستخدامها في الحملات</p>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const res = await api.post('/templates/sync');
+                          toast.success(`تم المزامنة · ${res.data.synced_count} قالب`);
+                        } catch (e) {
+                          toast.error('فشل المزامنة');
+                        }
+                      }}
+                      className="rounded-full gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" /> مزامنة القوالب
+                    </Button>
+                  </div>
+                  <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-100">
+                    <p className="text-sm font-semibold text-yellow-800 mb-1">حالة الحساب</p>
+                    <p className="text-xs text-yellow-700">Display Name: Pending Review · تأكد من إكمال مراجعة الاسم في Meta Business Manager</p>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
