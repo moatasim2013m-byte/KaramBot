@@ -7,6 +7,10 @@ const subscriptionPlanSchema = new mongoose.Schema({
   description_ar: { type: String },
   visits: { type: Number, required: true },
   price: { type: Number, required: true },
+  duration_hours: { type: Number, default: 0 },
+  duration_minutes: { type: Number, default: 0 },
+  includes: { type: [String], default: [] },
+  time_slots: { type: [String], default: [] },
   is_daily_pass: { type: Boolean, default: false },
   valid_days: { type: [String], default: [] }, // ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday']
   is_active: { type: Boolean, default: true },

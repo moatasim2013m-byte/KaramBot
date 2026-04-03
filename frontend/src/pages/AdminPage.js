@@ -80,6 +80,34 @@ export default function AdminPage() {
       'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
   });
   const [savingAutoReply, setSavingAutoReply] = useState(false);
+
+  // Play pricing state
+  const [playPricing, setPlayPricing] = useState({
+    hourly_1hr: 7, hourly_2hr: 10, hourly_3hr: 13, hourly_extra_hr: 3,
+    extra_companion: 3, sand_area_addon: 20, transport_one_way: 40
+  });
+  const [savingPlayPricing, setSavingPlayPricing] = useState(false);
+
+  // Business info state (WhatsApp hours & location)
+  const [businessInfo, setBusinessInfo] = useState({
+    whatsapp_hours: 'الأحد-الخميس: 10:00 ص - 11:00 م، الجمعة-السبت: 10:00 ص - 12:00 ص',
+    whatsapp_location: 'إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني'
+  });
+  const [savingBusinessInfo, setSavingBusinessInfo] = useState(false);
+
+  // Daycare packages state
+  const [daycarePackages, setDaycarePackages] = useState([]);
+  const [editingDaycarePackage, setEditingDaycarePackage] = useState(null);
+  const [savingDaycarePackage, setSavingDaycarePackage] = useState(false);
+  const [newDaycarePackage, setNewDaycarePackage] = useState({ name: '', name_ar: '', price: '', visits: 1, duration_hours: 0, duration_minutes: 0, time_slots: '', includes: '' });
+  const [addingDaycarePackage, setAddingDaycarePackage] = useState(false);
+
+  // Birthday packages state
+  const [birthdayPackages, setBirthdayPackages] = useState([]);
+  const [editingBirthdayPackage, setEditingBirthdayPackage] = useState(null);
+  const [savingBirthdayPackage, setSavingBirthdayPackage] = useState(false);
+  const [newBirthdayPackage, setNewBirthdayPackage] = useState({ name: '', name_ar: '', price: '', kids_count: 10, play_hours: 2, meals: 10, stands: 0, gifts_per_kid: false, premium_gift: false });
+  const [addingBirthdayPackage, setAddingBirthdayPackage] = useState(false);
   const [expandedParent, setExpandedParent] = useState(null);
   const [parentDetails, setParentDetails] = useState(null);
   const [loadingParent, setLoadingParent] = useState(false);
@@ -227,14 +255,18 @@ export default function AdminPage() {
   const fetchDashboard = async () => {
     setLoading(true);
     try {
-      const [dashRes, themesRes, plansRes, galleryRes, settingsRes, pricingRes, autoReplyRes] = await Promise.all([
+      const [dashRes, themesRes, plansRes, galleryRes, settingsRes, pricingRes, autoReplyRes, playPricingRes, businessInfoRes, daycareRes, birthdayRes] = await Promise.all([
         api.get('/admin/dashboard'),
         api.get('/themes'),
         api.get('/admin/plans'),
         api.get('/gallery'),
         api.get('/admin/settings'),
         api.get('/admin/pricing'),
-        api.get('/admin/whatsapp-auto-reply')
+        api.get('/admin/whatsapp-auto-reply'),
+        api.get('/admin/play-pricing').catch(() => ({ data: {} })),
+        api.get('/admin/business-info').catch(() => ({ data: {} })),
+        api.get('/admin/daycare-packages').catch(() => ({ data: {} })),
+        api.get('/admin/birthday-packages').catch(() => ({ data: {} }))
       ]);
 
       setStats(dashRes.data.stats || {});
@@ -244,6 +276,10 @@ export default function AdminPage() {
       setSettings(settingsRes.data.settings || {});
       setPricing(pricingRes.data.pricing || {});
       setAutoReplyConfig(autoReplyRes.data.config || autoReplyConfig);
+      if (playPricingRes.data.pricing) setPlayPricing(playPricingRes.data.pricing);
+      if (businessInfoRes.data.info) setBusinessInfo(businessInfoRes.data.info);
+      if (daycareRes.data.packages) setDaycarePackages(daycareRes.data.packages);
+      if (birthdayRes.data.packages) setBirthdayPackages(birthdayRes.data.packages);
       
       // Load hero settings from settings
       const s = settingsRes.data.settings || {};
@@ -891,6 +927,107 @@ export default function AdminPage() {
     }
   };
 
+  const handleUpdatePlayPricing = async (e) => {
+    e.preventDefault();
+    setSavingPlayPricing(true);
+    try {
+      await api.put('/admin/play-pricing', playPricing);
+      toast.success('تم تحديث أسعار اللعب بنجاح');
+    } catch (error) {
+      toast.error('فشل تحديث أسعار اللعب');
+    } finally {
+      setSavingPlayPricing(false);
+    }
+  };
+
+  const handleUpdateBusinessInfo = async (e) => {
+    e.preventDefault();
+    setSavingBusinessInfo(true);
+    try {
+      await api.put('/admin/business-info', businessInfo);
+      toast.success('تم تحديث معلومات العمل بنجاح');
+    } catch (error) {
+      toast.error('فشل تحديث معلومات العمل');
+    } finally {
+      setSavingBusinessInfo(false);
+    }
+  };
+
+  const handleSaveDaycarePackage = async (pkg) => {
+    setSavingDaycarePackage(true);
+    try {
+      await api.put(`/admin/daycare-packages/${pkg.id || pkg._id}`, pkg);
+      toast.success('تم تحديث الباقة');
+      setEditingDaycarePackage(null);
+      const res = await api.get('/admin/daycare-packages');
+      setDaycarePackages(res.data.packages || []);
+    } catch (error) {
+      toast.error('فشل تحديث الباقة');
+    } finally {
+      setSavingDaycarePackage(false);
+    }
+  };
+
+  const handleAddDaycarePackage = async (e) => {
+    e.preventDefault();
+    setAddingDaycarePackage(true);
+    try {
+      const payload = {
+        ...newDaycarePackage,
+        time_slots: newDaycarePackage.time_slots ? newDaycarePackage.time_slots.split(',').map(s => s.trim()) : [],
+        includes: newDaycarePackage.includes ? newDaycarePackage.includes.split(',').map(s => s.trim()) : []
+      };
+      await api.post('/admin/daycare-packages', payload);
+      toast.success('تمت إضافة باقة الداي كير');
+      setNewDaycarePackage({ name: '', name_ar: '', price: '', visits: 1, duration_hours: 0, duration_minutes: 0, time_slots: '', includes: '' });
+      const res = await api.get('/admin/daycare-packages');
+      setDaycarePackages(res.data.packages || []);
+    } catch (error) {
+      toast.error('فشل إضافة الباقة');
+    } finally {
+      setAddingDaycarePackage(false);
+    }
+  };
+
+  const handleSaveBirthdayPackage = async (pkg) => {
+    setSavingBirthdayPackage(true);
+    try {
+      const { kids_count, play_hours, meals, stands, gifts_per_kid, premium_gift, ...rest } = pkg;
+      await api.put(`/admin/birthday-packages/${pkg.id || pkg._id}`, {
+        ...rest,
+        includes: { kids_count: Number(kids_count), play_hours: Number(play_hours), meals: Number(meals), stands: Number(stands), gifts_per_kid: Boolean(gifts_per_kid), premium_gift: Boolean(premium_gift) }
+      });
+      toast.success('تم تحديث باقة عيد الميلاد');
+      setEditingBirthdayPackage(null);
+      const res = await api.get('/admin/birthday-packages');
+      setBirthdayPackages(res.data.packages || []);
+    } catch (error) {
+      toast.error('فشل تحديث الباقة');
+    } finally {
+      setSavingBirthdayPackage(false);
+    }
+  };
+
+  const handleAddBirthdayPackage = async (e) => {
+    e.preventDefault();
+    setAddingBirthdayPackage(true);
+    try {
+      const { kids_count, play_hours, meals, stands, gifts_per_kid, premium_gift, ...rest } = newBirthdayPackage;
+      await api.post('/admin/birthday-packages', {
+        ...rest,
+        includes: { kids_count: Number(kids_count), play_hours: Number(play_hours), meals: Number(meals), stands: Number(stands), gifts_per_kid: Boolean(gifts_per_kid), premium_gift: Boolean(premium_gift) }
+      });
+      toast.success('تمت إضافة باقة عيد الميلاد');
+      setNewBirthdayPackage({ name: '', name_ar: '', price: '', kids_count: 10, play_hours: 2, meals: 10, stands: 0, gifts_per_kid: false, premium_gift: false });
+      const res = await api.get('/admin/birthday-packages');
+      setBirthdayPackages(res.data.packages || []);
+    } catch (error) {
+      toast.error('فشل إضافة الباقة');
+    } finally {
+      setAddingBirthdayPackage(false);
+    }
+  };
+
   // Hero settings handlers
   const handleHeroImageChange = async (e) => {
     const file = e.target.files?.[0];
@@ -1078,6 +1215,7 @@ export default function AdminPage() {
                   { value: 'templates', label: 'القوالب', icon: <FileText className="h-4 w-4" /> },
                   { value: 'quick_replies_admin', label: 'الردود السريعة', icon: <MessageSquare className="h-4 w-4" /> },
                   { value: 'whatsapp_settings', label: 'إعدادات الواتساب', icon: <Settings className="h-4 w-4" /> },
+                  { value: 'bot_data', label: 'بيانات البوت', icon: <MessageSquare className="h-4 w-4" /> },
                 ].map(item => (
                   <button key={item.value}
                     onClick={() => item.external ? navigate(item.external) : handleTabChange(item.value)}
@@ -2546,6 +2684,216 @@ export default function AdminPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ═══════════════════════════════════════ BOT DATA ═══════════════════════════════════════ */}
+            <TabsContent value="bot_data">
+              <div className="space-y-6">
+
+                {/* Play Pricing */}
+                <Card className="rounded-2xl">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-[#66A9E9]" /> أسعار اللعب (للبوت)
+                    </CardTitle>
+                    <CardDescription>تحديث أسعار اللعب التي يعرضها البوت تلقائياً</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleUpdatePlayPricing} className="space-y-3">
+                      {[
+                        { key: 'hourly_1hr', label: 'ساعة واحدة (د.أ)' },
+                        { key: 'hourly_2hr', label: 'ساعتان (د.أ)' },
+                        { key: 'hourly_3hr', label: '3 ساعات (د.أ)' },
+                        { key: 'hourly_extra_hr', label: 'ساعة إضافية (د.أ)' },
+                        { key: 'extra_companion', label: 'مرافق إضافي (د.أ)' },
+                        { key: 'sand_area_addon', label: 'منطقة الرمل - إضافة (د.أ)' },
+                        { key: 'transport_one_way', label: 'التوصيل - اتجاه واحد (د.أ)' }
+                      ].map(({ key, label }) => (
+                        <div key={key} className="flex items-center gap-3">
+                          <Label className="w-48 text-sm shrink-0">{label}</Label>
+                          <Input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={playPricing[key] || ''}
+                            onChange={e => setPlayPricing(prev => ({ ...prev, [key]: e.target.value }))}
+                            className="rounded-xl bg-white max-w-[120px]"
+                          />
+                        </div>
+                      ))}
+                      <Button type="submit" disabled={savingPlayPricing} size="sm" className="rounded-full gap-2 mt-2">
+                        {savingPlayPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        حفظ أسعار اللعب
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+
+                {/* Business Info */}
+                <Card className="rounded-2xl">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings className="h-5 w-5 text-[#66A9E9]" /> معلومات العمل (للبوت)
+                    </CardTitle>
+                    <CardDescription>ساعات العمل والموقع الجغرافي الظاهران في ردود البوت</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleUpdateBusinessInfo} className="space-y-3">
+                      <div>
+                        <Label className="text-sm">ساعات العمل (واتساب)</Label>
+                        <Input
+                          value={businessInfo.whatsapp_hours}
+                          onChange={e => setBusinessInfo(prev => ({ ...prev, whatsapp_hours: e.target.value }))}
+                          className="rounded-xl mt-1 bg-white"
+                          placeholder="الأحد-الخميس: 10ص-11م، الجمعة-السبت: 10ص-12ص"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm">الموقع الجغرافي (واتساب)</Label>
+                        <Input
+                          value={businessInfo.whatsapp_location}
+                          onChange={e => setBusinessInfo(prev => ({ ...prev, whatsapp_location: e.target.value }))}
+                          className="rounded-xl mt-1 bg-white"
+                          placeholder="إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني"
+                        />
+                      </div>
+                      <Button type="submit" disabled={savingBusinessInfo} size="sm" className="rounded-full gap-2 mt-2">
+                        {savingBusinessInfo ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        حفظ معلومات العمل
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+
+                {/* Daycare Packages */}
+                <Card className="rounded-2xl">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Star className="h-5 w-5 text-[#66A9E9]" /> باقات الداي كير
+                    </CardTitle>
+                    <CardDescription>إدارة باقات الرعاية النهارية الظاهرة في البوت</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {daycarePackages.map(pkg => (
+                      <div key={pkg.id || pkg._id} className="p-3 rounded-xl border bg-white space-y-2">
+                        {editingDaycarePackage && (editingDaycarePackage.id || editingDaycarePackage._id) === (pkg.id || pkg._id) ? (
+                          <div className="space-y-2">
+                            <Input value={editingDaycarePackage.name_ar || ''} onChange={e => setEditingDaycarePackage(prev => ({ ...prev, name_ar: e.target.value }))} placeholder="الاسم بالعربي" className="rounded-xl bg-white text-sm" />
+                            <Input value={editingDaycarePackage.name || ''} onChange={e => setEditingDaycarePackage(prev => ({ ...prev, name: e.target.value }))} placeholder="Name (English)" className="rounded-xl bg-white text-sm" />
+                            <div className="flex gap-2">
+                              <Input type="number" value={editingDaycarePackage.price || ''} onChange={e => setEditingDaycarePackage(prev => ({ ...prev, price: e.target.value }))} placeholder="السعر (د.أ)" className="rounded-xl bg-white text-sm" />
+                              <Input type="number" value={editingDaycarePackage.duration_hours || ''} onChange={e => setEditingDaycarePackage(prev => ({ ...prev, duration_hours: e.target.value }))} placeholder="المدة (ساعات)" className="rounded-xl bg-white text-sm" />
+                            </div>
+                            <Input value={Array.isArray(editingDaycarePackage.time_slots) ? editingDaycarePackage.time_slots.join(', ') : ''} onChange={e => setEditingDaycarePackage(prev => ({ ...prev, time_slots: e.target.value.split(',').map(s => s.trim()) }))} placeholder="أوقات متاحة (افصل بفاصلة)" className="rounded-xl bg-white text-sm" />
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => handleSaveDaycarePackage(editingDaycarePackage)} disabled={savingDaycarePackage} className="rounded-full gap-1">
+                                {savingDaycarePackage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} حفظ
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingDaycarePackage(null)} className="rounded-full gap-1">
+                                <X className="h-3 w-3" /> إلغاء
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm">{pkg.name_ar || pkg.name}</p>
+                              <p className="text-xs text-muted-foreground">{pkg.price} د.أ · {pkg.duration_hours || 0} ساعة{pkg.time_slots?.length ? ` · ${pkg.time_slots.join(', ')}` : ''}</p>
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingDaycarePackage({ ...pkg })} className="rounded-full">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Add new daycare package */}
+                    <form onSubmit={handleAddDaycarePackage} className="p-3 rounded-xl border border-dashed bg-muted/30 space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground">إضافة باقة جديدة</p>
+                      <Input value={newDaycarePackage.name_ar} onChange={e => setNewDaycarePackage(prev => ({ ...prev, name_ar: e.target.value }))} placeholder="الاسم بالعربي *" className="rounded-xl bg-white text-sm" required />
+                      <Input value={newDaycarePackage.name} onChange={e => setNewDaycarePackage(prev => ({ ...prev, name: e.target.value }))} placeholder="Name (English) *" className="rounded-xl bg-white text-sm" required />
+                      <div className="flex gap-2">
+                        <Input type="number" value={newDaycarePackage.price} onChange={e => setNewDaycarePackage(prev => ({ ...prev, price: e.target.value }))} placeholder="السعر (د.أ) *" className="rounded-xl bg-white text-sm" required />
+                        <Input type="number" value={newDaycarePackage.duration_hours} onChange={e => setNewDaycarePackage(prev => ({ ...prev, duration_hours: e.target.value }))} placeholder="المدة (ساعات)" className="rounded-xl bg-white text-sm" />
+                      </div>
+                      <Input value={newDaycarePackage.time_slots} onChange={e => setNewDaycarePackage(prev => ({ ...prev, time_slots: e.target.value }))} placeholder="أوقات متاحة (افصل بفاصلة)" className="rounded-xl bg-white text-sm" />
+                      <Button type="submit" size="sm" disabled={addingDaycarePackage} className="rounded-full gap-1">
+                        {addingDaycarePackage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} إضافة
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+
+                {/* Birthday Packages */}
+                <Card className="rounded-2xl">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Cake className="h-5 w-5 text-[#66A9E9]" /> باقات أعياد الميلاد
+                    </CardTitle>
+                    <CardDescription>إدارة باقات الحفلات الظاهرة في البوت</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {birthdayPackages.map(pkg => (
+                      <div key={pkg.id || pkg._id} className="p-3 rounded-xl border bg-white space-y-2">
+                        {editingBirthdayPackage && (editingBirthdayPackage.id || editingBirthdayPackage._id) === (pkg.id || pkg._id) ? (
+                          <div className="space-y-2">
+                            <Input value={editingBirthdayPackage.name_ar || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, name_ar: e.target.value }))} placeholder="الاسم بالعربي" className="rounded-xl bg-white text-sm" />
+                            <Input value={editingBirthdayPackage.name || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, name: e.target.value }))} placeholder="Name (English)" className="rounded-xl bg-white text-sm" />
+                            <Input type="number" value={editingBirthdayPackage.price || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, price: e.target.value }))} placeholder="السعر (د.أ)" className="rounded-xl bg-white text-sm" />
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input type="number" value={editingBirthdayPackage.kids_count || editingBirthdayPackage.includes?.kids_count || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, kids_count: e.target.value }))} placeholder="عدد الأطفال" className="rounded-xl bg-white text-sm" />
+                              <Input type="number" value={editingBirthdayPackage.play_hours || editingBirthdayPackage.includes?.play_hours || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, play_hours: e.target.value }))} placeholder="ساعات اللعب" className="rounded-xl bg-white text-sm" />
+                              <Input type="number" value={editingBirthdayPackage.meals || editingBirthdayPackage.includes?.meals || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, meals: e.target.value }))} placeholder="عدد الوجبات" className="rounded-xl bg-white text-sm" />
+                              <Input type="number" value={editingBirthdayPackage.stands !== undefined ? editingBirthdayPackage.stands : editingBirthdayPackage.includes?.stands || ''} onChange={e => setEditingBirthdayPackage(prev => ({ ...prev, stands: e.target.value }))} placeholder="عدد الستاندات" className="rounded-xl bg-white text-sm" />
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => handleSaveBirthdayPackage(editingBirthdayPackage)} disabled={savingBirthdayPackage} className="rounded-full gap-1">
+                                {savingBirthdayPackage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} حفظ
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingBirthdayPackage(null)} className="rounded-full gap-1">
+                                <X className="h-3 w-3" /> إلغاء
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm">{pkg.name_ar || pkg.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {pkg.price} د.أ · {pkg.includes?.kids_count || 0} طفل · {pkg.includes?.play_hours || 0} ساعة
+                                {pkg.includes?.meals ? ` · ${pkg.includes.meals} وجبة` : ''}
+                                {pkg.includes?.gifts_per_kid ? ' · هدايا' : ''}
+                              </p>
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingBirthdayPackage({ ...pkg, kids_count: pkg.includes?.kids_count, play_hours: pkg.includes?.play_hours, meals: pkg.includes?.meals, stands: pkg.includes?.stands, gifts_per_kid: pkg.includes?.gifts_per_kid, premium_gift: pkg.includes?.premium_gift })} className="rounded-full">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Add new birthday package */}
+                    <form onSubmit={handleAddBirthdayPackage} className="p-3 rounded-xl border border-dashed bg-muted/30 space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground">إضافة باقة عيد ميلاد جديدة</p>
+                      <Input value={newBirthdayPackage.name_ar} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, name_ar: e.target.value }))} placeholder="الاسم بالعربي *" className="rounded-xl bg-white text-sm" required />
+                      <Input value={newBirthdayPackage.name} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, name: e.target.value }))} placeholder="Name (English) *" className="rounded-xl bg-white text-sm" required />
+                      <Input type="number" value={newBirthdayPackage.price} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, price: e.target.value }))} placeholder="السعر (د.أ) *" className="rounded-xl bg-white text-sm" required />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input type="number" value={newBirthdayPackage.kids_count} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, kids_count: e.target.value }))} placeholder="عدد الأطفال" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.play_hours} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, play_hours: e.target.value }))} placeholder="ساعات اللعب" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.meals} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, meals: e.target.value }))} placeholder="عدد الوجبات" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.stands} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, stands: e.target.value }))} placeholder="عدد الستاندات" className="rounded-xl bg-white text-sm" />
+                      </div>
+                      <Button type="submit" size="sm" disabled={addingBirthdayPackage} className="rounded-full gap-1">
+                        {addingBirthdayPackage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} إضافة
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+
+              </div>
             </TabsContent>
 
             </div>

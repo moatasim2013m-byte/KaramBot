@@ -7,6 +7,15 @@ const themeSchema = new mongoose.Schema({
   description_ar: { type: String },
   price: { type: Number, required: true },
   image_url: { type: String },
+  package_type: { type: String, enum: ['birthday', 'theme', null], default: null },
+  includes: {
+    kids_count: { type: Number },
+    play_hours: { type: Number },
+    meals: { type: Number },
+    stands: { type: Number },
+    gifts_per_kid: { type: Boolean },
+    premium_gift: { type: Boolean }
+  },
   is_active: { type: Boolean, default: true },
   created_at: { type: Date, default: Date.now }
 });
