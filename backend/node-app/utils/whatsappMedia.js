@@ -3,7 +3,6 @@
  * Fetches temporary download URLs for media stored as Meta media IDs
  */
 
-const FormData = require('form-data');
 const { fetchMetaWithRetry } = require('./metaApiClient');
 
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
@@ -108,7 +107,11 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
-    form.append('file', buffer, { filename: filename || 'image.jpg', contentType: mimeType });
+    form.append(
+      'file',
+      new Blob([buffer], { type: mimeType }),
+      filename || 'image.jpg'
+    );
 
     const response = await metaFetchWithRetry(`https://graph.facebook.com/v23.0/${phoneNumberId}/media`, {
       method: 'POST',
