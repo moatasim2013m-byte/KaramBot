@@ -1396,4 +1396,66 @@ router.delete('/customers/:id/children/:childId', async (req, res) => {
   }
 });
 
+
+// ==================== WHATSAPP AUTO REPLY ====================
+
+router.get('/whatsapp-auto-reply', async (req, res) => {
+  try {
+    const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' });
+    const defaults = {
+      enabled: false,
+      cooldownMinutes: 30,
+      footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
+      fallbackReply:
+        'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
+    };
+
+    const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
+
+    res.json({
+      config: {
+        ...defaults,
+        ...value,
+        enabled: Boolean(value.enabled),
+        cooldownMinutes: Math.max(1, Number(value.cooldownMinutes || defaults.cooldownMinutes))
+      }
+    });
+  } catch (error) {
+    console.error('Get WhatsApp auto-reply config error:', error);
+    res.status(500).json({ error: 'Failed to get WhatsApp auto-reply config' });
+  }
+});
+
+router.put('/whatsapp-auto-reply', async (req, res) => {
+  try {
+    const payload = req.body || {};
+
+    const nextConfig = {
+      enabled: Boolean(payload.enabled),
+      cooldownMinutes: Math.max(1, Number(payload.cooldownMinutes || 30)),
+      footer: String(payload.footer || '').trim(),
+      fallbackReply: String(payload.fallbackReply || '').trim()
+    };
+
+    if (!nextConfig.fallbackReply) {
+      return res.status(400).json({ error: 'fallbackReply is required' });
+    }
+
+    await Settings.findOneAndUpdate(
+      { key: 'whatsapp_auto_reply_config' },
+      {
+        key: 'whatsapp_auto_reply_config',
+        value: nextConfig,
+        updated_at: new Date()
+      },
+      { upsert: true }
+    );
+
+    res.json({ message: 'WhatsApp auto-reply config updated', config: nextConfig });
+  } catch (error) {
+    console.error('Update WhatsApp auto-reply config error:', error);
+    res.status(500).json({ error: 'Failed to update WhatsApp auto-reply config' });
+  }
+});
+
 module.exports = router;
