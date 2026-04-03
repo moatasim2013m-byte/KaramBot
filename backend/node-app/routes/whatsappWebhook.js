@@ -2,9 +2,11 @@ const crypto = require('crypto');
 const express = require('express');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
 const User = require('../models/User');
+const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { emitInboxUpdate } = require('../utils/inboxEvents');
 
 const router = express.Router();
+const META_GRAPH_API_VERSION = 'v22.0';
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
@@ -58,6 +60,54 @@ const parseChanges = (payload) => {
   }
 
   return allChanges;
+};
+
+const parseGraphError = async (response) => {
+  const responseText = await response.text();
+  try {
+    const payload = JSON.parse(responseText);
+    return payload?.error?.message || responseText || 'Unknown Meta API error';
+  } catch (_) {
+    return responseText || 'Unknown Meta API error';
+  }
+};
+
+const buildMetaHeaders = () => ({
+  Authorization: `Bearer ${getTrimmedEnv('WHATSAPP_ACCESS_TOKEN')}`,
+  'Content-Type': 'application/json'
+});
+
+const resolvePhoneNumberId = (input) => {
+  const reqValue = String(input || '').trim();
+  if (reqValue) return reqValue;
+  return getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
+};
+
+const validatePrompts = (prompts) => {
+  if (!Array.isArray(prompts)) return 'prompts must be an array of strings';
+  if (prompts.length > 4) return 'prompts supports up to 4 ice breakers';
+  for (const item of prompts) {
+    if (typeof item !== 'string' || !item.trim()) {
+      return 'each prompt must be a non-empty string';
+    }
+    if (item.trim().length > 80) {
+      return 'each prompt must be at most 80 characters';
+    }
+  }
+  return null;
+};
+
+const validateCommands = (commands) => {
+  if (!Array.isArray(commands)) return 'commands must be an array';
+  if (commands.length > 30) return 'commands supports up to 30 commands';
+  for (const item of commands) {
+    const name = String(item?.command_name || '').trim();
+    const description = String(item?.command_description || '').trim();
+    if (!name || !description) return 'each command must include command_name and command_description';
+    if (name.length > 32) return 'command_name must be at most 32 characters';
+    if (description.length > 256) return 'command_description must be at most 256 characters';
+  }
+  return null;
 };
 
 // Helper to normalize phone for user lookup
@@ -306,6 +356,94 @@ router.post('/webhook', (req, res) => {
       }
     }
   });
+});
+
+router.get('/conversational-automation', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
+    const phoneNumberId = resolvePhoneNumberId(req.query.phone_number_id);
+
+    if (!accessToken) {
+      return res.status(500).json({ error: 'WHATSAPP_ACCESS_TOKEN must be configured' });
+    }
+    if (!phoneNumberId) {
+      return res.status(400).json({ error: 'phone_number_id is required (or set WHATSAPP_PHONE_NUMBER_ID)' });
+    }
+
+    const endpoint = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${encodeURIComponent(phoneNumberId)}?fields=conversational_automation`;
+    const response = await fetch(endpoint, { method: 'GET', headers: buildMetaHeaders() });
+    if (!response.ok) {
+      const details = await parseGraphError(response);
+      return res.status(502).json({ error: 'Failed to fetch conversational automation from Meta', details });
+    }
+
+    const payload = await response.json();
+    return res.json({
+      success: true,
+      phone_number_id: phoneNumberId,
+      conversational_automation: payload?.conversational_automation || { prompts: [], commands: [] }
+    });
+  } catch (error) {
+    console.error('WHATSAPP_CONVERSATIONAL_AUTOMATION_GET_FAILED', { error: error.message });
+    return res.status(500).json({ error: 'Failed to fetch conversational automation' });
+  }
+});
+
+router.post('/conversational-automation', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
+    const phoneNumberId = resolvePhoneNumberId(req.body?.phone_number_id || req.query.phone_number_id);
+    const hasPrompts = Object.prototype.hasOwnProperty.call(req.body || {}, 'prompts');
+    const hasCommands = Object.prototype.hasOwnProperty.call(req.body || {}, 'commands');
+
+    if (!accessToken) {
+      return res.status(500).json({ error: 'WHATSAPP_ACCESS_TOKEN must be configured' });
+    }
+    if (!phoneNumberId) {
+      return res.status(400).json({ error: 'phone_number_id is required (or set WHATSAPP_PHONE_NUMBER_ID)' });
+    }
+    if (!hasPrompts && !hasCommands) {
+      return res.status(400).json({ error: 'At least one of prompts or commands must be provided' });
+    }
+
+    if (hasPrompts) {
+      const promptError = validatePrompts(req.body.prompts);
+      if (promptError) return res.status(400).json({ error: promptError });
+    }
+    if (hasCommands) {
+      const commandError = validateCommands(req.body.commands);
+      if (commandError) return res.status(400).json({ error: commandError });
+    }
+
+    const requestBody = {};
+    if (hasPrompts) {
+      requestBody.prompts = req.body.prompts.map(item => item.trim());
+    }
+    if (hasCommands) {
+      requestBody.commands = req.body.commands.map(item => ({
+        command_name: String(item.command_name).trim(),
+        command_description: String(item.command_description).trim()
+      }));
+    }
+
+    const endpoint = `https://graph.facebook.com/${META_GRAPH_API_VERSION}/${encodeURIComponent(phoneNumberId)}/conversational_automation`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: buildMetaHeaders(),
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const details = await parseGraphError(response);
+      return res.status(502).json({ error: 'Meta rejected conversational automation update', details });
+    }
+
+    const payload = await response.json();
+    return res.json({ success: Boolean(payload?.success), phone_number_id: phoneNumberId, meta: payload });
+  } catch (error) {
+    console.error('WHATSAPP_CONVERSATIONAL_AUTOMATION_POST_FAILED', { error: error.message });
+    return res.status(500).json({ error: 'Failed to update conversational automation' });
+  }
 });
 
 module.exports = router;
