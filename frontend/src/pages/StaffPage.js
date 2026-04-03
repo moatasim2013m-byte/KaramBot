@@ -822,7 +822,51 @@ export default function StaffPage() {
                         messages.map((msg) => (
                           <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'} message-animated`}>
                             <div className={`max-w-[72%] rounded-2xl px-4 py-2.5 shadow-sm ${msg.direction === 'outbound' ? 'bg-[#66A9E9] text-white rounded-tr-sm' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'}`}>
-                              {msg.message_type === 'text' ? <p className="text-sm leading-relaxed whitespace-pre-wrap" dir="auto">{msg.text_body}</p> : <p className="text-sm italic opacity-70">[{msg.message_type}]</p>}
+                              {msg.message_type === 'text' ? (
+                                <p className="text-sm leading-relaxed whitespace-pre-wrap" dir="auto">{msg.text_body}</p>
+                              ) : msg.message_type === 'image' && msg.media_url ? (
+                                <div className="space-y-1">
+                                  <img
+                                    src={`/api/staff/inbox/media/${msg.media_url}`}
+                                    alt="صورة"
+                                    className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
+                                    onClick={() => window.open(`/api/staff/inbox/media/${msg.media_url}`, '_blank')}
+                                    onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
+                                  />
+                                  <p className="text-xs italic opacity-70 hidden">📷 صورة</p>
+                                  {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
+                                </div>
+                              ) : msg.message_type === 'video' && msg.media_url ? (
+                                <div className="space-y-1">
+                                  <video
+                                    src={`/api/staff/inbox/media/${msg.media_url}`}
+                                    controls
+                                    className="max-w-[220px] rounded-xl"
+                                  />
+                                  {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
+                                </div>
+                              ) : msg.message_type === 'audio' && msg.media_url ? (
+                                <audio src={`/api/staff/inbox/media/${msg.media_url}`} controls className="max-w-[220px]" />
+                              ) : msg.message_type === 'document' && msg.media_url ? (
+                                <a
+                                  href={`/api/staff/inbox/media/${msg.media_url}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-2 text-sm underline"
+                                >
+                                  📄 {msg.text_body || 'مستند'}
+                                </a>
+                              ) : msg.message_type === 'sticker' && msg.media_url ? (
+                                <img
+                                  src={`/api/staff/inbox/media/${msg.media_url}`}
+                                  alt="ملصق"
+                                  className="max-w-[100px]"
+                                />
+                              ) : (
+                                <p className="text-sm italic opacity-70">
+                                  {msg.message_type === 'location' ? msg.text_body : `[${msg.message_type}]`}
+                                </p>
+                              )}
                               <div className={`flex items-center gap-1.5 mt-1 text-xs ${msg.direction === 'outbound' ? 'text-white/70 justify-end' : 'text-gray-400'}`}>
                                 <span>{new Date(msg.timestamp).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</span>
                                 {msg.direction === 'outbound' && msg.status && <span>· {msg.status}</span>}

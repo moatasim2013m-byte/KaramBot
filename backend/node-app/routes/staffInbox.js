@@ -12,6 +12,7 @@ const {
   normalizePhoneForWhatsApp,
   markWhatsAppMessageRead
 } = require('../utils/whatsappBookingConfirmation');
+const { getMetaMediaUrl, downloadMetaMedia } = require('../utils/whatsappMedia');
 
 const router = express.Router();
 
@@ -539,6 +540,34 @@ router.post('/start-conversation', async (req, res) => {
   } catch (error) {
     console.error('Start conversation error:', error);
     res.status(500).json({ error: 'Failed to start conversation' });
+  }
+});
+
+// GET /media/:mediaId — proxy Meta media to browser (avoids CORS and auth issues)
+router.get('/media/:mediaId', async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    if (!mediaId) return res.status(400).json({ error: 'mediaId required' });
+
+    // Step 1: get temporary download URL from Meta
+    const tempUrl = await getMetaMediaUrl(mediaId);
+    if (!tempUrl) {
+      return res.status(404).json({ error: 'Media not found or expired' });
+    }
+
+    // Step 2: download the binary from Meta
+    const { ok, buffer, contentType } = await downloadMetaMedia(tempUrl);
+    if (!ok) {
+      return res.status(502).json({ error: 'Failed to download media from Meta' });
+    }
+
+    // Step 3: stream to browser with correct content type
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'private, max-age=300'); // cache 5 min
+    res.send(buffer);
+  } catch (error) {
+    console.error('Media proxy error:', error);
+    res.status(500).json({ error: 'Media proxy failed' });
   }
 });
 
