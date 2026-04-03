@@ -425,37 +425,40 @@ export default function StaffPage() {
   };
 
   const handleImageSelect = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!['image/jpeg', 'image/png'].includes(file.type)) {
-      toast.error('يسمح فقط بصور JPG أو PNG');
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (files.some((file) => !allowedTypes.includes(file.type))) {
+      toast.error('يسمح فقط بصور JPG أو PNG أو WEBP');
       if (imageInputRef.current) imageInputRef.current.value = '';
       return;
     }
-    setImageFile(file);
-    const url = URL.createObjectURL(file);
-    setImagePreview(url);
+    setImageFile(files);
+    const urls = files.map((f) => URL.createObjectURL(f));
+    setImagePreview(urls);
   };
 
   const handleSendImage = async () => {
-    if (!imageFile || !selectedConversation) return;
+    const files = Array.isArray(imageFile) ? imageFile : imageFile ? [imageFile] : [];
+    if (!files.length || !selectedConversation) return;
     setSendingImage(true);
     try {
-      const formData = new FormData();
-      formData.append('image', imageFile);
-      formData.append('wa_id', selectedConversation.wa_id);
-      if (replyText.trim()) formData.append('caption', replyText.trim());
-      await api.post('/staff/inbox/send-image', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success('تم إرسال الصورة');
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('wa_id', selectedConversation.wa_id);
+        if (i === 0 && replyText.trim()) formData.append('caption', replyText.trim());
+        await api.post('/staff/inbox/send-image', formData);
+      }
+      toast.success(files.length > 1 ? `تم إرسال ${files.length} صور` : 'تم إرسال الصورة');
       setImageFile(null);
       setImagePreview(null);
       setReplyText('');
       if (imageInputRef.current) imageInputRef.current.value = '';
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'فشل إرسال الصورة'));
+      toast.error(error.response?.data?.error || 'فشل إرسال الصورة');
     } finally { setSendingImage(false); }
   };
 
@@ -1247,14 +1250,23 @@ export default function StaffPage() {
 
                     <div className="border-t bg-white px-4 py-3 flex-shrink-0">
                       {imagePreview && (
-                        <div className="mb-2 relative inline-block">
-                          <img src={imagePreview} alt="preview" className="h-20 w-20 rounded-xl object-cover border border-gray-200" />
-                          <button
-                            onClick={() => { setImageFile(null); setImagePreview(null); if (imageInputRef.current) imageInputRef.current.value = ''; }}
-                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {(Array.isArray(imagePreview) ? imagePreview : [imagePreview]).map((url, idx) => (
+                            <div key={idx} className="relative">
+                              <img src={url} alt="preview" className="h-16 w-16 rounded-xl object-cover border border-gray-200" />
+                              {idx === 0 && (
+                                <button
+                                  onClick={() => { setImageFile(null); setImagePreview(null); if (imageInputRef.current) imageInputRef.current.value = ''; }}
+                                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {Array.isArray(imagePreview) && imagePreview.length > 1 && (
+                            <p className="text-xs text-gray-500 self-end">{imagePreview.length} صور — سيتم إرسالها بشكل منفصل</p>
+                          )}
                         </div>
                       )}
                       <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-end gap-3">
@@ -1269,7 +1281,8 @@ export default function StaffPage() {
                         <input
                           ref={imageInputRef}
                           type="file"
-                          accept="image/jpeg,image/png"
+                          accept="image/jpeg,image/png,image/webp"
+                          multiple
                           className="hidden"
                           onChange={handleImageSelect}
                         />
