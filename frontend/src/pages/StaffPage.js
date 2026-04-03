@@ -115,6 +115,7 @@ export default function StaffPage() {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [sendingImage, setSendingImage] = useState(false);
+  const [togglingOptOut, setTogglingOptOut] = useState(false);
   const imageInputRef = useRef(null);
   const inboxEventsRef = useRef(null);
 
@@ -365,6 +366,23 @@ export default function StaffPage() {
       toast.error(getApiErrorMessage(error, 'فشل حفظ الاسم'));
     } finally {
       setSavingLabel(false);
+    }
+  };
+
+  const handleToggleOptOut = async (optOut) => {
+    if (!selectedConversation) return;
+    setTogglingOptOut(true);
+    try {
+      await api.post('/staff/inbox/opt-out', {
+        wa_id: selectedConversation.wa_id,
+        opt_out: optOut
+      });
+      toast.success(optOut ? 'تم إيقاف الرسائل التسويقية' : 'تم تفعيل الرسائل التسويقية');
+      await fetchCustomerProfile(selectedConversation.wa_id);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل تحديث حالة الاشتراك');
+    } finally {
+      setTogglingOptOut(false);
     }
   };
 
@@ -1016,7 +1034,19 @@ export default function StaffPage() {
                               )}
                               <div className={`flex items-center gap-1.5 mt-1 text-xs ${msg.direction === 'outbound' ? 'text-white/70 justify-end' : 'text-gray-400'}`}>
                                 <span>{new Date(msg.timestamp).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</span>
-                                {msg.direction === 'outbound' && msg.status && <span>· {msg.status}</span>}
+                                {msg.direction === 'outbound' && msg.status && (
+                                  <span className="ml-1">
+                                    {msg.status === 'read' ? (
+                                      <span className="text-blue-300 font-bold">✓✓</span>
+                                    ) : msg.status === 'delivered' ? (
+                                      <span className="text-white/70 font-bold">✓✓</span>
+                                    ) : msg.status === 'sent' ? (
+                                      <span className="text-white/50 font-bold">✓</span>
+                                    ) : msg.status === 'failed' ? (
+                                      <span className="text-red-300 font-bold">✗</span>
+                                    ) : null}
+                                  </span>
+                                )}
                                 {msg.sent_by_staff && <span>· {msg.sent_by_staff.name}</span>}
                               </div>
                             </div>
@@ -1097,6 +1127,30 @@ export default function StaffPage() {
                                 </button>
                               </div>
                             </div>
+                            {customerProfile?.user && (
+                              <div className="border-t pt-2 mt-1">
+                                {customerProfile.user.whatsapp_opted_out_at ? (
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-red-500 font-medium">⛔ تم إيقاف الرسائل التسويقية</p>
+                                    <button
+                                      onClick={() => handleToggleOptOut(false)}
+                                      disabled={togglingOptOut}
+                                      className="w-full text-xs bg-green-600 text-white py-1.5 rounded-lg disabled:opacity-50"
+                                    >
+                                      {togglingOptOut ? '...' : 'إعادة تفعيل الرسائل'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => handleToggleOptOut(true)}
+                                    disabled={togglingOptOut}
+                                    className="w-full text-xs border border-red-300 text-red-500 py-1.5 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                                  >
+                                    {togglingOptOut ? '...' : '⛔ إيقاف الرسائل التسويقية'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </details>
                       </div>
