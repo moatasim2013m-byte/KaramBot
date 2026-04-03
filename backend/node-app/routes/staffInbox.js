@@ -13,6 +13,8 @@ const {
   markWhatsAppMessageRead
 } = require('../utils/whatsappBookingConfirmation');
 const { getMetaMediaUrl, downloadMetaMedia } = require('../utils/whatsappMedia');
+const TemplateDefinition = require('../models/TemplateDefinition');
+const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
 
 const router = express.Router();
 
@@ -568,6 +570,66 @@ router.get('/media/:mediaId', async (req, res) => {
   } catch (error) {
     console.error('Media proxy error:', error);
     res.status(500).json({ error: 'Media proxy failed' });
+  }
+});
+
+// POST /send-template — send an approved template to a contact
+router.post('/send-template', async (req, res) => {
+  try {
+    const { wa_id, template_name, language_code, components } = req.body;
+    if (!wa_id || !template_name) {
+      return res.status(400).json({ error: 'wa_id and template_name are required' });
+    }
+
+    const templateDoc = await TemplateDefinition.findOne({ name: template_name });
+    if (!templateDoc) {
+      return res.status(404).json({ error: `Template "${template_name}" not found. Run sync first.` });
+    }
+    if (templateDoc.status !== 'approved') {
+      return res.status(400).json({ error: `Template "${template_name}" is not approved (status: ${templateDoc.status})` });
+    }
+
+    const normalizedWaId = normalizePhoneForWhatsApp(wa_id);
+    if (!normalizedWaId) {
+      return res.status(400).json({ error: 'Invalid phone number format' });
+    }
+
+    const result = await postWhatsAppTemplate({
+      to: normalizedWaId,
+      templateName: template_name,
+      languageCode: language_code || templateDoc.language || 'ar',
+      components: components || [],
+      staffId: req.user._id
+    });
+
+    if (!result.ok) {
+      return res.status(500).json({ error: 'Failed to send template', details: result.error || result.reason });
+    }
+
+    try {
+      await WhatsAppMessage.create({
+        message_id: result.messageId || `tpl_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        sender_wa_id: wa_id,
+        profile_name: '',
+        message_type: 'template',
+        text_body: templateDoc.body_text || `[Template: ${template_name}]`,
+        direction: 'outbound',
+        platform: 'whatsapp',
+        status: 'sent',
+        timestamp: new Date(),
+        sent_by_staff_id: req.user._id,
+        is_read_by_staff: true,
+        is_template_message: true,
+        template_id: templateDoc._id
+      });
+    } catch (persistErr) {
+      if (persistErr?.code !== 11000) console.error('TEMPLATE_SEND_PERSIST_ERROR', persistErr.message);
+    }
+
+    res.json({ success: true, message_id: result.messageId });
+  } catch (error) {
+    console.error('Send template error:', error);
+    res.status(500).json({ error: 'Failed to send template' });
   }
 });
 

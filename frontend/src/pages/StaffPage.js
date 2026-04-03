@@ -12,7 +12,7 @@ import {
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
-  PlayCircle, PauseCircle, ChevronDown, ChevronUp
+  PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText
 } from 'lucide-react';
 
 const getRelativeTime = (timestamp) => {
@@ -97,6 +97,9 @@ export default function StaffPage() {
   const [newChatPhone, setNewChatPhone] = useState('');
   const [newChatMessage, setNewChatMessage] = useState('');
   const [startingChat, setStartingChat] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [sendingTemplate, setSendingTemplate] = useState(false);
 
   useEffect(() => {
     if (user && user.role !== 'staff' && user.role !== 'admin') navigate('/');
@@ -238,6 +241,13 @@ export default function StaffPage() {
     } catch (error) { console.error('Failed to fetch quick replies:', error); }
   }, [api]);
 
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const response = await api.get('/templates?status=approved&limit=50');
+      setTemplates(response.data.templates || []);
+    } catch (error) { console.error('Failed to fetch templates:', error); }
+  }, [api]);
+
   const handleConversationSelect = (conv) => {
     setConversations(prev => prev.map(c => c.wa_id === conv.wa_id ? { ...c, unread_count: 0 } : c));
     setSelectedConversation(conv);
@@ -339,6 +349,24 @@ export default function StaffPage() {
     }
   };
 
+  const handleSendTemplate = async (template) => {
+    if (!selectedConversation) return;
+    setSendingTemplate(true);
+    try {
+      await api.post('/staff/inbox/send-template', {
+        wa_id: selectedConversation.wa_id,
+        template_name: template.name,
+        language_code: template.language || 'ar',
+        components: []
+      });
+      toast.success(`تم إرسال القالب: ${template.name}`);
+      setShowTemplatePicker(false);
+      await fetchMessages(selectedConversation.wa_id);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل إرسال القالب');
+    } finally { setSendingTemplate(false); }
+  };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -348,6 +376,7 @@ export default function StaffPage() {
       fetchInboxStats();
       fetchConversations(true);
       fetchQuickReplies();
+      fetchTemplates();
       const pollInterval = setInterval(() => {
         fetchConversations();
         fetchInboxStats();
@@ -355,7 +384,7 @@ export default function StaffPage() {
       }, 8000);
       return () => clearInterval(pollInterval);
     }
-  }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, selectedConversation, fetchMessages]);
+  }, [activeTab, fetchInboxStats, fetchConversations, fetchQuickReplies, fetchTemplates, selectedConversation, fetchMessages]);
 
   const fetchCampaigns = useCallback(async () => {
     setCampaignsLoading(true);
@@ -1015,8 +1044,45 @@ export default function StaffPage() {
                       </div>
                     )}
 
+                    {showTemplatePicker && (
+                      <div className="border-t bg-gray-50 px-4 py-3 flex-shrink-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-gray-600">اختر قالباً معتمداً</p>
+                          <button onClick={() => setShowTemplatePicker(false)} className="text-gray-400 hover:text-gray-600">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        {templates.length === 0 ? (
+                          <p className="text-xs text-gray-400 text-center py-2">لا توجد قوالب معتمدة. قم بمزامنة القوالب من لوحة التحكم أولاً.</p>
+                        ) : (
+                          <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {templates.map(tpl => (
+                              <button
+                                key={tpl._id}
+                                onClick={() => handleSendTemplate(tpl)}
+                                disabled={sendingTemplate}
+                                className="w-full text-left px-3 py-2 rounded-lg bg-white border border-gray-200 hover:border-[#66A9E9] hover:bg-[#66A9E9]/5 transition-all disabled:opacity-50"
+                              >
+                                <p className="text-xs font-semibold text-gray-700">{tpl.name}</p>
+                                <p className="text-xs text-gray-400 truncate mt-0.5">{tpl.body_text?.slice(0, 60)}...</p>
+                                <span className="text-xs text-[#66A9E9]">{tpl.language} · {tpl.category}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="border-t bg-white px-4 py-3 flex-shrink-0">
                       <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowTemplatePicker(!showTemplatePicker)}
+                          title="إرسال قالب"
+                          className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all ${showTemplatePicker ? 'bg-[#66A9E9] text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-500'}`}
+                        >
+                          <FileText className="h-4 w-4" />
+                        </button>
                         <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
                         <button type="submit" disabled={sending || !replyText.trim()} className="flex-shrink-0 w-11 h-11 rounded-full bg-[#66A9E9] hover:bg-[#4a8fd4] disabled:bg-gray-200 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95">
                           {sending ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white" />}
