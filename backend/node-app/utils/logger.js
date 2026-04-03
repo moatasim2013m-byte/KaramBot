@@ -52,6 +52,19 @@ const pinoHttpMiddleware = pinoHttp
     })
   : (req, res, next) => next();
 
+const requestLogger = (req, res, next) => {
+  logger.info(
+    {
+      event: 'request_start',
+      method: req.method,
+      url: req.originalUrl || req.url,
+      req_id: req.req_id
+    },
+    'Incoming request'
+  );
+  next();
+};
+
 const writeCloudError = async (payload) => {
   if (!cloudLog) return;
   try {
@@ -81,8 +94,22 @@ const logWhatsAppSendFailure = (context = {}) => {
   writeCloudError(payload);
 };
 
+const reportError = async ({ message = 'Unhandled error', error, context = {} } = {}) => {
+  const payload = {
+    event: context.event || 'reported_error',
+    metaError: error?.message || message,
+    stack: error?.stack,
+    ...context
+  };
+
+  logger.error(payload, message);
+  await writeCloudError(payload);
+};
+
 module.exports = {
   logger,
+  requestLogger,
+  reportError,
   pinoHttpMiddleware,
   writeCloudError,
   logWhatsAppSendFailure
