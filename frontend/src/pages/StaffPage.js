@@ -8,13 +8,24 @@ import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { 
+import {
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
   PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
   Image as ImageIcon
 } from 'lucide-react';
+
+const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
+  error?.response?.data?.details ||
+  error?.response?.data?.error ||
+  error?.message ||
+  fallback;
+const getMediaSrc = (mediaUrl) => {
+  if (!mediaUrl) return '';
+  if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl;
+  return `/api/staff/inbox/media/${mediaUrl}`;
+};
 
 const getRelativeTime = (timestamp) => {
   const now = new Date();
@@ -105,6 +116,7 @@ export default function StaffPage() {
   const [imagePreview, setImagePreview] = useState(null);
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef(null);
+  const inboxEventsRef = useRef(null);
 
   const createAuthedEventSource = useCallback((path) => {
     if (!token) return null;
@@ -240,7 +252,7 @@ export default function StaffPage() {
       setConversations(response.data.conversations || []);
     } catch (error) {
       console.error('Failed to fetch conversations:', error);
-      toast.error('فشل تحميل المحادثات');
+      toast.error(getApiErrorMessage(error, 'فشل تحميل المحادثات'));
     } finally { if (isInitialLoad) setInboxLoading(false); }
   }, [api, inboxSearch, showUnreadOnly]);
 
@@ -250,7 +262,7 @@ export default function StaffPage() {
       setMessages(response.data.messages || []);
     } catch (error) {
       console.error('Failed to fetch messages:', error);
-      toast.error('فشل تحميل الرسائل');
+      toast.error(getApiErrorMessage(error, 'فشل تحميل الرسائل'));
     }
   }, [api]);
 
@@ -297,7 +309,7 @@ export default function StaffPage() {
       await fetchInboxStats();
     } catch (error) {
       console.error('Failed to send message:', error);
-      toast.error('فشل إرسال الرسالة');
+      toast.error(getApiErrorMessage(error, 'فشل إرسال الرسالة'));
     } finally { setSending(false); }
   };
 
@@ -320,7 +332,7 @@ export default function StaffPage() {
       setQrEditId(null);
       toast.success('تم حفظ الرد السريع');
     } catch (error) {
-      toast.error('فشل حفظ الرد السريع');
+      toast.error(getApiErrorMessage(error, 'فشل حفظ الرد السريع'));
     } finally { setQrSaving(false); }
   };
 
@@ -335,7 +347,7 @@ export default function StaffPage() {
       await api.delete(`/staff/inbox/quick-replies/${id}`);
       await fetchQuickReplies();
       toast.success('تم حذف الرد السريع');
-    } catch (error) { toast.error('فشل حذف الرد السريع'); }
+    } catch (error) { toast.error(getApiErrorMessage(error, 'فشل حذف الرد السريع')); }
   };
 
   const handleSaveLabel = async () => {
@@ -350,7 +362,7 @@ export default function StaffPage() {
       setLabelInput('');
       await fetchConversations(false);
     } catch (error) {
-      toast.error('فشل حفظ الاسم');
+      toast.error(getApiErrorMessage(error, 'فشل حفظ الاسم'));
     } finally {
       setSavingLabel(false);
     }
@@ -370,7 +382,7 @@ export default function StaffPage() {
       setShowNewChat(false);
       await fetchConversations(false);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل بدء المحادثة');
+      toast.error(getApiErrorMessage(error, 'فشل بدء المحادثة'));
     } finally {
       setStartingChat(false);
     }
@@ -390,13 +402,18 @@ export default function StaffPage() {
       setShowTemplatePicker(false);
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل إرسال القالب');
+      toast.error(getApiErrorMessage(error, 'فشل إرسال القالب'));
     } finally { setSendingTemplate(false); }
   };
 
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      toast.error('يسمح فقط بصور JPG أو PNG');
+      if (imageInputRef.current) imageInputRef.current.value = '';
+      return;
+    }
     setImageFile(file);
     const url = URL.createObjectURL(file);
     setImagePreview(url);
@@ -420,7 +437,7 @@ export default function StaffPage() {
       if (imageInputRef.current) imageInputRef.current.value = '';
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل إرسال الصورة');
+      toast.error(getApiErrorMessage(error, 'فشل إرسال الصورة'));
     } finally { setSendingImage(false); }
   };
 
@@ -1198,7 +1215,7 @@ export default function StaffPage() {
                         <input
                           ref={imageInputRef}
                           type="file"
-                          accept="image/jpeg,image/png,image/webp"
+                          accept="image/jpeg,image/png"
                           className="hidden"
                           onChange={handleImageSelect}
                         />

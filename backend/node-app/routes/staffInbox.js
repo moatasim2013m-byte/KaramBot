@@ -23,9 +23,9 @@ const uploadMemory = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
   fileFilter: (req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowed = ['image/jpeg', 'image/png'];
     if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Only JPEG, PNG and WebP images are allowed'));
+    else cb(new Error('Only JPEG and PNG images are allowed'));
   }
 });
 
@@ -40,6 +40,26 @@ const sendLimiter = rateLimit({
 
 // Apply staff middleware to all routes
 router.use(authMiddleware, staffMiddleware);
+router.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const onUpdate = (payload) => {
+    res.write(`event: inbox-update\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const heartbeat = setInterval(() => {
+    res.write(`event: heartbeat\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
+  }, 25000);
+
+  inboxEvents.on('inbox:update', onUpdate);
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    inboxEvents.removeListener('inbox:update', onUpdate);
+  });
+});
 
 // ==================== CONVERSATIONS ====================
 
@@ -392,6 +412,7 @@ router.post('/send', sendLimiter, async (req, res) => {
       message: 'Message sent successfully',
       message_id: result.messageId
     });
+    emitInboxUpdate(wa_id, 'staff_text_send');
   } catch (error) {
     logWhatsAppSendFailure({
       event: 'whatsapp_text_send_exception',
@@ -600,6 +621,7 @@ router.post('/start-conversation', sendLimiter, async (req, res) => {
       });
     }
     res.json({ success: true, wa_id: normalizedWaId, message_id: result.messageId });
+    emitInboxUpdate(normalizedWaId, 'staff_start_conversation');
   } catch (error) {
     logWhatsAppSendFailure({
       event: 'whatsapp_start_conversation_exception',
@@ -699,6 +721,7 @@ router.post('/send-template', sendLimiter, async (req, res) => {
     }
 
     res.json({ success: true, message_id: result.messageId });
+    emitInboxUpdate(wa_id, 'staff_template_send');
   } catch (error) {
     logWhatsAppSendFailure({
       event: 'whatsapp_template_send_exception',
@@ -785,6 +808,7 @@ router.post('/send-image', sendLimiter, (req, res) => {
       }
 
       res.json({ success: true, message_id: messageId, media_id: mediaId });
+      emitInboxUpdate(wa_id, 'staff_image_send');
     } catch (error) {
       logWhatsAppSendFailure({
         event: 'whatsapp_image_send_exception',

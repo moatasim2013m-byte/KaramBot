@@ -40,6 +40,7 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+const { requestLogger, reportError } = require('./utils/logger');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -72,6 +73,7 @@ const corsOrigin =
     : (allowedOrigins.length ? allowedOrigins : true);
 
 // Middleware
+app.use(requestLogger);
 app.use(cors({
   origin: corsOrigin,
   credentials: true

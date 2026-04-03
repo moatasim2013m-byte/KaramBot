@@ -8,7 +8,8 @@
  * Endpoint: POST https://graph.facebook.com/v25.0/{phone_number_id}/marketing_messages
  */
 
-const DEFAULT_TIMEOUT_MS = 10000;
+const { fetchMetaWithRetry } = require('./metaApiClient');
+const { logger } = require('./logger');
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
@@ -36,11 +37,8 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
   }
 
   const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/marketing_messages`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
-
   try {
-    const response = await fetch(endpoint, {
+    const result = await fetchMetaWithRetry(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -57,20 +55,20 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
           components: components || []
         },
         ...(ttl_seconds ? { ttl: { seconds: ttl_seconds } } : {})
-      }),
-      signal: controller.signal
-    });
+      })
+    }, { event: 'wa_marketing_template_send', wa_id: to, templateName });
 
-    const responseText = await response.text();
+    const responseText = result.text || '';
 
-    if (!response.ok) {
-      console.error('WHATSAPP_MARKETING_API_ERROR', {
-        status: response.status,
-        to,
+    if (!result.ok) {
+      logger.error({
+        event: 'wa_marketing_api_error',
+        status: result.status,
+        wa_id: to,
         templateName,
-        response: responseText.slice(0, 500)
+        metaError: responseText.slice(0, 500)
       });
-      return { ok: false, status: response.status, responseText: responseText.slice(0, 500) };
+      return { ok: false, status: result.status, responseText: responseText.slice(0, 500), error: result.error };
     }
 
     let responseData = {};
@@ -79,7 +77,7 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
       responseData = JSON.parse(responseText);
       messageId = responseData?.messages?.[0]?.id;
     } catch (parseErr) {
-      console.error('WHATSAPP_MARKETING_PARSE_ERROR', parseErr);
+      logger.error({ event: 'wa_marketing_parse_error', templateName, wa_id: to, error: parseErr.message });
     }
 
     // Persist outbound message to WhatsAppMessage for delivery tracking via webhook
@@ -100,16 +98,14 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
           timestamp: new Date()
         });
       } catch (dbErr) {
-        console.error('WHATSAPP_MARKETING_PERSIST_ERROR', dbErr);
+        logger.error({ event: 'wa_marketing_persist_error', wa_id: to, templateName, error: dbErr.message });
       }
     }
 
     return { ok: true, messageId };
   } catch (error) {
-    console.error('WHATSAPP_MARKETING_SEND_ERROR', { error: error.message, to, templateName });
+    logger.error({ event: 'wa_marketing_send_error', error: error.message, wa_id: to, templateName, stack: error.stack });
     return { ok: false, error: error.message };
-  } finally {
-    clearTimeout(timeout);
   }
 };
 

@@ -4,6 +4,9 @@
  */
 
 const FormData = require('form-data');
+const { fetchMetaWithRetry } = require('./metaApiClient');
+
+const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
 
 const META_TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
@@ -94,6 +97,13 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
 
+  if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
+    return {
+      ok: false,
+      error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed by Staff Inbox.`
+    };
+  }
+
   try {
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
@@ -114,10 +124,10 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
       return { ok: false, error: responseText.slice(0, 200), status: response.status };
     }
 
-    const data = JSON.parse(responseText);
+    const data = JSON.parse(result.text || '{}');
     return { ok: true, mediaId: data.id };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, statusCode: 500, error: err.message };
   }
 }
 
