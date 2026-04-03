@@ -3,6 +3,7 @@
  * Fetches temporary download URLs for media stored as Meta media IDs
  */
 
+const FormDataNode = require('form-data');
 const { fetchMetaWithRetry } = require('./metaApiClient');
 
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
@@ -104,35 +105,46 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
   }
 
   try {
-    const FormDataNode = require('form-data');
     const form = new FormDataNode();
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
     form.append('file', buffer, {
       filename: filename || 'image.jpg',
-      contentType: mimeType
+      contentType: mimeType,
+      knownLength: buffer.length
     });
 
-    const response = await metaFetchWithRetry(
-      `https://graph.facebook.com/v23.0/${phoneNumberId}/media`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          ...form.getHeaders()
-        },
-        body: form
-      }
-    );
+    const uploadUrl = `https://graph.facebook.com/v23.0/${phoneNumberId}/media`;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...form.getHeaders()
+      },
+      body: form,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
     const responseText = await response.text();
+
     if (!response.ok) {
+      console.error('META_UPLOAD_ERROR', { status: response.status, body: responseText.slice(0, 300) });
       return { ok: false, error: responseText.slice(0, 200), status: response.status };
     }
 
     const data = JSON.parse(responseText);
+    if (!data.id) {
+      return { ok: false, error: 'Meta returned no media ID', raw: responseText.slice(0, 200) };
+    }
+
     return { ok: true, mediaId: data.id };
   } catch (err) {
+    console.error('META_UPLOAD_EXCEPTION', err.message);
     return { ok: false, error: err.message, statusCode: 500 };
   }
 }
