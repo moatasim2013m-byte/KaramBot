@@ -1559,9 +1559,20 @@ router.put('/daycare-packages/:id', async (req, res) => {
     if (!parsedPrice || parsedPrice <= 0) {
       return res.status(400).json({ error: 'price must be a positive number' });
     }
+    const safeIncludes = Array.isArray(includes) ? includes.map(String) : [];
+    const safeTimeSlots = Array.isArray(time_slots) ? time_slots.map(String) : [];
     const updated = await SubscriptionPlan.findByIdAndUpdate(
       new mongoose.Types.ObjectId(req.params.id),
-      { name, name_ar, price: parsedPrice, duration_hours: Number(duration_hours) || 0, duration_minutes: Number(duration_minutes) || 0, includes: Array.isArray(includes) ? includes : [], time_slots: Array.isArray(time_slots) ? time_slots : [], is_active: Boolean(is_active) },
+      {
+        name: String(name || ''),
+        name_ar: String(name_ar || ''),
+        price: parsedPrice,
+        duration_hours: Number(duration_hours) || 0,
+        duration_minutes: Number(duration_minutes) || 0,
+        includes: safeIncludes,
+        time_slots: safeTimeSlots,
+        is_active: Boolean(is_active)
+      },
       { new: true }
     );
     if (!updated) return res.status(404).json({ error: 'Package not found' });
@@ -1579,14 +1590,19 @@ router.post('/daycare-packages', async (req, res) => {
     if (!name || !parsedPrice || parsedPrice <= 0 || visits == null) {
       return res.status(400).json({ error: 'name, price (positive), and visits are required' });
     }
+    const safeIncludes = Array.isArray(includes) ? includes.map(String) : [];
+    const safeTimeSlots = Array.isArray(time_slots) ? time_slots.map(String) : [];
     const pkg = await SubscriptionPlan.create({
-      name, name_ar, description, description_ar,
+      name: String(name),
+      name_ar: name_ar ? String(name_ar) : undefined,
+      description: description ? String(description) : undefined,
+      description_ar: description_ar ? String(description_ar) : undefined,
       price: parsedPrice,
       visits: Number(visits) || 1,
       duration_hours: Number(duration_hours) || 0,
       duration_minutes: Number(duration_minutes) || 0,
-      includes: Array.isArray(includes) ? includes : [],
-      time_slots: Array.isArray(time_slots) ? time_slots : [],
+      includes: safeIncludes,
+      time_slots: safeTimeSlots,
       is_daily_pass: Boolean(is_daily_pass),
       is_active: true
     });
@@ -1609,6 +1625,18 @@ router.get('/birthday-packages', async (req, res) => {
   }
 });
 
+const sanitizeBirthdayIncludes = (inc) => {
+  if (!inc || typeof inc !== 'object' || Array.isArray(inc)) return {};
+  return {
+    kids_count: Number(inc.kids_count) || 0,
+    play_hours: Number(inc.play_hours) || 0,
+    meals: Number(inc.meals) || 0,
+    stands: Number(inc.stands) || 0,
+    gifts_per_kid: Boolean(inc.gifts_per_kid),
+    premium_gift: Boolean(inc.premium_gift)
+  };
+};
+
 router.put('/birthday-packages/:id', async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -1621,7 +1649,15 @@ router.put('/birthday-packages/:id', async (req, res) => {
     }
     const updated = await Theme.findOneAndUpdate(
       { _id: new mongoose.Types.ObjectId(req.params.id), package_type: 'birthday' },
-      { name, name_ar, description, description_ar, price: parsedPrice, includes: includes && typeof includes === 'object' ? includes : {}, is_active: Boolean(is_active) },
+      {
+        name: String(name || ''),
+        name_ar: String(name_ar || ''),
+        description: description ? String(description) : undefined,
+        description_ar: description_ar ? String(description_ar) : undefined,
+        price: parsedPrice,
+        includes: sanitizeBirthdayIncludes(includes),
+        is_active: Boolean(is_active)
+      },
       { new: true }
     );
     if (!updated) return res.status(404).json({ error: 'Birthday package not found' });
@@ -1640,10 +1676,13 @@ router.post('/birthday-packages', async (req, res) => {
       return res.status(400).json({ error: 'name and price (positive) are required' });
     }
     const pkg = await Theme.create({
-      name, name_ar, description, description_ar,
+      name: String(name),
+      name_ar: name_ar ? String(name_ar) : undefined,
+      description: description ? String(description) : undefined,
+      description_ar: description_ar ? String(description_ar) : undefined,
       price: parsedPrice,
       package_type: 'birthday',
-      includes: includes && typeof includes === 'object' ? includes : {},
+      includes: sanitizeBirthdayIncludes(includes),
       is_active: true
     });
     res.status(201).json({ message: 'Birthday package created', package: pkg });
