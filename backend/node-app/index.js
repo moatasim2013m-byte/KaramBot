@@ -40,6 +40,7 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+const instagramIceBreakersRoutes = require('./routes/instagramIceBreakers');
 const { requestLogger, reportError } = require('./utils/logger');
 
 const app = express();
@@ -217,6 +218,7 @@ app.use('/api/bot', faqBotRoutes);
 app.use('/api', productsRoutes);
 app.use('/api/campaigns', campaignsRoutes);
 app.use('/api/templates', templatesRoutes);
+app.use('/api/instagram', instagramIceBreakersRoutes);
 app.use('/api', consentRoutes);
 
 // Public settings endpoint (for homepage hero config)
