@@ -113,6 +113,24 @@ export default function AdminPage() {
   const [loadingParent, setLoadingParent] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [activatingBookingId, setActivatingBookingId] = useState(null);
+  const [loadedDataByTab, setLoadedDataByTab] = useState({
+    dashboard: false,
+    users: false,
+    customers: false,
+    hourly: false,
+    birthday: false,
+    subscriptions: false,
+    products: false,
+    templates: false,
+    gallery: false,
+    settings: false,
+    pricing: false,
+    whatsapp_settings: false,
+    play_pricing: false,
+    business_info: false,
+    daycare_packages: false,
+    birthday_packages: false
+  });
 
   // Hero settings state
   const [heroSettings, setHeroSettings] = useState({
@@ -185,11 +203,15 @@ export default function AdminPage() {
   }, [isAdmin]);
 
   useEffect(() => {
+    const hasActiveSession = hourlyBookings.some((booking) => booking.status === 'checked_in');
+    if (activeTab !== 'hourly' || !hasActiveSession) {
+      return undefined;
+    }
     const timer = setInterval(() => {
       setNowMs(Date.now());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [activeTab, hourlyBookings]);
 
   // Debounced search for customers
   useEffect(() => {
@@ -200,13 +222,6 @@ export default function AdminPage() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerSearch, activeTab]);
-
-  useEffect(() => {
-    if (activeTab === 'whatsapp_settings') {
-      fetchWhatsAppAutoReplyConfig();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
 
   // Show 403 page if not admin
   if (!isAdmin) {
@@ -255,31 +270,14 @@ export default function AdminPage() {
   const fetchDashboard = async () => {
     setLoading(true);
     try {
-      const [dashRes, themesRes, plansRes, galleryRes, settingsRes, pricingRes, autoReplyRes, playPricingRes, businessInfoRes, daycareRes, birthdayRes] = await Promise.all([
+      const [dashRes, settingsRes] = await Promise.all([
         api.get('/admin/dashboard'),
-        api.get('/themes'),
-        api.get('/admin/plans'),
-        api.get('/gallery'),
         api.get('/admin/settings'),
-        api.get('/admin/pricing'),
-        api.get('/admin/whatsapp-auto-reply'),
-        api.get('/admin/play-pricing').catch(() => ({ data: {} })),
-        api.get('/admin/business-info').catch(() => ({ data: {} })),
-        api.get('/admin/daycare-packages').catch(() => ({ data: {} })),
-        api.get('/admin/birthday-packages').catch(() => ({ data: {} }))
       ]);
 
       setStats(dashRes.data.stats || {});
-      setThemes(themesRes.data.themes || []);
-      setPlans(plansRes.data.plans || []);
-      setGallery(galleryRes.data.media || []);
       setSettings(settingsRes.data.settings || {});
-      setPricing(pricingRes.data.pricing || {});
-      setAutoReplyConfig(autoReplyRes.data.config || autoReplyConfig);
-      if (playPricingRes.data.pricing) setPlayPricing(playPricingRes.data.pricing);
-      if (businessInfoRes.data.info) setBusinessInfo(businessInfoRes.data.info);
-      if (daycareRes.data.packages) setDaycarePackages(daycareRes.data.packages);
-      if (birthdayRes.data.packages) setBirthdayPackages(birthdayRes.data.packages);
+      setLoadedDataByTab((prev) => ({ ...prev, dashboard: true }));
       
       // Load hero settings from settings
       const s = settingsRes.data.settings || {};
@@ -332,6 +330,36 @@ export default function AdminPage() {
       setSubscriptions(response.data.subscriptions || []);
     } catch (error) {
       console.error('Failed to fetch subscriptions:', error);
+    }
+  };
+
+  const refreshDashboardStats = async () => {
+    try {
+      const dashRes = await api.get('/admin/dashboard');
+      setStats(dashRes.data.stats || {});
+    } catch (error) {
+      console.error('Failed to refresh admin stats:', error);
+    }
+  };
+
+  const refreshTemplatesData = async () => {
+    try {
+      const [themesRes, plansRes] = await Promise.all([api.get('/themes'), api.get('/admin/plans')]);
+      setThemes(themesRes.data.themes || []);
+      setPlans(plansRes.data.plans || []);
+      setLoadedDataByTab((prev) => ({ ...prev, templates: true }));
+    } catch (error) {
+      toast.error('فشل تحميل القوالب');
+    }
+  };
+
+  const refreshGalleryData = async () => {
+    try {
+      const galleryRes = await api.get('/gallery');
+      setGallery(galleryRes.data.media || []);
+      setLoadedDataByTab((prev) => ({ ...prev, gallery: true }));
+    } catch (error) {
+      toast.error('فشل تحميل المعرض');
     }
   };
 
@@ -566,12 +594,88 @@ export default function AdminPage() {
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     setActiveFilter(null); // Reset filter when manually changing tabs
-    if (tab === 'users') fetchUsers();
-    if (tab === 'customers') fetchCustomers();
-    if (tab === 'hourly') fetchHourlyBookings();
-    if (tab === 'birthday') fetchBirthdayBookings();
-    if (tab === 'subscriptions') fetchSubscriptions();
-    if (tab === 'products') fetchProducts();
+    if (tab === 'users' && !loadedDataByTab.users) {
+      fetchUsers();
+      setLoadedDataByTab((prev) => ({ ...prev, users: true }));
+    }
+    if (tab === 'customers' && !loadedDataByTab.customers) {
+      fetchCustomers();
+      setLoadedDataByTab((prev) => ({ ...prev, customers: true }));
+    }
+    if (tab === 'hourly' && !loadedDataByTab.hourly) {
+      fetchHourlyBookings();
+      setLoadedDataByTab((prev) => ({ ...prev, hourly: true }));
+    }
+    if (tab === 'birthday' && !loadedDataByTab.birthday) {
+      fetchBirthdayBookings();
+      setLoadedDataByTab((prev) => ({ ...prev, birthday: true }));
+    }
+    if (tab === 'subscriptions' && !loadedDataByTab.subscriptions) {
+      fetchSubscriptions();
+      setLoadedDataByTab((prev) => ({ ...prev, subscriptions: true }));
+    }
+    if (tab === 'products' && !loadedDataByTab.products) {
+      fetchProducts();
+      setLoadedDataByTab((prev) => ({ ...prev, products: true }));
+    }
+    if (tab === 'templates' && !loadedDataByTab.templates) {
+      refreshTemplatesData();
+    }
+    if (tab === 'gallery' && !loadedDataByTab.gallery) {
+      refreshGalleryData();
+    }
+    if (tab === 'settings' && !loadedDataByTab.settings) {
+      api.get('/admin/settings')
+        .then((settingsRes) => {
+          setSettings(settingsRes.data.settings || {});
+          setLoadedDataByTab((prev) => ({ ...prev, settings: true }));
+        })
+        .catch(() => toast.error('فشل تحميل الإعدادات'));
+    }
+    if (tab === 'pricing' && !loadedDataByTab.pricing) {
+      api.get('/admin/pricing')
+        .then((pricingRes) => {
+          setPricing(pricingRes.data.pricing || {});
+          setLoadedDataByTab((prev) => ({ ...prev, pricing: true }));
+        })
+        .catch(() => toast.error('فشل تحميل الأسعار'));
+    }
+    if (tab === 'whatsapp_settings' && !loadedDataByTab.whatsapp_settings) {
+      fetchWhatsAppAutoReplyConfig();
+      setLoadedDataByTab((prev) => ({ ...prev, whatsapp_settings: true }));
+    }
+    if (tab === 'play_pricing' && !loadedDataByTab.play_pricing) {
+      api.get('/admin/play-pricing')
+        .then((playPricingRes) => {
+          if (playPricingRes.data.pricing) setPlayPricing(playPricingRes.data.pricing);
+          setLoadedDataByTab((prev) => ({ ...prev, play_pricing: true }));
+        })
+        .catch(() => toast.error('فشل تحميل أسعار اللعب'));
+    }
+    if (tab === 'business_info' && !loadedDataByTab.business_info) {
+      api.get('/admin/business-info')
+        .then((businessInfoRes) => {
+          if (businessInfoRes.data.info) setBusinessInfo(businessInfoRes.data.info);
+          setLoadedDataByTab((prev) => ({ ...prev, business_info: true }));
+        })
+        .catch(() => toast.error('فشل تحميل معلومات العمل'));
+    }
+    if (tab === 'daycare_packages' && !loadedDataByTab.daycare_packages) {
+      api.get('/admin/daycare-packages')
+        .then((daycareRes) => {
+          if (daycareRes.data.packages) setDaycarePackages(daycareRes.data.packages);
+          setLoadedDataByTab((prev) => ({ ...prev, daycare_packages: true }));
+        })
+        .catch(() => toast.error('فشل تحميل باقات الداي كير'));
+    }
+    if (tab === 'birthday_packages' && !loadedDataByTab.birthday_packages) {
+      api.get('/admin/birthday-packages')
+        .then((birthdayRes) => {
+          if (birthdayRes.data.packages) setBirthdayPackages(birthdayRes.data.packages);
+          setLoadedDataByTab((prev) => ({ ...prev, birthday_packages: true }));
+        })
+        .catch(() => toast.error('فشل تحميل باقات عيد الميلاد'));
+    }
   };
 
   // Dashboard card click handlers
@@ -691,7 +795,7 @@ export default function AdminPage() {
       }
       setThemeDialogOpen(false);
       setNewTheme({ name: '', name_ar: '', description: '', description_ar: '', price: '', image_url: '' });
-      fetchDashboard();
+      await Promise.all([refreshTemplatesData(), refreshDashboardStats()]);
     } catch (error) {
       toast.error('Failed to save theme');
     }
@@ -715,7 +819,7 @@ export default function AdminPage() {
     try {
       await api.delete(`/admin/themes/${id}`);
       toast.success('Theme deleted');
-      fetchDashboard();
+      await Promise.all([refreshTemplatesData(), refreshDashboardStats()]);
     } catch (error) {
       toast.error('Failed to delete theme');
     }
@@ -777,7 +881,7 @@ export default function AdminPage() {
       }
       setPlanDialogOpen(false);
       setNewPlan({ name: '', name_ar: '', description: '', description_ar: '', visits: '', price: '' });
-      fetchDashboard();
+      await Promise.all([refreshTemplatesData(), refreshDashboardStats()]);
     } catch (error) {
       toast.error('Failed to save plan');
     }
@@ -801,7 +905,7 @@ export default function AdminPage() {
     try {
       await api.delete(`/admin/plans/${id}`);
       toast.success('Plan deleted');
-      fetchDashboard();
+      await Promise.all([refreshTemplatesData(), refreshDashboardStats()]);
     } catch (error) {
       toast.error('Failed to delete plan');
     }
@@ -870,7 +974,7 @@ export default function AdminPage() {
       setMediaDialogOpen(false);
       setNewMedia({ url: '', type: 'photo', title: '', file: null });
       setGalleryPreview(null);
-      fetchDashboard();
+      await Promise.all([refreshGalleryData(), refreshDashboardStats()]);
     } catch (error) {
       toast.error('فشلت الإضافة');
     } finally {
@@ -883,7 +987,7 @@ export default function AdminPage() {
     try {
       await api.delete(`/gallery/${id}`);
       toast.success('Media deleted');
-      fetchDashboard();
+      await Promise.all([refreshGalleryData(), refreshDashboardStats()]);
     } catch (error) {
       toast.error('Failed to delete');
     }
@@ -921,7 +1025,7 @@ export default function AdminPage() {
     try {
       await api.put('/admin/pricing', pricing);
       toast.success('تم تحديث الأسعار بنجاح / Pricing updated successfully!');
-      fetchDashboard();
+      await refreshDashboardStats();
     } catch (error) {
       toast.error('Failed to update pricing');
     }
