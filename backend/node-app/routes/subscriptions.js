@@ -9,6 +9,7 @@ const Child = require('../models/Child');
 const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
+const { notifyAdminsOfOrder } = require('../utils/adminOrderNotifications');
 const { postWhatsAppText, normalizePhoneForWhatsApp } = require('../utils/whatsappBookingConfirmation');
 const { awardPoints } = require('../utils/awardPoints');
 const { addDays } = require('date-fns');
@@ -141,6 +142,15 @@ router.post('/purchase', authMiddleware, async (req, res) => {
     } catch (emailErr) {
       console.error('SUBSCRIPTION_EMAIL_ERROR', emailErr.message || emailErr);
     }
+    notifyAdminsOfOrder({
+      orderType: 'Subscription',
+      orderId: subscription?._id?.toString(),
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: plan?.price || 0,
+      paymentStatus: subscription?.payment_status || 'paid',
+      createdAt: subscription?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     res.status(201).json({ subscription: subscription.toJSON() });
   } catch (error) {
@@ -212,6 +222,15 @@ router.post('/purchase/offline', authMiddleware, async (req, res) => {
     } catch (emailErr) {
       console.error('SUBSCRIPTION_OFFLINE_EMAIL_ERROR', emailErr.message || emailErr);
     }
+    notifyAdminsOfOrder({
+      orderType: 'Subscription',
+      orderId: subscription?._id?.toString(),
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: plan?.price || 0,
+      paymentStatus,
+      createdAt: subscription?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     res.status(201).json({ 
       subscription: subscription.toJSON(),

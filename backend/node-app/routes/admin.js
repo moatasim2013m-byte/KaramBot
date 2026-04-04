@@ -377,7 +377,7 @@ router.get('/users', async (req, res) => {
     const users = await User.find(query)
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, _id: -1 });
 
     const total = await User.countDocuments(query);
 
@@ -415,7 +415,7 @@ router.get('/users/:id', async (req, res) => {
     const subscriptions = await UserSubscription.find({ user_id: req.params.id })
       .populate('plan_id')
       .populate('child_id')
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, _id: -1 });
 
     res.json({
       user: user.toJSON(),
@@ -513,7 +513,7 @@ router.get('/bookings/hourly', async (req, res) => {
       .populate('child_id')
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, _id: -1 });
 
     const total = await HourlyBooking.countDocuments(query);
 
@@ -552,7 +552,7 @@ router.get('/bookings/birthday', async (req, res) => {
       .populate('theme_id')
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, _id: -1 });
 
     const total = await BirthdayBooking.countDocuments(query);
 
@@ -706,7 +706,7 @@ router.get('/subscriptions', async (req, res) => {
       .populate('plan_id')
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
-      .sort({ created_at: -1 });
+      .sort({ created_at: -1, _id: -1 });
 
     const total = await UserSubscription.countDocuments(query);
 

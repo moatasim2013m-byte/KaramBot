@@ -266,6 +266,12 @@ export default function AdminPage() {
     const safeValue = Number(value || 0);
     return `${safeValue.toLocaleString('en-US', { maximumFractionDigits: 2 })} JD`;
   };
+  const sortByReceivedDate = (items = []) => [...items].sort((a, b) => {
+    const aTime = new Date(a?.created_at || 0).getTime();
+    const bTime = new Date(b?.created_at || 0).getTime();
+    if (bTime !== aTime) return bTime - aTime;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+  });
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -309,7 +315,7 @@ export default function AdminPage() {
   const fetchHourlyBookings = async () => {
     try {
       const response = await api.get('/admin/bookings/hourly');
-      setHourlyBookings(response.data.bookings || []);
+      setHourlyBookings(sortByReceivedDate(response.data.bookings || []));
     } catch (error) {
       console.error('Failed to fetch hourly bookings:', error);
     }
@@ -318,7 +324,7 @@ export default function AdminPage() {
   const fetchBirthdayBookings = async () => {
     try {
       const response = await api.get('/admin/bookings/birthday');
-      setBirthdayBookings(response.data.bookings || []);
+      setBirthdayBookings(sortByReceivedDate(response.data.bookings || []));
     } catch (error) {
       console.error('Failed to fetch birthday bookings:', error);
     }
@@ -327,7 +333,7 @@ export default function AdminPage() {
   const fetchSubscriptions = async () => {
     try {
       const response = await api.get('/admin/subscriptions');
-      setSubscriptions(response.data.subscriptions || []);
+      setSubscriptions(sortByReceivedDate(response.data.subscriptions || []));
     } catch (error) {
       console.error('Failed to fetch subscriptions:', error);
     }
