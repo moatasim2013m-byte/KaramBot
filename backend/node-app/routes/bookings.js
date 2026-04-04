@@ -562,7 +562,9 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       childCount: childIdList.length,
       durationHours: bookings[0]?.duration_hours,
       bookingReference: bookings[0]?.booking_code,
-      bookingId: bookings[0]?._id?.toString()
+      bookingId: bookings[0]?._id?.toString(),
+      isPending: true,
+      paymentMethod: payment_method
     });
 
     reservedSlotId = null;
@@ -890,7 +892,9 @@ router.post('/birthday/offline', authMiddleware, async (req, res) => {
       childName: child?.name,
       packageOrTheme: theme?.name,
       bookingReference: booking?.booking_code,
-      bookingId: booking?._id?.toString()
+      bookingId: booking?._id?.toString(),
+      isPending: true,
+      paymentMethod: payment_method
     });
 
     res.status(201).json({ 

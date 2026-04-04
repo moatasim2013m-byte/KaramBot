@@ -9,6 +9,7 @@ const Child = require('../models/Child');
 const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
+const { postWhatsAppText, normalizePhoneForWhatsApp } = require('../utils/whatsappBookingConfirmation');
 const { awardPoints } = require('../utils/awardPoints');
 const { addDays } = require('date-fns');
 const { handleReferralAwardForConfirmedOrder } = require('../utils/referrals');
@@ -94,6 +95,28 @@ router.post('/purchase', authMiddleware, async (req, res) => {
     });
 
     await subscription.save();
+
+    // Send WhatsApp confirmation (non-blocking)
+    try {
+      const userDoc = await User.findById(req.userId).lean();
+      if (userDoc?.phone) {
+        const SubscriptionPlan = require('../models/SubscriptionPlan');
+        const plan = await SubscriptionPlan.findById(plan_id).lean();
+        const phone = normalizePhoneForWhatsApp(userDoc.phone);
+        if (phone) {
+          const msg = [
+            `أهلاً ${userDoc.name || 'عميلنا العزيز'}، تم تفعيل اشتراكك في Peekaboo 🎉`,
+            `الباقة: ${plan?.name_ar || plan?.name || 'اشتراك'}`,
+            `عدد الزيارات: ${plan?.visits || subscription.remaining_visits}`,
+            `رقم الاشتراك: ${subscription._id.toString().slice(-8).toUpperCase()}`,
+            'بنستناكم في بيكابو 💛'
+          ].join('\n');
+          await postWhatsAppText({ to: phone, messageBody: msg });
+        }
+      }
+    } catch (waErr) {
+      console.error('SUBSCRIPTION_WHATSAPP_ERROR', waErr.message);
+    }
 
     await awardPoints({
       userId: req.userId,
