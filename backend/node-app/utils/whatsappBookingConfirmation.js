@@ -32,10 +32,14 @@ const buildHourlyBookingMessage = ({
   time,
   childCount,
   durationHours,
-  bookingReference
+  bookingReference,
+  isPending,
+  paymentMethod
 }) => {
   const lines = [
-    `أهلاً ${customerName || 'عميلنا العزيز'}، تم تأكيد حجزكم في Peekaboo 🎉`,
+    isPending
+      ? `أهلاً ${customerName || 'عميلنا العزيز'}، تم استلام طلب حجزكم في Peekaboo 🎉`
+      : `أهلاً ${customerName || 'عميلنا العزيز'}، تم تأكيد حجزكم في Peekaboo 🎉`,
     'نوع الحجز: دخول ساعي',
     `التاريخ: ${date || 'غير محدد'}`,
     `الوقت: ${time || 'غير محدد'}`
@@ -53,6 +57,12 @@ const buildHourlyBookingMessage = ({
     lines.push(`رقم الحجز: ${bookingReference}`);
   }
 
+  if (isPending) {
+    const methodLabel = paymentMethod === 'cash' ? 'كاش عند الوصول' : 'كليك (iBanking)';
+    lines.push(`⚠️ الدفع: في انتظار السداد بـ ${methodLabel}`);
+    lines.push('يرجى الإبراز عند الدخول لإتمام الدفع');
+  }
+
   lines.push('بنستناكم في بيكابو 💛');
   return lines.join('\n');
 };
@@ -63,10 +73,14 @@ const buildBirthdayBookingMessage = ({
   time,
   childName,
   packageOrTheme,
-  bookingReference
+  bookingReference,
+  isPending,
+  paymentMethod
 }) => {
   const lines = [
-    `أهلاً ${customerName || 'عميلنا العزيز'}، تم تأكيد حجز عيد الميلاد في Peekaboo 🎉`,
+    isPending
+      ? `أهلاً ${customerName || 'عميلنا العزيز'}، تم استلام طلب حجز عيد الميلاد في Peekaboo 🎉`
+      : `أهلاً ${customerName || 'عميلنا العزيز'}، تم تأكيد حجز عيد الميلاد في Peekaboo 🎉`,
     'نوع الحجز: عيد ميلاد',
     `التاريخ: ${date || 'غير محدد'}`,
     `الوقت: ${time || 'غير محدد'}`
@@ -82,6 +96,12 @@ const buildBirthdayBookingMessage = ({
 
   if (bookingReference) {
     lines.push(`رقم الحجز: ${bookingReference}`);
+  }
+
+  if (isPending) {
+    const methodLabel = paymentMethod === 'cash' ? 'كاش عند الوصول' : 'كليك (iBanking)';
+    lines.push(`⚠️ الدفع: في انتظار السداد بـ ${methodLabel}`);
+    lines.push('يرجى الإبراز عند الدخول لإتمام الدفع');
   }
 
   lines.push('بنستناكم تحتفلوا معنا في بيكابو 💛');
@@ -219,7 +239,9 @@ const sendHourlyBookingWhatsAppConfirmation = async ({
   childCount,
   durationHours,
   bookingReference,
-  bookingId
+  bookingId,
+  isPending,
+  paymentMethod
 }) => {
   if (!isWhatsAppEnabled()) return { ok: false, skipped: true, reason: 'disabled' };
 
@@ -235,7 +257,9 @@ const sendHourlyBookingWhatsAppConfirmation = async ({
     time,
     childCount,
     durationHours,
-    bookingReference
+    bookingReference,
+    isPending,
+    paymentMethod
   });
 
   const result = await postWhatsAppText({ to: normalizedPhone, messageBody });
@@ -256,7 +280,9 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
   childName,
   packageOrTheme,
   bookingReference,
-  bookingId
+  bookingId,
+  isPending,
+  paymentMethod
 }) => {
   if (!isWhatsAppEnabled()) return { ok: false, skipped: true, reason: 'disabled' };
 
@@ -272,7 +298,9 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
     time,
     childName,
     packageOrTheme,
-    bookingReference
+    bookingReference,
+    isPending,
+    paymentMethod
   });
 
   const result = await postWhatsAppText({ to: normalizedPhone, messageBody });
