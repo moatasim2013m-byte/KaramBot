@@ -20,6 +20,7 @@ const {
   sendHourlyBookingWhatsAppConfirmation,
   sendBirthdayBookingWhatsAppConfirmation
 } = require('../utils/whatsappBookingConfirmation');
+const { notifyAdminsOfOrder } = require('../utils/adminOrderNotifications');
 const { addMinutes, isBefore, isAfter } = require('date-fns');
 
 const router = express.Router();
@@ -396,6 +397,15 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       bookingReference: bookings[0]?.booking_code,
       bookingId: bookings[0]?._id?.toString()
     });
+    notifyAdminsOfOrder({
+      orderType: 'Hourly Booking',
+      orderId: bookings[0]?.booking_code,
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: totalAmount,
+      paymentStatus: 'paid',
+      createdAt: bookings[0]?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     reservedSlotId = null;
     reservedCount = 0;
@@ -566,6 +576,15 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       isPending: true,
       paymentMethod: payment_method
     });
+    notifyAdminsOfOrder({
+      orderType: 'Hourly Booking',
+      orderId: bookings[0]?.booking_code,
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: totalAmount,
+      paymentStatus,
+      createdAt: bookings[0]?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     reservedSlotId = null;
     reservedCount = 0;
@@ -777,6 +796,15 @@ router.post('/birthday', authMiddleware, async (req, res) => {
         bookingId: booking?._id?.toString()
       });
     }
+    notifyAdminsOfOrder({
+      orderType: booking.status === 'custom_pending' ? 'Custom Birthday Request' : 'Birthday Booking',
+      orderId: booking?.booking_code,
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: booking?.amount || 0,
+      paymentStatus: booking?.payment_status || 'paid',
+      createdAt: booking?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     res.status(201).json({ booking: booking.toJSON() });
   } catch (error) {
@@ -896,6 +924,15 @@ router.post('/birthday/offline', authMiddleware, async (req, res) => {
       isPending: true,
       paymentMethod: payment_method
     });
+    notifyAdminsOfOrder({
+      orderType: 'Birthday Booking',
+      orderId: booking?.booking_code,
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: booking?.amount || totalAmount,
+      paymentStatus,
+      createdAt: booking?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     res.status(201).json({ 
       booking: booking.toJSON(),
@@ -975,6 +1012,15 @@ router.post('/birthday/custom', authMiddleware, async (req, res) => {
     } catch (emailErr) {
       console.error('BIRTHDAY_CUSTOM_EMAIL_ERROR', emailErr.message || emailErr);
     }
+    notifyAdminsOfOrder({
+      orderType: 'Custom Birthday Request',
+      orderId: booking?.booking_code,
+      customerName: user?.name,
+      customerEmail: user?.email,
+      amount: 0,
+      paymentStatus: 'pending_quote',
+      createdAt: booking?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
     res.status(201).json({ 
       booking: booking.toJSON(),
