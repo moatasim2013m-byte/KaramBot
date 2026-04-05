@@ -200,6 +200,26 @@ function SnapchatPageViewTracker() {
   return null;
 }
 
+function ConditionalFaqWidget({ showFaqWidget }) {
+  const location = useLocation();
+  const { isAdmin, isStaff } = useAuth();
+
+  const isBackofficeRoute =
+    location.pathname.startsWith("/admin") ||
+    location.pathname.startsWith("/staff") ||
+    location.pathname.startsWith("/reception");
+
+  if (!showFaqWidget || isBackofficeRoute || isAdmin || isStaff) {
+    return null;
+  }
+
+  return (
+    <Suspense fallback={null}>
+      <FaqBotWidget />
+    </Suspense>
+  );
+}
+
 function App() {
   const [showFaqWidget, setShowFaqWidget] = useState(false);
 
@@ -231,11 +251,7 @@ function App() {
       <AuthProvider>
         <SnapchatPageViewTracker />
         <AppRoutes />
-        {showFaqWidget && (
-          <Suspense fallback={null}>
-            <FaqBotWidget />
-          </Suspense>
-        )}
+        <ConditionalFaqWidget showFaqWidget={showFaqWidget} />
         <Toaster
           position="top-center"
           richColors
