@@ -119,6 +119,7 @@ export default function StaffPage() {
   const [imagePreview, setImagePreview] = useState(null);
   const [sendingImage, setSendingImage] = useState(false);
   const [togglingOptOut, setTogglingOptOut] = useState(false);
+  const [previewImageSrc, setPreviewImageSrc] = useState('');
   const imageInputRef = useRef(null);
   const inboxEventsRef = useRef(null);
 
@@ -138,6 +139,15 @@ export default function StaffPage() {
     const requestedTab = params.get('tab');
     if (requestedTab === 'inbox') setActiveTab('inbox');
   }, [location.search]);
+
+  useEffect(() => {
+    if (!previewImageSrc) return undefined;
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setPreviewImageSrc('');
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [previewImageSrc]);
 
   const fetchActiveSessions = useCallback(async () => {
     try {
@@ -1073,13 +1083,18 @@ export default function StaffPage() {
                                 <p className="text-sm leading-relaxed whitespace-pre-wrap" dir="auto">{msg.text_body}</p>
                               ) : msg.message_type === 'image' && msg.media_url ? (
                                 <div className="space-y-1">
+                                  {(() => {
+                                    const mediaSrc = msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`;
+                                    return (
                                   <img
-                                    src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
+                                    src={mediaSrc}
                                     alt="صورة"
                                     className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
-                                    onClick={() => window.open(msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`, '_blank')}
+                                    onClick={() => setPreviewImageSrc(mediaSrc)}
                                     onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
                                   />
+                                    );
+                                  })()}
                                   <p className="text-xs italic opacity-70 hidden">📷 صورة</p>
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
@@ -1389,6 +1404,31 @@ export default function StaffPage() {
                 )}
               </div>
             </div>
+
+            {previewImageSrc && (
+              <div
+                className="fixed inset-0 z-[100] bg-black/80 p-4 flex items-center justify-center"
+                onClick={() => setPreviewImageSrc('')}
+                role="dialog"
+                aria-modal="true"
+                aria-label="معاينة الصورة"
+              >
+                <button
+                  type="button"
+                  className="absolute top-4 right-4 text-white bg-black/30 rounded-full p-2 hover:bg-black/50 transition-colors"
+                  onClick={() => setPreviewImageSrc('')}
+                  aria-label="إغلاق المعاينة"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+                <img
+                  src={previewImageSrc}
+                  alt="معاينة الصورة"
+                  className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="campaigns">
