@@ -15,7 +15,7 @@ import {
   LayoutDashboard, Users, Clock, Cake, Star, Settings, Image,
   Plus, Edit, Trash2, Loader2, Gift, Calendar, DollarSign, Home, Upload, Search, UserPlus, Eye, Ban, Check, X, MessageSquare,
   Megaphone, FileText, Palette, RefreshCw, QrCode,
-  CalendarDays, UserCog, LogOut, Image as ImageIcon
+  CalendarDays, UserCog, LogOut
 } from 'lucide-react';
 import logoImg from '../../assets/logo.png';
 import OverviewTab from './tabs/OverviewTab';

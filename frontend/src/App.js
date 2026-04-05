@@ -25,6 +25,7 @@ const PaymentFailedPage = lazy(() => import("./pages/PaymentFailedPage"));
 const PaymentPendingPage = lazy(() => import("./pages/PaymentPendingPage"));
 const CapitalBankCheckoutPage = lazy(() => import("./pages/CapitalBankCheckoutPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
+const NewAdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ReceptionPage = lazy(() => import("./pages/ReceptionPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
@@ -141,7 +142,7 @@ function AppRoutes() {
           path="/admin"
           element={
             <ProtectedRoute adminOnly>
-              <AdminLayout><AdminPage /></AdminLayout>
+              <NewAdminLayout />
             </ProtectedRoute>
           }
         />
@@ -149,7 +150,7 @@ function AppRoutes() {
           path="/admin/*"
           element={
             <ProtectedRoute adminOnly>
-              <AdminLayout><AdminPage /></AdminLayout>
+              <NewAdminLayout />
             </ProtectedRoute>
           }
         />
