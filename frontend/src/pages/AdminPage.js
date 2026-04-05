@@ -94,6 +94,16 @@ export default function AdminPage() {
     whatsapp_location: 'إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني'
   });
   const [savingBusinessInfo, setSavingBusinessInfo] = useState(false);
+  const [businessHours, setBusinessHours] = useState({
+    opening_time: '10:00',
+    closing_time: '23:00'
+  });
+  const [savingBusinessHours, setSavingBusinessHours] = useState(false);
+  const [slotControlDate, setSlotControlDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [slotControlType, setSlotControlType] = useState('hourly');
+  const [slotControls, setSlotControls] = useState([]);
+  const [loadingSlotControls, setLoadingSlotControls] = useState(false);
+  const [updatingSlotId, setUpdatingSlotId] = useState(null);
 
   // Daycare packages state
   const [daycarePackages, setDaycarePackages] = useState([]);
@@ -631,8 +641,12 @@ export default function AdminPage() {
       refreshGalleryData();
     }
     if (tab === 'settings' && !loadedDataByTab.settings) {
-      api.get('/admin/settings')
-        .then((settingsRes) => {
+      Promise.all([
+        api.get('/admin/settings'),
+        fetchBusinessHours(),
+        fetchSlotControls()
+      ])
+        .then(([settingsRes]) => {
           setSettings(settingsRes.data.settings || {});
           setLoadedDataByTab((prev) => ({ ...prev, settings: true }));
         })
@@ -1060,6 +1074,60 @@ export default function AdminPage() {
       toast.error('فشل تحديث معلومات العمل');
     } finally {
       setSavingBusinessInfo(false);
+    }
+  };
+
+  const fetchBusinessHours = async () => {
+    try {
+      const response = await api.get('/admin/business-hours');
+      setBusinessHours({
+        opening_time: response.data?.opening_time || '10:00',
+        closing_time: response.data?.closing_time || '23:00'
+      });
+    } catch (error) {
+      toast.error('فشل تحميل ساعات العمل');
+    }
+  };
+
+  const handleSaveBusinessHours = async (e) => {
+    e.preventDefault();
+    setSavingBusinessHours(true);
+    try {
+      await api.put('/admin/business-hours', businessHours);
+      toast.success('تم تحديث ساعات العمل');
+    } catch (error) {
+      toast.error('فشل تحديث ساعات العمل');
+    } finally {
+      setSavingBusinessHours(false);
+    }
+  };
+
+  const fetchSlotControls = async (date = slotControlDate, type = slotControlType) => {
+    if (!date) return;
+    setLoadingSlotControls(true);
+    try {
+      await api.get('/slots/available', { params: { date, slot_type: type } });
+      const response = await api.get('/admin/slots', { params: { date, slot_type: type } });
+      setSlotControls(response.data?.slots || []);
+    } catch (error) {
+      toast.error('فشل تحميل الأوقات');
+    } finally {
+      setLoadingSlotControls(false);
+    }
+  };
+
+  const handleToggleSlotAvailability = async (slot, nextIsActive) => {
+    setUpdatingSlotId(slot.id);
+    try {
+      await api.put(`/slots/${slot.id}`, { is_active: nextIsActive });
+      setSlotControls((prev) => prev.map((item) => (
+        item.id === slot.id ? { ...item, is_active: nextIsActive } : item
+      )));
+      toast.success(nextIsActive ? 'تم تفعيل الموعد' : 'تم إغلاق الموعد');
+    } catch (error) {
+      toast.error('فشل تحديث حالة الموعد');
+    } finally {
+      setUpdatingSlotId(null);
     }
   };
 
@@ -2603,6 +2671,107 @@ export default function AdminPage() {
                       onBlur={(e) => handleUpdateSettings('footer_logo_height', parseInt(e.target.value))}
                       className="rounded-xl mt-2"
                     />
+                  </div>
+                </div>
+
+                <div className="border-t pt-6 space-y-4">
+                  <h3 className="font-semibold">إدارة ساعات العمل</h3>
+                  <form onSubmit={handleSaveBusinessHours} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div>
+                      <Label>وقت الفتح</Label>
+                      <Input
+                        type="time"
+                        value={businessHours.opening_time}
+                        onChange={(e) => setBusinessHours((prev) => ({ ...prev, opening_time: e.target.value }))}
+                        className="rounded-xl mt-2"
+                      />
+                    </div>
+                    <div>
+                      <Label>وقت الإغلاق</Label>
+                      <Input
+                        type="time"
+                        value={businessHours.closing_time}
+                        onChange={(e) => setBusinessHours((prev) => ({ ...prev, closing_time: e.target.value }))}
+                        className="rounded-xl mt-2"
+                      />
+                    </div>
+                    <div>
+                      <Button type="submit" className="rounded-full w-full" disabled={savingBusinessHours}>
+                        {savingBusinessHours ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : null}
+                        حفظ ساعات العمل
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="border-t pt-6 space-y-4">
+                  <h3 className="font-semibold">إدارة توفر الأوقات</h3>
+                  <p className="text-sm text-muted-foreground">
+                    اختر التاريخ ونوع الحجز ثم فعّل/أوقف كل موعد مباشرة من لوحة التحكم.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <Label>التاريخ</Label>
+                      <Input
+                        type="date"
+                        value={slotControlDate}
+                        onChange={(e) => setSlotControlDate(e.target.value)}
+                        className="rounded-xl mt-2"
+                      />
+                    </div>
+                    <div>
+                      <Label>نوع الموعد</Label>
+                      <Select value={slotControlType} onValueChange={setSlotControlType}>
+                        <SelectTrigger className="rounded-xl mt-2">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="hourly">بالساعة</SelectItem>
+                          <SelectItem value="birthday">عيد ميلاد</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="md:col-span-2 flex items-end">
+                      <Button
+                        type="button"
+                        className="rounded-full w-full"
+                        onClick={() => fetchSlotControls(slotControlDate, slotControlType)}
+                        disabled={loadingSlotControls}
+                      >
+                        {loadingSlotControls ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : null}
+                        تحميل الأوقات
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="border rounded-2xl overflow-hidden">
+                    <div className="grid grid-cols-3 bg-muted/40 px-4 py-2 text-sm font-medium">
+                      <span>الوقت</span>
+                      <span className="text-center">السعة</span>
+                      <span className="text-left md:text-right">الحالة</span>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto divide-y">
+                      {slotControls.length === 0 ? (
+                        <div className="px-4 py-6 text-sm text-muted-foreground">لا توجد أوقات لهذا اليوم.</div>
+                      ) : slotControls.map((slot) => (
+                        <div key={slot.id} className="grid grid-cols-3 items-center px-4 py-3 text-sm">
+                          <span className="font-medium">{slot.start_time}</span>
+                          <span className="text-center">{slot.capacity}</span>
+                          <div className="flex justify-start md:justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={slot.is_active ? 'default' : 'outline'}
+                              disabled={updatingSlotId === slot.id}
+                              onClick={() => handleToggleSlotAvailability(slot, !slot.is_active)}
+                              className="rounded-full"
+                            >
+                              {updatingSlotId === slot.id ? <Loader2 className="h-4 w-4 animate-spin" /> : (slot.is_active ? 'متاح' : 'غير متاح')}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

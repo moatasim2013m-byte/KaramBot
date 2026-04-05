@@ -349,11 +349,11 @@ router.get('/available', async (req, res) => {
         if (matchesTimeMode) countAfterMode++;
         if (matchesTimeMode && fitsClosing) countAfterEndTime++;
         
-        isAvailable = !isPast && availableSpots > 0 && fitsClosing && matchesTimeMode;
+        isAvailable = slot.is_active && !isPast && availableSpots > 0 && fitsClosing && matchesTimeMode;
       } else {
         // For birthday, simple capacity check
         availableSpots = slot.capacity - slot.booked_count;
-        isAvailable = !isPast && availableSpots > 0;
+        isAvailable = slot.is_active && !isPast && availableSpots > 0;
       }
       
       return {
