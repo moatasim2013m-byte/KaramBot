@@ -31,6 +31,14 @@ const BACKEND_ORIGIN =
   !RAW_BACKEND_URL || RAW_BACKEND_URL === 'undefined' || RAW_BACKEND_URL === 'null'
     ? ''
     : RAW_BACKEND_URL.replace(/\/+$/, '');
+const MAX_IMAGE_UPLOAD_MB = 25;
+const MAX_IMAGE_UPLOAD_BYTES = MAX_IMAGE_UPLOAD_MB * 1024 * 1024;
+
+const getApiErrorMessage = (error, fallbackMessage) =>
+  error?.response?.data?.error ||
+  error?.response?.data?.message ||
+  error?.message ||
+  fallbackMessage;
 
 const resolveMediaUrl = (url) => {
   if (!url) return '';
@@ -837,8 +845,8 @@ export default function AdminLayout() {
       toast.error('يجب أن تكون الصورة PNG أو JPG أو WebP');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('حجم الصورة يجب أن يكون أقل من 10MB');
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      toast.error(`حجم الصورة يجب أن يكون أقل من ${MAX_IMAGE_UPLOAD_MB}MB`);
       return;
     }
     setUploadingImage(true);
@@ -851,7 +859,7 @@ export default function AdminLayout() {
       setter(prev => ({ ...prev, [field]: response.data.image_url }));
       toast.success('تم رفع الصورة');
     } catch (error) {
-      toast.error('فشل رفع الصورة');
+      toast.error(getApiErrorMessage(error, 'فشل رفع الصورة'));
     } finally {
       setUploadingImage(false);
     }
@@ -963,7 +971,7 @@ export default function AdminLayout() {
       setGalleryPreview(null);
       await Promise.all([refreshGalleryData(), refreshDashboardStats()]);
     } catch (error) {
-      toast.error('فشلت الإضافة');
+      toast.error(getApiErrorMessage(error, 'فشلت الإضافة'));
     } finally {
       setUploadingImage(false);
     }
@@ -1194,7 +1202,7 @@ export default function AdminLayout() {
     if (!file) return;
 
     const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
-    const maxSizeBytes = 10 * 1024 * 1024;
+    const maxSizeBytes = MAX_IMAGE_UPLOAD_BYTES;
 
     if (!allowedTypes.includes(file.type)) {
       toast.error('صيغة الصورة غير مدعومة. استخدم PNG أو JPG أو WEBP');
@@ -1202,7 +1210,7 @@ export default function AdminLayout() {
       return;
     }
     if (file.size > maxSizeBytes) {
-      toast.error('حجم الصورة كبير جداً. الحد الأقصى 10MB');
+      toast.error(`حجم الصورة كبير جداً. الحد الأقصى ${MAX_IMAGE_UPLOAD_MB}MB`);
       e.target.value = '';
       return;
     }
@@ -1233,8 +1241,7 @@ export default function AdminLayout() {
       await api.put('/admin/settings', { hero_image: uploadedImageUrl });
       toast.success('تم رفع الصورة وحفظها');
     } catch (error) {
-      const backendMessage = error?.response?.data?.error;
-      toast.error(backendMessage || 'فشل رفع الصورة');
+      toast.error(getApiErrorMessage(error, 'فشل رفع الصورة'));
       if (heroPreviewObjectUrl) {
         URL.revokeObjectURL(heroPreviewObjectUrl);
         setHeroPreviewObjectUrl(null);

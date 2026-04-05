@@ -9,6 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../compo
 import { toast } from 'sonner';
 import { Plus, Edit, Trash2, Star, Loader2, Sparkles, Upload } from 'lucide-react';
 
+const MAX_IMAGE_UPLOAD_MB = 25;
+const MAX_IMAGE_UPLOAD_BYTES = MAX_IMAGE_UPLOAD_MB * 1024 * 1024;
+
 const resolveMediaUrl = (url) => {
   if (!url) return '';
   if (/^(data:|blob:|https?:\/\/)/i.test(url)) return url;
@@ -68,8 +71,8 @@ export default function ThemesTab({ themes, setThemes, api }) {
       toast.error('يجب أن تكون الصورة PNG أو JPG أو WebP');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('حجم الصورة يجب أن يكون أقل من 10MB');
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      toast.error(`حجم الصورة يجب أن يكون أقل من ${MAX_IMAGE_UPLOAD_MB}MB`);
       return;
     }
     setUploadingImage(true);
