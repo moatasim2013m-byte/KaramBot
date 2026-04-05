@@ -18,6 +18,7 @@ const TemplateDefinition = require('../models/TemplateDefinition');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
 const multer = require('multer');
 const { logWhatsAppSendFailure, logger } = require('../utils/logger');
+const { emitInboxUpdate, inboxEvents } = require('../utils/inboxEvents');
 
 const uploadMemory = multer({
   storage: multer.memoryStorage(),

@@ -171,6 +171,8 @@ export default function AdminLayout() {
   const [newMedia, setNewMedia] = useState({ url: '', type: 'photo', title: '', file: null });
   const [pointsAdjustment, setPointsAdjustment] = useState({ points: 0, description: '' });
 
+  const [staffMembers, setStaffMembers] = useState([]);
+
   const [customers, setCustomers] = useState([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [loadingCustomers, setLoadingCustomers] = useState(false);
@@ -278,6 +280,23 @@ export default function AdminLayout() {
       setUsers(response.data.users || []);
     } catch (error) {
       console.error('Failed to fetch users:', error);
+    }
+  };
+
+  const fetchStaffMembers = async () => {
+    try {
+      const [staffRes, adminRes] = await Promise.all([
+        api.get('/admin/users?role=staff'),
+        api.get('/admin/users?role=admin'),
+      ]);
+      const combined = [
+        ...(staffRes.data.users || []),
+        ...(adminRes.data.users || []),
+      ];
+      combined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setStaffMembers(combined);
+    } catch (error) {
+      console.error('Failed to fetch staff members:', error);
     }
   };
 
@@ -667,6 +686,13 @@ export default function AdminLayout() {
     if (tab === 'birthday') fetchBirthdayBookings();
     if (tab === 'subscriptions') fetchSubscriptions();
     if (tab === 'products') fetchProducts();
+  };
+
+  const handleSidebarTabChange = (tabId) => {
+    setCurrentTab(tabId);
+    if (tabId === 'staff') {
+      fetchStaffMembers();
+    }
   };
 
   const isToday = (dateStr) => {
@@ -1277,7 +1303,7 @@ export default function AdminLayout() {
     pointsAdjustment, customers, customerSearch, loadingCustomers, selectedCustomer,
     customerDetails, products, productForm, customerDialogOpen, customerDetailsOpen,
     newCustomer, editingCustomer, newChild, editingChild, savingCustomer, changingPassword,
-    passwordForm, currentTab, paymentMethodLabel,
+    passwordForm, currentTab, paymentMethodLabel, staffMembers,
     // State setters
     setActiveTab, setActiveFilter, setStats, setUsers, setHourlyBookings, setBirthdayBookings,
     setSubscriptions, setThemes, setPlans, setGallery, setSettings, setPricing,
@@ -1296,10 +1322,10 @@ export default function AdminLayout() {
     setSelectedCustomer, setCustomerDetails, setProducts, setProductForm,
     setCustomerDialogOpen, setCustomerDetailsOpen, setNewCustomer, setEditingCustomer,
     setNewChild, setEditingChild, setSavingCustomer, setChangingPassword, setPasswordForm,
-    setCurrentTab,
+    setCurrentTab, setStaffMembers,
     // Handlers
-    handleTabChange, handleDashboardCardClick, fetchDashboard, fetchUsers, fetchHourlyBookings,
-    fetchBirthdayBookings, fetchSubscriptions, refreshDashboardStats, refreshTemplatesData,
+    handleTabChange, handleDashboardCardClick, handleSidebarTabChange, fetchDashboard, fetchUsers, fetchHourlyBookings,
+    fetchBirthdayBookings, fetchSubscriptions, fetchStaffMembers, refreshDashboardStats, refreshTemplatesData,
     refreshGalleryData, fetchWhatsAppAutoReplyConfig, saveWhatsAppAutoReplyConfig,
     fetchCustomers, fetchCustomerDetails, handleCreateCustomer, handleUpdateCustomer,
     handleToggleCustomerStatus, handleAddChild, handleDeleteCustomer, handleChangeAdminPassword,
@@ -1342,7 +1368,7 @@ export default function AdminLayout() {
           ].map(item => (
             <button
               key={item.id}
-              onClick={() => setCurrentTab(item.id)}
+              onClick={() => handleSidebarTabChange(item.id)}
               className={`admin-sidebar-nav-item w-full text-right ${currentTab === item.id ? 'active' : ''}`}
             >
               {item.icon}
@@ -1395,7 +1421,7 @@ export default function AdminLayout() {
         ].map(item => (
           <button
             key={item.id}
-            onClick={() => setCurrentTab(item.id)}
+            onClick={() => handleSidebarTabChange(item.id)}
             className={`p-2 ${currentTab === item.id ? 'text-primary' : 'text-muted-foreground'}`}
           >
             {item.icon}
