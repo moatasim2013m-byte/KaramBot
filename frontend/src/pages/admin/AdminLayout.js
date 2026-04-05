@@ -1336,7 +1336,7 @@ export default function AdminLayout() {
             { id: 'overview', label: 'نظرة عامة', icon: <LayoutDashboard className="h-4 w-4" /> },
             { id: 'bookings', label: 'الحجوزات', icon: <CalendarDays className="h-4 w-4" /> },
             { id: 'visitors', label: 'الزوار', icon: <Users className="h-4 w-4" /> },
-            { id: 'content', label: 'المحتوى', icon: <ImageIcon className="h-4 w-4" /> },
+            { id: 'content', label: 'المحتوى', icon: <Image className="h-4 w-4" /> },
             { id: 'staff', label: 'الموظفون', icon: <UserCog className="h-4 w-4" /> },
             { id: 'settings', label: 'الإعدادات', icon: <Settings className="h-4 w-4" /> },
           ].map(item => (
@@ -1389,7 +1389,7 @@ export default function AdminLayout() {
           { id: 'overview', icon: <LayoutDashboard className="h-5 w-5" /> },
           { id: 'bookings', icon: <CalendarDays className="h-5 w-5" /> },
           { id: 'visitors', icon: <Users className="h-5 w-5" /> },
-          { id: 'content', icon: <ImageIcon className="h-5 w-5" /> },
+          { id: 'content', icon: <Image className="h-5 w-5" /> },
           { id: 'staff', icon: <UserCog className="h-5 w-5" /> },
           { id: 'settings', icon: <Settings className="h-5 w-5" /> },
         ].map(item => (

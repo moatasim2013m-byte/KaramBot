@@ -20,7 +20,7 @@ export default function StaffTab(props) {
     <div>
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>الآباء / Parents</CardTitle>
+          <CardTitle>الموظفون / Staff Management</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
