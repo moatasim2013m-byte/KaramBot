@@ -24,6 +24,7 @@ import VisitorsTab from './tabs/VisitorsTab';
 import ContentTab from './tabs/ContentTab';
 import StaffTab from './tabs/StaffTab';
 import SettingsTab from './tabs/SettingsTab';
+import ThemesTab from './tabs/ThemesTab';
 
 const RAW_BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const BACKEND_ORIGIN =
@@ -692,6 +693,9 @@ export default function AdminLayout() {
     setCurrentTab(tabId);
     if (tabId === 'staff') {
       fetchStaffMembers();
+    }
+    if (tabId === 'themes' && !loadedDataByTab.templates) {
+      refreshTemplatesData();
     }
   };
 
@@ -1362,6 +1366,7 @@ export default function AdminLayout() {
             { id: 'overview', label: 'نظرة عامة', icon: <LayoutDashboard className="h-4 w-4" /> },
             { id: 'bookings', label: 'الحجوزات', icon: <CalendarDays className="h-4 w-4" /> },
             { id: 'visitors', label: 'الزوار', icon: <Users className="h-4 w-4" /> },
+            { id: 'themes', label: 'الثيمات', icon: <Palette className="h-4 w-4" /> },
             { id: 'content', label: 'المحتوى', icon: <Image className="h-4 w-4" /> },
             { id: 'staff', label: 'الموظفون', icon: <UserCog className="h-4 w-4" /> },
             { id: 'settings', label: 'الإعدادات', icon: <Settings className="h-4 w-4" /> },
@@ -1404,6 +1409,7 @@ export default function AdminLayout() {
         {currentTab === 'overview' && <OverviewTab {...allProps} />}
         {currentTab === 'bookings' && <BookingsTab {...allProps} />}
         {currentTab === 'visitors' && <VisitorsTab {...allProps} />}
+        {currentTab === 'themes' && <ThemesTab themes={allProps.themes} setThemes={allProps.setThemes} api={allProps.api} />}
         {currentTab === 'content' && <ContentTab {...allProps} />}
         {currentTab === 'staff' && <StaffTab {...allProps} />}
         {currentTab === 'settings' && <SettingsTab {...allProps} />}
@@ -1415,6 +1421,7 @@ export default function AdminLayout() {
           { id: 'overview', icon: <LayoutDashboard className="h-5 w-5" /> },
           { id: 'bookings', icon: <CalendarDays className="h-5 w-5" /> },
           { id: 'visitors', icon: <Users className="h-5 w-5" /> },
+          { id: 'themes', icon: <Palette className="h-5 w-5" /> },
           { id: 'content', icon: <Image className="h-5 w-5" /> },
           { id: 'staff', icon: <UserCog className="h-5 w-5" /> },
           { id: 'settings', icon: <Settings className="h-5 w-5" /> },

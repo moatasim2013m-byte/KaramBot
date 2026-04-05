@@ -17,6 +17,7 @@ const themeSchema = new mongoose.Schema({
     premium_gift: { type: Boolean }
   },
   is_active: { type: Boolean, default: true },
+  is_most_popular: { type: Boolean, default: false },
   created_at: { type: Date, default: Date.now }
 });
 

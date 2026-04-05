@@ -980,6 +980,7 @@ router.put('/themes/:id', async (req, res) => {
     if (price !== undefined) theme.price = parseFloat(price);
     if (image_url !== undefined) theme.image_url = image_url;
     if (is_active !== undefined) theme.is_active = is_active;
+    if (req.body.is_most_popular !== undefined) theme.is_most_popular = req.body.is_most_popular;
     
     await theme.save();
     res.json({ theme: theme.toJSON() });
