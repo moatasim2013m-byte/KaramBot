@@ -188,7 +188,7 @@ export default function ContentTab(props) {
               >
                 <Upload className="h-10 w-10 text-muted-foreground mb-3" />
                 <p className="text-sm font-medium">اسحب الصورة هنا أو اضغط للاختيار</p>
-                <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WebP · حجم أقصى 10MB</p>
+                <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WebP · حجم أقصى 25MB</p>
                 <input
                   id="hero-file-input"
                   type="file"

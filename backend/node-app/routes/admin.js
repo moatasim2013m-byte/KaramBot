@@ -113,7 +113,7 @@ const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'peekaboo-uploads';
 const gcsBucket = gcsClient.bucket(GCS_BUCKET_NAME);
 
 // Configure multer for image uploads
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB compressed upload limit
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB upload limit before server-side compression
 const MAX_INPUT_PIXELS = 40 * 1024 * 1024; // 40MP guardrail to prevent decode memory spikes
 const MAX_OUTPUT_WIDTH = 1200;
 
@@ -138,7 +138,7 @@ router.post('/upload-image', (req, res) => {
   upload.single('image')(req, res, async (uploadErr) => {
     if (uploadErr instanceof multer.MulterError) {
       if (uploadErr.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'Image is too large. Max size is 10MB.' });
+        return res.status(400).json({ error: 'Image is too large. Max size is 25MB.' });
       }
       return res.status(400).json({ error: uploadErr.message || 'Upload failed.' });
     }
