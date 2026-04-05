@@ -2,8 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs');
+const { Storage } = require('@google-cloud/storage');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Child = require('../models/Child');
@@ -106,17 +105,21 @@ router.post('/cron/winback', async (req, res) => {
   }
 });
 
-// Configure multer for image uploads
-const uploadDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+// Configure GCS bucket for image uploads.
+// On Cloud Run the default service account is used automatically (no credentials file needed).
+// Set GCS_BUCKET_NAME env var to override the bucket for different environments.
+const gcsClient = new Storage();
+const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'peekaboo-uploads';
+const gcsBucket = gcsClient.bucket(GCS_BUCKET_NAME);
 
+// Configure multer for image uploads
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB compressed upload limit
 const MAX_INPUT_PIXELS = 40 * 1024 * 1024; // 40MP guardrail to prevent decode memory spikes
 const MAX_OUTPUT_WIDTH = 1200;
 
-const storage = multer.memoryStorage();
+const multerStorage = multer.memoryStorage();
 const upload = multer({
-  storage,
+  storage: multerStorage,
   limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
@@ -150,26 +153,42 @@ router.post('/upload-image', (req, res) => {
     }
 
     const filename = `${Date.now()}-${Math.random().toString(36).substring(7)}.webp`;
-    const filepath = path.join(uploadDir, filename);
 
     // Guard against pathological image dimensions that can cause memory spikes.
     const imageProcessor = sharp(req.file.buffer, { failOn: 'warning', limitInputPixels: MAX_INPUT_PIXELS });
 
     // Resize to max configured width and convert to webp.
-    await imageProcessor
-      .rotate() // respect EXIF orientation
-      .resize({ width: MAX_OUTPUT_WIDTH, withoutEnlargement: true })
-      .webp({ quality: 80 })
-      .toFile(filepath);
+    let buffer;
+    try {
+      buffer = await imageProcessor
+        .rotate() // respect EXIF orientation
+        .resize({ width: MAX_OUTPUT_WIDTH, withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch (sharpError) {
+      console.error('Image processing error:', sharpError);
+      const msg = (sharpError && sharpError.message) || '';
+      if (msg.includes('Input image exceeds pixel limit')) {
+        return res.status(400).json({ error: 'Image dimensions are too large. Please upload a smaller image.' });
+      }
+      return res.status(400).json({ error: 'Failed to process image. Please try a different file.' });
+    }
 
-    const imageUrl = `/api/uploads/${filename}`;
+    // Upload the processed buffer to GCS.
+    try {
+      await gcsBucket.file(filename).save(buffer, {
+        contentType: 'image/webp',
+        metadata: { cacheControl: 'public, max-age=31536000' }
+      });
+    } catch (gcsError) {
+      console.error('GCS upload error:', gcsError);
+      return res.status(500).json({ error: 'Failed to store image. Please try again.' });
+    }
+
+    const imageUrl = `https://storage.googleapis.com/${GCS_BUCKET_NAME}/${filename}`;
     res.json({ image_url: imageUrl });
   } catch (error) {
     console.error('Upload error:', error);
-    const msg = (error && error.message) || '';
-    if (msg.includes('Input image exceeds pixel limit')) {
-      return res.status(400).json({ error: 'Image dimensions are too large. Please upload a smaller image.' });
-    }
     res.status(500).json({ error: 'Failed to upload image' });
   }
   });

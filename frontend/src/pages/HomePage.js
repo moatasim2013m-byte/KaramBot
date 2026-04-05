@@ -474,21 +474,6 @@ export default function HomePage() {
               ))}
             </div>
 
-            <div className="why-peekaboo-inline-media mt-5" data-testid="why-peekaboo-media-box" aria-label="صورة بيكابو التعريفية">
-              {showHeroImage ? (
-                <img
-                  src={heroImgSrc}
-                  alt="أطفال يلعبون في بيكابو"
-                  className="why-peekaboo-media"
-                  loading="lazy"
-                  decoding="async"
-                />
-              ) : (
-                <div className="why-peekaboo-media-placeholder" aria-hidden="true">
-                  <span className="why-peekaboo-media-placeholder__title">Peekaboo</span>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </section>

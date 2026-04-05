@@ -170,9 +170,6 @@ const authLimiter = rateLimit({
 
 app.use('/api', apiLimiter);
 
-// Serve uploaded images
-app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
-
 // Import routes
 const authRoutes = require('./routes/auth');
 const slotsRoutes = require('./routes/slots');
