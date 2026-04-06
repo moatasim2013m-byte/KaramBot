@@ -6,13 +6,14 @@ const User = require('../models/User');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
 const HourlyBooking = require('../models/HourlyBooking');
 const UserSubscription = require('../models/UserSubscription');
-const { authMiddleware, staffMiddleware } = require('../middleware/auth');
+const { authMiddleware, staffMiddleware, staffPermissionMiddleware } = require('../middleware/auth');
 const { postWhatsAppText } = require('../utils/whatsappBookingConfirmation');
 
 const router = express.Router();
 
 // Apply staff middleware to all campaign routes
 router.use(authMiddleware, staffMiddleware);
+router.use(staffPermissionMiddleware('access_whatsapp_campaigns'));
 
 // ==================== UTILITY FUNCTIONS ====================
 
@@ -633,4 +634,3 @@ router.get('/:id/audit-log', async (req, res) => {
 });
 
 module.exports = router;
-

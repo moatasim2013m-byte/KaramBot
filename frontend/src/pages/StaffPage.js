@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
@@ -122,6 +122,25 @@ export default function StaffPage() {
   const [previewImageSrc, setPreviewImageSrc] = useState('');
   const imageInputRef = useRef(null);
   const inboxEventsRef = useRef(null);
+  const staffPermissions = useMemo(() => ({
+    access_staff_tools: user?.role === 'admin'
+      ? true
+      : user?.staff_permissions ? Boolean(user?.staff_permissions?.access_staff_tools) : true,
+    access_whatsapp_inbox: user?.role === 'admin'
+      ? true
+      : user?.staff_permissions ? Boolean(user?.staff_permissions?.access_whatsapp_inbox) : true,
+    access_whatsapp_campaigns: user?.role === 'admin'
+      ? true
+      : user?.staff_permissions ? Boolean(user?.staff_permissions?.access_whatsapp_campaigns) : true
+  }), [user]);
+
+  const allowedTabs = useMemo(() => {
+    const tabs = [];
+    if (staffPermissions.access_staff_tools) tabs.push('scanner', 'sessions', 'subscriptions', 'birthdays');
+    if (staffPermissions.access_whatsapp_inbox) tabs.push('inbox');
+    if (staffPermissions.access_whatsapp_campaigns) tabs.push('campaigns');
+    return tabs;
+  }, [staffPermissions]);
 
   const createAuthedEventSource = useCallback((path) => {
     if (!token) return null;
@@ -137,8 +156,15 @@ export default function StaffPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const requestedTab = params.get('tab');
-    if (requestedTab === 'inbox') setActiveTab('inbox');
-  }, [location.search]);
+    if (requestedTab === 'inbox' && staffPermissions.access_whatsapp_inbox) setActiveTab('inbox');
+  }, [location.search, staffPermissions.access_whatsapp_inbox]);
+
+  useEffect(() => {
+    if (allowedTabs.length === 0) return;
+    if (!allowedTabs.includes(activeTab)) {
+      setActiveTab(allowedTabs[0]);
+    }
+  }, [activeTab, allowedTabs]);
 
   useEffect(() => {
     if (!previewImageSrc) return undefined;
@@ -171,12 +197,15 @@ export default function StaffPage() {
   }, [api]);
 
   useEffect(() => {
+    if (!staffPermissions.access_staff_tools) return undefined;
     fetchActiveSessions();
     fetchPendingCheckins();
     fetchTodayParties();
-  }, [fetchActiveSessions, fetchPendingCheckins, fetchTodayParties]);
+    return undefined;
+  }, [fetchActiveSessions, fetchPendingCheckins, fetchTodayParties, staffPermissions.access_staff_tools]);
 
   useEffect(() => {
+    if (!staffPermissions.access_staff_tools) return undefined;
     const activeSessionsStream = createAuthedEventSource('/api/staff/stream/active-sessions');
     if (!activeSessionsStream) return undefined;
 
@@ -192,7 +221,7 @@ export default function StaffPage() {
       // EventSource auto-reconnects
     };
     return () => activeSessionsStream.close();
-  }, [createAuthedEventSource]);
+  }, [createAuthedEventSource, staffPermissions.access_staff_tools]);
 
   const handleCheckin = async (e) => {
     e.preventDefault();
@@ -529,7 +558,7 @@ export default function StaffPage() {
   }, [messages]);
 
   useEffect(() => {
-    if (activeTab === 'inbox') {
+    if (activeTab === 'inbox' && staffPermissions.access_whatsapp_inbox) {
       fetchInboxStats();
       fetchConversations(true);
       fetchQuickReplies();
@@ -577,6 +606,7 @@ export default function StaffPage() {
     return undefined;
   }, [
     activeTab,
+    staffPermissions.access_whatsapp_inbox,
     fetchInboxStats,
     fetchConversations,
     fetchQuickReplies,
@@ -699,8 +729,8 @@ export default function StaffPage() {
   };
 
   useEffect(() => {
-    if (activeTab === 'campaigns') fetchCampaigns();
-  }, [activeTab, fetchCampaigns]);
+    if (activeTab === 'campaigns' && staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
+  }, [activeTab, fetchCampaigns, staffPermissions.access_whatsapp_campaigns]);
 
   const statusBadgeClass = (status) => {
     switch (status) {
@@ -734,34 +764,67 @@ export default function StaffPage() {
             <Users className="inline-block h-8 w-8 text-primary mr-2" />
             Staff Panel
           </h1>
-          <Button variant="outline" onClick={() => { fetchActiveSessions(); fetchPendingCheckins(); fetchTodayParties(); }} className="rounded-full gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (staffPermissions.access_staff_tools) {
+                fetchActiveSessions();
+                fetchPendingCheckins();
+                fetchTodayParties();
+              }
+              if (staffPermissions.access_whatsapp_inbox) fetchInboxStats();
+              if (staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
+            }}
+            className="rounded-full gap-2"
+          >
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
         </div>
 
+        {allowedTabs.length === 0 && (
+          <Card className="rounded-2xl">
+            <CardContent className="py-10 text-center text-muted-foreground">
+              لا يوجد لديك صلاحيات وصول حالياً. الرجاء التواصل مع الإدارة.
+            </CardContent>
+          </Card>
+        )}
+
+        {allowedTabs.length > 0 && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="bg-white border rounded-full p-1 flex-wrap gap-1">
+            {staffPermissions.access_staff_tools && (
             <TabsTrigger value="scanner" className="rounded-full gap-2" data-testid="tab-scanner">
               <QrCode className="h-4 w-4" /> QR Scanner
             </TabsTrigger>
+            )}
+            {staffPermissions.access_staff_tools && (
             <TabsTrigger value="sessions" className="rounded-full gap-2" data-testid="tab-sessions">
               <Clock className="h-4 w-4" /> Active Sessions
               {activeSessions.length > 0 && <Badge className="ml-1 bg-primary">{activeSessions.length}</Badge>}
             </TabsTrigger>
+            )}
+            {staffPermissions.access_staff_tools && (
             <TabsTrigger value="subscriptions" className="rounded-full gap-2" data-testid="tab-subscriptions">
               <Star className="h-4 w-4" /> Subscriptions
             </TabsTrigger>
+            )}
+            {staffPermissions.access_staff_tools && (
             <TabsTrigger value="birthdays" className="rounded-full gap-2" data-testid="tab-birthdays">
               <Cake className="h-4 w-4" /> Today's Parties
               {todayParties.length > 0 && <Badge className="ml-1 bg-accent">{todayParties.length}</Badge>}
             </TabsTrigger>
+            )}
+            {staffPermissions.access_whatsapp_inbox && (
             <TabsTrigger value="inbox" className="rounded-full gap-2" data-testid="tab-inbox">
               <MessageSquare className="h-4 w-4" /> Inbox
               {inboxStats?.unread_messages > 0 && <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>}
             </TabsTrigger>
+            )}
+            {staffPermissions.access_whatsapp_campaigns && (
             <TabsTrigger value="campaigns" className="rounded-full gap-2" data-testid="tab-campaigns">
               <Megaphone className="h-4 w-4" /> حملات
             </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="scanner">
@@ -1643,6 +1706,7 @@ export default function StaffPage() {
             </div>
           </TabsContent>
         </Tabs>
+        )}
 
       <style>{`
         @keyframes messageSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

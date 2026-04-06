@@ -15,12 +15,13 @@ const BirthdayBooking = require('../models/BirthdayBooking');
 const UserSubscription = require('../models/UserSubscription');
 const User = require('../models/User');
 const TemplateDefinition = require('../models/TemplateDefinition');
-const { authMiddleware, staffMiddleware } = require('../middleware/auth');
+const { authMiddleware, staffMiddleware, staffPermissionMiddleware } = require('../middleware/auth');
 const { normalizePhoneForWhatsApp, postWhatsAppText } = require('../utils/whatsappBookingConfirmation');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
 
 const router = express.Router();
 router.use(authMiddleware, staffMiddleware);
+router.use(staffPermissionMiddleware('access_whatsapp_campaigns'));
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 

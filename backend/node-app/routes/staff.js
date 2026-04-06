@@ -5,7 +5,7 @@ const UserSubscription = require('../models/UserSubscription');
 const Child = require('../models/Child');
 const TimeSlot = require('../models/TimeSlot');
 const User = require('../models/User');
-const { authMiddleware, staffMiddleware } = require('../middleware/auth');
+const { authMiddleware, staffMiddleware, staffPermissionMiddleware } = require('../middleware/auth');
 const { addMinutes, format } = require('date-fns');
 const { sendCheckinConfirmation } = require('../utils/checkinNotifications');
 const { logger } = require('../utils/logger');
@@ -14,6 +14,7 @@ const router = express.Router();
 
 // Apply staff middleware to all routes (staffMiddleware allows both staff and admin)
 router.use(authMiddleware, staffMiddleware);
+router.use(staffPermissionMiddleware('access_staff_tools'));
 
 // Get today's active sessions (checked-in hourly bookings)
 const getActiveSessionsPayload = async () => {
