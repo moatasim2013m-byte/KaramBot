@@ -1270,7 +1270,7 @@ router.post('/capital-bank/notify', capitalBankCallbackParser, ensureHttpsForCap
   }
 });
 
-router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCapitalBank, async (req, res) => {
+const processCapitalBankReturn = async (req, res) => {
   const callbackPayload = { ...(req.query || {}), ...(req.body || {}) };
   const signatureCheck = verifySecureAcceptanceSignature(callbackPayload, capitalBankConfig.secretKey);
   if (!signatureCheck.isValid) {
@@ -1290,7 +1290,10 @@ router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCap
     console.error('Capital Bank return processing error:', error?.message);
     return res.redirect(303, '/payment/failed?reason=callback_processing_error');
   }
-});
+};
+
+router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCapitalBank, processCapitalBankReturn);
+router.get('/capital-bank/return', ensureHttpsForCapitalBank, processCapitalBankReturn);
 
 router.get('/provider', (_req, res) => {
   const effectiveProvider = getEffectiveProvider();
