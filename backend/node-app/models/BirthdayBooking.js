@@ -12,6 +12,7 @@ const birthdayBookingSchema = new mongoose.Schema({
   payment_id: { type: String },
   payment_method: { type: String, enum: ['card', 'cash', 'cliq'], default: 'card' },
   payment_status: { type: String, enum: ['paid', 'pending_cash', 'pending_cliq'], default: 'paid' },
+  paid_at: { type: Date },
   amount: { type: Number },
   lineItems: [{
     product_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
