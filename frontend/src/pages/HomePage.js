@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { MessageCircle } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -361,6 +362,16 @@ export default function HomePage() {
                       </Button>
                     </Link>
                   )}
+                  <a href={whatsappUrl} target="_blank" rel="noreferrer">
+                    <Button
+                      size="lg"
+                      className="rounded-full text-base sm:text-lg px-8 h-[52px] w-full sm:w-auto bg-[#25D366] hover:bg-[#20BD5A] text-white"
+                      data-testid="hero-whatsapp-btn"
+                    >
+                      <MessageCircle className="h-5 w-5 ml-2" />
+                      واتساب
+                    </Button>
+                  </a>
                 </div>
 
                 <ul className="opl-hero-trust-pills" aria-label="عوامل الثقة السريعة">
