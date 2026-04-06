@@ -47,6 +47,7 @@ export default function SettingsTab(props) {
     saveWhatsAppAutoReplyConfig,
     savingAutoReply,
     api,
+    unreadInboxCount,
     // Bot data
     playPricing,
     setPlayPricing,
@@ -474,8 +475,13 @@ export default function SettingsTab(props) {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">يمكن إدارة الردود السريعة مباشرة من صندوق الوارد عند فتح أي محادثة.</p>
-            <Button onClick={() => navigate('/staff?tab=inbox')} className="rounded-full gap-2">
+            <Button onClick={() => navigate('/staff?tab=inbox')} className="rounded-full gap-2 relative">
               <MessageSquare className="h-4 w-4" /> فتح صندوق الوارد
+              {unreadInboxCount > 0 && (
+                <Badge className="bg-red-500 text-white min-w-6 h-6 rounded-full px-1.5">
+                  {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
+                </Badge>
+              )}
             </Button>
           </CardContent>
         </Card>

@@ -66,7 +66,6 @@ export default function HomePage() {
     ctaRoute: '/tickets',
     image: ''
   });
-
   useEffect(() => {
     document.title = 'بيكابو | ملعب داخلي للأطفال - إربد';
   }, []);
