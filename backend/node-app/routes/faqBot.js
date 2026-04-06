@@ -66,16 +66,33 @@ const normalizeText = (value) =>
 
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
 
+const QUERY_STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'was', 'were', 'why', 'how', 'what', 'when', 'where', 'did', 'does', 'last', 'few',
+  'days', 'day', 'week', 'weeks', 'month', 'months', 'today', 'yesterday', 'we', 'our',
+  'في', 'من', 'على', 'عن', 'الى', 'إلى', 'او', 'أو', 'ما', 'ماذا', 'ليش', 'لماذا', 'شو', 'كيف', 'هل', 'هذا', 'هذه'
+]);
+
+const filterQueryTokens = (value) =>
+  tokenize(value).filter((token) => token.length >= 3 && !QUERY_STOPWORDS.has(token));
+
 const scoreKnowledgeItem = (query, item) => {
-  const queryTokens = tokenize(query);
+  const queryTokens = filterQueryTokens(query);
   if (!queryTokens.length) return 0;
 
-  const searchableText = normalizeText([item.title, item.answer, ...(item.keywords || [])].join(' '));
-  const keywordText = normalizeText((item.keywords || []).join(' '));
+  const searchableTokens = new Set(tokenize([item.title, item.answer, ...(item.keywords || [])].join(' ')));
+  const keywordTokens = new Set(tokenize((item.keywords || []).join(' ')));
 
   return queryTokens.reduce((score, token) => {
-    if (keywordText.includes(token)) return score + 4;
-    if (searchableText.includes(token)) return score + 2;
+    if (keywordTokens.has(token)) return score + 4;
+    if (searchableTokens.has(token)) return score + 2;
+
+    if (token.length >= 4) {
+      const hasKeywordPrefixMatch = [...keywordTokens].some((keywordToken) =>
+        keywordToken.startsWith(token) || token.startsWith(keywordToken)
+      );
+      if (hasKeywordPrefixMatch) return score + 1;
+    }
+
     return score;
   }, 0);
 };
@@ -192,7 +209,7 @@ router.get('/faq', async (req, res) => {
     .map((item) => ({ item, score: scoreKnowledgeItem(query, item) }))
     .sort((a, b) => b.score - a.score)[0];
 
-  if (!matched || matched.score < 2) {
+  if (!matched || matched.score < 3) {
     return res.json({
       answer:
         'عذرًا، ما فهمت سؤالك بشكل كامل. جرّب سؤالًا عن الأسعار، الموقع، ساعات الدوام، الباقات، أعياد الميلاد أو سياسة الاسترجاع. ويمكنك كتابة السؤال بتفاصيل أكثر.',
