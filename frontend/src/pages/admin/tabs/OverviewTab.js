@@ -77,15 +77,11 @@ export default function OverviewTab({ stats, handleDashboardCardClick, formatCur
         <Card className="rounded-2xl cursor-pointer hover:shadow-lg hover:border-primary transition-all" onClick={() => handleDashboardCardClick('users')}>
           <CardContent className="p-4 text-center">
             <Users className="h-8 w-8 text-primary mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground mb-1">الآباء / Parents</p>
             <p className="text-2xl font-bold">{stats.total_parents || 0}</p>
-            <p className="text-sm text-muted-foreground">Parents</p>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl cursor-pointer hover:shadow-lg hover:border-primary transition-all" onClick={() => handleDashboardCardClick('users')}>
-          <CardContent className="p-4 text-center">
-            <Users className="h-8 w-8 text-accent mx-auto mb-2" />
+            <div className="my-2 border-t border-border" />
+            <p className="text-sm text-muted-foreground mb-1">الأطفال / Children</p>
             <p className="text-2xl font-bold">{stats.total_children || 0}</p>
-            <p className="text-sm text-muted-foreground">Children</p>
           </CardContent>
         </Card>
         <Card className="rounded-2xl cursor-pointer hover:shadow-lg hover:border-primary transition-all" onClick={() => handleDashboardCardClick('birthday', 'today')}>
