@@ -714,13 +714,9 @@ export default function AdminLayout() {
   };
 
   const handleDashboardCardClick = (tab, filter = null) => {
-    setActiveTab(tab);
+    // Reuse tab-change logic so dashboard cards navigate to the correct breakdown view.
+    handleTabChange(tab);
     setActiveFilter(filter);
-    if (tab === 'users') fetchUsers();
-    if (tab === 'hourly') fetchHourlyBookings();
-    if (tab === 'birthday') fetchBirthdayBookings();
-    if (tab === 'subscriptions') fetchSubscriptions();
-    if (tab === 'products') fetchProducts();
   };
 
   const handleSidebarTabChange = (tabId) => {
