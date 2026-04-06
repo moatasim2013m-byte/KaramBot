@@ -5245,6 +5245,50 @@ body {
   box-shadow: 0 12px 24px rgba(247, 188, 48, 0.38) !important;
 }
 
+/* Desktop-first tuning pass (mobile remains unchanged). */
+@media (min-width: 1200px) {
+  .page-shell {
+    width: min(1280px, 100% - 3rem);
+  }
+
+  .home-hero-shell {
+    padding-inline: clamp(0.5rem, 1.3vw, 1.25rem);
+  }
+
+  .opl-hero-inner {
+    grid-template-columns: minmax(0, 1.06fr) minmax(460px, 590px);
+    gap: clamp(1.6rem, 2.6vw, 3rem);
+    align-items: stretch;
+  }
+
+  .opl-hero-left {
+    padding: clamp(1.35rem, 2vw, 2.2rem);
+  }
+
+  .hero-image-panel {
+    min-height: clamp(340px, 32vw, 520px);
+  }
+
+  .features-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .feature-card {
+    min-height: 100%;
+  }
+}
+
+@media (min-width: 1440px) {
+  .page-shell {
+    width: min(1360px, 100% - 4rem);
+  }
+
+  .opl-hero-inner {
+    grid-template-columns: minmax(0, 1.15fr) minmax(500px, 640px);
+  }
+}
+
 /* Admin Panel Modern Overrides */
 .admin-sidebar-nav-item {
   display: flex;
