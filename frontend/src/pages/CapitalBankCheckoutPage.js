@@ -102,7 +102,7 @@ export default function CapitalBankCheckoutPage() {
       return;
     }
 
-    navigate('/checkout', { replace: true });
+    navigate('/tickets', { replace: true });
   };
 
   if (loading || !isAuthenticated) {

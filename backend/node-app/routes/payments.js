@@ -22,6 +22,7 @@ const {
   sendHourlyBookingWhatsAppConfirmation,
   sendBirthdayBookingWhatsAppConfirmation
 } = require('../utils/whatsappBookingConfirmation');
+const { notifyAdminsOfOrder } = require('../utils/adminOrderNotifications');
 const {
   buildSecureAcceptanceFields,
   getCapitalBankEnv,
@@ -305,6 +306,7 @@ const parseLineItemsFromMetadata = (metadata) => {
 const finalizePaidTransaction = async (transaction) => {
   const paymentId = transaction.payment_id || transaction.session_id;
   const metadata = transaction.metadata || {};
+  const customer = await User.findById(transaction.user_id).select('name email').lean();
 
   if (transaction.type === 'hourly') {
     const slotId = metadata.slot_id;
@@ -356,6 +358,16 @@ const finalizePaidTransaction = async (transaction) => {
         await Coupon.findOneAndUpdate({ code: metadata.coupon_code }, { $inc: { redeemed_count: 1 } });
       }
 
+      notifyAdminsOfOrder({
+        orderType: 'Hourly Booking',
+        orderId: bookings[0]?.booking_code || paymentId,
+        customerName: customer?.name,
+        customerEmail: customer?.email,
+        amount: Number(transaction.amount || 0),
+        paymentStatus: 'paid',
+        createdAt: bookings[0]?.created_at || new Date()
+      }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
+
       return { resourceType: 'hourly', bookings: bookings.map((b) => b.toJSON()) };
     } catch (error) {
       await TimeSlot.findByIdAndUpdate(slotId, { $inc: { booked_count: -childIds.length } });
@@ -398,6 +410,15 @@ const finalizePaidTransaction = async (transaction) => {
         amount: Number(transaction.amount || 0),
         lineItems: parseLineItemsFromMetadata(metadata)
       });
+      notifyAdminsOfOrder({
+        orderType: 'Birthday Booking',
+        orderId: booking?.booking_code || paymentId,
+        customerName: customer?.name,
+        customerEmail: customer?.email,
+        amount: Number(transaction.amount || 0),
+        paymentStatus: 'paid',
+        createdAt: booking?.created_at || new Date()
+      }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
       return { resourceType: 'birthday', booking: booking.toJSON() };
     } catch (error) {
       await TimeSlot.findByIdAndUpdate(slotId, { $inc: { booked_count: -1 } });
@@ -429,6 +450,15 @@ const finalizePaidTransaction = async (transaction) => {
       payment_status: 'paid',
       status: 'pending'
     });
+    notifyAdminsOfOrder({
+      orderType: 'Subscription',
+      orderId: subscription?._id?.toString(),
+      customerName: customer?.name,
+      customerEmail: customer?.email,
+      amount: Number(transaction.amount || 0),
+      paymentStatus: 'paid',
+      createdAt: subscription?.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
     return { resourceType: 'subscription', subscription: subscription.toJSON() };
   }
 
@@ -1240,7 +1270,7 @@ router.post('/capital-bank/notify', capitalBankCallbackParser, ensureHttpsForCap
   }
 });
 
-router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCapitalBank, async (req, res) => {
+const processCapitalBankReturn = async (req, res) => {
   const callbackPayload = { ...(req.query || {}), ...(req.body || {}) };
   const signatureCheck = verifySecureAcceptanceSignature(callbackPayload, capitalBankConfig.secretKey);
   if (!signatureCheck.isValid) {
@@ -1260,7 +1290,10 @@ router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCap
     console.error('Capital Bank return processing error:', error?.message);
     return res.redirect(303, '/payment/failed?reason=callback_processing_error');
   }
-});
+};
+
+router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCapitalBank, processCapitalBankReturn);
+router.get('/capital-bank/return', ensureHttpsForCapitalBank, processCapitalBankReturn);
 
 router.get('/provider', (_req, res) => {
   const effectiveProvider = getEffectiveProvider();
