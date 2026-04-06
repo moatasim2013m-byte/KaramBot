@@ -73,6 +73,7 @@ export default function AdminLayout() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [currentTab, setCurrentTab] = useState('overview');
   const [activeFilter, setActiveFilter] = useState(null);
+  const [unreadInboxCount, setUnreadInboxCount] = useState(0);
   const [stats, setStats] = useState({});
   const [users, setUsers] = useState([]);
   const [hourlyBookings, setHourlyBookings] = useState([]);
@@ -221,6 +222,31 @@ export default function AdminLayout() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+
+    let isMounted = true;
+
+    const fetchInboxStats = async () => {
+      try {
+        const response = await api.get('/staff/inbox/stats');
+        if (!isMounted) return;
+        setUnreadInboxCount(Number(response?.data?.unread_messages || 0));
+      } catch (error) {
+        if (!isMounted) return;
+        setUnreadInboxCount(0);
+      }
+    };
+
+    fetchInboxStats();
+    const intervalId = window.setInterval(fetchInboxStats, 30000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, [api, isAdmin]);
 
   useEffect(() => {
     const hasActiveSession = hourlyBookings.some((booking) => booking.status === 'checked_in');
@@ -1314,7 +1340,7 @@ export default function AdminLayout() {
     pointsAdjustment, customers, customerSearch, loadingCustomers, selectedCustomer,
     customerDetails, products, productForm, customerDialogOpen, customerDetailsOpen,
     newCustomer, editingCustomer, newChild, editingChild, savingCustomer, changingPassword,
-    passwordForm, currentTab, paymentMethodLabel, staffMembers,
+    passwordForm, currentTab, paymentMethodLabel, staffMembers, unreadInboxCount,
     // State setters
     setActiveTab, setActiveFilter, setStats, setUsers, setHourlyBookings, setBirthdayBookings,
     setSubscriptions, setThemes, setPlans, setGallery, setSettings, setPricing,
@@ -1387,6 +1413,18 @@ export default function AdminLayout() {
               <span>{item.label}</span>
             </button>
           ))}
+          <button
+            onClick={() => navigate('/staff?tab=inbox')}
+            className="admin-sidebar-nav-item w-full text-right"
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span>صندوق واتساب</span>
+            {unreadInboxCount > 0 && (
+              <Badge className="mr-auto bg-red-500 text-white min-w-6 h-6 rounded-full px-1.5">
+                {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
+              </Badge>
+            )}
+          </button>
         </nav>
 
         {/* Bottom: Logout */}
@@ -1441,6 +1479,18 @@ export default function AdminLayout() {
             {item.icon}
           </button>
         ))}
+        <button
+          onClick={() => navigate('/staff?tab=inbox')}
+          className="p-2 text-muted-foreground relative"
+          aria-label="فتح صندوق واتساب"
+        >
+          <MessageSquare className="h-5 w-5" />
+          {unreadInboxCount > 0 && (
+            <span className="absolute -top-1 -left-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] leading-5 text-center font-bold">
+              {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
+            </span>
+          )}
+        </button>
       </nav>
 
       {/* Adjust Points Dialog (global) */}
