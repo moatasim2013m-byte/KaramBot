@@ -16,6 +16,20 @@ const getJwtSecret = () => {
   return 'peekaboo-dev-secret-only';
 };
 
+const STAFF_PERMISSION_KEYS = ['access_staff_tools', 'access_whatsapp_inbox', 'access_whatsapp_campaigns'];
+const FULL_STAFF_ACCESS = STAFF_PERMISSION_KEYS.reduce((acc, key) => ({ ...acc, [key]: true }), {});
+
+const getEffectiveStaffPermissions = (user) => {
+  if (!user || user.role === 'admin') return FULL_STAFF_ACCESS;
+  if (user.role !== 'staff') return {};
+  if (!user.staff_permissions) return FULL_STAFF_ACCESS;
+
+  return STAFF_PERMISSION_KEYS.reduce((acc, key) => {
+    acc[key] = Boolean(user.staff_permissions?.[key]);
+    return acc;
+  }, {});
+};
+
 const authMiddleware = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -57,4 +71,25 @@ const staffMiddleware = async (req, res, next) => {
   next();
 };
 
-module.exports = { authMiddleware, adminMiddleware, staffMiddleware, getJwtSecret };
+const staffPermissionMiddleware = (permissionKey) => (req, res, next) => {
+  if (req.user.role === 'admin') return next();
+  if (req.user.role !== 'staff') {
+    return res.status(403).json({ error: 'Staff access required' });
+  }
+
+  const permissions = getEffectiveStaffPermissions(req.user);
+  if (!permissions?.[permissionKey]) {
+    return res.status(403).json({ error: 'You do not have access to this section' });
+  }
+  return next();
+};
+
+module.exports = {
+  authMiddleware,
+  adminMiddleware,
+  staffMiddleware,
+  staffPermissionMiddleware,
+  getJwtSecret,
+  getEffectiveStaffPermissions,
+  FULL_STAFF_ACCESS
+};

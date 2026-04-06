@@ -13,7 +13,7 @@ const UserSubscription = require('../models/UserSubscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Theme = require('../models/Theme');
 const Settings = require('../models/Settings');
-const { authMiddleware, adminMiddleware } = require('../middleware/auth');
+const { authMiddleware, adminMiddleware, FULL_STAFF_ACCESS } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
 const { awardReferralForFirstConfirmedOrder } = require('../utils/referrals');
 const {
@@ -478,7 +478,7 @@ router.post('/users/admin', async (req, res) => {
 // Create staff user
 router.post('/staff', async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, staff_permissions } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'email and password are required' });
@@ -495,7 +495,11 @@ router.post('/staff', async (req, res) => {
       email: email.toLowerCase().trim(),
       password_hash: hash,
       name: name || 'Staff',
-      role: 'staff'
+      role: 'staff',
+      staff_permissions: {
+        ...FULL_STAFF_ACCESS,
+        ...(staff_permissions || {})
+      }
     });
 
     return res.status(201).json({
@@ -504,12 +508,55 @@ router.post('/staff', async (req, res) => {
         id: staffUser._id,
         email: staffUser.email,
         name: staffUser.name,
-        role: staffUser.role
+        role: staffUser.role,
+        staff_permissions: staffUser.staff_permissions
       }
     });
   } catch (err) {
     console.error('Create staff error:', err);
     return res.status(500).json({ error: 'Failed to create staff user' });
+  }
+});
+
+router.put('/staff/:id/permissions', async (req, res) => {
+  try {
+    const { staff_permissions } = req.body;
+    if (!staff_permissions || typeof staff_permissions !== 'object') {
+      return res.status(400).json({ error: 'staff_permissions object is required' });
+    }
+
+    const staffUser = await User.findOne({ _id: req.params.id, role: 'staff' });
+    if (!staffUser) {
+      return res.status(404).json({ error: 'Staff user not found' });
+    }
+
+    staffUser.staff_permissions = {
+      ...FULL_STAFF_ACCESS,
+      ...staff_permissions
+    };
+    await staffUser.save();
+
+    return res.json({
+      ok: true,
+      staff: staffUser.toJSON()
+    });
+  } catch (err) {
+    console.error('Update staff permissions error:', err);
+    return res.status(500).json({ error: 'Failed to update staff permissions' });
+  }
+});
+
+router.delete('/staff/:id', async (req, res) => {
+  try {
+    const staffUser = await User.findOne({ _id: req.params.id, role: 'staff' });
+    if (!staffUser) {
+      return res.status(404).json({ error: 'Staff user not found' });
+    }
+    await User.deleteOne({ _id: staffUser._id });
+    return res.json({ ok: true, message: 'Staff user deleted' });
+  } catch (err) {
+    console.error('Delete staff error:', err);
+    return res.status(500).json({ error: 'Failed to delete staff user' });
   }
 });
 

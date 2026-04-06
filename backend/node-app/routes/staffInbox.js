@@ -6,7 +6,7 @@ const Child = require('../models/Child');
 const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const UserSubscription = require('../models/UserSubscription');
-const { authMiddleware, staffMiddleware } = require('../middleware/auth');
+const { authMiddleware, staffMiddleware, staffPermissionMiddleware } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
 const {
   postWhatsAppText,
@@ -48,6 +48,7 @@ const sendLimiter = rateLimit({
 
 // Apply staff middleware to all routes
 router.use(authMiddleware, staffMiddleware);
+router.use(staffPermissionMiddleware('access_whatsapp_inbox'));
 router.get('/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');

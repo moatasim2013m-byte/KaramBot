@@ -6,6 +6,11 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   phone: { type: String },
   role: { type: String, enum: ['parent', 'admin', 'staff'], default: 'parent' },
+  staff_permissions: {
+    access_staff_tools: { type: Boolean, default: true },
+    access_whatsapp_inbox: { type: Boolean, default: true },
+    access_whatsapp_campaigns: { type: Boolean, default: true }
+  },
   loyalty_points: { type: Number, default: 0 },
   is_disabled: { type: Boolean, default: false },
   email_verified: { type: Boolean, default: false },
