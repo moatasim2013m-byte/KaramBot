@@ -206,12 +206,17 @@ router.get('/dashboard', async (req, res) => {
     const paidStatuses = ['paid'];
     const unpaidStatuses = ['pending_cash', 'pending_cliq'];
 
-    const sumPaidAmount = async (Model, createdAtFrom) => {
+    const sumPaidAmount = async (Model, fromDate) => {
       const pipeline = [
         {
           $match: {
             payment_status: { $in: paidStatuses },
-            created_at: { $gte: createdAtFrom }
+            $expr: {
+              $gte: [
+                { $ifNull: ['$paid_at', '$created_at'] },
+                fromDate
+              ]
+            }
           }
         },
         {
@@ -652,9 +657,13 @@ router.put('/bookings/hourly/:id', async (req, res) => {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     const wasPending = ['pending_cash', 'pending_cliq'].includes(booking.payment_status);
+    const wasPaid = booking.payment_status === 'paid';
     const previousStatus = booking.status;
     if (status !== undefined) booking.status = status;
     if (payment_status !== undefined) booking.payment_status = payment_status;
+    if (!wasPaid && booking.payment_status === 'paid') {
+      booking.paid_at = new Date();
+    }
     await booking.save();
     const becameConfirmed = previousStatus !== 'confirmed' && booking.status === 'confirmed';
 
@@ -711,9 +720,13 @@ router.put('/bookings/birthday/:id', async (req, res) => {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
     const wasPending = ['pending_cash', 'pending_cliq'].includes(booking.payment_status);
+    const wasPaid = booking.payment_status === 'paid';
     const previousStatus = booking.status;
     if (status !== undefined) booking.status = status;
     if (payment_status !== undefined) booking.payment_status = payment_status;
+    if (!wasPaid && booking.payment_status === 'paid') {
+      booking.paid_at = new Date();
+    }
     await booking.save();
     const becameConfirmed = previousStatus !== 'confirmed' && booking.status === 'confirmed';
 
@@ -804,7 +817,11 @@ router.put('/subscriptions/:id/payment-confirmation', async (req, res) => {
     if (!subscription) return res.status(404).json({ error: 'Subscription not found' });
 
     const wasPending = ['pending_cash', 'pending_cliq'].includes(subscription.payment_status);
+    const wasPaid = subscription.payment_status === 'paid';
     subscription.payment_status = payment_status;
+    if (!wasPaid && subscription.payment_status === 'paid') {
+      subscription.paid_at = new Date();
+    }
     await subscription.save();
 
     const becamePaid = wasPending && subscription.payment_status === 'paid';
