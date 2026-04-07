@@ -14,8 +14,22 @@ const MAX_IMAGE_UPLOAD_BYTES = MAX_IMAGE_UPLOAD_MB * 1024 * 1024;
 
 const resolveMediaUrl = (url) => {
   if (!url) return '';
-  const normalized = String(url).trim();
-  if (/^(data:|blob:|https?:\/\/)/i.test(normalized)) return normalized;
+  if (/^(data:|blob:)/i.test(url)) return url;
+
+  let normalized = String(url).trim();
+  if (/^https?:\/\//i.test(normalized)) {
+    try {
+      const parsed = new URL(normalized);
+      if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
+        normalized = `${parsed.pathname}${parsed.search}`;
+      } else {
+        return normalized;
+      }
+    } catch {
+      return normalized;
+    }
+  }
+
   if (normalized.startsWith('/uploads/')) return `/api${normalized}`;
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
 };
