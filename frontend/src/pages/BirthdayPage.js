@@ -212,6 +212,8 @@ export default function BirthdayPage() {
           theme_id: selectedTheme.id,
           child_id: selectedChild,
           origin_url: window.location.origin,
+          guest_count: guestCount,
+          special_notes: specialNotes,
           lineItems
         });
         if (response.data?.payment_method === 'manual') {
