@@ -17,13 +17,12 @@ const ALLOWED_TOPICS = [
   'transportation'
 ];
 
-const parseJsonObject = (rawText) => {
+const parseStrictJsonObject = (rawText) => {
   const text = String(rawText || '').trim();
   if (!text) return null;
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
+  if (!text.startsWith('{') || !text.endsWith('}')) return null;
   try {
-    return JSON.parse(match[0]);
+    return JSON.parse(text);
   } catch (error) {
     return null;
   }
@@ -98,13 +97,14 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500 }) => {
 
     const payload = await response.json();
     const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('\n') || '';
-    const parsed = parseJsonObject(raw);
+    const parsed = parseStrictJsonObject(raw);
     if (!parsed || typeof parsed !== 'object') return null;
 
     const inScope = parsed.in_scope === true;
     const topic = String(parsed.topic || '').trim();
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0)));
-    const replyAr = String(parsed.reply_ar || '').trim();
+    const safeMaxChars = Math.max(80, Number(maxChars) || 500);
+    const replyAr = String(parsed.reply_ar || '').trim().slice(0, safeMaxChars);
 
     return {
       in_scope: inScope,

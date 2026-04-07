@@ -25,6 +25,32 @@ const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
 const MAX_TOKENS_FOR_AUTO_REPLY = 90;
 const SAFE_HANDOFF_REPLY = 'شكراً لرسالتك 🌷 للتأكيد وخدمتك بدقة، حولنا رسالتك مباشرة لفريق بيكابو، وبيردوا عليك قريبًا.';
 const COMPLAINT_HANDOFF_REPLY = 'آسفين إذا صار أي إزعاج 💛 حتى نحل الموضوع بسرعة، حولنا رسالتك مباشرة لفريق الخدمة، وبيردوا عليك قريبًا.';
+const LOCAL_SCOPE_MAX_CHARS = 450;
+const LOCAL_SCOPE_MIN_WORDS = 2;
+const AI_ALLOWED_KEYWORDS = [
+  'بيكابو',
+  'peekaboo',
+  'لعب',
+  'جلسات',
+  'حجز',
+  'عيد ميلاد',
+  'داي كير',
+  'حضانة',
+  'اشتراك',
+  'زيارة',
+  'عمر',
+  'مرافق',
+  'أهالي',
+  'كافيه',
+  'مراقبة',
+  'موقع',
+  'عنوان',
+  'ساعات',
+  'دوام',
+  'رمل',
+  'توصيل',
+  'نقل'
+];
 
 const normalizeText = (value) =>
   String(value || '')
@@ -513,7 +539,8 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       matchedKey = matched.key;
     } else {
       try {
-        if (config.useAiFallback) {
+        const passesScopePrecheck = passesLocalScopePrecheck(textBody);
+        if (passesScopePrecheck && config.useAiFallback) {
           const aiResult = await getScopedAiFallbackReply({
             userText: textBody,
             maxChars: config.aiMaxReplyChars
@@ -548,6 +575,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         } else {
           replyText = config.fallbackReply;
           matchedKey = 'fallback';
+          if (!passesScopePrecheck && config.useAiFallback) {
+            logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+              messageId,
+              senderWaId: normalizedWaId,
+              reason: 'local_scope_precheck_failed'
+            });
+          }
         }
       } catch (error) {
         console.error('AUTO_REPLY_FALLBACK_DECISION_ERROR', error.message);
