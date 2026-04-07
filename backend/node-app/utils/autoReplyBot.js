@@ -21,6 +21,7 @@ const DEFAULT_CONFIG = {
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
+const BURST_WINDOW_SECONDS = 25;
 const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
 const MAX_TOKENS_FOR_AUTO_REPLY = 90;
 const SAFE_HANDOFF_REPLY = 'شكراً لرسالتك 🌷 للتأكيد وخدمتك بدقة، حولنا رسالتك مباشرة لفريق بيكابو، وبيردوا عليك قريبًا.';
@@ -428,6 +429,88 @@ const logAutoReply = (event, payload = {}) => {
   console.log(event, payload);
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const persistAutoTriggerMarker = async ({ messageId, senderWaId, skipped, matchedKey, triggerMessageId }) => {
+  if (!messageId || !senderWaId) return;
+  await WhatsAppMessage.create({
+    message_id: `auto_trigger_${messageId}`,
+    sender_wa_id: senderWaId,
+    message_type: 'unsupported',
+    text_body: '',
+    direction: 'outbound',
+    platform: 'whatsapp',
+    status: 'sent',
+    timestamp: new Date(),
+    raw_payload: {
+      auto_reply: true,
+      skipped,
+      trigger_message_id: triggerMessageId || messageId,
+      matched_key: matchedKey
+    },
+    is_read_by_staff: true,
+    is_replied: false
+  }).catch(() => {});
+};
+
+const resolveBurstText = async ({ senderWaId, messageId }) => {
+  const burstWindowMs = BURST_WINDOW_SECONDS * 1000;
+  const triggerMessage = await WhatsAppMessage.findOne({
+    message_id: messageId,
+    sender_wa_id: senderWaId,
+    direction: 'inbound',
+    platform: 'whatsapp',
+    message_type: 'text'
+  }).lean();
+
+  if (!triggerMessage?.timestamp) {
+    return { skip: true, reason: 'missing_trigger_message', burstText: '' };
+  }
+
+  const triggerTime = new Date(triggerMessage.timestamp);
+  const burstEndTime = new Date(triggerTime.getTime() + burstWindowMs);
+  const burstStartTime = new Date(triggerTime.getTime() - burstWindowMs);
+  const waitMs = Math.max(0, burstEndTime.getTime() - Date.now());
+  if (waitMs > 0) await sleep(waitMs);
+
+  const latestInBurst = await WhatsAppMessage.findOne({
+    sender_wa_id: senderWaId,
+    direction: 'inbound',
+    platform: 'whatsapp',
+    message_type: 'text',
+    timestamp: { $gte: triggerTime, $lte: burstEndTime }
+  })
+    .sort({ timestamp: -1, _id: -1 })
+    .lean();
+
+  if (!latestInBurst || latestInBurst.message_id !== messageId) {
+    return {
+      skip: true,
+      reason: 'burst_superseded',
+      burstText: '',
+      latestMessageId: latestInBurst?.message_id || null
+    };
+  }
+
+  const burstMessages = await WhatsAppMessage.find({
+    sender_wa_id: senderWaId,
+    direction: 'inbound',
+    platform: 'whatsapp',
+    message_type: 'text',
+    timestamp: { $gte: burstStartTime, $lte: triggerTime }
+  })
+    .sort({ timestamp: 1, _id: 1 })
+    .lean();
+
+  const burstText = burstMessages
+    .map((item) => String(item?.text_body || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+
+  return { skip: false, reason: null, burstText };
+};
+
 const persistAutoReplyMessage = async ({ waId, textBody, messageId, matchedKey }) => {
   if (!messageId) return;
 
@@ -500,6 +583,28 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       return { skipped: true, reason: 'duplicate_trigger' };
     }
 
+    const burstResolution = await resolveBurstText({
+      senderWaId: normalizedWaId,
+      messageId
+    });
+    if (burstResolution.skip) {
+      await persistAutoTriggerMarker({
+        messageId,
+        senderWaId: normalizedWaId,
+        skipped: burstResolution.reason,
+        triggerMessageId: messageId
+      });
+      logAutoReply('AUTO_REPLY_SKIPPED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        reason: burstResolution.reason,
+        latestMessageId: burstResolution.latestMessageId || null
+      });
+      return { skipped: true, reason: burstResolution.reason };
+    }
+
+    const effectiveTextBody = burstResolution.burstText || textBody;
+
     if (await hasRecentStaffReply(normalizedWaId)) {
       logAutoReply('AUTO_REPLY_SKIPPED', {
         messageId,
@@ -511,24 +616,17 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     }
 
     if (await hasRecentAutoReply(normalizedWaId, config.cooldownMinutes)) {
-      await WhatsAppMessage.create({
-        message_id: `auto_trigger_${messageId}`,
-        sender_wa_id: normalizedWaId,
-        message_type: 'unsupported',
-        text_body: '',
-        direction: 'outbound',
-        platform: 'whatsapp',
-        status: 'sent',
-        timestamp: new Date(),
-        raw_payload: { auto_reply: true, skipped: 'cooldown' },
-        is_read_by_staff: true,
-        is_replied: false
-      }).catch(() => {});
+      await persistAutoTriggerMarker({
+        messageId,
+        senderWaId: normalizedWaId,
+        skipped: 'cooldown',
+        triggerMessageId: messageId
+      });
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, senderWaId: normalizedWaId, reason: 'cooldown_active' });
       return { skipped: true, reason: 'cooldown_active' };
     }
 
-    const matched = detectKeyword(textBody);
+    const matched = detectKeyword(effectiveTextBody);
     let replyText;
     let matchedKey;
     if (matched) {
@@ -539,7 +637,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       }
       matchedKey = matched.key;
     } else {
-      const escalationDecision = shouldEscalateFallback(textBody);
+      const escalationDecision = shouldEscalateFallback(effectiveTextBody);
       if (escalationDecision.escalate) {
         replyText = escalationDecision.reply;
         matchedKey = 'escalation_handoff';
@@ -550,10 +648,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         });
       } else {
         try {
-          const passesScopePrecheck = passesLocalScopePrecheck(textBody);
+          const passesScopePrecheck = passesLocalScopePrecheck(effectiveTextBody);
           if (passesScopePrecheck && config.useAiFallback) {
             const aiResult = await getScopedAiFallbackReply({
-              userText: textBody,
+              userText: effectiveTextBody,
               maxChars: config.aiMaxReplyChars
             });
             const requiredConfidence = Math.max(
@@ -634,19 +732,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       matchedKey: matchedKey || 'fallback'
     });
 
-    await WhatsAppMessage.create({
-      message_id: `auto_trigger_${messageId}`,
-      sender_wa_id: normalizedWaId,
-      message_type: 'unsupported',
-      text_body: '',
-      direction: 'outbound',
-      platform: 'whatsapp',
-      status: 'sent',
-      timestamp: new Date(),
-      raw_payload: { auto_reply: true, trigger_message_id: messageId, matched_key: matchedKey || 'fallback' },
-      is_read_by_staff: true,
-      is_replied: false
-    }).catch(() => {});
+    await persistAutoTriggerMarker({
+      messageId,
+      senderWaId: normalizedWaId,
+      skipped: null,
+      matchedKey: matchedKey || 'fallback',
+      triggerMessageId: messageId
+    });
 
     logAutoReply('AUTO_REPLY_SENT', {
       messageId,
