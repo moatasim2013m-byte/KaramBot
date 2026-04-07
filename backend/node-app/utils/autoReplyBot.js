@@ -6,13 +6,17 @@ const {
   normalizePhoneForWhatsApp,
   postWhatsAppText
 } = require('./whatsappBookingConfirmation');
+const { getGeminiAutoReply } = require('./geminiAutoReply');
 
 const DEFAULT_CONFIG = {
   enabled: false,
   cooldownMinutes: 30,
   footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
-    'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
+    'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
+  aiFallbackEnabled: false,
+  aiMinConfidence: 0.72,
+  aiMaxReplyChars: 260
 };
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
@@ -34,6 +38,19 @@ const normalizeText = (value) =>
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
+
+const passesLocalScopePrecheck = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return false;
+  if (normalized.length > LOCAL_SCOPE_MAX_CHARS) return false;
+
+  const words = tokenize(normalized);
+  if (words.length < LOCAL_SCOPE_MIN_WORDS) return false;
+
+  return AI_ALLOWED_KEYWORDS.some((keyword) => normalized.includes(normalizeText(keyword)));
+};
 
 // ─── DB fetch helpers ────────────────────────────────────────────────────────
 
@@ -262,7 +279,10 @@ const loadAutoReplyConfig = async () => {
     ...DEFAULT_CONFIG,
     ...value,
     enabled,
-    cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes))
+    cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
+    aiFallbackEnabled: Boolean(value?.aiFallbackEnabled),
+    aiMinConfidence: Math.max(0, Math.min(1, Number(value?.aiMinConfidence ?? DEFAULT_CONFIG.aiMinConfidence))),
+    aiMaxReplyChars: Math.max(40, Number(value?.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
   };
 };
 
