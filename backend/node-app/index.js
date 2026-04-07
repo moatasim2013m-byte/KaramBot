@@ -1,6 +1,7 @@
 require('dotenv').config();
 const crypto = require('crypto');
 const { logger, pinoHttpMiddleware, writeCloudError } = require('./utils/logger');
+const { GCS_BUCKET_NAME, isGcsBucketConfigured } = require('./utils/gcsUpload');
 const initialEnvPresence = {
   MONGO_URL: Boolean(process.env.MONGO_URL),
   JWT_SECRET: Boolean(process.env.JWT_SECRET),
@@ -17,6 +18,11 @@ const initialEnvPresence = {
 logger.info({ event: 'boot', node: process.version }, 'Boot diagnostics');
 logger.info({ event: 'boot_env', env: process.env.NODE_ENV || 'undefined', port: process.env.PORT || 'undefined' }, 'Environment');
 logger.info({ event: 'boot_env_presence', env_present: initialEnvPresence }, 'Env presence');
+logger.info({
+  event: 'boot_storage',
+  gcs_bucket_configured: isGcsBucketConfigured,
+  gcs_bucket_name: GCS_BUCKET_NAME
+}, 'Storage configuration');
 
 // ==================== PROCESS ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
@@ -343,6 +349,11 @@ if (!mongoUrl) {
       const dbName = process.env.DB_NAME || 'from URI';
       console.log('✅ Connected to MongoDB:', dbName);
       console.log('DB_CONNECTED name=' + mongoose.connection.name + ' host=' + mongoose.connection.host);
+      logger.info({
+        event: 'db_connected',
+        db_host: mongoose.connection.host,
+        db_name: mongoose.connection.name
+      }, 'Database connected');
 
       try {
         await bootstrapAdminUser();

@@ -20,8 +20,8 @@ steps:
       - '--image=gcr.io/$PROJECT_ID/peekaboo:$SHORT_SHA'
       - '--region=${_REGION}'
       - '--platform=managed'
-      - '--update-env-vars=NODE_ENV=production'
-      - '--set-secrets=MONGO_URL=MONGO_URL:latest,JWT_SECRET=JWT_SECRET:latest'
+      - '--update-env-vars=NODE_ENV=production,DB_NAME=${_DB_NAME},GCS_BUCKET_NAME=${_GCS_BUCKET_NAME},CORS_ORIGINS=${_CORS_ORIGINS},FRONTEND_URL=${_FRONTEND_URL},GEMINI_IMAGE_MODEL=${_GEMINI_IMAGE_MODEL}'
+      - '--set-secrets=MONGO_URL=MONGO_URL:latest,JWT_SECRET=JWT_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,SENDER_EMAIL=SENDER_EMAIL:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest'
       - '--quiet'
 
 images:
@@ -30,6 +30,11 @@ images:
 substitutions:
   _SERVICE_NAME: 'peekaboo-indoor-playground'
   _REGION: 'us-west1'
+  _DB_NAME: 'peekaboo'
+  _GCS_BUCKET_NAME: 'peekaboo-uploads'
+  _CORS_ORIGINS: '*'
+  _FRONTEND_URL: 'https://peekaboo-website.web.app'
+  _GEMINI_IMAGE_MODEL: 'imagen-3.0-generate-002'
 
 options:
   logging: CLOUD_LOGGING_ONLY

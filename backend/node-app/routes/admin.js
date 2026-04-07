@@ -2,7 +2,6 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const sharp = require('sharp');
-const { Storage } = require('@google-cloud/storage');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Child = require('../models/Child');
@@ -15,6 +14,7 @@ const Theme = require('../models/Theme');
 const Settings = require('../models/Settings');
 const { authMiddleware, adminMiddleware, FULL_STAFF_ACCESS } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
+const { GCS_BUCKET_NAME, uploadBufferToGcs } = require('../utils/gcsUpload');
 const { awardReferralForFirstConfirmedOrder } = require('../utils/referrals');
 const {
   sendHourlyBookingWhatsAppConfirmation,
@@ -105,13 +105,6 @@ router.post('/cron/winback', async (req, res) => {
   }
 });
 
-// Configure GCS bucket for image uploads.
-// On Cloud Run the default service account is used automatically (no credentials file needed).
-// Set GCS_BUCKET_NAME env var to override the bucket for different environments.
-const gcsClient = new Storage();
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'peekaboo-uploads';
-const gcsBucket = gcsClient.bucket(GCS_BUCKET_NAME);
-
 // Configure multer for image uploads
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB upload limit before server-side compression
 const MAX_INPUT_PIXELS = 40 * 1024 * 1024; // 40MP guardrail to prevent decode memory spikes
@@ -176,9 +169,10 @@ router.post('/upload-image', (req, res) => {
 
     // Upload the processed buffer to GCS.
     try {
-      await gcsBucket.file(filename).save(buffer, {
-        contentType: 'image/webp',
-        metadata: { cacheControl: 'public, max-age=31536000' }
+      await uploadBufferToGcs({
+        objectPath: filename,
+        buffer,
+        contentType: 'image/webp'
       });
     } catch (gcsError) {
       console.error('GCS upload error:', gcsError);
