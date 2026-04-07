@@ -539,65 +539,76 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       }
       matchedKey = matched.key;
     } else {
-      try {
-        const passesScopePrecheck = passesLocalScopePrecheck(textBody);
-        if (passesScopePrecheck && config.useAiFallback) {
-          const aiResult = await getScopedAiFallbackReply({
-            userText: textBody,
-            maxChars: config.aiMaxReplyChars
-          });
-          const requiredConfidence = Math.max(
-            MIN_AI_CONFIDENCE_FLOOR,
-            Number(config.aiConfidenceThreshold || 0)
-          );
-          const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
-            0,
-            Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
-          );
-
-          const aiReplyAllowed = Boolean(
-            aiResult &&
-              aiResult.in_scope === true &&
-              aiResult.confidence >= requiredConfidence &&
-              boundedAiReply &&
-              boundedAiReply.length >= 2
-          );
-
-          if (aiReplyAllowed) {
-            replyText = boundedAiReply;
-            matchedKey = 'ai_fallback';
-            logAutoReply('AUTO_REPLY_AI_USED', {
-              messageId,
-              senderWaId: normalizedWaId,
-              topic: aiResult.topic || 'unknown',
-              confidence: aiResult.confidence
+      const escalationDecision = shouldEscalateFallback(textBody);
+      if (escalationDecision.escalate) {
+        replyText = escalationDecision.reply;
+        matchedKey = 'escalation_handoff';
+        logAutoReply('AUTO_REPLY_ESCALATED', {
+          messageId,
+          senderWaId: normalizedWaId,
+          reason: escalationDecision.reason
+        });
+      } else {
+        try {
+          const passesScopePrecheck = passesLocalScopePrecheck(textBody);
+          if (passesScopePrecheck && config.useAiFallback) {
+            const aiResult = await getScopedAiFallbackReply({
+              userText: textBody,
+              maxChars: config.aiMaxReplyChars
             });
+            const requiredConfidence = Math.max(
+              MIN_AI_CONFIDENCE_FLOOR,
+              Number(config.aiConfidenceThreshold || 0)
+            );
+            const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
+              0,
+              Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
+            );
+
+            const aiReplyAllowed = Boolean(
+              aiResult &&
+                aiResult.in_scope === true &&
+                aiResult.confidence >= requiredConfidence &&
+                boundedAiReply &&
+                boundedAiReply.length >= 2
+            );
+
+            if (aiReplyAllowed) {
+              replyText = boundedAiReply;
+              matchedKey = 'ai_fallback';
+              logAutoReply('AUTO_REPLY_AI_USED', {
+                messageId,
+                senderWaId: normalizedWaId,
+                topic: aiResult.topic || 'unknown',
+                confidence: aiResult.confidence
+              });
+            } else {
+              replyText = config.fallbackReply;
+              matchedKey = 'fallback';
+              logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+                messageId,
+                senderWaId: normalizedWaId,
+                reason: aiResult?.in_scope === false ? 'out_of_scope_or_uncertain' : 'invalid_or_low_confidence',
+                confidence: aiResult?.confidence ?? null
+              });
+            }
           } else {
             replyText = config.fallbackReply;
             matchedKey = 'fallback';
-            logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-              messageId,
-              senderWaId: normalizedWaId,
-              reason: aiResult?.in_scope === false ? 'out_of_scope_or_uncertain' : 'invalid_or_low_confidence',
-              confidence: aiResult?.confidence ?? null
-            });
+            if (!passesScopePrecheck && config.useAiFallback) {
+              logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+                messageId,
+                senderWaId: normalizedWaId,
+                reason: 'local_scope_precheck_failed'
+              });
+            }
           }
-        } else {
+        } catch (error) {
+          console.error('AUTO_REPLY_FALLBACK_DECISION_ERROR', error.message);
+          // AI/decision failure fallback: keep existing safe generic fallback reply.
           replyText = config.fallbackReply;
           matchedKey = 'fallback';
-          if (!passesScopePrecheck && config.useAiFallback) {
-            logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-              messageId,
-              senderWaId: normalizedWaId,
-              reason: 'local_scope_precheck_failed'
-            });
-          }
         }
-      } catch (error) {
-        console.error('AUTO_REPLY_FALLBACK_DECISION_ERROR', error.message);
-        // AI/decision failure fallback: keep existing safe generic fallback reply.
-        replyText = config.fallbackReply;
-        matchedKey = 'fallback';
       }
     }
 
