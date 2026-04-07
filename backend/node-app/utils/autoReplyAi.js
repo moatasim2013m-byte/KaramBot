@@ -16,16 +16,34 @@ const ALLOWED_TOPICS = [
   'sand_area',
   'transportation'
 ];
+const OUT_OF_SCOPE_TOPIC = 'out_of_scope';
+const MAX_MODEL_JSON_CHARS = 4000;
 
 const parseStrictJsonObject = (rawText) => {
   const text = String(rawText || '').trim();
   if (!text) return null;
+  if (text.length > MAX_MODEL_JSON_CHARS) return null;
   if (!text.startsWith('{') || !text.endsWith('}')) return null;
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
   } catch (error) {
     return null;
   }
+};
+
+const sanitizeArabicReply = (value, maxChars) => {
+  const safeMaxChars = Math.max(80, Number(maxChars) || 500);
+  const text = String(value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, safeMaxChars);
+
+  if (!text) return '';
+  const hasArabic = /[\u0600-\u06FF]/.test(text);
+  return hasArabic ? text : '';
 };
 
 const loadFacts = async () => {
@@ -100,11 +118,16 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500 }) => {
     const parsed = parseStrictJsonObject(raw);
     if (!parsed || typeof parsed !== 'object') return null;
 
-    const inScope = parsed.in_scope === true;
-    const topic = String(parsed.topic || '').trim();
-    const confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0)));
-    const safeMaxChars = Math.max(80, Number(maxChars) || 500);
-    const replyAr = String(parsed.reply_ar || '').trim().slice(0, safeMaxChars);
+    const topicRaw = String(parsed.topic || '').trim();
+    const topic = ALLOWED_TOPICS.includes(topicRaw) || topicRaw === OUT_OF_SCOPE_TOPIC
+      ? topicRaw
+      : OUT_OF_SCOPE_TOPIC;
+    const confidenceNumber = Number(parsed.confidence);
+    const confidence = Number.isFinite(confidenceNumber)
+      ? Math.max(0, Math.min(1, confidenceNumber))
+      : 0;
+    const inScope = parsed.in_scope === true && ALLOWED_TOPICS.includes(topic);
+    const replyAr = sanitizeArabicReply(parsed.reply_ar, maxChars);
 
     return {
       in_scope: inScope,
