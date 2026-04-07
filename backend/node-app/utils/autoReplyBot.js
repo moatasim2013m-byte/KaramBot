@@ -21,21 +21,10 @@ const DEFAULT_CONFIG = {
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
-const LOCAL_SCOPE_MIN_WORDS = 2;
-const LOCAL_SCOPE_MAX_CHARS = 280;
-const AI_ALLOWED_KEYWORDS = [
-  'سعر', 'اسعار', 'الاسعار', 'الأسعار', 'تكلفة', 'price',
-  'موقع', 'العنوان', 'location', 'address',
-  'ساعات', 'دوام', 'تفتح', 'تسكر', 'hours', 'open',
-  'حجز', 'احجز', 'book', 'booking',
-  'عيد', 'ميلاد', 'حفلة', 'birthday', 'party',
-  'اشتراك', 'باقه', 'باقة', 'subscription', 'plan',
-  'عمر', 'اعمار', 'أعمار', 'age',
-  'داي', 'daycare', 'حضانه', 'حضانة',
-  'توصيل', 'transport', 'delivery',
-  'اهل', 'أهل', 'مرافق', 'كافيه', 'cafe',
-  'رمل', 'sand', 'بعد المدرسه', 'school'
-];
+const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
+const MAX_TOKENS_FOR_AUTO_REPLY = 90;
+const SAFE_HANDOFF_REPLY = 'شكراً لرسالتك 🌷 للتأكيد وخدمتك بدقة، حولنا رسالتك مباشرة لفريق بيكابو، وبيردوا عليك قريبًا.';
+const COMPLAINT_HANDOFF_REPLY = 'آسفين إذا صار أي إزعاج 💛 حتى نحل الموضوع بسرعة، حولنا رسالتك مباشرة لفريق الخدمة، وبيردوا عليك قريبًا.';
 
 const normalizeText = (value) =>
   String(value || '')
@@ -306,6 +295,70 @@ const detectKeyword = (textBody) => {
   ) || null;
 };
 
+const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
+  'شكوى', 'مشتكي', 'زعلان', 'زعلانه', 'معصب', 'معصبه', 'سيئ', 'سيء', 'مشكله', 'مشكلة',
+  'غلط', 'احتيال', 'نصب', 'استرجاع', 'refund', 'cancel', 'cancellation',
+  'حادث', 'اصابه', 'إصابة', 'نزيف', 'تحرش', 'عنف', 'تهديد', 'ابتزاز'
+];
+
+const OUT_OF_SCOPE_KEYWORDS = [
+  'طقس', 'weather', 'رياضه', 'كرة', 'مباراه', 'مباراة', 'سياسه', 'سياسة',
+  'اخبار', 'أخبار', 'برمجه', 'برمجة', 'كود', 'bitcoin', 'crypto', 'وظيفه', 'وظيفة'
+];
+
+const DOMAIN_GUARD_KEYWORDS = Array.from(
+  new Set(
+    keywordMap
+      .flatMap((entry) => entry.keywords || [])
+      .concat(['بيكابو', 'peekaboo', 'الاطفال', 'الأطفال', 'اطفال', 'play', 'ticket', 'tickets', 'book'])
+      .map((token) => normalizeText(token))
+      .filter(Boolean)
+  )
+);
+
+const includesAnyKeyword = (textBody, keywords) => {
+  const normalized = normalizeText(textBody);
+  return keywords.some((keyword) => normalized.includes(normalizeText(keyword)));
+};
+
+const isVeryLongMessage = (textBody) => {
+  const normalized = normalizeText(textBody);
+  const tokenCount = normalized ? normalized.split(' ').filter(Boolean).length : 0;
+  return String(textBody || '').length > MAX_TEXT_LENGTH_FOR_AUTO_REPLY || tokenCount > MAX_TOKENS_FOR_AUTO_REPLY;
+};
+
+const hasLowDomainConfidence = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return true;
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  const domainHits = tokens.filter((token) =>
+    DOMAIN_GUARD_KEYWORDS.some((keyword) => token.includes(keyword) || keyword.includes(token))
+  ).length;
+
+  return domainHits <= 1;
+};
+
+const shouldEscalateFallback = (textBody) => {
+  if (includesAnyKeyword(textBody, COMPLAINT_OR_SENSITIVE_KEYWORDS)) {
+    return { escalate: true, reason: 'complaint_sensitive', reply: COMPLAINT_HANDOFF_REPLY };
+  }
+
+  if (isVeryLongMessage(textBody)) {
+    return { escalate: true, reason: 'long_or_ambiguous', reply: SAFE_HANDOFF_REPLY };
+  }
+
+  if (includesAnyKeyword(textBody, OUT_OF_SCOPE_KEYWORDS)) {
+    return { escalate: true, reason: 'out_of_scope', reply: SAFE_HANDOFF_REPLY };
+  }
+
+  if (hasLowDomainConfidence(textBody)) {
+    return { escalate: true, reason: 'low_confidence', reply: SAFE_HANDOFF_REPLY };
+  }
+
+  return { escalate: false };
+};
+
 const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
   const cutoff = new Date(Date.now() - cooldownMinutes * 60 * 1000);
 
@@ -447,60 +500,29 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
     const matched = detectKeyword(textBody);
     let replyText;
-    let matchedKey = matched?.key || 'fallback';
-
+    let matchedKey;
     if (matched) {
       if (matched.buildReply) {
         replyText = await matched.buildReply({ footer: config.footer });
       } else {
         replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
       }
+      matchedKey = matched.key;
     } else {
-      replyText = config.fallbackReply;
-
-      const localScopePassed = passesLocalScopePrecheck(textBody);
-      if (!localScopePassed) {
-        logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-          messageId,
-          senderWaId: normalizedWaId,
-          reason: 'local_scope_failed'
-        });
-      } else if (!config.aiFallbackEnabled) {
-        logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-          messageId,
-          senderWaId: normalizedWaId,
-          reason: 'ai_fallback_disabled'
-        });
-      } else {
-        const aiResult = await getGeminiAutoReply({
-          userText: textBody,
-          maxChars: config.aiMaxReplyChars
-        });
-
-        const aiReply = String(aiResult?.reply || '').trim();
-        const isShortEnough = aiReply.length > 0 && aiReply.length <= config.aiMaxReplyChars;
-        const confidencePassed = Number(aiResult?.confidence || 0) >= config.aiMinConfidence;
-
-        if (aiResult?.inScope === true && confidencePassed && isShortEnough) {
-          replyText = aiReply;
-          matchedKey = 'ai_fallback';
-          logAutoReply('AUTO_REPLY_AI_USED', {
-            messageId,
-            senderWaId: normalizedWaId,
-            confidence: Number(aiResult?.confidence || 0)
-          });
+      try {
+        const escalationDecision = shouldEscalateFallback(textBody);
+        if (escalationDecision.escalate) {
+          replyText = escalationDecision.reply;
+          matchedKey = `safe_handoff_${escalationDecision.reason}`;
         } else {
-          logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-            messageId,
-            senderWaId: normalizedWaId,
-            reason: 'ai_guardrails_failed',
-            inScope: Boolean(aiResult?.inScope),
-            confidence: Number(aiResult?.confidence || 0),
-            confidenceThreshold: config.aiMinConfidence,
-            hasReply: Boolean(aiReply),
-            maxChars: config.aiMaxReplyChars
-          });
+          replyText = config.fallbackReply;
+          matchedKey = 'fallback';
         }
+      } catch (error) {
+        console.error('AUTO_REPLY_FALLBACK_DECISION_ERROR', error.message);
+        // AI/decision failure fallback: keep existing safe generic fallback reply.
+        replyText = config.fallbackReply;
+        matchedKey = 'fallback';
       }
     }
 
@@ -523,7 +545,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       waId: normalizedWaId,
       textBody: replyText,
       messageId: sendResult.messageId,
-      matchedKey
+      matchedKey: matchedKey || 'fallback'
     });
 
     await WhatsAppMessage.create({
@@ -535,7 +557,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       platform: 'whatsapp',
       status: 'sent',
       timestamp: new Date(),
-      raw_payload: { auto_reply: true, trigger_message_id: messageId, matched_key: matchedKey },
+      raw_payload: { auto_reply: true, trigger_message_id: messageId, matched_key: matchedKey || 'fallback' },
       is_read_by_staff: true,
       is_replied: false
     }).catch(() => {});
@@ -543,10 +565,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     logAutoReply('AUTO_REPLY_SENT', {
       messageId,
       senderWaId: normalizedWaId,
-      matchedKey,
+      matchedKey: matchedKey || 'fallback',
       outgoingMessageId: sendResult.messageId
     });
-    return { ok: true, matchedKey };
+    return { ok: true, matchedKey: matchedKey || 'fallback' };
   } catch (error) {
     console.error('AUTO_REPLY_TRIGGER_ERROR', error.message);
     return { skipped: true, reason: 'exception', error: error.message };
