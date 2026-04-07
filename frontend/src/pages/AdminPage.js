@@ -2841,7 +2841,7 @@ export default function AdminPage() {
                         const res = await api.post('/templates/sync');
                         toast.success(`تم المزامنة · ${res.data.synced_count} قالب`);
                       } catch (e) {
-                        toast.error('فشل المزامنة — تحقق من WHATSAPP_WABA_ID');
+                        toast.error(e?.response?.data?.error || 'فشل المزامنة');
                       }
                     }}
                     className="rounded-full gap-2 mb-4"
@@ -2895,7 +2895,7 @@ export default function AdminPage() {
                           const res = await api.post('/templates/sync');
                           toast.success(`تم المزامنة · ${res.data.synced_count} قالب`);
                         } catch (e) {
-                          toast.error('فشل المزامنة');
+                          toast.error(e?.response?.data?.error || 'فشل المزامنة');
                         }
                       }}
                       className="rounded-full gap-2"
