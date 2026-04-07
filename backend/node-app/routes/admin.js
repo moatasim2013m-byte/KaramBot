@@ -1492,7 +1492,10 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
       cooldownMinutes: 30,
       footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
       fallbackReply:
-        'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
+        'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
+      useAiFallback: false,
+      aiConfidenceThreshold: 0.7,
+      aiMaxReplyChars: 500
     };
 
     const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
@@ -1502,7 +1505,13 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
         ...defaults,
         ...value,
         enabled: Boolean(value.enabled),
-        cooldownMinutes: Math.max(1, Number(value.cooldownMinutes || defaults.cooldownMinutes))
+        cooldownMinutes: Math.max(1, Number(value.cooldownMinutes || defaults.cooldownMinutes)),
+        useAiFallback: Boolean(value.useAiFallback),
+        aiConfidenceThreshold: Math.min(
+          1,
+          Math.max(0, Number(value.aiConfidenceThreshold ?? defaults.aiConfidenceThreshold))
+        ),
+        aiMaxReplyChars: Math.max(50, Number(value.aiMaxReplyChars || defaults.aiMaxReplyChars))
       }
     });
   } catch (error) {
@@ -1519,7 +1528,10 @@ router.put('/whatsapp-auto-reply', async (req, res) => {
       enabled: Boolean(payload.enabled),
       cooldownMinutes: Math.max(1, Number(payload.cooldownMinutes || 30)),
       footer: String(payload.footer || '').trim(),
-      fallbackReply: String(payload.fallbackReply || '').trim()
+      fallbackReply: String(payload.fallbackReply || '').trim(),
+      useAiFallback: Boolean(payload.useAiFallback),
+      aiConfidenceThreshold: Math.min(1, Math.max(0, Number(payload.aiConfidenceThreshold ?? 0.7))),
+      aiMaxReplyChars: Math.max(50, Number(payload.aiMaxReplyChars || 500))
     };
 
     if (!nextConfig.fallbackReply) {
