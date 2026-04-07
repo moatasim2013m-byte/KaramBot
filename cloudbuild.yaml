@@ -20,6 +20,8 @@ steps:
       - '--image=gcr.io/$PROJECT_ID/peekaboo:$SHORT_SHA'
       - '--region=${_REGION}'
       - '--platform=managed'
+      - '--update-env-vars=NODE_ENV=production'
+      - '--set-secrets=MONGO_URL=MONGO_URL:latest,JWT_SECRET=JWT_SECRET:latest'
       - '--quiet'
 
 images:
