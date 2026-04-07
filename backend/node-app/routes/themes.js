@@ -1,10 +1,9 @@
 const express = require('express');
-const fs = require('fs/promises');
-const path = require('path');
 const rateLimit = require('express-rate-limit');
 const Theme = require('../models/Theme');
 const AITheme = require('../models/AITheme');
 const { generateThemeImage } = require('../utils/geminiImage');
+const { uploadBufferToGcs } = require('../utils/gcsUpload');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -56,14 +55,12 @@ router.post('/ai-generate', aiGenerateLimiter, async (req, res) => {
     const { imageBuffer, mimeType } = await generateThemeImage({ prompt, aspectRatio });
 
     const extension = mimeType && mimeType.includes('jpeg') ? 'jpg' : 'png';
-    const relativePath = `ai-themes/${aiTheme._id}.${extension}`;
-    const uploadDir = path.join(__dirname, '../uploads/ai-themes');
-    const absolutePath = path.join(__dirname, '../uploads', relativePath);
-
-    await fs.mkdir(uploadDir, { recursive: true });
-    await fs.writeFile(absolutePath, imageBuffer);
-
-    const imageUrl = `/api/uploads/${relativePath}`;
+    const objectPath = `ai-themes/${aiTheme._id}.${extension}`;
+    const imageUrl = await uploadBufferToGcs({
+      objectPath,
+      buffer: imageBuffer,
+      contentType: mimeType || 'image/png'
+    });
 
     aiTheme.status = 'generated';
     aiTheme.image_url = imageUrl;
