@@ -94,7 +94,10 @@ export default function AdminLayout() {
     cooldownMinutes: 30,
     footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
     fallbackReply:
-      'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
+      'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
+    useAiFallback: false,
+    aiConfidenceThreshold: 0.7,
+    aiMaxReplyChars: 500
   });
   const [savingAutoReply, setSavingAutoReply] = useState(false);
 
@@ -407,7 +410,10 @@ export default function AdminLayout() {
     try {
       const payload = {
         ...autoReplyConfig,
-        cooldownMinutes: Number(autoReplyConfig.cooldownMinutes || 30)
+        cooldownMinutes: Number(autoReplyConfig.cooldownMinutes || 30),
+        useAiFallback: Boolean(autoReplyConfig.useAiFallback),
+        aiConfidenceThreshold: Number(autoReplyConfig.aiConfidenceThreshold ?? 0.7),
+        aiMaxReplyChars: Number(autoReplyConfig.aiMaxReplyChars || 500)
       };
       const response = await api.put('/admin/whatsapp-auto-reply', payload);
       setAutoReplyConfig(response.data.config || payload);

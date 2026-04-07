@@ -569,6 +569,42 @@ export default function SettingsTab(props) {
                 />
               </div>
 
+              <div className="flex items-center justify-between gap-3">
+                <Label className="text-sm">تفعيل الرد بالذكاء الاصطناعي عند عدم التطابق</Label>
+                <Button
+                  size="sm"
+                  variant={autoReplyConfig.useAiFallback ? 'default' : 'outline'}
+                  onClick={() => setAutoReplyConfig(prev => ({ ...prev, useAiFallback: !prev.useAiFallback }))}
+                  className="rounded-full"
+                >
+                  {autoReplyConfig.useAiFallback ? 'مفعل' : 'غير مفعل'}
+                </Button>
+              </div>
+
+              <div>
+                <Label className="text-sm">حد ثقة الذكاء الاصطناعي (0 إلى 1)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={autoReplyConfig.aiConfidenceThreshold ?? 0.7}
+                  onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, aiConfidenceThreshold: e.target.value }))}
+                  className="rounded-xl mt-1 bg-white"
+                />
+              </div>
+
+              <div>
+                <Label className="text-sm">الحد الأقصى لحروف رد الذكاء الاصطناعي</Label>
+                <Input
+                  type="number"
+                  min={50}
+                  value={autoReplyConfig.aiMaxReplyChars ?? 500}
+                  onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, aiMaxReplyChars: e.target.value }))}
+                  className="rounded-xl mt-1 bg-white"
+                />
+              </div>
+
               <Button
                 size="sm"
                 onClick={saveWhatsAppAutoReplyConfig}

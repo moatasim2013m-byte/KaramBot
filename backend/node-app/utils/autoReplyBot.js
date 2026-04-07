@@ -14,9 +14,9 @@ const DEFAULT_CONFIG = {
   footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
     'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
-  aiFallbackEnabled: false,
-  aiMinConfidence: 0.72,
-  aiMaxReplyChars: 260
+  useAiFallback: false,
+  aiConfidenceThreshold: 0.7,
+  aiMaxReplyChars: 500
 };
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
@@ -280,9 +280,12 @@ const loadAutoReplyConfig = async () => {
     ...value,
     enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
-    aiFallbackEnabled: Boolean(value?.aiFallbackEnabled),
-    aiMinConfidence: Math.max(0, Math.min(1, Number(value?.aiMinConfidence ?? DEFAULT_CONFIG.aiMinConfidence))),
-    aiMaxReplyChars: Math.max(40, Number(value?.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
+    useAiFallback: Boolean(value?.useAiFallback),
+    aiConfidenceThreshold: Math.min(
+      1,
+      Math.max(0, Number(value?.aiConfidenceThreshold ?? DEFAULT_CONFIG.aiConfidenceThreshold))
+    ),
+    aiMaxReplyChars: Math.max(50, Number(value?.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
   };
 };
 
