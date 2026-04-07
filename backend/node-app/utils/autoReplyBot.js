@@ -10,7 +10,7 @@ const {
 const DEFAULT_CONFIG = {
   enabled: false,
   cooldownMinutes: 30,
-  footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
+  footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
     'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
 };
@@ -173,27 +173,10 @@ const keywordMap = [
     }
   },
   {
-    key: 'birthday',
-    keywords: [
-      'عيد', 'ميلاد', 'حفله', 'حفلة', 'احتفال', 'birthday', 'party', 'celebration'
-    ],
-    reply:
-      '🎂 باقات أعياد الميلاد:\n\n🟡 Basic – 90 د.أ\n• 10 أطفال + ساعة لعب\n\n🟠 VIP – 150 د.أ\n• Basic + ستاند مطبوع\n\n🔴 Premium – 250 د.أ\n• VIP + هدايا + هدية مميزة للمحتفي\n\nللحجز: https://peekaboojor.com/book\n📞 0777775652'
-  },
-  {
     key: 'booking',
     keywords: ['حجز', 'احجز', 'book', 'booking'],
     reply:
-      'للحجز السريع 💛 تقدري تحجزي مباشرة من الموقع: https://peekaboojor.com/book أو اتركي رقمك ونتواصل معك.'
-  },
-  {
-    key: 'daycare',
-    keywords: [
-      'داي', 'كير', 'daycare', 'حضانه', 'حضانة', 'روضه', 'روضة', 'اشراف', 'إشراف',
-      'supervision', 'specialist'
-    ],
-    reply:
-      '👶 خدمة الداي كير (1-4 سنوات):\n\n🔴 نصف يوم (149 د.أ) – 6 ساعات\n🔵 يوم كامل (199 د.أ) – 12 ساعة\n🟢 شامل (250 د.أ) – 12 ساعة + ألعاب + رمل\n\n❌ لا يُسمح بوجود الأهالي داخل الداي كير\n✅ إشراف كامل من مختصات\n\n📞 0777775652'
+      'للحجز السريع 💛 تقدري تحجزي مباشرة من الموقع: https://peekaboojor.com/tickets أو اتركي رقمك ونتواصل معك.'
   },
   {
     key: 'age',
