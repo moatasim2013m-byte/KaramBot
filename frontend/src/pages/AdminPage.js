@@ -3161,14 +3161,17 @@ export default function AdminPage() {
                     {/* Add new birthday package */}
                     <form onSubmit={handleAddBirthdayPackage} className="p-3 rounded-xl border border-dashed bg-muted/30 space-y-2">
                       <p className="text-sm font-medium text-muted-foreground">إضافة باقة عيد ميلاد جديدة</p>
+                      <p className="text-xs text-foreground">
+                        الحقول المطلوبة: الاسم بالعربي، الاسم بالإنجليزي، والسعر. باقي الحقول اختيارية.
+                      </p>
                       <Input value={newBirthdayPackage.name_ar} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, name_ar: e.target.value }))} placeholder="الاسم بالعربي *" className="rounded-xl bg-white text-sm" required />
                       <Input value={newBirthdayPackage.name} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, name: e.target.value }))} placeholder="Name (English) *" className="rounded-xl bg-white text-sm" required />
                       <Input type="number" value={newBirthdayPackage.price} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, price: e.target.value }))} placeholder="السعر (د.أ) *" className="rounded-xl bg-white text-sm" required />
                       <div className="grid grid-cols-2 gap-2">
-                        <Input type="number" value={newBirthdayPackage.kids_count} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, kids_count: e.target.value }))} placeholder="عدد الأطفال" className="rounded-xl bg-white text-sm" />
-                        <Input type="number" value={newBirthdayPackage.play_hours} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, play_hours: e.target.value }))} placeholder="ساعات اللعب" className="rounded-xl bg-white text-sm" />
-                        <Input type="number" value={newBirthdayPackage.meals} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, meals: e.target.value }))} placeholder="عدد الوجبات" className="rounded-xl bg-white text-sm" />
-                        <Input type="number" value={newBirthdayPackage.stands} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, stands: e.target.value }))} placeholder="عدد الستاندات" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.kids_count} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, kids_count: e.target.value }))} placeholder="عدد الأطفال (اختياري)" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.play_hours} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, play_hours: e.target.value }))} placeholder="ساعات اللعب (اختياري)" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.meals} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, meals: e.target.value }))} placeholder="عدد الوجبات (اختياري)" className="rounded-xl bg-white text-sm" />
+                        <Input type="number" value={newBirthdayPackage.stands} onChange={e => setNewBirthdayPackage(prev => ({ ...prev, stands: e.target.value }))} placeholder="عدد الستاندات (اختياري)" className="rounded-xl bg-white text-sm" />
                       </div>
                       <Button type="submit" size="sm" disabled={addingBirthdayPackage} className="rounded-full gap-1">
                         {addingBirthdayPackage ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} إضافة
