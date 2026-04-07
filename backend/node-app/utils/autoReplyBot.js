@@ -6,17 +6,36 @@ const {
   normalizePhoneForWhatsApp,
   postWhatsAppText
 } = require('./whatsappBookingConfirmation');
+const { getGeminiAutoReply } = require('./geminiAutoReply');
 
 const DEFAULT_CONFIG = {
   enabled: false,
   cooldownMinutes: 30,
   footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
-    'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).'
+    'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
+  aiFallbackEnabled: false,
+  aiMinConfidence: 0.72,
+  aiMaxReplyChars: 260
 };
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
+const LOCAL_SCOPE_MIN_WORDS = 2;
+const LOCAL_SCOPE_MAX_CHARS = 280;
+const AI_ALLOWED_KEYWORDS = [
+  'سعر', 'اسعار', 'الاسعار', 'الأسعار', 'تكلفة', 'price',
+  'موقع', 'العنوان', 'location', 'address',
+  'ساعات', 'دوام', 'تفتح', 'تسكر', 'hours', 'open',
+  'حجز', 'احجز', 'book', 'booking',
+  'عيد', 'ميلاد', 'حفلة', 'birthday', 'party',
+  'اشتراك', 'باقه', 'باقة', 'subscription', 'plan',
+  'عمر', 'اعمار', 'أعمار', 'age',
+  'داي', 'daycare', 'حضانه', 'حضانة',
+  'توصيل', 'transport', 'delivery',
+  'اهل', 'أهل', 'مرافق', 'كافيه', 'cafe',
+  'رمل', 'sand', 'بعد المدرسه', 'school'
+];
 
 const normalizeText = (value) =>
   String(value || '')
@@ -30,6 +49,19 @@ const normalizeText = (value) =>
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
+
+const passesLocalScopePrecheck = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return false;
+  if (normalized.length > LOCAL_SCOPE_MAX_CHARS) return false;
+
+  const words = tokenize(normalized);
+  if (words.length < LOCAL_SCOPE_MIN_WORDS) return false;
+
+  return AI_ALLOWED_KEYWORDS.some((keyword) => normalized.includes(normalizeText(keyword)));
+};
 
 // ─── DB fetch helpers ────────────────────────────────────────────────────────
 
@@ -258,7 +290,10 @@ const loadAutoReplyConfig = async () => {
     ...DEFAULT_CONFIG,
     ...value,
     enabled,
-    cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes))
+    cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
+    aiFallbackEnabled: Boolean(value?.aiFallbackEnabled),
+    aiMinConfidence: Math.max(0, Math.min(1, Number(value?.aiMinConfidence ?? DEFAULT_CONFIG.aiMinConfidence))),
+    aiMaxReplyChars: Math.max(40, Number(value?.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
   };
 };
 
@@ -412,6 +447,8 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
     const matched = detectKeyword(textBody);
     let replyText;
+    let matchedKey = matched?.key || 'fallback';
+
     if (matched) {
       if (matched.buildReply) {
         replyText = await matched.buildReply({ footer: config.footer });
@@ -420,6 +457,51 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       }
     } else {
       replyText = config.fallbackReply;
+
+      const localScopePassed = passesLocalScopePrecheck(textBody);
+      if (!localScopePassed) {
+        logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+          messageId,
+          senderWaId: normalizedWaId,
+          reason: 'local_scope_failed'
+        });
+      } else if (!config.aiFallbackEnabled) {
+        logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+          messageId,
+          senderWaId: normalizedWaId,
+          reason: 'ai_fallback_disabled'
+        });
+      } else {
+        const aiResult = await getGeminiAutoReply({
+          userText: textBody,
+          maxChars: config.aiMaxReplyChars
+        });
+
+        const aiReply = String(aiResult?.reply || '').trim();
+        const isShortEnough = aiReply.length > 0 && aiReply.length <= config.aiMaxReplyChars;
+        const confidencePassed = Number(aiResult?.confidence || 0) >= config.aiMinConfidence;
+
+        if (aiResult?.inScope === true && confidencePassed && isShortEnough) {
+          replyText = aiReply;
+          matchedKey = 'ai_fallback';
+          logAutoReply('AUTO_REPLY_AI_USED', {
+            messageId,
+            senderWaId: normalizedWaId,
+            confidence: Number(aiResult?.confidence || 0)
+          });
+        } else {
+          logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+            messageId,
+            senderWaId: normalizedWaId,
+            reason: 'ai_guardrails_failed',
+            inScope: Boolean(aiResult?.inScope),
+            confidence: Number(aiResult?.confidence || 0),
+            confidenceThreshold: config.aiMinConfidence,
+            hasReply: Boolean(aiReply),
+            maxChars: config.aiMaxReplyChars
+          });
+        }
+      }
     }
 
     const sendResult = await postWhatsAppText({
@@ -441,7 +523,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       waId: normalizedWaId,
       textBody: replyText,
       messageId: sendResult.messageId,
-      matchedKey: matched?.key || 'fallback'
+      matchedKey
     });
 
     await WhatsAppMessage.create({
@@ -453,7 +535,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       platform: 'whatsapp',
       status: 'sent',
       timestamp: new Date(),
-      raw_payload: { auto_reply: true, trigger_message_id: messageId, matched_key: matched?.key || 'fallback' },
+      raw_payload: { auto_reply: true, trigger_message_id: messageId, matched_key: matchedKey },
       is_read_by_staff: true,
       is_replied: false
     }).catch(() => {});
@@ -461,10 +543,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     logAutoReply('AUTO_REPLY_SENT', {
       messageId,
       senderWaId: normalizedWaId,
-      matchedKey: matched?.key || 'fallback',
+      matchedKey,
       outgoingMessageId: sendResult.messageId
     });
-    return { ok: true, matchedKey: matched?.key || 'fallback' };
+    return { ok: true, matchedKey };
   } catch (error) {
     console.error('AUTO_REPLY_TRIGGER_ERROR', error.message);
     return { skipped: true, reason: 'exception', error: error.message };
