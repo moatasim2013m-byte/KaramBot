@@ -239,7 +239,8 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
-// Health check
+// Health checks
+app.get('/api/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/api/', (req, res) => {
   res.json({ message: 'Peekaboo API is running!' });
 });
