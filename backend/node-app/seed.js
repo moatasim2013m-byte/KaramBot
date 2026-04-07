@@ -14,18 +14,29 @@ const seed = async () => {
     await mongoose.connect(process.env.MONGO_URL, { dbName: process.env.DB_NAME });
     console.log('Connected to MongoDB');
 
-    // Create Admin User
-    const adminExists = await User.findOne({ email: 'admin@peekaboo.com' });
-    if (!adminExists) {
-      const adminPassword = await bcrypt.hash('admin123', 10);
-      await User.create({
-        email: 'admin@peekaboo.com',
-        password_hash: adminPassword,
-        name: 'Admin',
-        role: 'admin',
-        loyalty_points: 0
-      });
-      console.log('Admin user created: admin@peekaboo.com / admin123');
+    // Create Admin User (env-driven, no hardcoded credentials)
+    const adminEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
+    const adminPasswordRaw = process.env.ADMIN_BOOTSTRAP_PASSWORD || '';
+    const adminName = (process.env.ADMIN_BOOTSTRAP_NAME || '').trim() || 'Admin';
+
+    if (adminEmail && adminPasswordRaw) {
+      const adminExists = await User.findOne({ email: adminEmail });
+      if (!adminExists) {
+        const adminPassword = await bcrypt.hash(adminPasswordRaw, 10);
+        await User.create({
+          email: adminEmail,
+          password_hash: adminPassword,
+          name: adminName,
+          role: 'admin',
+          loyalty_points: 0,
+          email_verified: true
+        });
+        console.log('Admin user created from environment configuration');
+      } else {
+        console.log('Admin seed skipped (admin user already exists)');
+      }
+    } else {
+      console.log('Admin seed skipped (missing ADMIN_BOOTSTRAP_EMAIL/ADMIN_BOOTSTRAP_PASSWORD)');
     }
 
     // Create 10 Birthday Themes
