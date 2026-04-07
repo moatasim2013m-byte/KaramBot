@@ -42,6 +42,7 @@ const helmet = require('helmet');
 const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
 const instagramIceBreakersRoutes = require('./routes/instagramIceBreakers');
 const { requestLogger, reportError } = require('./utils/logger');
+const { bootstrapAdminUser } = require('./utils/adminBootstrap');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -338,10 +339,16 @@ if (!mongoUrl) {
   
   mongoose
     .connect(mongoUrl, options)
-    .then(() => {
+    .then(async () => {
       const dbName = process.env.DB_NAME || 'from URI';
       console.log('✅ Connected to MongoDB:', dbName);
       console.log('DB_CONNECTED name=' + mongoose.connection.name + ' host=' + mongoose.connection.host);
+
+      try {
+        await bootstrapAdminUser();
+      } catch (bootstrapError) {
+        console.error('ADMIN_BOOTSTRAP_ERROR', bootstrapError?.message || bootstrapError);
+      }
     })
     .catch((err) => console.error('❌ MongoDB connection error:', err));
 }
