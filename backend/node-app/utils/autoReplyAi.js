@@ -72,26 +72,37 @@ const loadFacts = async () => {
   };
 };
 
-const getScopedAiFallbackReply = async ({ userText, maxChars = 500 }) => {
+const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [] }) => {
   if (!process.env.GEMINI_API_KEY) return null;
 
   try {
     const facts = await loadFacts();
-    const prompt = [
-      'You are a strict classifier+responder for Peekaboo WhatsApp auto reply.',
-      'Return STRICT JSON only with keys exactly:',
-      'in_scope (boolean), topic (string), confidence (number), reply_ar (string).',
-      `Allowed topics only: ${ALLOWED_TOPICS.join(', ')}`,
-      'If uncertain OR outside scope, set in_scope=false, topic="out_of_scope", confidence<=0.4, reply_ar="".',
-      'Hard out-of-scope categories: medical, legal, religion, politics, unrelated parenting advice, unrelated general knowledge.',
-      'Use only these business facts when relevant and do not invent unavailable details.',
+
+    const historyTurns = conversationHistory
+      .filter((m) => m.text && m.text.trim().length > 0)
+      .map((m) => ({
+        role: m.role === 'model' ? 'model' : 'user',
+        parts: [{ text: m.text.trim() }]
+      }));
+
+    const currentTurn = { role: 'user', parts: [{ text: String(userText || '').trim() }] };
+
+    const contents = [...historyTurns, currentTurn];
+
+    const systemInstruction = [
+      'أنت مساعد واتساب لـ Peekaboo — ملعب داخلي للأطفال في إربد، الأردن.',
+      'ردودك: عربية أردنية عامية، دافئة، موجزة (3-4 أسطر كحد أقصى).',
+      'أعد الرد بصيغة JSON فقط: { "in_scope": boolean, "topic": string, "confidence": number, "reply_ar": string }',
+      `المواضيع المسموحة: ${ALLOWED_TOPICS.join(', ')}`,
+      'إذا كان السؤال خارج النطاق: in_scope=false, reply_ar=""',
+      'المعلومات:',
       `hours: ${facts.hours || 'unknown'}`,
       `location: ${facts.location || 'unknown'}`,
       `pricing: ${facts.pricing || 'unknown'}`,
       `daycare_plans: ${facts.daycare || 'unknown'}`,
       `birthday_packages: ${facts.birthday || 'unknown'}`,
-      `Reply must be Arabic and <= ${Math.max(80, Number(maxChars) || 500)} chars.`,
-      `Customer message: ${String(userText || '').trim()}`
+      'إذا لم تعرف الإجابة وجّه للاتصال: 0777775652. لا تخترع معلومات.',
+      `الرد يجب أن لا يتجاوز ${Math.max(80, Number(maxChars) || 500)} حرف.`
     ].join('\n');
 
     const response = await fetch(
@@ -100,7 +111,8 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500 }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents,
           generationConfig: {
             temperature: 0,
             topP: 0.8,

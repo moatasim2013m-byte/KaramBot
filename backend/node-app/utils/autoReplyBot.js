@@ -192,6 +192,12 @@ const keywordMap = [
     }
   },
   {
+    key: 'price_negotiation',
+    keywords: ['غالي', 'غاليه', 'مكلف', 'مو مناسب', 'مش مناسب', 'ابي خصم', 'اريد خصم', 'بدنا خصم', 'هل في خصم', 'في تخفيض'],
+    reply:
+      'نفهم تفكيرك 😊\n\nأسعارنا تعكس جودة البيئة الآمنة والإشراف المتخصص.\n\nبس عندنا خيارات توفر عليك:\n• 🌟 باقات الاشتراك — زيارات أكثر بسعر أوفر\n• 🎂 حجز عيد ميلاد مبكراً — أسعار خاصة\n\nارسلي (اشتراك) للتفاصيل 💛'
+  },
+  {
     key: 'hours',
     keywords: ['ساعات', 'الدوام', 'تفتح', 'تسكر', 'تغلق', 'hours', 'open'],
     reply:
@@ -287,10 +293,28 @@ const keywordMap = [
       '🔒 السلامة أولويتنا في Peekaboo:\n\n• بيئة آمنة ومراقبة بالكامل\n• شاشات مراقبة لمتابعة الأطفال\n• إشراف من مختصات متدربات\n• تصميم الملعب مناسب لكل الأعمار\n\n📞 0777775652'
   },
   {
+    key: 'employment',
+    keywords: ['وظيفة', 'وظيفه', 'شغل', 'توظيف', 'cv', 'سيرة ذاتية', 'سيره ذاتيه', 'resume', 'job', 'hiring', 'ابي اشتغل', 'اريد اشتغل', 'هل في وظايف'],
+    reply:
+      'شكراً لاهتمامك بالعمل معنا في Peekaboo 🌟\n\nأرسل سيرتك الذاتية مع:\n• المسمى الوظيفي المطلوب\n• تخصصك ومؤهلاتك\n• سنوات الخبرة\n\n📧 hr@peekaboojor.com\n\nسيتواصل معك فريقنا قريباً 💛'
+  },
+  {
+    key: 'offers',
+    keywords: ['عرض', 'عروض', 'offer', 'offers', 'في عروض', 'في خصم', 'promotion', 'deal', 'اخر عروض', 'latest offers'],
+    reply:
+      '🎉 عروضنا الحالية:\n\n✨ تابعونا عبر:\n📱 انستقرام: @peekaboojor\n🌐 الموقع: peekaboojor.com\n\n💡 أفضل قيمة:\n• اشتراكات شهرية — زيارات أكثر بسعر أوفر\n• حجز عيد ميلاد مبكر — أسعار مميزة\n\n📞 0777775652'
+  },
+  {
     key: 'subscription',
     keywords: ['اشتراك', 'باقه', 'باقة', 'subscription', 'plan', 'plans', 'زيارات'],
     reply:
       'لدينا باقات اشتراك متعددة حسب عدد الزيارات والفترة. ارسلي كلمة (اشتراك) وسيقوم الفريق بتزويدك بأفضل خيار 👌'
+  },
+  {
+    key: 'intro',
+    keywords: ['مرحبا', 'هلا', 'السلام عليكم', 'هاي', 'hi', 'hello', 'hey', 'سلام', 'صباح الخير', 'مساء الخير', 'كيفكم', 'كيف حالكم'],
+    reply:
+      'أهلاً وسهلاً 💛 يسعدنا تواصلك مع Peekaboo!\n\n🎠 ملعب داخلي متكامل في إربد للأطفال 1-10 سنوات.\n\nكيف نقدر نساعدك؟ ارسلي:\n📌 أسعار | ساعات | موقع | عيد ميلاد | اشتراك | داي كير | حجز | عروض'
   }
 ];
 
@@ -334,7 +358,7 @@ const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
 
 const OUT_OF_SCOPE_KEYWORDS = [
   'طقس', 'weather', 'رياضه', 'كرة', 'مباراه', 'مباراة', 'سياسه', 'سياسة',
-  'اخبار', 'أخبار', 'برمجه', 'برمجة', 'كود', 'bitcoin', 'crypto', 'وظيفه', 'وظيفة'
+  'اخبار', 'أخبار', 'برمجه', 'برمجة', 'كود', 'bitcoin', 'crypto'
 ];
 
 const DOMAIN_GUARD_KEYWORDS = Array.from(
@@ -393,7 +417,7 @@ const shouldEscalateFallback = (textBody) => {
 const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
   const cutoff = new Date(Date.now() - cooldownMinutes * 60 * 1000);
 
-  const recent = await WhatsAppMessage.findOne({
+  const lastAutoReply = await WhatsAppMessage.findOne({
     sender_wa_id: senderWaId,
     direction: 'outbound',
     platform: 'whatsapp',
@@ -403,7 +427,21 @@ const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
     .sort({ timestamp: -1 })
     .lean();
 
-  return Boolean(recent);
+  if (!lastAutoReply) return false;
+
+  const lastCustomerMessage = await WhatsAppMessage.findOne({
+    sender_wa_id: senderWaId,
+    direction: 'inbound',
+    platform: 'whatsapp'
+  })
+    .sort({ timestamp: -1 })
+    .lean();
+
+  if (!lastCustomerMessage) return true;
+
+  // Customer sent a new message after our last reply → allow reply
+  // Our reply is newer than their last message → still in cooldown
+  return lastCustomerMessage.timestamp <= lastAutoReply.timestamp;
 };
 
 const hasRecentStaffReply = async (senderWaId) => {
@@ -650,9 +688,38 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         try {
           const passesScopePrecheck = passesLocalScopePrecheck(effectiveTextBody);
           if (passesScopePrecheck && config.useAiFallback) {
+            const recentMessages = await WhatsAppMessage.find({
+              sender_wa_id: normalizedWaId,
+              platform: 'whatsapp',
+              message_type: 'text',
+              text_body: { $exists: true, $ne: '' },
+              message_id: { $not: /^auto_trigger_/ }
+            })
+              .sort({ timestamp: -1 })
+              .limit(6)
+              .lean();
+
+            // Reverse to chronological, then exclude current message if already stored
+            const conversationHistory = recentMessages
+              .reverse()
+              .map((m) => ({
+                role: m.direction === 'inbound' ? 'user' : 'model',
+                text: String(m.text_body || '').trim()
+              }))
+              .filter((m) => m.text.length > 0)
+              .filter((m, idx, arr) => {
+                // Remove the last entry if it matches the current message (avoid duplicate)
+                if (idx === arr.length - 1 && m.role === 'user' && m.text === effectiveTextBody.trim()) {
+                  return false;
+                }
+                return true;
+              })
+              .slice(-5); // keep at most 5 turns
+
             const aiResult = await getScopedAiFallbackReply({
               userText: effectiveTextBody,
-              maxChars: config.aiMaxReplyChars
+              maxChars: config.aiMaxReplyChars,
+              conversationHistory
             });
             const requiredConfidence = Math.max(
               MIN_AI_CONFIDENCE_FLOOR,
