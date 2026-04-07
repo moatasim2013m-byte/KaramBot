@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 
 const parseBoolean = (value) => {
+  if (typeof value === 'boolean') return value;
   if (typeof value !== 'string') return false;
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 };
@@ -15,25 +16,31 @@ const bootstrapAdminUser = async () => {
 
   const email = (process.env.ADMIN_BOOTSTRAP_EMAIL || '').trim().toLowerCase();
   const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || '';
-  const name = (process.env.ADMIN_BOOTSTRAP_NAME || '').trim() || 'Admin';
+  const configuredName = (process.env.ADMIN_BOOTSTRAP_NAME || '').trim();
   const resetIfExists = parseBoolean(process.env.ADMIN_BOOTSTRAP_RESET_IF_EXISTS);
 
-  if (!email || !password) {
-    console.log('ADMIN_BOOTSTRAP_SKIPPED: admin bootstrap skipped (missing required env vars)');
+  if (!email) {
+    console.log('ADMIN_BOOTSTRAP_SKIPPED: admin bootstrap skipped (missing ADMIN_BOOTSTRAP_EMAIL)');
     return;
   }
 
   const existingUser = await User.findOne({ email });
 
   if (!existingUser) {
+    if (!password) {
+      console.log('ADMIN_BOOTSTRAP_SKIPPED: admin bootstrap skipped (missing ADMIN_BOOTSTRAP_PASSWORD for create)');
+      return;
+    }
+
     const password_hash = await bcrypt.hash(password, 10);
     await User.create({
       email,
       password_hash,
-      name,
+      name: configuredName || 'Admin',
       role: 'admin',
       email_verified: true
     });
+
     console.log('ADMIN_BOOTSTRAP_CREATED: admin created');
     return;
   }
@@ -50,9 +57,16 @@ const bootstrapAdminUser = async () => {
     return;
   }
 
+  if (!password) {
+    console.log('ADMIN_BOOTSTRAP_SKIPPED: admin bootstrap skipped (reset requested but missing ADMIN_BOOTSTRAP_PASSWORD)');
+    return;
+  }
+
   existingUser.password_hash = await bcrypt.hash(password, 10);
   existingUser.role = 'admin';
-  existingUser.name = name || existingUser.name;
+  if (configuredName) {
+    existingUser.name = configuredName;
+  }
   existingUser.email_verified = true;
   existingUser.reset_token = undefined;
   existingUser.reset_token_expires = undefined;
