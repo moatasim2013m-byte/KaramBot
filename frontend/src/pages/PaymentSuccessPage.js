@@ -279,7 +279,7 @@ function PaymentSuccessPage() {
                 <RefreshCw className="h-4 w-4 ml-2" />
                 إعادة المحاولة
               </Button>
-              <Button type="button" variant="outline" onClick={() => navigate('/book')} className="rounded-full">
+              <Button type="button" variant="outline" onClick={() => navigate('/tickets')} className="rounded-full">
                 الرجوع للحجوزات
               </Button>
             </div>

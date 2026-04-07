@@ -397,6 +397,7 @@ const finalizePaidTransaction = async (transaction) => {
         Theme.findById(themeId)
       ]);
       if (!child || !theme) throw new Error('بيانات الحجز غير صالحة');
+      const birthdayGuestCount = Number.parseInt(metadata.guest_count, 10);
       const booking = await BirthdayBooking.create({
         user_id: transaction.user_id,
         child_id: childId,
@@ -408,6 +409,12 @@ const finalizePaidTransaction = async (transaction) => {
         payment_method: 'card',
         payment_status: 'paid',
         amount: Number(transaction.amount || 0),
+        ...(Number.isFinite(birthdayGuestCount) && birthdayGuestCount > 0
+          ? { guest_count: birthdayGuestCount }
+          : {}),
+        ...(typeof metadata.special_notes === 'string' && metadata.special_notes.trim()
+          ? { special_notes: metadata.special_notes.trim() }
+          : {}),
         lineItems: parseLineItemsFromMetadata(metadata)
       });
       notifyAdminsOfOrder({
@@ -634,7 +641,18 @@ router.post('/create-checkout', authMiddleware, async (req, res) => {
         payment_method: 'manual'
       });
     }
-    const { type, reference_id, origin_url, duration_hours, custom_notes, timeMode, lineItems, coupon_code } = req.body;
+    const {
+      type,
+      reference_id,
+      origin_url,
+      duration_hours,
+      custom_notes,
+      timeMode,
+      lineItems,
+      coupon_code,
+      guest_count,
+      special_notes
+    } = req.body;
     if (!type) {
       return res.status(400).json({ error: 'type is required' });
     }
@@ -691,6 +709,13 @@ router.post('/create-checkout', authMiddleware, async (req, res) => {
         amount = (await getBirthdayThemePrice(req.body.theme_id)) + productsTotal;
         metadata.slot_id = reference_id;
         metadata.theme_id = req.body.theme_id;
+        const normalizedGuestCount = Number.parseInt(guest_count, 10);
+        if (Number.isFinite(normalizedGuestCount) && normalizedGuestCount > 0) {
+          metadata.guest_count = normalizedGuestCount;
+        }
+        if (typeof special_notes === 'string' && special_notes.trim()) {
+          metadata.special_notes = special_notes.trim();
+        }
         break;
       }
       case 'subscription': {
