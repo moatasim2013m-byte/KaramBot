@@ -14,7 +14,7 @@ const Theme = require('../models/Theme');
 const Settings = require('../models/Settings');
 const { authMiddleware, adminMiddleware, FULL_STAFF_ACCESS } = require('../middleware/auth');
 const { sendEmail, emailTemplates } = require('../utils/email');
-const { GCS_BUCKET_NAME, uploadBufferToGcs } = require('../utils/gcsUpload');
+const { uploadBufferToGcs } = require('../utils/gcsUpload');
 const { awardReferralForFirstConfirmedOrder } = require('../utils/referrals');
 const {
   sendHourlyBookingWhatsAppConfirmation,
@@ -167,19 +167,19 @@ router.post('/upload-image', (req, res) => {
       return res.status(400).json({ error: 'Failed to process image. Please try a different file.' });
     }
 
-    // Upload the processed buffer to GCS.
+    // Upload the processed buffer to configured storage (GCS or local fallback).
+    let imageUrl;
     try {
-      await uploadBufferToGcs({
+      imageUrl = await uploadBufferToGcs({
         objectPath: filename,
         buffer,
         contentType: 'image/webp'
       });
-    } catch (gcsError) {
-      console.error('GCS upload error:', gcsError);
+    } catch (storageError) {
+      console.error('Image storage error:', storageError);
       return res.status(500).json({ error: 'Failed to store image. Please try again.' });
     }
 
-    const imageUrl = `https://storage.googleapis.com/${GCS_BUCKET_NAME}/${filename}`;
     res.json({ image_url: imageUrl });
   } catch (error) {
     console.error('Upload error:', error);

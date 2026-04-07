@@ -1,7 +1,7 @@
 require('dotenv').config();
 const crypto = require('crypto');
 const { logger, pinoHttpMiddleware, writeCloudError } = require('./utils/logger');
-const { GCS_BUCKET_NAME, isGcsBucketConfigured } = require('./utils/gcsUpload');
+const { GCS_BUCKET_NAME, LOCAL_UPLOADS_DIR, UPLOAD_STORAGE_MODE, isGcsBucketConfigured } = require('./utils/gcsUpload');
 const initialEnvPresence = {
   MONGO_URL: Boolean(process.env.MONGO_URL),
   JWT_SECRET: Boolean(process.env.JWT_SECRET),
@@ -20,8 +20,10 @@ logger.info({ event: 'boot_env', env: process.env.NODE_ENV || 'undefined', port:
 logger.info({ event: 'boot_env_presence', env_present: initialEnvPresence }, 'Env presence');
 logger.info({
   event: 'boot_storage',
+  upload_storage_mode: UPLOAD_STORAGE_MODE,
   gcs_bucket_configured: isGcsBucketConfigured,
-  gcs_bucket_name: GCS_BUCKET_NAME
+  gcs_bucket_name: GCS_BUCKET_NAME,
+  local_uploads_dir: LOCAL_UPLOADS_DIR
 }, 'Storage configuration');
 
 // ==================== PROCESS ERROR HANDLERS ====================
@@ -87,6 +89,10 @@ app.use(cors({
   credentials: true
 }));
 
+
+
+// Public local uploads (used when storage falls back to local mode).
+app.use('/uploads', express.static(LOCAL_UPLOADS_DIR));
 
 app.use('/api/whatsapp', express.json({
   limit: '1mb',
