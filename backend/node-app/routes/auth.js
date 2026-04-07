@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
-const { getJwtSecret, authMiddleware } = require('../middleware/auth');
+const { getJwtSecret, optionalAuthMiddleware } = require('../middleware/auth');
 const { sendVerificationEmail, sendEmail, emailTemplates, isResendConfigured, getSenderEmail, getSenderFrom } = require('../utils/email');
 
 const router = express.Router();
@@ -291,8 +291,12 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // Get current user
-router.get('/me', authMiddleware, async (req, res) => {
-  res.json({ user: req.user.toJSON() });
+router.get('/me', optionalAuthMiddleware, async (req, res) => {
+  if (!req.user) {
+    return res.json({ user: null });
+  }
+
+  return res.json({ user: req.user.toJSON() });
 });
 
 module.exports = router;

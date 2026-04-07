@@ -73,12 +73,12 @@ export const AuthProvider = ({ children }) => {
 
       try {
         const response = await api.get('/auth/me');
-        setUser(response.data.user);
-        setToken(storedToken);
-      } catch (error) {
-        console.warn('Auth check failed:', error.response?.status);
-        // Only clear auth on explicit 401 (invalid/expired token)
-        if (error.response?.status === 401) {
+        const authenticatedUser = response?.data?.user || null;
+
+        if (authenticatedUser) {
+          setUser(authenticatedUser);
+          setToken(storedToken);
+        } else {
           try {
             localStorage.removeItem(TOKEN_KEY);
           } catch (e) {
@@ -87,6 +87,8 @@ export const AuthProvider = ({ children }) => {
           setToken(null);
           setUser(null);
         }
+      } catch (error) {
+        console.warn('Auth check failed:', error.response?.status);
         // Network errors or other issues - keep token, don't force logout
       } finally {
         setLoading(false);
