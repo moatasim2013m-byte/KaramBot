@@ -42,7 +42,7 @@ const resolveMediaUrl = (url) => {
   if (/^https?:\/\//i.test(normalizedUrl)) {
     try {
       const parsed = new URL(normalizedUrl);
-      if (parsed.pathname.startsWith('/api/uploads/')) {
+      if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
         normalizedUrl = `${parsed.pathname}${parsed.search}`;
       } else {
         return normalizedUrl;
@@ -2286,7 +2286,7 @@ export default function AdminPage() {
                   {themes.map((theme) => (
                     <Card key={theme.id} className="rounded-xl overflow-hidden">
                       {theme.image_url && (
-                        <img src={theme.image_url} alt={theme.name} className="w-full h-32 object-cover" />
+                        <img src={resolveMediaUrl(theme.image_url)} alt={theme.name} className="w-full h-32 object-cover" />
                       )}
                       <CardContent className="p-4">
                         <div className="flex justify-between items-start mb-2">
@@ -2356,7 +2356,7 @@ export default function AdminPage() {
                               disabled={uploadingImage}
                             />
                             {newTheme.image_url && (
-                              <img src={newTheme.image_url} alt="Preview" className="mt-2 h-20 w-20 object-cover rounded-lg" />
+                              <img src={resolveMediaUrl(newTheme.image_url)} alt="Preview" className="mt-2 h-20 w-20 object-cover rounded-lg" />
                             )}
                           </div>
                         </div>
@@ -2427,9 +2427,9 @@ export default function AdminPage() {
                   {gallery.map((item) => (
                     <div key={item.id} className="relative rounded-xl overflow-hidden group">
                       {item.type === 'photo' ? (
-                        <img src={item.url} alt={item.title} className="w-full h-32 object-cover" />
+                        <img src={resolveMediaUrl(item.url)} alt={item.title} className="w-full h-32 object-cover" />
                       ) : (
-                        <video src={item.url} className="w-full h-32 object-cover" />
+                        <video src={resolveMediaUrl(item.url)} className="w-full h-32 object-cover" />
                       )}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button variant="destructive" size="icon" onClick={() => handleDeleteMedia(item.id)}>

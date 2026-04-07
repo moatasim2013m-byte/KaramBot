@@ -24,6 +24,38 @@ import alertIcon from '../assets/cartoon-icons/popper.svg';
 import copyIcon from '../assets/cartoon-icons/check.svg';
 import birthdayAccessory from '../assets/mascot-variants/birthday-party.svg';
 
+const RAW_BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').trim();
+const BACKEND_ORIGIN =
+  !RAW_BACKEND_URL || RAW_BACKEND_URL === 'undefined' || RAW_BACKEND_URL === 'null'
+    ? ''
+    : RAW_BACKEND_URL.replace(/\/+$/, '').replace(/\/api$/i, '');
+
+const resolveMediaUrl = (url) => {
+  if (!url) return '';
+  if (/^(data:|blob:)/i.test(url)) return url;
+
+  let normalizedUrl = String(url).trim();
+
+  if (/^https?:\/\//i.test(normalizedUrl)) {
+    try {
+      const parsed = new URL(normalizedUrl);
+      if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
+        normalizedUrl = `${parsed.pathname}${parsed.search}`;
+      } else {
+        return normalizedUrl;
+      }
+    } catch {
+      return normalizedUrl;
+    }
+  }
+
+  if (normalizedUrl.startsWith('/uploads/')) {
+    normalizedUrl = `/api${normalizedUrl}`;
+  }
+
+  return `${BACKEND_ORIGIN}${normalizedUrl.startsWith('/') ? '' : '/'}${normalizedUrl}`;
+};
+
 
 export default function BirthdayPage() {
   const { isAuthenticated, api } = useAuth();
@@ -519,7 +551,7 @@ export default function BirthdayPage() {
                         {index === 1 && <Badge className="theme-saving-badge">الأكثر طلباً</Badge>}
                       </div>
                       {theme.image_url && (
-                        <img src={theme.image_url} alt={theme.name_ar || theme.name} className="theme-package-image" />
+                        <img src={resolveMediaUrl(theme.image_url)} alt={theme.name_ar || theme.name} className="theme-package-image" />
                       )}
                       <h3 className="font-heading font-bold text-sm">{theme.name_ar || theme.name}</h3>
                       <div className="mt-2 flex justify-center">

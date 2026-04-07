@@ -92,7 +92,10 @@ app.use(cors({
 
 
 // Public local uploads (used when storage falls back to local mode).
+// Keep both routes so legacy `/uploads/...` links and API-scoped `/api/uploads/...`
+// links both resolve in every deployment topology.
 app.use('/uploads', express.static(LOCAL_UPLOADS_DIR));
+app.use('/api/uploads', express.static(LOCAL_UPLOADS_DIR));
 
 app.use('/api/whatsapp', express.json({
   limit: '1mb',

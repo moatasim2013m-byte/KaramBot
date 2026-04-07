@@ -23,7 +23,7 @@ const resolveMediaUrl = (url) => {
   if (/^https?:\/\//i.test(normalizedUrl)) {
     try {
       const parsed = new URL(normalizedUrl);
-      if (parsed.pathname.startsWith('/api/uploads/')) {
+      if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
         normalizedUrl = `${parsed.pathname}${parsed.search}`;
       } else {
         return normalizedUrl;
@@ -94,9 +94,9 @@ export default function ContentTab(props) {
               {gallery.map((item) => (
                 <div key={item.id} className="relative rounded-xl overflow-hidden group">
                   {item.type === 'photo' ? (
-                    <img src={item.url} alt={item.title} className="w-full h-32 object-cover" />
+                    <img src={resolveMediaUrl(item.url)} alt={item.title} className="w-full h-32 object-cover" />
                   ) : (
-                    <video src={item.url} className="w-full h-32 object-cover" />
+                    <video src={resolveMediaUrl(item.url)} className="w-full h-32 object-cover" />
                   )}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     <Button variant="destructive" size="icon" onClick={() => handleDeleteMedia(item.id)}>

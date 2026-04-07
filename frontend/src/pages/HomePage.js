@@ -39,7 +39,7 @@ const resolveMediaUrl = (url) => {
   if (/^https?:\/\//i.test(normalizedUrl)) {
     try {
       const parsed = new URL(normalizedUrl);
-      if (parsed.pathname.startsWith('/api/uploads/')) {
+      if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
         normalizedUrl = `${parsed.pathname}${parsed.search}`;
       } else {
         return normalizedUrl;
