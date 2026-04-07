@@ -57,6 +57,41 @@ const authMiddleware = async (req, res, next) => {
   }
 };
 
+
+const optionalAuthMiddleware = async (req, _res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const queryToken = typeof req.query?.access_token === 'string' ? req.query.access_token.trim() : '';
+    const bearerToken = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.split(' ')[1]
+      : '';
+    const token = bearerToken || queryToken;
+
+    if (!token) {
+      req.user = null;
+      req.userId = null;
+      return next();
+    }
+
+    const decoded = jwt.verify(token, getJwtSecret());
+    const user = await User.findById(decoded.userId);
+
+    if (!user) {
+      req.user = null;
+      req.userId = null;
+      return next();
+    }
+
+    req.user = user;
+    req.userId = decoded.userId;
+    return next();
+  } catch (_error) {
+    req.user = null;
+    req.userId = null;
+    return next();
+  }
+};
+
 const adminMiddleware = async (req, res, next) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
@@ -86,6 +121,7 @@ const staffPermissionMiddleware = (permissionKey) => (req, res, next) => {
 
 module.exports = {
   authMiddleware,
+  optionalAuthMiddleware,
   adminMiddleware,
   staffMiddleware,
   staffPermissionMiddleware,
