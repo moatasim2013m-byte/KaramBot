@@ -6,7 +6,7 @@ const {
   normalizePhoneForWhatsApp,
   postWhatsAppText
 } = require('./whatsappBookingConfirmation');
-const { getGeminiAutoReply } = require('./geminiAutoReply');
+const { getScopedAiFallbackReply } = require('./autoReplyAi');
 
 const DEFAULT_CONFIG = {
   enabled: false,
@@ -513,10 +513,38 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       matchedKey = matched.key;
     } else {
       try {
-        const escalationDecision = shouldEscalateFallback(textBody);
-        if (escalationDecision.escalate) {
-          replyText = escalationDecision.reply;
-          matchedKey = `safe_handoff_${escalationDecision.reason}`;
+        if (config.useAiFallback) {
+          const aiResult = await getScopedAiFallbackReply({
+            userText: textBody,
+            maxChars: config.aiMaxReplyChars
+          });
+
+          const aiReplyAllowed = Boolean(
+            aiResult &&
+              aiResult.in_scope === true &&
+              aiResult.confidence >= config.aiConfidenceThreshold &&
+              String(aiResult.reply_ar || '').trim()
+          );
+
+          if (aiReplyAllowed) {
+            replyText = String(aiResult.reply_ar).trim();
+            matchedKey = 'ai_fallback';
+            logAutoReply('AUTO_REPLY_AI_USED', {
+              messageId,
+              senderWaId: normalizedWaId,
+              topic: aiResult.topic || 'unknown',
+              confidence: aiResult.confidence
+            });
+          } else {
+            replyText = config.fallbackReply;
+            matchedKey = 'fallback';
+            logAutoReply('AUTO_REPLY_AI_SKIPPED', {
+              messageId,
+              senderWaId: normalizedWaId,
+              reason: aiResult?.in_scope === false ? 'out_of_scope_or_uncertain' : 'invalid_or_low_confidence',
+              confidence: aiResult?.confidence ?? null
+            });
+          }
         } else {
           replyText = config.fallbackReply;
           matchedKey = 'fallback';
