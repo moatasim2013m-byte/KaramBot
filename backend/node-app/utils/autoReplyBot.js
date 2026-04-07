@@ -19,7 +19,7 @@ const DEFAULT_CONFIG = {
   aiMaxReplyChars: 500
 };
 
-const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way'];
+const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
 const BURST_WINDOW_SECONDS = 25;
 const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
@@ -91,7 +91,6 @@ const buildPlayPricingText = async () => {
     hourly_3hr: 13,
     hourly_extra_hr: 3,
     extra_companion: 3,
-    sand_area_addon: 20,
     transport_one_way: 40
   };
 
@@ -100,13 +99,14 @@ const buildPlayPricingText = async () => {
   });
 
   const lines = [
+    `⭐ العرض الأكثر طلبًا: ساعتان بـ ${prices.hourly_2hr} د.أ`,
     `• ساعة: ${prices.hourly_1hr} د.أ`,
-    `• ساعتان: ${prices.hourly_2hr} د.أ`,
     `• 3 ساعات: ${prices.hourly_3hr} د.أ`,
     `• كل ساعة إضافية: ${prices.hourly_extra_hr} د.أ`,
     `• مرافق إضافي: ${prices.extra_companion} د.أ`,
-    `• منطقة الرمل (إضافة): ${prices.sand_area_addon} د.أ`,
-    `• خدمة التوصيل (اتجاه واحد): ${prices.transport_one_way} د.أ`
+    `• خدمة التوصيل (اتجاه واحد): ${prices.transport_one_way} د.أ`,
+    '',
+    '💡 ولأفضل قيمة، اسألي عن الاشتراكات الشهرية وباقات أعياد الميلاد.'
   ];
 
   return lines.join('\n');
