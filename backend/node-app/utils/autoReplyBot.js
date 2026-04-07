@@ -27,6 +27,7 @@ const SAFE_HANDOFF_REPLY = 'شكراً لرسالتك 🌷 للتأكيد وخد
 const COMPLAINT_HANDOFF_REPLY = 'آسفين إذا صار أي إزعاج 💛 حتى نحل الموضوع بسرعة، حولنا رسالتك مباشرة لفريق الخدمة، وبيردوا عليك قريبًا.';
 const LOCAL_SCOPE_MAX_CHARS = 450;
 const LOCAL_SCOPE_MIN_WORDS = 2;
+const MIN_AI_CONFIDENCE_FLOOR = 0.55;
 const AI_ALLOWED_KEYWORDS = [
   'بيكابو',
   'peekaboo',
@@ -545,16 +546,25 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
             userText: textBody,
             maxChars: config.aiMaxReplyChars
           });
+          const requiredConfidence = Math.max(
+            MIN_AI_CONFIDENCE_FLOOR,
+            Number(config.aiConfidenceThreshold || 0)
+          );
+          const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
+            0,
+            Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
+          );
 
           const aiReplyAllowed = Boolean(
             aiResult &&
               aiResult.in_scope === true &&
-              aiResult.confidence >= config.aiConfidenceThreshold &&
-              String(aiResult.reply_ar || '').trim()
+              aiResult.confidence >= requiredConfidence &&
+              boundedAiReply &&
+              boundedAiReply.length >= 2
           );
 
           if (aiReplyAllowed) {
-            replyText = String(aiResult.reply_ar).trim();
+            replyText = boundedAiReply;
             matchedKey = 'ai_fallback';
             logAutoReply('AUTO_REPLY_AI_USED', {
               messageId,
