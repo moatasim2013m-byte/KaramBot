@@ -26,6 +26,10 @@ const BACKEND_ORIGIN =
     ? ''
     : RAW_BACKEND_URL.replace(/\/+$/, '').replace(/\/api$/i, '');
 
+const WHATSAPP_NUMBER = '962777775652';
+const WHATSAPP_PREFILL = 'مرحباً، بدي أحجز جلسة في بيكابو';
+const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_PREFILL)}`;
+
 const resolveMediaUrl = (url) => {
   if (!url) return '';
   if (/^(data:|blob:)/i.test(url)) return url;
