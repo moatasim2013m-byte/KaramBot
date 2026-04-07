@@ -14,8 +14,8 @@ const MAX_IMAGE_UPLOAD_BYTES = MAX_IMAGE_UPLOAD_MB * 1024 * 1024;
 
 const resolveMediaUrl = (url) => {
   if (!url) return '';
-  if (/^(data:|blob:|https?:\/\/)/i.test(url)) return url;
   const normalized = String(url).trim();
+  if (/^(data:|blob:|https?:\/\/)/i.test(normalized)) return normalized;
   if (normalized.startsWith('/uploads/')) return `/api${normalized}`;
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
 };
