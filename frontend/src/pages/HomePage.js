@@ -578,7 +578,7 @@ export default function HomePage() {
                   {item.type === 'video' ? (
                     <div className={`relative bg-muted ${index === 0 ? 'aspect-[4/3] md:aspect-square' : 'aspect-square'}`}>
                       <video
-                        src={item.url}
+                        src={resolveMediaUrl(item.url)}
                         className="w-full h-full object-cover"
                         preload="none"
                         muted
@@ -590,7 +590,7 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <img 
-                      src={item.url} 
+                      src={resolveMediaUrl(item.url)} 
                       alt={item.title || 'صورة من المعرض'} 
                       className={`w-full object-cover hover:scale-105 transition-transform duration-300 ${index === 0 ? 'aspect-[4/3] md:aspect-square' : 'aspect-square'}`}
                       loading="lazy"
