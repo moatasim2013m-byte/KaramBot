@@ -337,6 +337,9 @@ export default function HomePage() {
                   <img src={logoImg} alt="شعار بيكابو" className="hero-brand-logo" />
                 </div>
                 <p className="hero-brand-slogan opl-hero-badge">We bring happiness</p>
+                <p className="opl-dev-sign" aria-live="polite">
+                  🚧 الموقع تحت التطوير — قريباً سيكون متاحاً بالكامل
+                </p>
                 <h1 className="hero-main-title opl-hero-title opl-hero-title--kids font-heading text-3xl sm:text-4xl md:text-5xl lg:text-6xl leading-tight" data-testid="hero-title">
                   {renderHeroTitleText(heroConfig.title)}
                 </h1>
