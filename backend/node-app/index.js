@@ -26,6 +26,17 @@ logger.info({
   local_uploads_dir: LOCAL_UPLOADS_DIR
 }, 'Storage configuration');
 
+const isProductionEnv = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+if (isProductionEnv && UPLOAD_STORAGE_MODE !== 'local' && !isGcsBucketConfigured) {
+  logger.fatal({
+    event: 'boot_storage_invalid',
+    reason: 'Missing durable upload storage configuration',
+    required_env: 'GCS_BUCKET_NAME',
+    upload_storage_mode: UPLOAD_STORAGE_MODE
+  }, 'Refusing to start in production without durable upload storage');
+  process.exit(1);
+}
+
 // ==================== PROCESS ERROR HANDLERS ====================
 process.on('unhandledRejection', (reason, promise) => {
   logger.error({ event: 'unhandled_rejection', reason: reason?.message || reason, stack: reason?.stack || 'no stack' }, 'Unhandled rejection');

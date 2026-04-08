@@ -13,7 +13,7 @@ const LOCAL_UPLOADS_DIR = path.resolve(
 const storageClient = new Storage();
 const gcsBucket = GCS_BUCKET_NAME ? storageClient.bucket(GCS_BUCKET_NAME) : null;
 
-const isGcsBucketConfigured = Boolean(process.env.GCS_BUCKET_NAME);
+const isGcsBucketConfigured = Boolean(GCS_BUCKET_NAME);
 
 const buildPublicGcsUrl = (objectPath) => `https://storage.googleapis.com/${GCS_BUCKET_NAME}/${objectPath}`;
 
