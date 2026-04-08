@@ -177,6 +177,11 @@ router.post('/upload-image', (req, res) => {
       });
     } catch (storageError) {
       console.error('Image storage error:', storageError);
+      if ((storageError?.message || '').includes('Durable upload storage is not configured')) {
+        return res.status(503).json({
+          error: 'Image storage is not configured correctly. Please set GCS_BUCKET_NAME for production uploads.'
+        });
+      }
       return res.status(500).json({ error: 'Failed to store image. Please try again.' });
     }
 
