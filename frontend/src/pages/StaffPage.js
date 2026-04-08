@@ -13,7 +13,7 @@ import {
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
   PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
-  Image as ImageIcon
+  Image as ImageIcon, Bot, User
 } from 'lucide-react';
 
 const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
@@ -120,6 +120,9 @@ export default function StaffPage() {
   const [sendingImage, setSendingImage] = useState(false);
   const [togglingOptOut, setTogglingOptOut] = useState(false);
   const [previewImageSrc, setPreviewImageSrc] = useState('');
+  const [autoReplyConfig, setAutoReplyConfig] = useState(null);
+  const [loadingAgentMode, setLoadingAgentMode] = useState(false);
+  const [savingAgentMode, setSavingAgentMode] = useState(false);
   const imageInputRef = useRef(null);
   const inboxEventsRef = useRef(null);
   const staffPermissions = useMemo(() => ({
@@ -329,6 +332,43 @@ export default function StaffPage() {
       setTemplates(response.data.templates || []);
     } catch (error) { console.error('Failed to fetch templates:', error); }
   }, [api]);
+
+  const fetchAutoReplyConfig = useCallback(async () => {
+    if (user?.role !== 'admin') return;
+    setLoadingAgentMode(true);
+    try {
+      const response = await api.get('/admin/whatsapp-auto-reply');
+      setAutoReplyConfig(response.data?.config || null);
+    } catch (error) {
+      console.error('Failed to fetch WhatsApp auto-reply config:', error);
+      toast.error(getApiErrorMessage(error, 'فشل تحميل وضع الوكيل'));
+    } finally {
+      setLoadingAgentMode(false);
+    }
+  }, [api, user?.role]);
+
+  const handleSwitchAgentMode = async (enabled) => {
+    if (user?.role !== 'admin' || !autoReplyConfig) return;
+    setSavingAgentMode(true);
+    try {
+      const payload = {
+        ...autoReplyConfig,
+        enabled,
+        cooldownMinutes: Number(autoReplyConfig.cooldownMinutes || 30),
+        useAiFallback: Boolean(autoReplyConfig.useAiFallback),
+        aiConfidenceThreshold: Number(autoReplyConfig.aiConfidenceThreshold ?? 0.7),
+        aiMaxReplyChars: Number(autoReplyConfig.aiMaxReplyChars || 500)
+      };
+      const response = await api.put('/admin/whatsapp-auto-reply', payload);
+      setAutoReplyConfig(response.data?.config || payload);
+      toast.success(enabled ? 'تم التحويل إلى الوكيل الذكي' : 'تم التحويل إلى الوكيل البشري');
+    } catch (error) {
+      console.error('Failed to switch agent mode:', error);
+      toast.error(getApiErrorMessage(error, 'فشل تغيير وضع الوكيل'));
+    } finally {
+      setSavingAgentMode(false);
+    }
+  };
 
   const handleConversationSelect = (conv) => {
     setConversations(prev => prev.map(c => c.wa_id === conv.wa_id ? { ...c, unread_count: 0 } : c));
@@ -563,6 +603,7 @@ export default function StaffPage() {
       fetchConversations(true);
       fetchQuickReplies();
       fetchTemplates();
+      fetchAutoReplyConfig();
       const convParams = new URLSearchParams();
       if (inboxSearch) convParams.append('search', inboxSearch);
       if (showUnreadOnly) convParams.append('unread_only', 'true');
@@ -611,6 +652,7 @@ export default function StaffPage() {
     fetchConversations,
     fetchQuickReplies,
     fetchTemplates,
+    fetchAutoReplyConfig,
     selectedConversation,
     createAuthedEventSource,
     inboxSearch,
@@ -1130,9 +1172,39 @@ export default function StaffPage() {
                           )}
                         </div>
                       </div>
-                      <button onClick={() => setShowQuickReplies(!showQuickReplies)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${showQuickReplies ? 'bg-[#66A9E9] text-white border-[#66A9E9]' : 'bg-white text-[#66A9E9] border-[#66A9E9]/40 hover:bg-[#66A9E9]/10'}`}>
-                        <MessageSquare className="h-3.5 w-3.5" /> Quick Replies
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {user?.role === 'admin' && (
+                          <div className="flex items-center gap-1 p-1 rounded-full border border-[#66A9E9]/30 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchAgentMode(false)}
+                              disabled={loadingAgentMode || savingAgentMode || !autoReplyConfig}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
+                                autoReplyConfig?.enabled === false ? 'bg-[#66A9E9] text-white shadow-sm' : 'text-[#3a7fc1] hover:bg-[#66A9E9]/10'
+                              } disabled:opacity-50`}
+                              title="الرد بواسطة وكيل بشري"
+                            >
+                              <User className="h-3 w-3" />
+                              Human
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchAgentMode(true)}
+                              disabled={loadingAgentMode || savingAgentMode || !autoReplyConfig}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all ${
+                                autoReplyConfig?.enabled ? 'bg-[#66A9E9] text-white shadow-sm' : 'text-[#3a7fc1] hover:bg-[#66A9E9]/10'
+                              } disabled:opacity-50`}
+                              title="الرد بواسطة وكيل ذكي"
+                            >
+                              <Bot className="h-3 w-3" />
+                              AI
+                            </button>
+                          </div>
+                        )}
+                        <button onClick={() => setShowQuickReplies(!showQuickReplies)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${showQuickReplies ? 'bg-[#66A9E9] text-white border-[#66A9E9]' : 'bg-white text-[#66A9E9] border-[#66A9E9]/40 hover:bg-[#66A9E9]/10'}`}>
+                          <MessageSquare className="h-3.5 w-3.5" /> Quick Replies
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 inbox-messages-bg">
