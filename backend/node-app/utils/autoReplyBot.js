@@ -69,6 +69,48 @@ const normalizeText = (value) =>
 
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
 
+const GREETING_RULES = [
+  { opening: 'وعليكم السلام ورحمة الله 💛', patterns: ['السلام عليكم', 'سلام عليكم', 'السلام عليكو', 'السلامُ عليكم'] },
+  { opening: 'صباح النور 💛', patterns: ['صباح الخير', 'صباحو', 'صباح الخيرر'] },
+  { opening: 'مساء النور 💛', patterns: ['مساء الخير', 'مسا الخير'] },
+  { opening: 'هلا والله 💛', patterns: ['هلا', 'هلاا', 'هلا والله'] },
+  { opening: 'أهلاً وسهلاً 💛', patterns: ['مرحبا', 'مرحباً', 'اهلا', 'أهلا', 'هاي', 'hello', 'hi', 'hey'] }
+];
+
+const detectGreetingOpening = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return null;
+
+  const matchedRule = GREETING_RULES.find((rule) =>
+    rule.patterns.some((pattern) => normalized.includes(normalizeText(pattern)))
+  );
+  return matchedRule ? matchedRule.opening : null;
+};
+
+const isGreetingOnlyMessage = (textBody) => {
+  let normalized = normalizeText(textBody);
+  if (!normalized) return false;
+
+  GREETING_RULES.forEach((rule) => {
+    rule.patterns.forEach((pattern) => {
+      const normalizedPattern = normalizeText(pattern);
+      normalized = normalized.split(normalizedPattern).join(' ').trim();
+    });
+  });
+
+  return normalizeText(normalized).length === 0;
+};
+
+const buildGreetingOnlyIntroReply = ({ opening, footer }) =>
+  [
+    opening,
+    'أهلاً في Peekaboo 💛',
+    '🎠 ملعب داخلي في إربد: المنطقة الرئيسية لعمر 1-10 سنوات، والداي كير لعمر 1-4 سنوات.',
+    'كيف نقدر نساعدك؟ ارسلي: أسعار | داي كير | أعمار | حجز | عيد ميلاد | عروض.',
+    '📞 عام: 0777775652 | مدارس/أعياد: 0799241993',
+    footer
+  ].filter(Boolean).join('\n');
+
 const passesLocalScopePrecheck = (textBody) => {
   const normalized = normalizeText(textBody);
   if (!normalized) return false;
@@ -675,20 +717,30 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       return { skipped: true, reason: 'cooldown_active' };
     }
 
-    const matched = detectKeyword(effectiveTextBody);
+    const greetingOpening = detectGreetingOpening(effectiveTextBody);
+    const greetingOnly = greetingOpening ? isGreetingOnlyMessage(effectiveTextBody) : false;
+    const matched = greetingOnly ? null : detectKeyword(effectiveTextBody);
     let replyText;
     let matchedKey;
-    if (matched) {
+    if (greetingOnly && greetingOpening) {
+      replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
+      matchedKey = 'intro';
+    } else if (matched) {
       if (matched.buildReply) {
         replyText = await matched.buildReply({ footer: config.footer });
       } else {
         replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
       }
+      if (greetingOpening && matched.key !== 'intro') {
+        replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
+      } else if (greetingOpening && matched.key === 'intro') {
+        replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
+      }
       matchedKey = matched.key;
     } else {
       const escalationDecision = shouldEscalateFallback(effectiveTextBody);
       if (escalationDecision.escalate) {
-        replyText = escalationDecision.reply;
+        replyText = [greetingOpening, escalationDecision.reply].filter(Boolean).join('\n');
         matchedKey = 'escalation_handoff';
         logAutoReply('AUTO_REPLY_ESCALATED', {
           messageId,
@@ -750,7 +802,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
             );
 
             if (aiReplyAllowed) {
-              replyText = boundedAiReply;
+              replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
               matchedKey = 'ai_fallback';
               logAutoReply('AUTO_REPLY_AI_USED', {
                 messageId,
@@ -759,7 +811,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
                 confidence: aiResult.confidence
               });
             } else {
-              replyText = config.fallbackReply;
+              replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
               matchedKey = 'fallback';
               logAutoReply('AUTO_REPLY_AI_SKIPPED', {
                 messageId,
@@ -769,7 +821,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
               });
             }
           } else {
-            replyText = config.fallbackReply;
+            replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
             matchedKey = 'fallback';
             if (!passesScopePrecheck && config.useAiFallback) {
               logAutoReply('AUTO_REPLY_AI_SKIPPED', {
@@ -782,7 +834,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         } catch (error) {
           console.error('AUTO_REPLY_FALLBACK_DECISION_ERROR', error.message);
           // AI/decision failure fallback: keep existing safe generic fallback reply.
-          replyText = config.fallbackReply;
+          replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
           matchedKey = 'fallback';
         }
       }
