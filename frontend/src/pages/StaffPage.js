@@ -87,6 +87,10 @@ export default function StaffPage() {
   const [inboxSearch, setInboxSearch] = useState('');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const autoScrollEnabledRef = useRef(true);
+  const previousMessageCountRef = useRef(0);
+  const previousConversationWaIdRef = useRef(null);
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showQRManager, setShowQRManager] = useState(false);
   const [qrForm, setQrForm] = useState({ label: '', message: '', category: 'other' });
@@ -332,6 +336,7 @@ export default function StaffPage() {
 
   const handleConversationSelect = (conv) => {
     setConversations(prev => prev.map(c => c.wa_id === conv.wa_id ? { ...c, unread_count: 0 } : c));
+    autoScrollEnabledRef.current = true;
     setSelectedConversation(conv);
     setMessages([]);
     setCustomerProfile(null);
@@ -553,9 +558,29 @@ export default function StaffPage() {
     } finally { setSendingImage(false); }
   };
 
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    autoScrollEnabledRef.current = distanceFromBottom <= 120;
+  }, []);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const currentConversationWaId = selectedConversation?.wa_id || null;
+    const isConversationChanged = previousConversationWaIdRef.current !== currentConversationWaId;
+    const hasNewMessages = messages.length > previousMessageCountRef.current;
+
+    if (isConversationChanged) {
+      autoScrollEnabledRef.current = true;
+    }
+
+    if (autoScrollEnabledRef.current && (isConversationChanged || hasNewMessages)) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+
+    previousMessageCountRef.current = messages.length;
+    previousConversationWaIdRef.current = currentConversationWaId;
+  }, [messages, selectedConversation?.wa_id]);
 
   useEffect(() => {
     if (activeTab === 'inbox' && staffPermissions.access_whatsapp_inbox) {
@@ -1135,7 +1160,11 @@ export default function StaffPage() {
                       </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3 inbox-messages-bg">
+                    <div
+                      ref={messagesContainerRef}
+                      onScroll={handleMessagesScroll}
+                      className="flex-1 overflow-y-auto p-4 space-y-3 inbox-messages-bg"
+                    >
                       {messages.length === 0 ? (
                         <div className="text-center text-gray-400 py-12"><p className="text-sm">No messages yet</p></div>
                       ) : (
