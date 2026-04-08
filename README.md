@@ -1,6 +1,13 @@
 # official-peekaboo-website-
 Official Peekaboo indoor playground website source code
 
+## Staff shortcut links
+
+- WhatsApp inbox direct shortcut: `/whatsapp-inbox`
+- Canonical inbox URL: `/staff?tab=inbox`
+- Production direct link (your domain): `https://peekaboojor.com/whatsapp-inbox`
+- Production canonical link: `https://peekaboojor.com/staff?tab=inbox`
+
 ## Payment Gateway Readiness (Capital Bank Jordan)
 
 The backend supports a `PAYMENT_PROVIDER` switch with these options:
