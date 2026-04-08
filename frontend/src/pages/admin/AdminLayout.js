@@ -74,6 +74,7 @@ export default function AdminLayout() {
   const [currentTab, setCurrentTab] = useState('overview');
   const [activeFilter, setActiveFilter] = useState(null);
   const [unreadInboxCount, setUnreadInboxCount] = useState(0);
+  const [canPollInboxStats, setCanPollInboxStats] = useState(true);
   const [stats, setStats] = useState({});
   const [users, setUsers] = useState([]);
   const [hourlyBookings, setHourlyBookings] = useState([]);
@@ -227,7 +228,13 @@ export default function AdminLayout() {
   }, [isAdmin]);
 
   useEffect(() => {
-    if (!isAdmin) return undefined;
+    if (isAdmin) {
+      setCanPollInboxStats(true);
+    }
+  }, [isAdmin, user?.id]);
+
+  useEffect(() => {
+    if (!isAdmin || !canPollInboxStats) return undefined;
 
     let isMounted = true;
 
@@ -238,6 +245,11 @@ export default function AdminLayout() {
         setUnreadInboxCount(Number(response?.data?.unread_messages || 0));
       } catch (error) {
         if (!isMounted) return;
+        const status = Number(error?.response?.status || 0);
+        if (status === 401 || status === 403) {
+          // Stop polling when the active admin session cannot access inbox stats.
+          setCanPollInboxStats(false);
+        }
         setUnreadInboxCount(0);
       }
     };
@@ -249,7 +261,7 @@ export default function AdminLayout() {
       isMounted = false;
       window.clearInterval(intervalId);
     };
-  }, [api, isAdmin]);
+  }, [api, canPollInboxStats, isAdmin]);
 
   useEffect(() => {
     const hasActiveSession = hourlyBookings.some((booking) => booking.status === 'checked_in');
