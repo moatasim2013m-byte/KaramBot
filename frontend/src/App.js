@@ -171,6 +171,7 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route path="/whatsapp-inbox" element={<Navigate to="/staff?tab=inbox" replace />} />
         <Route
           path="/reception"
           element={
