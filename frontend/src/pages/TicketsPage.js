@@ -381,7 +381,11 @@ export default function TicketsPage() {
         if (!checkoutUrl) {
           throw new Error('تعذر بدء الدفع الإلكتروني. حاول مرة أخرى.');
         }
-        window.location.assign(checkoutUrl);
+        if (checkoutUrl.startsWith('/')) {
+          navigate(checkoutUrl);
+        } else {
+          window.location.assign(checkoutUrl);
+        }
       } else {
         // Cash or CliQ - create booking directly
         const response = await api.post('/bookings/hourly/offline', {
