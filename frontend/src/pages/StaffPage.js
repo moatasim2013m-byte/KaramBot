@@ -125,6 +125,7 @@ export default function StaffPage() {
   const [togglingOptOut, setTogglingOptOut] = useState(false);
   const [previewImageSrc, setPreviewImageSrc] = useState('');
   const imageInputRef = useRef(null);
+  const replyTextareaRef = useRef(null);
   const inboxEventsRef = useRef(null);
   const staffPermissions = useMemo(() => ({
     access_staff_tools: user?.role === 'admin'
@@ -178,6 +179,15 @@ export default function StaffPage() {
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [previewImageSrc]);
+
+  useEffect(() => {
+    const textarea = replyTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    const nextHeight = Math.min(textarea.scrollHeight, 160);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 160 ? 'auto' : 'hidden';
+  }, [replyText, selectedConversation?.wa_id]);
 
   const fetchActiveSessions = useCallback(async () => {
     try {
@@ -1042,8 +1052,8 @@ export default function StaffPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="inbox">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100vh-250px)]">
+          <TabsContent value="inbox" className="min-h-0">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100dvh-250px)] min-h-[520px]">
               <div className={`lg:col-span-1 flex flex-col ${mobileShowThread ? 'hidden lg:flex' : 'flex'}`}>
                 <div className="rounded-2xl border bg-white shadow-sm flex-1 flex flex-col overflow-hidden">
                   <div className="px-4 py-3 border-b bg-gradient-to-r from-[#66A9E9]/10 to-white flex items-center justify-between">
@@ -1480,7 +1490,7 @@ export default function StaffPage() {
                         >
                           <ImageIcon className="h-4 w-4" />
                         </button>
-                        <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
+                        <textarea ref={replyTextareaRef} value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-6 min-h-[52px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
                         <button
                           type={imageFile ? 'button' : 'submit'}
                           onClick={imageFile ? handleSendImage : undefined}
