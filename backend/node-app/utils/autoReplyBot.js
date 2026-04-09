@@ -649,9 +649,9 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
   }
 
   const triggerTime = new Date(triggerMessage.timestamp);
-  const burstEndTime = new Date(triggerTime.getTime() + burstWindowMs);
-  const burstStartTime = new Date(triggerTime.getTime() - burstWindowMs);
-  const waitMs = Math.max(0, burstEndTime.getTime() - Date.now());
+  const evaluationWindowStart = triggerTime;
+  const evaluationWindowEnd = new Date(triggerTime.getTime() + burstWindowMs);
+  const waitMs = Math.max(0, evaluationWindowEnd.getTime() - Date.now());
   if (waitMs > 0) await sleep(waitMs);
 
   const latestInBurst = await WhatsAppMessage.findOne({
@@ -659,7 +659,7 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     direction: 'inbound',
     platform: 'whatsapp',
     message_type: 'text',
-    timestamp: { $gte: triggerTime, $lte: burstEndTime }
+    timestamp: { $gte: evaluationWindowStart, $lte: evaluationWindowEnd }
   })
     .sort({ timestamp: -1, _id: -1 })
     .lean();
@@ -673,14 +673,15 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     };
   }
 
-  // Keep aggregation aligned with the evaluated burst window so we don't
-  // drop useful context that may land after the trigger timestamp.
+  // Aggregate around the same evaluated trigger while keeping nearby pre-context.
+  const aggregationWindowStart = new Date(evaluationWindowStart.getTime() - burstWindowMs);
+  const aggregationWindowEnd = evaluationWindowEnd;
   const burstMessages = await WhatsAppMessage.find({
     sender_wa_id: senderWaId,
     direction: 'inbound',
     platform: 'whatsapp',
     message_type: 'text',
-    timestamp: { $gte: burstStartTime, $lte: burstEndTime }
+    timestamp: { $gte: aggregationWindowStart, $lte: aggregationWindowEnd }
   })
     .sort({ timestamp: 1, _id: 1 })
     .lean();
