@@ -1,11 +1,16 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || process.env.JWT_KEY;
+const jwtSecretSource = process.env.JWT_SECRET
+  ? 'JWT_SECRET'
+  : (process.env.JWT_SECRET_KEY ? 'JWT_SECRET_KEY' : (process.env.JWT_KEY ? 'JWT_KEY' : null));
 
-// Validate JWT_SECRET is set in production
+// Validate JWT secret presence early and log alias usage for safer migrations.
 if (!JWT_SECRET) {
-  console.error('WARNING: JWT_SECRET environment variable is not set. Using default for development only.');
+  console.error('WARNING: JWT secret environment variable is not set. Using default for development only.');
+} else if (jwtSecretSource !== 'JWT_SECRET') {
+  console.warn(`WARNING: Using legacy ${jwtSecretSource} for JWT signing. Please migrate to JWT_SECRET.`);
 }
 
 const getJwtSecret = () => {
