@@ -481,7 +481,10 @@ const detectKeyword = (textBody) => {
 const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
   'شكوى', 'مشتكي', 'زعلان', 'زعلانه', 'معصب', 'معصبه', 'سيئ', 'سيء', 'مشكله', 'مشكلة',
   'غلط', 'احتيال', 'نصب', 'استرجاع', 'refund', 'cancel', 'cancellation',
-  'حادث', 'اصابه', 'إصابة', 'نزيف', 'تحرش', 'عنف', 'تهديد', 'ابتزاز'
+  'حادث', 'اصابه', 'إصابة', 'نزيف', 'تحرش', 'عنف', 'تهديد', 'ابتزاز',
+  'دفع', 'الدفع', 'دفعت', 'سحب', 'خصم', 'بطاقه', 'بطاقة', 'فيزا', 'ماستر', 'تحويل', 'payment', 'charged',
+  'خصوصيه', 'خصوصية', 'بيانات', 'privacy', 'data leak', 'تسريب',
+  'فشل الحجز', 'الحجز فشل', 'الحجز ما زبط', 'ما زبط الحجز', 'الموقع ما حجز', 'booking failed', 'booking issue'
 ];
 
 const OUT_OF_SCOPE_KEYWORDS = [
@@ -498,6 +501,16 @@ const SHORT_IN_DOMAIN_HINTS = [
   'حجز', 'عيد ميلاد', 'اعمار', 'أعمار', 'عمر'
 ];
 
+const SHORT_QUESTION_WORDS = [
+  'وين', 'وينكم', 'كم', 'قديش', 'شو', 'ايش', 'ليش', 'متى', 'هل', 'بقدر', 'ممكن'
+];
+
+const CHILD_SUPERVISION_HINTS = [
+  'طفل', 'طفلي', 'ابني', 'ابني', 'بنتي', 'بنتي',
+  'لحاله', 'لحالو', 'وحده', 'وحده', 'لوحده', 'لوحدو', 'مرافق', 'مرافقه', 'مرافقة',
+  'اترك', 'اخليه', 'خليه'
+];
+
 const DOMAIN_GUARD_KEYWORDS = Array.from(
   new Set(
     keywordMap
@@ -511,6 +524,32 @@ const DOMAIN_GUARD_KEYWORDS = Array.from(
 const includesAnyKeyword = (textBody, keywords) => {
   const normalized = normalizeText(textBody);
   return keywords.some((keyword) => normalized.includes(normalizeText(keyword)));
+};
+
+const isShortLikelyInDomainQuestion = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return false;
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 8) return false;
+
+  const hasQuestionTone =
+    String(textBody || '').includes('?') ||
+    SHORT_QUESTION_WORDS.some((token) => normalized.includes(normalizeText(token)));
+
+  if (!hasQuestionTone) return false;
+
+  const hasServiceHint =
+    SHORT_IN_DOMAIN_HINTS.some((keyword) => normalized.includes(normalizeText(keyword))) ||
+    AI_ALLOWED_KEYWORDS.some((keyword) => normalized.includes(normalizeText(keyword)));
+
+  if (hasServiceHint) return true;
+
+  const childHintHits = CHILD_SUPERVISION_HINTS.filter((keyword) =>
+    normalized.includes(normalizeText(keyword))
+  ).length;
+
+  return childHintHits >= 2;
 };
 
 const isVeryLongMessage = (textBody) => {
@@ -533,8 +572,9 @@ const hasLowDomainConfidence = (textBody) => {
   const hasShortInDomainHint =
     isShortMessage &&
     SHORT_IN_DOMAIN_HINTS.some((keyword) => normalized.includes(normalizeText(keyword)));
+  const shortLikelyInDomainQuestion = isShortLikelyInDomainQuestion(textBody);
 
-  return domainTokenHits <= 1 && domainPhraseHits === 0 && !hasShortInDomainHint;
+  return domainTokenHits <= 1 && domainPhraseHits === 0 && !hasShortInDomainHint && !shortLikelyInDomainQuestion;
 };
 
 const shouldEscalateFallback = (textBody) => {
