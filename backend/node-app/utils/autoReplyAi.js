@@ -90,7 +90,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     const contents = [...historyTurns, currentTurn];
 
     const systemInstruction = [
-      'أنت مساعد واتساب لـ Peekaboo — ملعب داخلي للأطفال في إربد، الأردن.',
+      'أنت مساعد واتساب لبيكابو — ملعب داخلي للأطفال في إربد، الأردن.',
       'ردودك: عربية أردنية عامية، دافئة، موجزة (3-4 أسطر كحد أقصى).',
       'أعد الرد بصيغة JSON فقط: { "in_scope": boolean, "topic": string, "confidence": number, "reply_ar": string }',
       `المواضيع المسموحة: ${ALLOWED_TOPICS.join(', ')}`,
