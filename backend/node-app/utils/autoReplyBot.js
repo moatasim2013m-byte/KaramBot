@@ -53,6 +53,11 @@ const AI_ALLOWED_KEYWORDS = [
   'توصيل',
   'نقل'
 ];
+const DETERMINISTIC_CANNED_KEYS = new Set(['location', 'hours', 'pricing']);
+const COMPARISON_KEYWORDS = [
+  'فرق', 'الفرق', 'مقارنه', 'مقارنة', 'انسب', 'أنسب', 'افضل', 'أفضل',
+  'ولا', 'او', 'أو', 'مع', 'احسن', 'أحسن', 'ايهم', 'أيهم'
+];
 
 const normalizeText = (value) =>
   String(value || '')
@@ -447,11 +452,10 @@ const loadAutoReplyConfig = async () => {
   };
 };
 
-const detectKeyword = (textBody) => {
+const detectKeywordMatches = (textBody) => {
   const normalized = normalizeText(textBody);
-  if (!normalized) return null;
-
-  let bestMatch = null;
+  if (!normalized) return [];
+  const matches = [];
 
   keywordMap.forEach((entry, index) => {
     const matchedKeywords = entry.keywords.filter((keyword) =>
@@ -464,18 +468,44 @@ const detectKeyword = (textBody) => {
     );
     const strongestKeywordWords = tokenize(strongestKeyword).length;
     const phraseBoost = strongestKeywordWords > 1 ? 3 : 0;
-    const score = normalizeText(strongestKeyword).length + phraseBoost;
+    const baseScore = normalizeText(strongestKeyword).length + phraseBoost;
+    const score = baseScore + Math.min(4, matchedKeywords.length);
 
-    if (
-      !bestMatch ||
-      score > bestMatch.score ||
-      (score === bestMatch.score && index < bestMatch.index)
-    ) {
-      bestMatch = { entry, score, index };
-    }
+    matches.push({ entry, score, index });
   });
 
-  return bestMatch ? bestMatch.entry : null;
+  return matches.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.index - b.index;
+  });
+};
+
+const shouldPreferAiForMixedIntent = ({ textBody, keywordMatches = [] }) => {
+  if (!Array.isArray(keywordMatches) || keywordMatches.length === 0) return false;
+
+  const normalized = normalizeText(textBody);
+  if (!normalized) return false;
+
+  const topMatch = keywordMatches[0];
+  const secondMatch = keywordMatches[1];
+  const hasComparisonWording = COMPARISON_KEYWORDS.some((keyword) =>
+    normalized.includes(normalizeText(keyword))
+  );
+  const hasConnector = /\b(و|او|أو|ولا|مع)\b/u.test(normalized);
+  const hasQuestionTone = String(textBody || '').includes('?') || SHORT_QUESTION_WORDS.some((word) =>
+    normalized.includes(normalizeText(word))
+  );
+  const secondIsStrong = Boolean(
+    secondMatch &&
+    secondMatch.entry?.key !== topMatch.entry?.key &&
+    secondMatch.score >= Math.max(3, topMatch.score - 2)
+  );
+
+  if (DETERMINISTIC_CANNED_KEYS.has(topMatch.entry?.key) && !hasComparisonWording && !secondIsStrong) {
+    return false;
+  }
+
+  return Boolean(hasQuestionTone && (hasComparisonWording || secondIsStrong || (hasConnector && secondIsStrong)));
 };
 
 const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
@@ -887,13 +917,18 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
     const greetingOpening = detectGreetingOpening(effectiveTextBody);
     const greetingOnly = greetingOpening ? isGreetingOnlyMessage(effectiveTextBody) : false;
-    const matched = greetingOnly ? null : detectKeyword(effectiveTextBody);
+    const keywordMatches = greetingOnly ? [] : detectKeywordMatches(effectiveTextBody);
+    const matched = keywordMatches[0]?.entry || null;
+    const preferAiForMixedIntent = shouldPreferAiForMixedIntent({
+      textBody: effectiveTextBody,
+      keywordMatches
+    });
     let replyText;
     let matchedKey;
     if (greetingOnly && greetingOpening) {
       replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
       matchedKey = 'intro';
-    } else if (matched) {
+    } else if (matched && !preferAiForMixedIntent) {
       if (matched.buildReply) {
         replyText = await matched.buildReply({ footer: config.footer });
       } else {
@@ -906,6 +941,14 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       }
       matchedKey = matched.key;
     } else {
+      if (preferAiForMixedIntent) {
+        logAutoReply('AUTO_REPLY_MIXED_INTENT_TO_AI', {
+          messageId,
+          senderWaId: normalizedWaId,
+          topIntent: matched?.key || null,
+          secondaryIntent: keywordMatches[1]?.entry?.key || null
+        });
+      }
       const escalationDecision = shouldEscalateFallback(effectiveTextBody);
       if (escalationDecision.escalate) {
         replyText = [greetingOpening, escalationDecision.reply].filter(Boolean).join('\n');
