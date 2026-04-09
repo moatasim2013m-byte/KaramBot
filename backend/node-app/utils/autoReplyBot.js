@@ -141,15 +141,25 @@ const buildPlayPricingText = async () => {
   });
 
   const lines = [
+    'أكيد 🌟 هاي أسعار اللعب الحالية:',
+    '',
     `⭐ الأوفر: ساعتين بـ ${prices.hourly_2hr} دنانير`,
     `• ساعة بـ ${prices.hourly_1hr} دنانير`,
     `• 3 ساعات: ${prices.hourly_3hr} د.أ`,
     `• كل ساعة إضافية: ${prices.hourly_extra_hr} د.أ`,
     `• مرافق إضافي: ${prices.extra_companion} د.أ`,
-    `• خدمة التوصيل (اتجاه واحد): ${prices.transport_one_way} د.أ`,
     '',
-    '💡 الأسعار نفسها بكل أيام الأسبوع، والأنشطة متاحة خلال ساعات الدوام.',
-    '📌 ما في عرض إخوة حالياً، تابعوا صفحتنا للعروض.'
+    '📍 منطقة اللعب الرئيسية بالطابق الثاني',
+    '💡 الأسعار نفسها بكل أيام الأسبوع',
+    '📌 ما في عرض إخوة حالياً، تابعوا صفحتنا للعروض',
+    '',
+    '👶 وعندنا كمان خدمات إضافية بالطابق الثالث:',
+    '• الداي كير للأطفال من عمر 1 إلى 4 سنوات',
+    '• منطقة الرمل',
+    '',
+    'وفيه اشتراكات وبالساعة',
+    `🚗 وخدمة التوصيل داخل مدينة إربد: ${prices.transport_one_way} دينار للاتجاه الواحد`,
+    'للتفاصيل ارسلي: داي كير أو اشتراك'
   ];
 
   return lines.join('\n');
@@ -252,7 +262,7 @@ const keywordMap = [
     keywords: ['سعر', 'اسعار', 'الاسعار', 'الأسعار', 'تكلفه', 'price', 'pricing', 'cost'],
     buildReply: async ({ footer }) => {
       const pricingText = await buildPlayPricingText();
-      return ['أكيد 🌟 هاي أسعار اللعب الحالية:', pricingText, footer].filter(Boolean).join('\n');
+      return [pricingText, '', 'للحجز المباشر:', 'https://peekaboojor.com/tickets'].filter(Boolean).join('\n');
     }
   },
   {
