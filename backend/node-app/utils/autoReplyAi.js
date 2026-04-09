@@ -19,6 +19,9 @@ const ALLOWED_TOPICS = [
 ];
 const OUT_OF_SCOPE_TOPIC = 'out_of_scope';
 const MAX_MODEL_JSON_CHARS = 4000;
+const logAutoReplyAi = (event, payload = {}) => {
+  console.log(event, payload);
+};
 
 const parseStrictJsonObject = (rawText) => {
   const text = String(rawText || '').trim();
@@ -97,9 +100,20 @@ const buildApprovedFaqContext = (faqItems = []) => {
 };
 
 const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [] }) => {
-  if (!process.env.GEMINI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY) {
+    logAutoReplyAi('WA_BOT_AI_ROUTE', {
+      route: 'ai_not_called',
+      reason: 'missing_api_key'
+    });
+    return null;
+  }
 
   try {
+    logAutoReplyAi('WA_BOT_AI_ROUTE', {
+      route: 'ai_call_started',
+      model: TEXT_MODEL,
+      hasHistory: Array.isArray(conversationHistory) && conversationHistory.length > 0
+    });
     const [facts, approvedFaqExamples] = await Promise.all([
       loadFacts(),
       getApprovedFaqMemory({ queryText: userText, limit: 3 }).catch(() => [])
@@ -168,12 +182,25 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       }
     );
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      logAutoReplyAi('WA_BOT_AI_ROUTE', {
+        route: 'ai_call_failed',
+        reason: 'http_error',
+        status: response.status
+      });
+      return null;
+    }
 
     const payload = await response.json();
     const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('\n') || '';
     const parsed = parseStrictJsonObject(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
+    if (!parsed || typeof parsed !== 'object') {
+      logAutoReplyAi('WA_BOT_AI_ROUTE', {
+        route: 'ai_call_failed',
+        reason: 'invalid_json_payload'
+      });
+      return null;
+    }
 
     const topicRaw = String(parsed.topic || '').trim();
     const topic = ALLOWED_TOPICS.includes(topicRaw) || topicRaw === OUT_OF_SCOPE_TOPIC
@@ -186,13 +213,26 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     const inScope = parsed.in_scope === true && ALLOWED_TOPICS.includes(topic);
     const replyAr = sanitizeArabicReply(parsed.reply_ar, maxChars);
 
-    return {
+    const result = {
       in_scope: inScope,
       topic,
       confidence,
       reply_ar: replyAr
     };
+    logAutoReplyAi('WA_BOT_AI_ROUTE', {
+      route: 'ai_call_succeeded',
+      inScope: result.in_scope,
+      topic: result.topic,
+      confidence: result.confidence,
+      hasReply: Boolean(result.reply_ar)
+    });
+    return result;
   } catch (error) {
+    logAutoReplyAi('WA_BOT_AI_ROUTE', {
+      route: 'ai_call_failed',
+      reason: 'exception',
+      error: error?.message || 'unknown_error'
+    });
     return null;
   }
 };

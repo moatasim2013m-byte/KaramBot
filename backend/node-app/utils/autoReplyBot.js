@@ -680,6 +680,14 @@ const logAutoReply = (event, payload = {}) => {
   console.log(event, payload);
 };
 
+const logRoutingDecision = (payload = {}) => {
+  logAutoReply('WA_BOT_ROUTE_DECISION', payload);
+};
+
+const logRoutingBlock = (payload = {}) => {
+  logAutoReply('WA_BOT_ROUTE_BLOCKED', payload);
+};
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const persistAutoTriggerMarker = async ({ messageId, senderWaId, skipped, matchedKey, triggerMessageId }) => {
@@ -823,11 +831,22 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
     if (!senderWaId || !messageId) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'missing_payload' });
+      logRoutingBlock({
+        messageId,
+        route: 'skip',
+        reason: 'missing_payload'
+      });
       return { skipped: true, reason: 'missing_payload' };
     }
 
     if (messageType !== 'text') {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'unsupported_message_type', messageType });
+      logRoutingBlock({
+        messageId,
+        route: 'skip',
+        reason: 'unsupported_message_type',
+        messageType
+      });
       return { skipped: true, reason: 'unsupported_message_type' };
     }
 
@@ -839,12 +858,22 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     });
     if (!config.enabled) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'disabled' });
+      logRoutingBlock({
+        messageId,
+        route: 'skip',
+        reason: 'disabled'
+      });
       return { skipped: true, reason: 'disabled' };
     }
 
     const normalizedWaId = normalizePhoneForWhatsApp(senderWaId);
     if (!normalizedWaId) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'invalid_wa_id', senderWaId });
+      logRoutingBlock({
+        messageId,
+        route: 'skip',
+        reason: 'invalid_wa_id'
+      });
       return { skipped: true, reason: 'invalid_wa_id' };
     }
 
@@ -853,6 +882,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     }).lean();
     if (alreadyHandled) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'duplicate_trigger' });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: 'duplicate_trigger'
+      });
       return { skipped: true, reason: 'duplicate_trigger' };
     }
 
@@ -873,6 +908,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         reason: burstResolution.reason,
         latestMessageId: burstResolution.latestMessageId || null
       });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: burstResolution.reason
+      });
       return { skipped: true, reason: burstResolution.reason };
     }
 
@@ -885,6 +926,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         logAutoReply('AUTO_REPLY_SKIPPED', {
           messageId,
           senderWaId: normalizedWaId,
+          reason: 'duplicate_trigger',
+          resolvedTriggerMessageId
+        });
+        logRoutingBlock({
+          messageId,
+          senderWaId: normalizedWaId,
+          route: 'skip',
           reason: 'duplicate_trigger',
           resolvedTriggerMessageId
         });
@@ -901,6 +949,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         reason: 'recent_staff_reply',
         blockMinutes: STAFF_REPLY_BLOCK_MINUTES
       });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: 'recent_staff_reply',
+        blockMinutes: STAFF_REPLY_BLOCK_MINUTES
+      });
       return { skipped: true, reason: 'recent_staff_reply' };
     }
 
@@ -912,6 +967,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         triggerMessageId: resolvedTriggerMessageId
       });
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, senderWaId: normalizedWaId, reason: 'cooldown_active' });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: 'cooldown_active'
+      });
       return { skipped: true, reason: 'cooldown_active' };
     }
 
@@ -948,6 +1009,14 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           topIntent: matched?.key || null,
           secondaryIntent: keywordMatches[1]?.entry?.key || null
         });
+        logRoutingDecision({
+          messageId,
+          senderWaId: normalizedWaId,
+          route: 'ai_candidate',
+          reason: 'mixed_intent_to_ai',
+          topIntent: matched?.key || null,
+          secondaryIntent: keywordMatches[1]?.entry?.key || null
+        });
       }
       const escalationDecision = shouldEscalateFallback(effectiveTextBody);
       if (escalationDecision.escalate) {
@@ -957,6 +1026,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           messageId,
           senderWaId: normalizedWaId,
           reason: escalationDecision.reason
+        });
+        logRoutingDecision({
+          messageId,
+          senderWaId: normalizedWaId,
+          route: 'escalation_handoff',
+          escalationReason: escalationDecision.reason,
+          keywordMatchedKey: matched?.key || null
         });
       } else {
         try {
@@ -1021,6 +1097,14 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
                 topic: aiResult.topic || 'unknown',
                 confidence: aiResult.confidence
               });
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'ai_used',
+                aiUsed: true,
+                aiTopic: aiResult.topic || 'unknown',
+                aiConfidence: aiResult.confidence
+              });
             } else {
               replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
               matchedKey = 'fallback';
@@ -1029,6 +1113,14 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
                 senderWaId: normalizedWaId,
                 reason: aiResult?.in_scope === false ? 'out_of_scope_or_uncertain' : 'invalid_or_low_confidence',
                 confidence: aiResult?.confidence ?? null
+              });
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'fallback',
+                reason: 'ai_low_confidence_fallback',
+                aiUsed: false,
+                aiConfidence: aiResult?.confidence ?? null
               });
             }
           } else {
@@ -1040,6 +1132,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
                 senderWaId: normalizedWaId,
                 reason: 'local_scope_precheck_failed'
               });
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'fallback',
+                reason: 'local_scope_precheck_failed',
+                aiUsed: false
+              });
             }
           }
         } catch (error) {
@@ -1049,6 +1148,15 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           matchedKey = 'fallback';
         }
       }
+    }
+
+    if (matchedKey && matchedKey !== 'ai_fallback' && matchedKey !== 'fallback' && matchedKey !== 'escalation_handoff') {
+      logRoutingDecision({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'keyword',
+        keywordMatchedKey: matchedKey
+      });
     }
 
     const sendResult = await postWhatsAppText({
@@ -1085,6 +1193,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       messageId,
       senderWaId: normalizedWaId,
       matchedKey: matchedKey || 'fallback',
+      outgoingMessageId: sendResult.messageId
+    });
+    logRoutingDecision({
+      messageId,
+      senderWaId: normalizedWaId,
+      route: 'sent',
+      finalMatchedKey: matchedKey || 'fallback',
       outgoingMessageId: sendResult.messageId
     });
     return { ok: true, matchedKey: matchedKey || 'fallback' };
