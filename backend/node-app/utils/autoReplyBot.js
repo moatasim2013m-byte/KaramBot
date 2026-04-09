@@ -602,12 +602,14 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     };
   }
 
+  // Keep aggregation aligned with the evaluated burst window so we don't
+  // drop useful context that may land after the trigger timestamp.
   const burstMessages = await WhatsAppMessage.find({
     sender_wa_id: senderWaId,
     direction: 'inbound',
     platform: 'whatsapp',
     message_type: 'text',
-    timestamp: { $gte: burstStartTime, $lte: triggerTime }
+    timestamp: { $gte: burstStartTime, $lte: burstEndTime }
   })
     .sort({ timestamp: 1, _id: 1 })
     .lean();
