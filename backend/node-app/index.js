@@ -4,7 +4,7 @@ const { logger, pinoHttpMiddleware, writeCloudError } = require('./utils/logger'
 const { GCS_BUCKET_NAME, LOCAL_UPLOADS_DIR, UPLOAD_STORAGE_MODE, isGcsBucketConfigured } = require('./utils/gcsUpload');
 const initialEnvPresence = {
   MONGO_URL: Boolean(process.env.MONGO_URL),
-  JWT_SECRET: Boolean(process.env.JWT_SECRET),
+  JWT_SECRET: Boolean(process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || process.env.JWT_KEY),
   FRONTEND_URL: Boolean(process.env.FRONTEND_URL),
   CORS_ORIGINS: Boolean(process.env.CORS_ORIGINS),
   RESEND_API_KEY: Boolean(process.env.RESEND_API_KEY),
@@ -329,9 +329,17 @@ console.log('=== Environment Variables Check ===');
 let hasAllRequiredVars = true;
 requiredEnvVars.forEach(varName => {
   const isPresent = initialEnvPresence[varName];
-  console.log(`ENV_REQUIRED ${varName} ${isPresent}`);
+  if (varName === 'JWT_SECRET') {
+    console.log(`ENV_REQUIRED ${varName}(or JWT_SECRET_KEY/JWT_KEY) ${isPresent}`);
+  } else {
+    console.log(`ENV_REQUIRED ${varName} ${isPresent}`);
+  }
   if (!isPresent) {
-    console.error(`ERROR: Required env var ${varName} is missing`);
+    if (varName === 'JWT_SECRET') {
+      console.error('ERROR: Required env var JWT_SECRET is missing (no JWT_SECRET_KEY/JWT_KEY fallback found)');
+    } else {
+      console.error(`ERROR: Required env var ${varName} is missing`);
+    }
     hasAllRequiredVars = false;
   }
 });
