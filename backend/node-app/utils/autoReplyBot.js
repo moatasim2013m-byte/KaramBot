@@ -104,7 +104,7 @@ const isGreetingOnlyMessage = (textBody) => {
 const buildGreetingOnlyIntroReply = ({ opening, footer }) =>
   [
     opening,
-    'أهلاً في Peekaboo 💛',
+    'أهلاً في بيكابو 💛',
     '🎠 ملعب داخلي في إربد: المنطقة الرئيسية لعمر 1-10 سنوات، والداي كير لعمر 1-4 سنوات.',
     'كيف نقدر نساعدك؟ ارسلي: أسعار | داي كير | أعمار | حجز | عيد ميلاد | عروض.',
     '📞 عام: 0777775652 | مدارس/أعياد: 0799241993',
@@ -258,7 +258,7 @@ const keywordMap = [
       'تفاصيل الحضانة', 'تفاصيل الحضانه'
     ],
     reply:
-      'أكيد 💛\n\nPeekaboo أولاً هو منطقة لعب رئيسية للأطفال 👇\n🎠 المنطقة الرئيسية: من عمر سنة إلى 10 سنوات\n📍 بالطابق الثاني\n\nوعندنا كمان خدمات إضافية:\n👶 الداي كير\n🏖️ منطقة الرمل\n📍 بالطابق الثالث\n\nأسعار الداي كير:\n• نصف يوم: 149 دينار\n• يوم كامل: 199 دينار\n• شامل: 250 دينار\n\nوباقات الزيارات:\n• 8 زيارات: 79 دينار\n• 12 زيارة: 99 دينار\n\nيشمل:\n✅ إشراف من مختصات تربية\n✅ بيئة آمنة ومجهزة للأطفال\n✅ متابعة واهتمام خلال فترة بقاء الطفل\n\n👶 مناسب للأطفال من عمر سنة إلى 4 سنوات\n\nللاستفسار: 0777775652'
+      'أكيد 💛\n\nبيكابو أولاً منطقة لعب رئيسية للأطفال 👇\n🎠 المنطقة الرئيسية: من عمر سنة إلى 10 سنوات\n📍 بالطابق الثاني\n\nوعندنا كمان خدمات إضافية:\n👶 الداي كير\n🏖️ منطقة الرمل\n📍 بالطابق الثالث\n\nأسعار الداي كير:\n• نصف يوم: 149 دينار\n• يوم كامل: 199 دينار\n• شامل: 250 دينار\n\nوباقات الزيارات:\n• 8 زيارات: 79 دينار\n• 12 زيارة: 99 دينار\n\nيشمل:\n✅ إشراف من مختصات تربية\n✅ بيئة آمنة ومجهزة للأطفال\n✅ متابعة واهتمام خلال فترة بقاء الطفل\n\n👶 مناسب للأطفال من عمر سنة إلى 4 سنوات\n\nللاستفسار: 0777775652'
   },
   {
     key: 'pricing',
@@ -286,7 +286,7 @@ const keywordMap = [
     keywords: ['ساعات', 'الدوام', 'تفتح', 'تسكر', 'تغلق', 'hours', 'open'],
     buildReply: async ({ footer }) => {
       const hoursText = await buildHoursText();
-      return [`🕒 ساعات العمل الحالية:\n${hoursText}`, footer].filter(Boolean).join('\n');
+      return [`🕒 ساعات العمل الحالية:\n${hoursText}`, 'إذا حابة، ارسلي "موقع" عشان نبعتلك اللوكيشن مباشرة.', footer].filter(Boolean).join('\n');
     }
   },
   {
@@ -354,7 +354,7 @@ const keywordMap = [
       'رمل', 'sand', 'منطقة الرمل', 'sandy', 'رملي'
     ],
     reply:
-      '🏖️ منطقة الرمل نشاط منفصل داخل بيكابو.\nللتأكيد حسب نوع الحجز، ابعتي تاريخ الزيارة وعدد الأطفال أو اتصلي على 0777775652.\nوللمجموعات/المدارس: 0799241993'
+      '🏖️ منطقة الرمل نشاط منفصل داخل بيكابو.\nلحتى نخدمك بسرعة، ابعتي: تاريخ الزيارة + عدد الأطفال + أعمارهم.\nللاستفسار المباشر: 0777775652\nوللمجموعات/المدارس: 0799241993'
   },
   {
     key: 'transportation',
@@ -362,7 +362,7 @@ const keywordMap = [
       'توصيل', 'نقل', 'transport', 'delivery', 'وسيله', 'وسيلة', 'driver', 'سواق'
     ],
     reply:
-      '🚗 خدمة التوصيل:\n\nمتاحة بسعر: 40 دينار للاتجاه الواحد\n\n📅 العمل:\nيوميًا ما عدا الجمعة والسبت\n\nللحجز و الاستفسار:\n📞 0777775652'
+      '🚗 خدمة التوصيل:\n\nمتاحة بسعر: 40 دينار للاتجاه الواحد\n\n📅 العمل:\nيوميًا ما عدا الجمعة والسبت\n\nللحجز والاستفسار:\n📞 0777775652'
   },
   {
     key: 'after_school',
@@ -373,7 +373,7 @@ const keywordMap = [
       'استقبال من المدرسه', 'استقبال من المدرسة'
     ],
     reply:
-      '🎒 خدمة بعد المدرسة:\n\nنوفر خدمة انتظار بعد المدرسة للأطفال\n\n• الاستقبال الآمن من المدرسة\n• اللعب و تطوير مهارات\n• إشراف من مختصات\n\nللتفاصيل والحجز:\n📞 0777775652'
+      '🎒 خدمة بعد المدرسة:\n\nنوفر خدمة انتظار بعد المدرسة للأطفال\n\n• الاستقبال الآمن من المدرسة\n• اللعب وتطوير المهارات\n• إشراف من مختصات\n\nللتفاصيل والحجز:\n📞 0777775652'
   },
   {
     key: 'facilities',
@@ -385,7 +385,7 @@ const keywordMap = [
       'الطابق الثاني', 'الطابق الثالث'
     ],
     reply:
-      '🏢 مرافق Peekaboo:\n🎠 المنطقة الرئيسية (الطابق الثاني): لعمر 1-10 سنوات.\n👶 الداي كير (الطابق الثالث): لعمر 1-4 سنوات بإشراف مختصات تربية.\n☕ للأهالي: جلسات وكافيه ومتابعة عبر الشاشات.\n📞 0777775652'
+      '🏢 مرافق بيكابو:\n🎠 المنطقة الرئيسية (الطابق الثاني): لعمر 1-10 سنوات.\n👶 الداي كير (الطابق الثالث): لعمر 1-4 سنوات بإشراف مختصات تربية.\n☕ للأهالي: جلسات وكافيه ومتابعة عبر الشاشات.\n📞 0777775652'
   },
   {
     key: 'safety',
@@ -393,13 +393,13 @@ const keywordMap = [
       'امن', 'آمن', 'سلامه', 'سلامة', 'safety', 'secure', 'protected', 'حمايه', 'حماية'
     ],
     reply:
-      '🔒 السلامة أولويتنا في Peekaboo:\n\n• بيئة آمنة ومراقبة بالكامل\n• شاشات مراقبة لمتابعة الأطفال\n• إشراف من مختصات متدربات\n• تصميم الملعب مناسب لكل الأعمار\n\n📞 0777775652'
+      '🔒 السلامة أولويتنا في بيكابو:\n\n• بيئة آمنة ومراقبة بالكامل\n• شاشات مراقبة لمتابعة الأطفال\n• إشراف من مختصات متدربات\n• تصميم الملعب مناسب لكل الأعمار\n\n📞 0777775652'
   },
   {
     key: 'employment',
     keywords: ['وظيفة', 'وظيفه', 'شغل', 'توظيف', 'cv', 'سيرة ذاتية', 'سيره ذاتيه', 'resume', 'job', 'hiring', 'ابي اشتغل', 'اريد اشتغل', 'هل في وظايف'],
     reply:
-      'شكراً لاهتمامك بالعمل معنا في Peekaboo 🌟\n\nأرسل سيرتك الذاتية مع:\n• المسمى الوظيفي المطلوب\n• تخصصك ومؤهلاتك\n• سنوات الخبرة\n\n📧 hr@peekaboojor.com\n\nسيتواصل معك فريقنا قريباً 💛'
+      'شكراً لاهتمامك بالعمل معنا في بيكابو 🌟\n\nأرسل سيرتك الذاتية مع:\n• المسمى الوظيفي المطلوب\n• تخصصك ومؤهلاتك\n• سنوات الخبرة\n\n📧 hr@peekaboojor.com\n\nسيتواصل معك فريقنا قريباً 💛'
   },
   {
     key: 'offers',
@@ -414,13 +414,13 @@ const keywordMap = [
       'باقات', 'نظام اشتراك', 'اشتراك شهري', 'اشتراك زيارات'
     ],
     reply:
-      'أكيد 💛 عنا باقات اشتراك حسب عدد الزيارات.\nابعتي عدد الأطفال والعمر ونوع الباقة (داي كير أو زيارات) لنرشحلك أنسب خيار بسرعة.\nوللتنسيق المباشر: 0777775652'
+      'أكيد 💛 عنا اشتراكات للداي كير وباقات زيارات.\nلحتى نرشحلك الأنسب مباشرة، ابعتي: عدد الأطفال + الأعمار + إذا بدك (داي كير) أو (زيارات).\nللتنسيق السريع: 0777775652'
   },
   {
     key: 'intro',
     keywords: ['مرحبا', 'هلا', 'السلام عليكم', 'هاي', 'hi', 'hello', 'hey', 'سلام', 'صباح الخير', 'مساء الخير', 'كيفكم', 'كيف حالكم'],
     reply:
-      'أهلاً وسهلاً في Peekaboo 💛\n🎠 ملعب داخلي في إربد: المنطقة الرئيسية لعمر 1-10 سنوات، والداي كير لعمر 1-4 سنوات.\nكيف نقدر نساعدك؟ ارسلي: أسعار | داي كير | أعمار | حجز | عيد ميلاد | عروض.\n📞 عام: 0777775652 | مدارس/أعياد: 0799241993'
+      'أهلاً وسهلاً في بيكابو 💛\n🎠 ملعب داخلي في إربد: المنطقة الرئيسية لعمر 1-10 سنوات، والداي كير لعمر 1-4 سنوات.\nكيف نقدر نساعدك؟ ارسلي: أسعار | داي كير | أعمار | حجز | عيد ميلاد | عروض.\n📞 عام: 0777775652 | مدارس/أعياد: 0799241993'
   }
 ];
 
@@ -451,9 +451,31 @@ const detectKeyword = (textBody) => {
   const normalized = normalizeText(textBody);
   if (!normalized) return null;
 
-  return keywordMap.find((entry) =>
-    entry.keywords.some((keyword) => normalized.includes(normalizeText(keyword)))
-  ) || null;
+  let bestMatch = null;
+
+  keywordMap.forEach((entry, index) => {
+    const matchedKeywords = entry.keywords.filter((keyword) =>
+      normalized.includes(normalizeText(keyword))
+    );
+    if (!matchedKeywords.length) return;
+
+    const strongestKeyword = matchedKeywords.reduce((best, current) =>
+      normalizeText(current).length > normalizeText(best).length ? current : best
+    );
+    const strongestKeywordWords = tokenize(strongestKeyword).length;
+    const phraseBoost = strongestKeywordWords > 1 ? 3 : 0;
+    const score = normalizeText(strongestKeyword).length + phraseBoost;
+
+    if (
+      !bestMatch ||
+      score > bestMatch.score ||
+      (score === bestMatch.score && index < bestMatch.index)
+    ) {
+      bestMatch = { entry, score, index };
+    }
+  });
+
+  return bestMatch ? bestMatch.entry : null;
 };
 
 const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
@@ -465,6 +487,15 @@ const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
 const OUT_OF_SCOPE_KEYWORDS = [
   'طقس', 'weather', 'رياضه', 'كرة', 'مباراه', 'مباراة', 'سياسه', 'سياسة',
   'اخبار', 'أخبار', 'برمجه', 'برمجة', 'كود', 'bitcoin', 'crypto'
+];
+
+
+const SHORT_IN_DOMAIN_HINTS = [
+  'داي كير', 'دايكير', 'حضانه', 'حضانة',
+  'اشتراك', 'باقه', 'باقة', 'زيارات',
+  'الاسعار', 'الأسعار', 'اسعار', 'سعر',
+  'وين', 'وينكم', 'موقع', 'العنوان',
+  'حجز', 'عيد ميلاد', 'اعمار', 'أعمار', 'عمر'
 ];
 
 const DOMAIN_GUARD_KEYWORDS = Array.from(
@@ -493,11 +524,17 @@ const hasLowDomainConfidence = (textBody) => {
   if (!normalized) return true;
 
   const tokens = normalized.split(' ').filter(Boolean);
-  const domainHits = tokens.filter((token) =>
+  const domainTokenHits = tokens.filter((token) =>
     DOMAIN_GUARD_KEYWORDS.some((keyword) => token.includes(keyword) || keyword.includes(token))
   ).length;
 
-  return domainHits <= 1;
+  const domainPhraseHits = DOMAIN_GUARD_KEYWORDS.filter((keyword) => normalized.includes(keyword)).length;
+  const isShortMessage = tokens.length <= 4;
+  const hasShortInDomainHint =
+    isShortMessage &&
+    SHORT_IN_DOMAIN_HINTS.some((keyword) => normalized.includes(normalizeText(keyword)));
+
+  return domainTokenHits <= 1 && domainPhraseHits === 0 && !hasShortInDomainHint;
 };
 
 const shouldEscalateFallback = (textBody) => {
