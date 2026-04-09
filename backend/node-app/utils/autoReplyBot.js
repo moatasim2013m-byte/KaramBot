@@ -281,7 +281,7 @@ const keywordMap = [
   },
   {
     key: 'location',
-    keywords: ['موقع', 'العنوان', 'وين', 'location', 'address', 'اربد', 'إربد'],
+    keywords: ['موقع', 'العنوان', 'location', 'address', 'اربد', 'إربد', 'وين موقع', 'وين عنوان', 'موقعكم', 'عنوانكم'],
     buildReply: async ({ footer }) => {
       const locationText = await buildLocationText();
       return [`📍 موقعنا:\n${locationText}`, footer].filter(Boolean).join('\n');
@@ -308,8 +308,9 @@ const keywordMap = [
   {
     key: 'age',
     keywords: [
-      'عمر', 'سنوات', 'مناسب', 'كم', 'متى', 'شو', 'كيم', 'اعمار', 'أعمار',
-      'شو العمر', 'كم العمر', 'الاعمار', 'age', 'years', 'old'
+      'عمر', 'سنوات', 'اعمار', 'أعمار', 'الاعمار',
+      'شو العمر', 'كم العمر', 'شو الاعمار', 'كم الاعمار',
+      'age', 'years', 'old'
     ],
     reply:
       '💛 المنطقة الرئيسية (الطابق الثاني): مناسبة لعمر 1-10 سنوات.\n👶 الطفل أقل من 3 سنوات لا يُترك وحده، ويجب وجود ولي أمر أو مرافق داخل المنطقة الرئيسية.\n👶 الداي كير (الطابق الثالث): لعمر 1-4 سنوات، بإشراف مختصات تربية.\n📞 للاستفسار: 0777775652'
@@ -342,7 +343,7 @@ const keywordMap = [
   {
     key: 'after_school',
     keywords: [
-      'بعد', 'مدرسه', 'مدرسة', 'school', 'pickup', 'after'
+      'بعد المدرسة', 'بعد المدرسه', 'after school', 'school pickup', 'pickup from school'
     ],
     reply:
       '🎒 خدمة بعد المدرسة:\n\nنوفر خدمة انتظار بعد المدرسة للأطفال\n\n• الاستقبال الآمن من المدرسة\n• اللعب و تطوير مهارات\n• إشراف من مختصات\n\nللتفاصيل والحجز:\n📞 0777775652'
@@ -350,8 +351,8 @@ const keywordMap = [
   {
     key: 'facilities',
     keywords: [
-      'مكان', 'منطقه', 'منطقة', 'facility', 'area', 'spaces', 'zones',
-      'مرافق', 'العاب', 'ألعاب', 'activities', 'انشطه', 'أنشطة'
+      'facility', 'area', 'spaces', 'zones',
+      'مرافق', 'العاب', 'ألعاب', 'انشطه', 'أنشطة', 'مناطق اللعب', 'اقسام اللعب'
     ],
     reply:
       '🏢 مرافق Peekaboo:\n🎠 المنطقة الرئيسية (الطابق الثاني): لعمر 1-10 سنوات.\n👶 الداي كير (الطابق الثالث): لعمر 1-4 سنوات بإشراف مختصات تربية.\n☕ للأهالي: جلسات وكافيه ومتابعة عبر الشاشات.\n📞 0777775652'
@@ -417,9 +418,31 @@ const detectKeyword = (textBody) => {
   const normalized = normalizeText(textBody);
   if (!normalized) return null;
 
-  return keywordMap.find((entry) =>
-    entry.keywords.some((keyword) => normalized.includes(normalizeText(keyword)))
-  ) || null;
+  let bestMatch = null;
+
+  keywordMap.forEach((entry, index) => {
+    const matchedKeywords = entry.keywords.filter((keyword) =>
+      normalized.includes(normalizeText(keyword))
+    );
+    if (!matchedKeywords.length) return;
+
+    const strongestKeyword = matchedKeywords.reduce((best, current) =>
+      normalizeText(current).length > normalizeText(best).length ? current : best
+    );
+    const strongestKeywordWords = tokenize(strongestKeyword).length;
+    const phraseBoost = strongestKeywordWords > 1 ? 3 : 0;
+    const score = normalizeText(strongestKeyword).length + phraseBoost;
+
+    if (
+      !bestMatch ||
+      score > bestMatch.score ||
+      (score === bestMatch.score && index < bestMatch.index)
+    ) {
+      bestMatch = { entry, score, index };
+    }
+  });
+
+  return bestMatch ? bestMatch.entry : null;
 };
 
 const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
