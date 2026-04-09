@@ -1,6 +1,7 @@
 const Settings = require('../models/Settings');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const Theme = require('../models/Theme');
+const { getApprovedFaqMemory } = require('./aiFaqMemory');
 
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-1.5-flash';
 
@@ -72,11 +73,38 @@ const loadFacts = async () => {
   };
 };
 
+const buildApprovedFaqContext = (faqItems = []) => {
+  if (!Array.isArray(faqItems) || faqItems.length === 0) return 'approved_faq_examples: none';
+
+  const filteredItems = faqItems.filter((item) => String(item?.approved_answer_ar || '').trim().length > 0);
+  if (!filteredItems.length) return 'approved_faq_examples: none';
+
+  const lines = filteredItems.map((item, index) => {
+    const variants = Array.isArray(item.question_variants) ? item.question_variants.filter(Boolean).join(' | ') : '';
+    const shortFacts = Array.isArray(item.short_facts) ? item.short_facts.filter(Boolean).join(' | ') : '';
+
+    return [
+      `example_${index + 1}:`,
+      `- category: ${item.category || 'general'}`,
+      `- intent_key: ${item.intent_key || 'unknown'}`,
+      `- question_variants: ${variants || 'n/a'}`,
+      `- approved_answer_ar: ${item.approved_answer_ar || ''}`,
+      `- short_facts: ${shortFacts || 'n/a'}`
+    ].join('\n');
+  });
+
+  return ['approved_faq_examples:', ...lines].join('\n');
+};
+
 const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [] }) => {
   if (!process.env.GEMINI_API_KEY) return null;
 
   try {
-    const facts = await loadFacts();
+    const [facts, approvedFaqExamples] = await Promise.all([
+      loadFacts(),
+      getApprovedFaqMemory({ queryText: userText, limit: 3 }).catch(() => [])
+    ]);
+    const approvedFaqContext = buildApprovedFaqContext(approvedFaqExamples);
 
     const historyTurns = conversationHistory
       .filter((m) => m.text && m.text.trim().length > 0)
@@ -115,6 +143,8 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       `pricing: ${facts.pricing || 'unknown'}`,
       `daycare_plans: ${facts.daycare || 'unknown'}`,
       `birthday_packages: ${facts.birthday || 'unknown'}`,
+      approvedFaqContext,
+      'استخدم approved_faq_examples كمرجع مساعد فقط إذا كانت مناسبة للسؤال الحالي ولا تتعارض مع الحقائق الثابتة.',
       'إذا تعارضت أي بيانات مع الحقائق الثابتة، اتبع الحقائق الثابتة.',
       'إذا لم تعرف الإجابة: 0777775652 (عام) أو 0799241993 (مدارس/أعياد ميلاد). لا تخترع معلومات.',
       `الرد يجب أن لا يتجاوز ${Math.max(80, Number(maxChars) || 500)} حرف.`
