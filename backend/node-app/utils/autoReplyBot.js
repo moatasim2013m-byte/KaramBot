@@ -648,33 +648,47 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     return { skip: true, reason: 'missing_trigger_message', burstText: '' };
   }
 
-  const triggerTime = new Date(triggerMessage.timestamp);
-  const evaluationWindowStart = triggerTime;
-  const evaluationWindowEnd = new Date(triggerTime.getTime() + burstWindowMs);
-  const waitMs = Math.max(0, evaluationWindowEnd.getTime() - Date.now());
-  if (waitMs > 0) await sleep(waitMs);
+  let settledTrigger = triggerMessage;
+  while (settledTrigger?.timestamp) {
+    const evaluationWindowStart = new Date(settledTrigger.timestamp);
+    const evaluationWindowEnd = new Date(evaluationWindowStart.getTime() + burstWindowMs);
+    const waitMs = Math.max(0, evaluationWindowEnd.getTime() - Date.now());
+    if (waitMs > 0) await sleep(waitMs);
 
-  const latestInBurst = await WhatsAppMessage.findOne({
-    sender_wa_id: senderWaId,
-    direction: 'inbound',
-    platform: 'whatsapp',
-    message_type: 'text',
-    timestamp: { $gte: evaluationWindowStart, $lte: evaluationWindowEnd }
-  })
-    .sort({ timestamp: -1, _id: -1 })
-    .lean();
+    const latestInBurst = await WhatsAppMessage.findOne({
+      sender_wa_id: senderWaId,
+      direction: 'inbound',
+      platform: 'whatsapp',
+      message_type: 'text',
+      timestamp: { $gte: evaluationWindowStart, $lte: evaluationWindowEnd }
+    })
+      .sort({ timestamp: -1, _id: -1 })
+      .lean();
 
-  if (!latestInBurst || latestInBurst.message_id !== messageId) {
-    return {
-      skip: true,
-      reason: 'burst_superseded',
-      burstText: '',
-      latestMessageId: latestInBurst?.message_id || null
-    };
+    if (!latestInBurst?.timestamp) {
+      return {
+        skip: true,
+        reason: 'burst_latest_missing',
+        burstText: '',
+        latestMessageId: null
+      };
+    }
+
+    if (latestInBurst.message_id === settledTrigger.message_id) {
+      break;
+    }
+
+    settledTrigger = latestInBurst;
+  }
+
+  if (!settledTrigger?.timestamp) {
+    return { skip: true, reason: 'missing_settled_trigger', burstText: '' };
   }
 
   // Aggregate around the same evaluated trigger while keeping nearby pre-context.
-  const aggregationWindowStart = new Date(evaluationWindowStart.getTime() - burstWindowMs);
+  const settledTriggerTime = new Date(settledTrigger.timestamp);
+  const evaluationWindowEnd = new Date(settledTriggerTime.getTime() + burstWindowMs);
+  const aggregationWindowStart = new Date(settledTriggerTime.getTime() - burstWindowMs);
   const aggregationWindowEnd = evaluationWindowEnd;
   const burstMessages = await WhatsAppMessage.find({
     sender_wa_id: senderWaId,
@@ -692,7 +706,12 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     .join('\n')
     .trim();
 
-  return { skip: false, reason: null, burstText };
+  return {
+    skip: false,
+    reason: null,
+    burstText,
+    triggerMessageId: settledTrigger.message_id
+  };
 };
 
 const persistAutoReplyMessage = async ({ waId, textBody, messageId, matchedKey }) => {
@@ -787,6 +806,22 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       return { skipped: true, reason: burstResolution.reason };
     }
 
+    const resolvedTriggerMessageId = burstResolution.triggerMessageId || messageId;
+    if (resolvedTriggerMessageId !== messageId) {
+      const resolvedAlreadyHandled = await WhatsAppMessage.findOne({
+        message_id: `auto_trigger_${resolvedTriggerMessageId}`
+      }).lean();
+      if (resolvedAlreadyHandled) {
+        logAutoReply('AUTO_REPLY_SKIPPED', {
+          messageId,
+          senderWaId: normalizedWaId,
+          reason: 'duplicate_trigger',
+          resolvedTriggerMessageId
+        });
+        return { skipped: true, reason: 'duplicate_trigger' };
+      }
+    }
+
     const effectiveTextBody = burstResolution.burstText || textBody;
 
     if (await hasRecentStaffReply(normalizedWaId)) {
@@ -801,10 +836,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
     if (await hasRecentAutoReply(normalizedWaId, config.cooldownMinutes)) {
       await persistAutoTriggerMarker({
-        messageId,
+        messageId: resolvedTriggerMessageId,
         senderWaId: normalizedWaId,
         skipped: 'cooldown',
-        triggerMessageId: messageId
+        triggerMessageId: resolvedTriggerMessageId
       });
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, senderWaId: normalizedWaId, reason: 'cooldown_active' });
       return { skipped: true, reason: 'cooldown_active' };
@@ -956,11 +991,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     });
 
     await persistAutoTriggerMarker({
-      messageId,
+      messageId: resolvedTriggerMessageId,
       senderWaId: normalizedWaId,
       skipped: null,
       matchedKey: matchedKey || 'fallback',
-      triggerMessageId: messageId
+      triggerMessageId: resolvedTriggerMessageId
     });
 
     logAutoReply('AUTO_REPLY_SENT', {
