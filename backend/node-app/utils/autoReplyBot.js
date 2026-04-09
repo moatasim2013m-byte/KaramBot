@@ -433,6 +433,15 @@ const OUT_OF_SCOPE_KEYWORDS = [
   'اخبار', 'أخبار', 'برمجه', 'برمجة', 'كود', 'bitcoin', 'crypto'
 ];
 
+
+const SHORT_IN_DOMAIN_HINTS = [
+  'داي كير', 'دايكير', 'حضانه', 'حضانة',
+  'اشتراك', 'باقه', 'باقة', 'زيارات',
+  'الاسعار', 'الأسعار', 'اسعار', 'سعر',
+  'وين', 'وينكم', 'موقع', 'العنوان',
+  'حجز', 'عيد ميلاد', 'اعمار', 'أعمار', 'عمر'
+];
+
 const DOMAIN_GUARD_KEYWORDS = Array.from(
   new Set(
     keywordMap
@@ -459,11 +468,17 @@ const hasLowDomainConfidence = (textBody) => {
   if (!normalized) return true;
 
   const tokens = normalized.split(' ').filter(Boolean);
-  const domainHits = tokens.filter((token) =>
+  const domainTokenHits = tokens.filter((token) =>
     DOMAIN_GUARD_KEYWORDS.some((keyword) => token.includes(keyword) || keyword.includes(token))
   ).length;
 
-  return domainHits <= 1;
+  const domainPhraseHits = DOMAIN_GUARD_KEYWORDS.filter((keyword) => normalized.includes(keyword)).length;
+  const isShortMessage = tokens.length <= 4;
+  const hasShortInDomainHint =
+    isShortMessage &&
+    SHORT_IN_DOMAIN_HINTS.some((keyword) => normalized.includes(normalizeText(keyword)));
+
+  return domainTokenHits <= 1 && domainPhraseHits === 0 && !hasShortInDomainHint;
 };
 
 const shouldEscalateFallback = (textBody) => {
