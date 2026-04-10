@@ -354,8 +354,11 @@ export default function AdminLayout() {
     try {
       const response = await api.get('/admin/bookings/hourly');
       setHourlyBookings(sortByReceivedDate(response.data.bookings || []));
+      setLoadedDataByTab((prev) => ({ ...prev, hourly: true }));
+      return true;
     } catch (error) {
       console.error('Failed to fetch hourly bookings:', error);
+      return false;
     }
   };
 
@@ -363,8 +366,11 @@ export default function AdminLayout() {
     try {
       const response = await api.get('/admin/bookings/birthday');
       setBirthdayBookings(sortByReceivedDate(response.data.bookings || []));
+      setLoadedDataByTab((prev) => ({ ...prev, birthday: true }));
+      return true;
     } catch (error) {
       console.error('Failed to fetch birthday bookings:', error);
+      return false;
     }
   };
 
@@ -372,8 +378,11 @@ export default function AdminLayout() {
     try {
       const response = await api.get('/admin/subscriptions');
       setSubscriptions(sortByReceivedDate(response.data.subscriptions || []));
+      setLoadedDataByTab((prev) => ({ ...prev, subscriptions: true }));
+      return true;
     } catch (error) {
       console.error('Failed to fetch subscriptions:', error);
+      return false;
     }
   };
 
@@ -653,15 +662,12 @@ export default function AdminLayout() {
     }
     if (tab === 'hourly' && !loadedDataByTab.hourly) {
       fetchHourlyBookings();
-      setLoadedDataByTab((prev) => ({ ...prev, hourly: true }));
     }
     if (tab === 'birthday' && !loadedDataByTab.birthday) {
       fetchBirthdayBookings();
-      setLoadedDataByTab((prev) => ({ ...prev, birthday: true }));
     }
     if (tab === 'subscriptions' && !loadedDataByTab.subscriptions) {
       fetchSubscriptions();
-      setLoadedDataByTab((prev) => ({ ...prev, subscriptions: true }));
     }
     if (tab === 'products' && !loadedDataByTab.products) {
       fetchProducts();
