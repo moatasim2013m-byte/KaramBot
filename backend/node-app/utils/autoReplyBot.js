@@ -22,6 +22,15 @@ const DEFAULT_CONFIG = {
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
 const BURST_WINDOW_SECONDS = 25;
+const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
+const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
+  'pricing',
+  'daycare',
+  'age',
+  'hours',
+  'location',
+  'subscription'
+]);
 const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
 const MAX_TOKENS_FOR_AUTO_REPLY = 90;
 const SAFE_HANDOFF_REPLY = 'شكراً لرسالتك 🌷 للتأكيد وخدمتك بدقة، حولنا رسالتك مباشرة لفريق بيكابو، وبيردوا عليك قريبًا.';
@@ -700,6 +709,26 @@ const hasRecentStaffReply = async (senderWaId) => {
   return Boolean(recent);
 };
 
+const hasRecentDuplicateIntentAutoReply = async ({ senderWaId, matchedKey }) => {
+  if (!senderWaId || !matchedKey) return false;
+  if (!DUPLICATE_INTENT_SUPPRESSION_KEYS.has(matchedKey)) return false;
+
+  const cutoff = new Date(Date.now() - DUPLICATE_INTENT_SUPPRESSION_MINUTES * 60 * 1000);
+  const recentSameIntentAutoReply = await WhatsAppMessage.findOne({
+    sender_wa_id: senderWaId,
+    direction: 'outbound',
+    platform: 'whatsapp',
+    message_type: 'text',
+    'raw_payload.auto_reply': true,
+    'raw_payload.matched_key': matchedKey,
+    timestamp: { $gte: cutoff }
+  })
+    .sort({ timestamp: -1 })
+    .lean();
+
+  return Boolean(recentSameIntentAutoReply);
+};
+
 const logAutoReply = (event, payload = {}) => {
   console.log(event, payload);
 };
@@ -1172,6 +1201,36 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           matchedKey = 'fallback';
         }
       }
+    }
+
+    const duplicateIntentSuppressed = await hasRecentDuplicateIntentAutoReply({
+      senderWaId: normalizedWaId,
+      matchedKey
+    });
+    if (duplicateIntentSuppressed) {
+      await persistAutoTriggerMarker({
+        messageId: resolvedTriggerMessageId,
+        senderWaId: normalizedWaId,
+        skipped: 'duplicate_intent_recent',
+        matchedKey,
+        triggerMessageId: resolvedTriggerMessageId
+      });
+      logAutoReply('AUTO_REPLY_SKIPPED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        reason: 'duplicate_intent_recent',
+        matchedKey,
+        suppressionWindowMinutes: DUPLICATE_INTENT_SUPPRESSION_MINUTES
+      });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: 'duplicate_intent_recent',
+        matchedKey,
+        suppressionWindowMinutes: DUPLICATE_INTENT_SUPPRESSION_MINUTES
+      });
+      return { skipped: true, reason: 'duplicate_intent_recent', matchedKey };
     }
 
     if (matchedKey && matchedKey !== 'ai_fallback' && matchedKey !== 'fallback' && matchedKey !== 'escalation_handoff') {
