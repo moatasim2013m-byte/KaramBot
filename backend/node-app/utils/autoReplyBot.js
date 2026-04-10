@@ -74,6 +74,16 @@ const normalizeText = (value) =>
 
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
 
+const TOKEN_BOUNDARY_KEYWORDS = new Set([
+  'كم',
+  'شو',
+  'متى',
+  'وين',
+  'بعد',
+  'مكان',
+  'منطقه'
+]);
+
 const GREETING_RULES = [
   { opening: 'وعليكم السلام ورحمة الله 💛', patterns: ['السلام عليكم', 'سلام عليكم', 'السلام عليكو', 'السلامُ عليكم'] },
   { opening: 'صباح النور 💛', patterns: ['صباح الخير', 'صباحو', 'صباح الخيرر', 'يسعد صباحك', 'يسعد صباحكم'] },
@@ -455,12 +465,26 @@ const loadAutoReplyConfig = async () => {
 const detectKeywordMatches = (textBody) => {
   const normalized = normalizeText(textBody);
   if (!normalized) return [];
+  const textTokens = tokenize(normalized);
+  const textTokenSet = new Set(textTokens);
   const matches = [];
 
   keywordMap.forEach((entry, index) => {
-    const matchedKeywords = entry.keywords.filter((keyword) =>
-      normalized.includes(normalizeText(keyword))
-    );
+    const matchedKeywords = entry.keywords.filter((keyword) => {
+      const normalizedKeyword = normalizeText(keyword);
+      if (!normalizedKeyword) return false;
+
+      const keywordTokens = tokenize(normalizedKeyword);
+      const isPhraseKeyword = keywordTokens.length > 1;
+      if (isPhraseKeyword) return normalized.includes(normalizedKeyword);
+
+      const shouldUseTokenBoundary =
+        TOKEN_BOUNDARY_KEYWORDS.has(normalizedKeyword) || normalizedKeyword.length <= 3;
+
+      if (shouldUseTokenBoundary) return textTokenSet.has(normalizedKeyword);
+
+      return normalized.includes(normalizedKeyword);
+    });
     if (!matchedKeywords.length) return;
 
     const strongestKeyword = matchedKeywords.reduce((best, current) =>
