@@ -1269,22 +1269,39 @@ export default function StaffPage() {
                                   <img
                                     src={mediaSrc}
                                     alt="صورة"
-                                    className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
+                                    className="w-[220px] max-w-full max-h-[280px] object-cover rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
                                     onClick={() => setPreviewImageSrc(mediaSrc)}
                                     onError={(e) => { e.target.style.display='none'; e.target.nextSibling.style.display='block'; }}
                                   />
                                     );
                                   })()}
-                                  <p className="text-xs italic opacity-70 hidden">📷 صورة</p>
+                                  <p className="text-xs italic opacity-70 hidden">📷 تعذر عرض الصورة</p>
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
                               ) : msg.message_type === 'video' && msg.media_url ? (
                                 <div className="space-y-1">
-                                  <video
-                                    src={getMediaSrc(msg.media_proxy_url || msg.media_url)}
-                                    controls
-                                    className="max-w-[220px] rounded-xl"
-                                  />
+                                  {(() => {
+                                    const mediaSrc = getMediaSrc(msg.media_proxy_url || msg.media_url);
+                                    return (
+                                      <>
+                                        <video
+                                          src={mediaSrc}
+                                          controls
+                                          playsInline
+                                          preload="metadata"
+                                          className="w-[220px] max-w-full max-h-[280px] rounded-xl bg-black object-cover"
+                                        />
+                                        <a
+                                          href={mediaSrc}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-xs underline opacity-80 hover:opacity-100"
+                                        >
+                                          فتح الفيديو في نافذة جديدة
+                                        </a>
+                                      </>
+                                    );
+                                  })()}
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
                               ) : msg.message_type === 'audio' && msg.media_url ? (
