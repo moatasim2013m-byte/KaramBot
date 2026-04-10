@@ -13,7 +13,14 @@ const {
   normalizePhoneForWhatsApp,
   markWhatsAppMessageRead
 } = require('../utils/whatsappBookingConfirmation');
-const { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta, sendMetaImageMessage } = require('../utils/whatsappMedia');
+const {
+  getMetaMediaUrl,
+  downloadMetaMedia,
+  uploadMediaToMeta,
+  sendMetaImageMessage,
+  sendMetaVideoMessage,
+  ALLOWED_VIDEO_MIME_TYPES
+} = require('../utils/whatsappMedia');
 const TemplateDefinition = require('../models/TemplateDefinition');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
 const multer = require('multer');
@@ -27,6 +34,15 @@ const uploadMemory = multer({
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
     if (allowed.includes(file.mimetype)) cb(null, true);
     else cb(new Error('يجب أن تكون الصورة من نوع JPEG أو PNG أو WebP'));
+  }
+});
+const uploadVideoMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ALLOWED_VIDEO_MIME_TYPES;
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    return cb(new Error('Only MP4, 3GPP, or MOV video files are allowed'));
   }
 });
 
@@ -164,6 +180,11 @@ const initSse = (res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 };
+const buildMediaProxyUrl = (mediaUrl = '') => {
+  if (!mediaUrl) return null;
+  if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl;
+  return `/api/staff/inbox/media/${mediaUrl}`;
+};
 
 router.get('/conversations', async (req, res) => {
   try {
@@ -230,7 +251,7 @@ const getMessagesPayload = async (wa_id, { limit = 100, before } = {}) => {
       message_type: msg.message_type,
       text_body: msg.text_body,
       media_url: msg.media_url,
-      media_proxy_url: msg.media_url ? `/api/staff/inbox/media/${msg.media_url}` : null,
+      media_proxy_url: buildMediaProxyUrl(msg.media_url),
       timestamp: msg.timestamp,
       status: msg.status,
       sent_by_staff: msg.sent_by_staff_id
@@ -853,6 +874,94 @@ router.post('/send-image', sendLimiter, (req, res) => {
         stack: error.stack
       });
       res.status(500).json({ error: 'Failed to send image' });
+    }
+  });
+});
+
+// POST /send-video — staff sends a video to a contact
+router.post('/send-video', sendLimiter, (req, res) => {
+  uploadVideoMemory.single('video')(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ error: uploadErr.message || 'Upload failed' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file provided' });
+    }
+
+    const { wa_id, caption } = req.body;
+    if (!wa_id) return res.status(400).json({ error: 'wa_id is required' });
+
+    const normalizedWaId = normalizePhoneForWhatsApp(wa_id);
+    if (!normalizedWaId) return res.status(400).json({ error: 'Invalid phone number format' });
+
+    try {
+      const uploadResult = await uploadMediaToMeta(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname || 'video.mp4',
+        { allowedMimeTypes: ALLOWED_VIDEO_MIME_TYPES, defaultFilename: 'video.mp4' }
+      );
+
+      if (!uploadResult.ok) {
+        logWhatsAppSendFailure({
+          event: 'whatsapp_video_upload_failed',
+          wa_id: normalizedWaId,
+          mimeType: req.file.mimetype,
+          metaError: uploadResult.error,
+          statusCode: uploadResult.status
+        });
+        return res.status(502).json({ error: 'Failed to upload video to Meta', details: uploadResult.error });
+      }
+
+      const mediaId = uploadResult.mediaId;
+      const sendResult = await sendMetaVideoMessage({
+        to: normalizedWaId,
+        mediaId,
+        caption
+      });
+      if (!sendResult.ok) {
+        logWhatsAppSendFailure({
+          event: 'whatsapp_video_send_failed',
+          wa_id: normalizedWaId,
+          mimeType: req.file.mimetype,
+          metaError: sendResult.error,
+          statusCode: sendResult.status
+        });
+        return res.status(502).json({ error: 'Failed to send video', details: sendResult.error });
+      }
+      const messageId = sendResult.messageId || `vid_${Date.now()}`;
+
+      try {
+        await WhatsAppMessage.create({
+          message_id: messageId,
+          sender_wa_id: normalizedWaId,
+          profile_name: '',
+          message_type: 'video',
+          text_body: caption || '',
+          media_url: mediaId,
+          media_mime_type: req.file.mimetype,
+          direction: 'outbound',
+          platform: 'whatsapp',
+          status: 'sent',
+          timestamp: new Date(),
+          sent_by_staff_id: req.user._id,
+          is_read_by_staff: true
+        });
+      } catch (persistErr) {
+        if (persistErr?.code !== 11000) console.error('VIDEO_SEND_PERSIST_ERROR', persistErr.message);
+      }
+
+      res.json({ success: true, message_id: messageId, media_id: mediaId });
+      emitInboxUpdate(normalizedWaId, 'staff_video_send');
+    } catch (error) {
+      logWhatsAppSendFailure({
+        event: 'whatsapp_video_send_exception',
+        wa_id: req.body?.wa_id,
+        mimeType: req.file?.mimetype,
+        metaError: error.message,
+        stack: error.stack
+      });
+      res.status(500).json({ error: 'Failed to send video' });
     }
   });
 });

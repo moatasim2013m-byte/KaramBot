@@ -4,6 +4,7 @@
  */
 
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
+const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/3gpp', 'video/quicktime'];
 
 const META_TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
@@ -89,13 +90,18 @@ async function downloadMetaMedia(mediaUrl) {
  * Upload a media buffer to Meta's media endpoint.
  * Returns { ok: true, mediaId } or { ok: false, error }
  */
-async function uploadMediaToMeta(buffer, mimeType, filename) {
+async function uploadMediaToMeta(buffer, mimeType, filename, options = {}) {
   const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
   const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
+  const allowedMimeTypes = options.allowedMimeTypes || ALLOWED_IMAGE_MIME_TYPES;
+  const defaultFilename = options.defaultFilename || (mimeType === 'image/png' ? 'image.png' : 'image.jpg');
 
-  if (!ALLOWED_IMAGE_MIME_TYPES.includes(mimeType)) {
-    return { ok: false, error: `Unsupported MIME type "${mimeType}". Only image/jpeg and image/png are allowed.` };
+  if (!allowedMimeTypes.includes(mimeType)) {
+    return {
+      ok: false,
+      error: `Unsupported MIME type "${mimeType}". Allowed: ${allowedMimeTypes.join(', ')}.`
+    };
   }
 
   try {
@@ -105,7 +111,7 @@ async function uploadMediaToMeta(buffer, mimeType, filename) {
     // POST /PHONE_NUMBER_ID/media with messaging_product, type, and file
     form.append('messaging_product', 'whatsapp');
     form.append('type', mimeType);
-    const finalFilename = filename || (mimeType === 'image/png' ? 'image.png' : 'image.jpg');
+    const finalFilename = filename || defaultFilename;
     const fileBlob = new Blob([buffer], { type: mimeType });
     form.append('file', fileBlob, finalFilename);
     const uploadUrl = `https://graph.facebook.com/v23.0/${phoneNumberId}/media`;
@@ -176,4 +182,48 @@ async function sendMetaImageMessage({ to, mediaId, caption }) {
   }
 }
 
-module.exports = { getMetaMediaUrl, downloadMetaMedia, uploadMediaToMeta, sendMetaImageMessage, metaFetchWithRetry };
+async function sendMetaVideoMessage({ to, mediaId, caption }) {
+  const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
+
+  try {
+    const response = await metaFetchWithRetry(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'video',
+        video: { id: mediaId, caption: caption || '' }
+      })
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: responseText.slice(0, 500), status: response.status };
+    }
+
+    const data = JSON.parse(responseText);
+    return {
+      ok: true,
+      messageId: data?.messages?.[0]?.id || null
+    };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+module.exports = {
+  getMetaMediaUrl,
+  downloadMetaMedia,
+  uploadMediaToMeta,
+  sendMetaImageMessage,
+  sendMetaVideoMessage,
+  metaFetchWithRetry,
+  ALLOWED_VIDEO_MIME_TYPES
+};
