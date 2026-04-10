@@ -23,6 +23,7 @@ const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   fallback;
 const getMediaSrc = (mediaUrl) => {
   if (!mediaUrl) return '';
+  if (mediaUrl.startsWith('/api/')) return mediaUrl;
   if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl;
   return `/api/staff/inbox/media/${mediaUrl}`;
 };
@@ -119,9 +120,9 @@ export default function StaffPage() {
   const [templates, setTemplates] = useState([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  const [sendingImage, setSendingImage] = useState(false);
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [mediaPreview, setMediaPreview] = useState([]);
+  const [sendingMedia, setSendingMedia] = useState(false);
   const [togglingOptOut, setTogglingOptOut] = useState(false);
   const [previewImageSrc, setPreviewImageSrc] = useState('');
   const [autoReplyConfig, setAutoReplyConfig] = useState(null);
@@ -568,44 +569,49 @@ export default function StaffPage() {
     });
   };
 
-  const handleImageSelect = (e) => {
+  const handleMediaSelect = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/3gpp', 'video/quicktime'];
     if (files.some((file) => !allowedTypes.includes(file.type))) {
-      toast.error('يسمح فقط بصور JPG أو PNG أو WEBP');
+      toast.error('يسمح فقط بملفات الصور (JPG/PNG/WEBP) أو الفيديو (MP4/MOV/3GPP)');
       if (imageInputRef.current) imageInputRef.current.value = '';
       return;
     }
-    setImageFile(files);
-    const urls = files.map((f) => URL.createObjectURL(f));
-    setImagePreview(urls);
+    setMediaFiles(files);
+    const previews = files.map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+      type: file.type.startsWith('video/') ? 'video' : 'image'
+    }));
+    setMediaPreview(previews);
   };
 
-  const handleSendImage = async () => {
-    const files = Array.isArray(imageFile) ? imageFile : imageFile ? [imageFile] : [];
+  const handleSendMedia = async () => {
+    const files = Array.isArray(mediaFiles) ? mediaFiles : mediaFiles ? [mediaFiles] : [];
     if (!files.length || !selectedConversation) return;
-    setSendingImage(true);
+    setSendingMedia(true);
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const formData = new FormData();
-        const compressed = await compressImage(file);
-        formData.append('image', compressed);
+        const isImage = file.type.startsWith('image/');
+        const finalFile = isImage ? await compressImage(file) : file;
+        formData.append(isImage ? 'image' : 'video', finalFile);
         formData.append('wa_id', selectedConversation.wa_id);
         if (i === 0 && replyText.trim()) formData.append('caption', replyText.trim());
-        await api.post('/staff/inbox/send-image', formData);
+        await api.post(isImage ? '/staff/inbox/send-image' : '/staff/inbox/send-video', formData);
       }
-      toast.success(files.length > 1 ? `تم إرسال ${files.length} صور` : 'تم إرسال الصورة');
-      setImageFile(null);
-      setImagePreview(null);
+      toast.success(files.length > 1 ? `تم إرسال ${files.length} ملفات` : 'تم إرسال الملف');
+      setMediaFiles([]);
+      setMediaPreview([]);
       setReplyText('');
       if (imageInputRef.current) imageInputRef.current.value = '';
       await fetchMessages(selectedConversation.wa_id);
     } catch (error) {
-      const errMsg = error.response?.data?.error || error.response?.data?.details || 'فشل إرسال الصورة';
+      const errMsg = error.response?.data?.error || error.response?.data?.details || 'فشل إرسال المرفق';
       toast.error(errMsg);
-    } finally { setSendingImage(false); }
+    } finally { setSendingMedia(false); }
   };
 
   const handleMessagesScroll = useCallback(() => {
@@ -1258,7 +1264,7 @@ export default function StaffPage() {
                               ) : msg.message_type === 'image' && msg.media_url ? (
                                 <div className="space-y-1">
                                   {(() => {
-                                    const mediaSrc = msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`;
+                                    const mediaSrc = getMediaSrc(msg.media_proxy_url || msg.media_url);
                                     return (
                                   <img
                                     src={mediaSrc}
@@ -1275,17 +1281,17 @@ export default function StaffPage() {
                               ) : msg.message_type === 'video' && msg.media_url ? (
                                 <div className="space-y-1">
                                   <video
-                                    src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
+                                    src={getMediaSrc(msg.media_proxy_url || msg.media_url)}
                                     controls
                                     className="max-w-[220px] rounded-xl"
                                   />
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
                               ) : msg.message_type === 'audio' && msg.media_url ? (
-                                <audio src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`} controls className="max-w-[220px]" />
+                                <audio src={getMediaSrc(msg.media_proxy_url || msg.media_url)} controls className="max-w-[220px]" />
                               ) : msg.message_type === 'document' && msg.media_url ? (
                                 <a
-                                  href={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
+                                  href={getMediaSrc(msg.media_proxy_url || msg.media_url)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="flex items-center gap-2 text-sm underline"
@@ -1294,7 +1300,7 @@ export default function StaffPage() {
                                 </a>
                               ) : msg.message_type === 'sticker' && msg.media_url ? (
                                 <img
-                                  src={msg.media_proxy_url || `/api/staff/inbox/media/${msg.media_url}`}
+                                  src={getMediaSrc(msg.media_proxy_url || msg.media_url)}
                                   alt="ملصق"
                                   className="max-w-[100px]"
                                 />
@@ -1517,14 +1523,18 @@ export default function StaffPage() {
                     )}
 
                     <div className="border-t bg-white px-4 py-3 flex-shrink-0">
-                      {imagePreview && (
+                      {mediaPreview?.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-2">
-                          {(Array.isArray(imagePreview) ? imagePreview : [imagePreview]).map((url, idx) => (
+                          {mediaPreview.map(({ url, type }, idx) => (
                             <div key={idx} className="relative">
-                              <img src={url} alt="preview" className="h-16 w-16 rounded-xl object-cover border border-gray-200" />
+                              {type === 'video' ? (
+                                <video src={url} className="h-16 w-16 rounded-xl object-cover border border-gray-200" muted />
+                              ) : (
+                                <img src={url} alt="preview" className="h-16 w-16 rounded-xl object-cover border border-gray-200" />
+                              )}
                               {idx === 0 && (
                                 <button
-                                  onClick={() => { setImageFile(null); setImagePreview(null); if (imageInputRef.current) imageInputRef.current.value = ''; }}
+                                  onClick={() => { setMediaFiles([]); setMediaPreview([]); if (imageInputRef.current) imageInputRef.current.value = ''; }}
                                   className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center"
                                 >
                                   <X className="h-3 w-3" />
@@ -1532,8 +1542,8 @@ export default function StaffPage() {
                               )}
                             </div>
                           ))}
-                          {Array.isArray(imagePreview) && imagePreview.length > 1 && (
-                            <p className="text-xs text-gray-500 self-end">{imagePreview.length} صور — سيتم إرسالها بشكل منفصل</p>
+                          {mediaPreview.length > 1 && (
+                            <p className="text-xs text-gray-500 self-end">{mediaPreview.length} مرفقات — سيتم إرسالها بشكل منفصل</p>
                           )}
                         </div>
                       )}
@@ -1549,27 +1559,27 @@ export default function StaffPage() {
                         <input
                           ref={imageInputRef}
                           type="file"
-                          accept="image/jpeg,image/png,image/webp"
+                          accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,video/quicktime"
                           multiple
                           className="hidden"
-                          onChange={handleImageSelect}
+                          onChange={handleMediaSelect}
                         />
                         <button
                           type="button"
                           onClick={() => imageInputRef.current?.click()}
-                          title="إرسال صورة"
+                          title="إرسال صورة أو فيديو"
                           className="flex-shrink-0 w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center transition-all"
                         >
                           <ImageIcon className="h-4 w-4" />
                         </button>
                         <textarea ref={replyTextareaRef} value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-6 min-h-[52px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
                         <button
-                          type={imageFile ? 'button' : 'submit'}
-                          onClick={imageFile ? handleSendImage : undefined}
-                          disabled={sending || sendingImage || (!replyText.trim() && !imageFile)}
+                          type={mediaFiles?.length ? 'button' : 'submit'}
+                          onClick={mediaFiles?.length ? handleSendMedia : undefined}
+                          disabled={sending || sendingMedia || (!replyText.trim() && !mediaFiles?.length)}
                           className="flex-shrink-0 w-11 h-11 rounded-full bg-[#66A9E9] hover:bg-[#4a8fd4] disabled:bg-gray-200 disabled:cursor-not-allowed flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95"
                         >
-                          {(sending || sendingImage) ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white" />}
+                          {(sending || sendingMedia) ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white" />}
                         </button>
                       </form>
                       <p className="text-xs text-gray-400 mt-1.5 pl-1">WhatsApp · {selectedConversation.wa_id}</p>
