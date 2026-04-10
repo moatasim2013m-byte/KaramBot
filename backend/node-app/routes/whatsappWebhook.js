@@ -5,6 +5,7 @@ const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const { emitInboxUpdate } = require('../utils/inboxEvents');
 const { maybeAutoReply } = require('../utils/autoReplyBot');
+const { normalizePhoneForWhatsApp } = require('../utils/whatsappBookingConfirmation');
 const TemplateDefinition = require('../models/TemplateDefinition');
 
 const router = express.Router();
@@ -153,9 +154,14 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       return;
     }
     
-    const senderWaId = message?.from;
-    if (!senderWaId) {
+    const senderWaIdRaw = message?.from;
+    if (!senderWaIdRaw) {
       console.warn('WHATSAPP_MESSAGE_NO_SENDER', { messageId });
+      return;
+    }
+    const senderWaId = normalizePhoneForWhatsApp(senderWaIdRaw);
+    if (!senderWaId) {
+      console.warn('WHATSAPP_MESSAGE_INVALID_SENDER', { messageId, senderWaIdRaw });
       return;
     }
     
