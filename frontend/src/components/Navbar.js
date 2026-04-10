@@ -48,15 +48,15 @@ export const Navbar = () => {
       <div className="max-w-7xl xl:max-w-[95rem] 2xl:max-w-[110rem] mx-auto px-3 md:px-6 lg:px-8">
         <div className={`navbar-row flex justify-between items-center py-1 ${isHomePage && isCustomerNav ? 'home-mobile-header min-h-16 flex-wrap md:flex-nowrap gap-y-1' : 'h-16'}`}>
           {/* Logo with Pill Container - wrapped for mobile positioning */}
-          <div className={`nav-logo-wrap ${isHomePage && !isAdmin ? 'mobile-home-logo order-1' : ''}`}>
+          <div className={`nav-logo-wrap ${isHomePage && isCustomerNav ? 'mobile-home-logo order-1' : ''}`}>
             <Link to="/" className="brand-logo-link brand-logo-with-shroomi" data-testid="nav-logo">
               <img src={mascotImg} alt="شروومي" className="nav-shroomi-logo" />
               <img src={logoImg} alt="بيكابو" className="brand-logo-lg" />
             </Link>
           </div>
 
-          {/* Desktop Navigation - Show only for non-admin users */}
-          {!isAdmin && (
+          {/* Customer navigation (hide for staff/admin) */}
+          {isCustomerNav && (
             <div className="desktop-nav-links hidden md:flex items-center gap-3">
               {navItems.map((item) => (
                 <Link
@@ -115,7 +115,7 @@ export const Navbar = () => {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {!isAdmin && (
+                  {isCustomerNav && (
                     <DropdownMenuItem onClick={() => navigate('/profile')} data-testid="menu-profile">
                       <img src={userIcon} alt="" className="h-4 w-4 ml-2" />
                       الملف الشخصي
@@ -150,8 +150,8 @@ export const Navbar = () => {
             )}
           </div>
 
-          {/* Mobile Navigation - Pills visible on Homepage, hamburger on other pages */}
-          {!isAdmin && isHomePage && (
+          {/* Mobile Navigation - Pills visible on Homepage for customer pages */}
+          {isCustomerNav && isHomePage && (
             <div className="mobile-home-headlines order-3 basis-full md:hidden flex flex-wrap items-center justify-center gap-2">
               {navItems.map((item) => (
                 <Link
@@ -188,8 +188,8 @@ export const Navbar = () => {
             </span>
           </button>
 
-          {/* Mobile Auth Buttons on Homepage */}
-          {isHomePage && !isAdmin && (
+          {/* Mobile Auth Buttons on Homepage (customers only) */}
+          {isHomePage && isCustomerNav && (
             <div className="mobile-home-auth order-2 basis-full md:hidden flex items-center justify-center gap-2">
               {isAuthenticated ? (
                 <Link to="/profile">
@@ -226,8 +226,8 @@ export const Navbar = () => {
               </div>
             )}
             <div className="flex flex-col gap-3">
-              {/* Parent navigation - hide for admin */}
-              {!isAdmin && (
+              {/* Customer navigation */}
+              {isCustomerNav && (
                 <div className="flex flex-wrap gap-2">
                   {navItems.map((item) => (
                     <Link
@@ -244,7 +244,7 @@ export const Navbar = () => {
               <div className="border-t border-border pt-4 flex flex-col gap-2">
                 {isAuthenticated ? (
                   <>
-                    {!isAdmin && (
+                    {isCustomerNav && (
                       <Link to="/profile" onClick={() => setMobileMenuOpen(false)}>
                         <Button variant="outline" className="w-full rounded-full">الملف الشخصي</Button>
                       </Link>
