@@ -23,10 +23,12 @@ const getJwtSecret = () => {
 
 const STAFF_PERMISSION_KEYS = ['access_staff_tools', 'access_whatsapp_inbox', 'access_whatsapp_campaigns'];
 const FULL_STAFF_ACCESS = STAFF_PERMISSION_KEYS.reduce((acc, key) => ({ ...acc, [key]: true }), {});
+const normalizeUserRole = (user) => String(user?.role || '').trim().toLowerCase();
 
 const getEffectiveStaffPermissions = (user) => {
-  if (!user || user.role === 'admin') return FULL_STAFF_ACCESS;
-  if (user.role !== 'staff') return {};
+  const role = normalizeUserRole(user);
+  if (!user || role === 'admin') return FULL_STAFF_ACCESS;
+  if (role !== 'staff') return {};
   if (!user.staff_permissions) return FULL_STAFF_ACCESS;
 
   return STAFF_PERMISSION_KEYS.reduce((acc, key) => {
@@ -98,22 +100,24 @@ const optionalAuthMiddleware = async (req, _res, next) => {
 };
 
 const adminMiddleware = async (req, res, next) => {
-  if (req.user.role !== 'admin') {
+  if (normalizeUserRole(req.user) !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();
 };
 
 const staffMiddleware = async (req, res, next) => {
-  if (req.user.role !== 'staff' && req.user.role !== 'admin') {
+  const role = normalizeUserRole(req.user);
+  if (role !== 'staff' && role !== 'admin') {
     return res.status(403).json({ error: 'Staff access required' });
   }
   next();
 };
 
 const staffPermissionMiddleware = (permissionKey) => (req, res, next) => {
-  if (req.user.role === 'admin') return next();
-  if (req.user.role !== 'staff') {
+  const role = normalizeUserRole(req.user);
+  if (role === 'admin') return next();
+  if (role !== 'staff') {
     return res.status(403).json({ error: 'Staff access required' });
   }
 
@@ -132,5 +136,6 @@ module.exports = {
   staffPermissionMiddleware,
   getJwtSecret,
   getEffectiveStaffPermissions,
-  FULL_STAFF_ACCESS
+  FULL_STAFF_ACCESS,
+  normalizeUserRole
 };
