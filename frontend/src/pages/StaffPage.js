@@ -23,7 +23,7 @@ const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   fallback;
 const getMediaSrc = (mediaUrl) => {
   if (!mediaUrl) return '';
-  if (mediaUrl.startsWith('/api/')) return mediaUrl;
+  if (mediaUrl.startsWith('/')) return mediaUrl;
   if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl;
   return `/api/staff/inbox/media/${mediaUrl}`;
 };
