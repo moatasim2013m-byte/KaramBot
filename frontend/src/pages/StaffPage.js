@@ -836,7 +836,7 @@ export default function StaffPage() {
   return (
     <div className="min-h-screen bg-muted/30 py-8">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="font-heading text-3xl font-bold" data-testid="staff-title">
             <Users className="inline-block h-8 w-8 text-primary mr-2" />
             Staff Panel
@@ -852,7 +852,7 @@ export default function StaffPage() {
               if (staffPermissions.access_whatsapp_inbox) fetchInboxStats();
               if (staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
             }}
-            className="rounded-full gap-2"
+            className="w-full rounded-full gap-2 sm:w-auto"
           >
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
@@ -868,37 +868,37 @@ export default function StaffPage() {
 
         {allowedTabs.length > 0 && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-white border rounded-full p-1 flex-wrap gap-1">
+          <TabsList className="w-full justify-start overflow-x-auto bg-white border rounded-2xl p-1 gap-1">
             {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="scanner" className="rounded-full gap-2" data-testid="tab-scanner">
+            <TabsTrigger value="scanner" className="shrink-0 rounded-full gap-2" data-testid="tab-scanner">
               <QrCode className="h-4 w-4" /> QR Scanner
             </TabsTrigger>
             )}
             {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="sessions" className="rounded-full gap-2" data-testid="tab-sessions">
+            <TabsTrigger value="sessions" className="shrink-0 rounded-full gap-2" data-testid="tab-sessions">
               <Clock className="h-4 w-4" /> Active Sessions
               {activeSessions.length > 0 && <Badge className="ml-1 bg-primary">{activeSessions.length}</Badge>}
             </TabsTrigger>
             )}
             {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="subscriptions" className="rounded-full gap-2" data-testid="tab-subscriptions">
+            <TabsTrigger value="subscriptions" className="shrink-0 rounded-full gap-2" data-testid="tab-subscriptions">
               <Star className="h-4 w-4" /> Subscriptions
             </TabsTrigger>
             )}
             {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="birthdays" className="rounded-full gap-2" data-testid="tab-birthdays">
+            <TabsTrigger value="birthdays" className="shrink-0 rounded-full gap-2" data-testid="tab-birthdays">
               <Cake className="h-4 w-4" /> Today's Parties
               {todayParties.length > 0 && <Badge className="ml-1 bg-accent">{todayParties.length}</Badge>}
             </TabsTrigger>
             )}
             {staffPermissions.access_whatsapp_inbox && (
-            <TabsTrigger value="inbox" className="rounded-full gap-2" data-testid="tab-inbox">
+            <TabsTrigger value="inbox" className="shrink-0 rounded-full gap-2" data-testid="tab-inbox">
               <MessageSquare className="h-4 w-4" /> Inbox
               {inboxStats?.unread_messages > 0 && <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>}
             </TabsTrigger>
             )}
             {staffPermissions.access_whatsapp_campaigns && (
-            <TabsTrigger value="campaigns" className="rounded-full gap-2" data-testid="tab-campaigns">
+            <TabsTrigger value="campaigns" className="shrink-0 rounded-full gap-2" data-testid="tab-campaigns">
               <Megaphone className="h-4 w-4" /> حملات
             </TabsTrigger>
             )}
