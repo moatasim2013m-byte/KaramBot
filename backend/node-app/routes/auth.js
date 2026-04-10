@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
-const { getJwtSecret, optionalAuthMiddleware } = require('../middleware/auth');
+const { getJwtSecret, optionalAuthMiddleware, normalizeUserRole } = require('../middleware/auth');
 const { sendVerificationEmail, sendEmail, emailTemplates, isResendConfigured, getSenderEmail, getSenderFrom } = require('../utils/email');
 
 const router = express.Router();
@@ -116,7 +116,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Check if email is verified (skip for admin/staff)
-    if (!user.email_verified && user.role === 'parent') {
+    if (!user.email_verified && normalizeUserRole(user) === 'parent') {
       return res.status(403).json({ error: 'يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول' });
     }
 

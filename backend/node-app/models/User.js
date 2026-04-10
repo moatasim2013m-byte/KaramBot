@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
   password_hash: { type: String, required: true },
   name: { type: String, required: true },
   phone: { type: String },
-  role: { type: String, enum: ['parent', 'admin', 'staff'], default: 'parent' },
+  role: { type: String, enum: ['parent', 'admin', 'staff'], default: 'parent', lowercase: true, trim: true },
   staff_permissions: {
     access_staff_tools: { type: Boolean, default: true },
     access_whatsapp_inbox: { type: Boolean, default: true },
@@ -69,6 +69,7 @@ userSchema.set('toJSON', {
     delete ret.reset_token_expires;
     delete ret.email_verify_token;
     delete ret.email_verify_expires;
+    ret.role = String(ret.role || '').trim().toLowerCase() || 'parent';
     return ret;
   }
 });
