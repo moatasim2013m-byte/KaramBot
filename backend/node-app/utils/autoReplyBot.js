@@ -7,6 +7,7 @@ const {
   postWhatsAppText
 } = require('./whatsappBookingConfirmation');
 const { getScopedAiFallbackReply } = require('./autoReplyAi');
+const { isWhatsAppOptedOut, setWhatsAppOptOut } = require('./whatsappOptOut');
 
 const DEFAULT_CONFIG = {
   enabled: false,
@@ -79,6 +80,26 @@ const normalizeText = (value) =>
     .trim();
 
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
+
+const WHATSAPP_OPT_OUT_PHRASES = new Set([
+  'وقف الرسائل',
+  'اوقف الرسائل',
+  'أوقف الرسائل'
+].map((phrase) => normalizeText(phrase)));
+
+const WHATSAPP_OPT_IN_PHRASES = new Set([
+  'تشغيل الرسائل',
+  'اعادة الرسائل',
+  'إعادة الرسائل'
+].map((phrase) => normalizeText(phrase)));
+
+const detectOptCommand = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return null;
+  if (WHATSAPP_OPT_OUT_PHRASES.has(normalized)) return 'opt_out';
+  if (WHATSAPP_OPT_IN_PHRASES.has(normalized)) return 'opt_in';
+  return null;
+};
 
 const TOKEN_BOUNDARY_KEYWORDS = new Set([
   'كم',
@@ -991,6 +1012,41 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     }
 
     const effectiveTextBody = burstResolution.burstText || textBody;
+
+    const optCommand = detectOptCommand(effectiveTextBody);
+    if (optCommand) {
+      const optOut = optCommand === 'opt_out';
+      const updated = await setWhatsAppOptOut(normalizedWaId, optOut);
+      logAutoReply('AUTO_REPLY_OPT_COMMAND_HANDLED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        command: optCommand,
+        updated
+      });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: optCommand
+      });
+      return { skipped: true, reason: optCommand };
+    }
+
+    const optOutStatus = await isWhatsAppOptedOut(normalizedWaId);
+    if (optOutStatus.optedOut) {
+      logAutoReply('AUTO_REPLY_SKIPPED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        reason: 'opted_out'
+      });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: 'opted_out'
+      });
+      return { skipped: true, reason: 'opted_out' };
+    }
 
     if (await hasRecentStaffReply(normalizedWaId)) {
       logAutoReply('AUTO_REPLY_SKIPPED', {

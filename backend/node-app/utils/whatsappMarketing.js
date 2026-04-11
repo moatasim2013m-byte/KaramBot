@@ -10,6 +10,7 @@
 
 const { fetchMetaWithRetry } = require('./metaApiClient');
 const { logger } = require('./logger');
+const { isWhatsAppOptedOut } = require('./whatsappOptOut');
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
@@ -34,6 +35,16 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
   if (!accessToken || !phoneNumberId) {
     console.warn('WHATSAPP_MARKETING_CONFIG_MISSING: WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not set');
     return { ok: false, reason: 'missing_config' };
+  }
+
+  const optOutStatus = await isWhatsAppOptedOut(to);
+  if (optOutStatus.optedOut) {
+    logger.info({
+      event: 'wa_marketing_opted_out_block',
+      wa_id: to,
+      templateName
+    });
+    return { ok: false, reason: 'opted_out' };
   }
 
   const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/marketing_messages`;

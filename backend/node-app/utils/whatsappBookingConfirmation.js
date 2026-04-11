@@ -1,6 +1,7 @@
 const DEFAULT_TIMEOUT_MS = 10000;
 const { fetchMetaWithRetry } = require('./metaApiClient');
 const { logger } = require('./logger');
+const { isWhatsAppOptedOut } = require('./whatsappOptOut');
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
@@ -251,6 +252,17 @@ const sendHourlyBookingWhatsAppConfirmation = async ({
     return { ok: false, skipped: true, reason: 'invalid_phone' };
   }
 
+  const optOutStatus = await isWhatsAppOptedOut(normalizedPhone);
+  if (optOutStatus.optedOut) {
+    logger.info({
+      event: 'wa_booking_confirmation_opted_out_block',
+      bookingType: 'hourly',
+      bookingId,
+      wa_id: normalizedPhone
+    });
+    return { ok: false, skipped: true, reason: 'opted_out' };
+  }
+
   const messageBody = buildHourlyBookingMessage({
     customerName,
     date,
@@ -290,6 +302,17 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
   if (!normalizedPhone) {
     console.warn('WHATSAPP_BOOKING_CONFIRMATION_INVALID_PHONE', { bookingType: 'birthday', bookingId });
     return { ok: false, skipped: true, reason: 'invalid_phone' };
+  }
+
+  const optOutStatus = await isWhatsAppOptedOut(normalizedPhone);
+  if (optOutStatus.optedOut) {
+    logger.info({
+      event: 'wa_booking_confirmation_opted_out_block',
+      bookingType: 'birthday',
+      bookingId,
+      wa_id: normalizedPhone
+    });
+    return { ok: false, skipped: true, reason: 'opted_out' };
   }
 
   const messageBody = buildBirthdayBookingMessage({
