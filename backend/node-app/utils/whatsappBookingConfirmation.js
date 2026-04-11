@@ -109,7 +109,18 @@ const buildBirthdayBookingMessage = ({
   return lines.join('\n');
 };
 
-const postWhatsAppText = async ({ to, messageBody, staffId }) => {
+const postWhatsAppText = async ({ to, messageBody, staffId, skipOptOutCheck = false }) => {
+  if (!skipOptOutCheck) {
+    const optOutStatus = await isWhatsAppOptedOut(to);
+    if (optOutStatus.optedOut) {
+      logger.info({
+        event: 'wa_text_send_opted_out_block',
+        wa_id: to
+      });
+      return { ok: false, skipped: true, reason: 'opted_out' };
+    }
+  }
+
   const accessToken = getTrimmedEnv('WHATSAPP_ACCESS_TOKEN');
   const phoneNumberId = getTrimmedEnv('WHATSAPP_PHONE_NUMBER_ID');
 

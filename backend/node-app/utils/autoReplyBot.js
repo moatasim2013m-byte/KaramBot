@@ -90,8 +90,14 @@ const WHATSAPP_OPT_OUT_PHRASES = new Set([
 const WHATSAPP_OPT_IN_PHRASES = new Set([
   'تشغيل الرسائل',
   'اعادة الرسائل',
-  'إعادة الرسائل'
+  'إعادة الرسائل',
+  'تفعيل',
+  'start',
+  'subscribe'
 ].map((phrase) => normalizeText(phrase)));
+
+const WHATSAPP_OPT_OUT_CONFIRMATION_REPLY = 'تم إيقاف رسائل واتساب التلقائية ✅\nإذا حبيتي ترجعي التفعيل، ارسلي: تفعيل أو start.';
+const WHATSAPP_OPT_IN_CONFIRMATION_REPLY = 'تم تفعيل رسائل واتساب التلقائية من جديد ✅\nجاهزين نساعدك بأي استفسار 💛';
 
 const detectOptCommand = (textBody) => {
   const normalized = normalizeText(textBody);
@@ -1017,19 +1023,55 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     if (optCommand) {
       const optOut = optCommand === 'opt_out';
       const updated = await setWhatsAppOptOut(normalizedWaId, optOut);
+      const confirmationReply = optOut
+        ? WHATSAPP_OPT_OUT_CONFIRMATION_REPLY
+        : WHATSAPP_OPT_IN_CONFIRMATION_REPLY;
+
+      const sendResult = await postWhatsAppText({
+        to: normalizedWaId,
+        messageBody: confirmationReply,
+        staffId: null,
+        skipOptOutCheck: true
+      });
+
       logAutoReply('AUTO_REPLY_OPT_COMMAND_HANDLED', {
         messageId,
         senderWaId: normalizedWaId,
         command: optCommand,
-        updated
+        updated,
+        confirmationSent: Boolean(sendResult?.ok)
       });
-      logRoutingBlock({
+      if (sendResult?.ok) {
+        await persistAutoReplyMessage({
+          waId: normalizedWaId,
+          textBody: confirmationReply,
+          messageId: sendResult.messageId,
+          matchedKey: optCommand
+        });
+      }
+
+      await persistAutoTriggerMarker({
+        messageId: resolvedTriggerMessageId,
+        senderWaId: normalizedWaId,
+        skipped: sendResult?.ok ? null : 'opt_command_confirmation_failed',
+        matchedKey: optCommand,
+        triggerMessageId: resolvedTriggerMessageId
+      });
+
+      logRoutingDecision({
         messageId,
         senderWaId: normalizedWaId,
-        route: 'skip',
-        reason: optCommand
+        route: optCommand,
+        updated,
+        confirmationSent: Boolean(sendResult?.ok),
+        outgoingMessageId: sendResult?.messageId || null
       });
-      return { skipped: true, reason: optCommand };
+
+      if (!sendResult?.ok) {
+        return { skipped: true, reason: 'opt_command_confirmation_failed', command: optCommand };
+      }
+
+      return { ok: true, matchedKey: optCommand };
     }
 
     const optOutStatus = await isWhatsAppOptedOut(normalizedWaId);
