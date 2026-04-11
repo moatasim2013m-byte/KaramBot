@@ -113,11 +113,13 @@ const postWhatsAppText = async ({ to, messageBody, staffId, skipOptOutCheck = fa
   if (!skipOptOutCheck) {
     const optOutStatus = await isWhatsAppOptedOut(to);
     if (optOutStatus.optedOut) {
+      const reason = optOutStatus.error ? 'opt_out_check_failed' : 'opted_out';
       logger.info({
         event: 'wa_text_send_opted_out_block',
-        wa_id: to
+        wa_id: to,
+        reason
       });
-      return { ok: false, skipped: true, reason: 'opted_out' };
+      return { ok: false, skipped: true, reason };
     }
   }
 
@@ -263,17 +265,6 @@ const sendHourlyBookingWhatsAppConfirmation = async ({
     return { ok: false, skipped: true, reason: 'invalid_phone' };
   }
 
-  const optOutStatus = await isWhatsAppOptedOut(normalizedPhone);
-  if (optOutStatus.optedOut) {
-    logger.info({
-      event: 'wa_booking_confirmation_opted_out_block',
-      bookingType: 'hourly',
-      bookingId,
-      wa_id: normalizedPhone
-    });
-    return { ok: false, skipped: true, reason: 'opted_out' };
-  }
-
   const messageBody = buildHourlyBookingMessage({
     customerName,
     date,
@@ -287,11 +278,11 @@ const sendHourlyBookingWhatsAppConfirmation = async ({
 
   const result = await postWhatsAppText({ to: normalizedPhone, messageBody });
   if (result.ok) {
-    console.log('WHATSAPP_BOOKING_CONFIRMATION_SENT', { bookingType: 'hourly', bookingId });
+    logger.info({ event: 'wa_booking_confirmation_sent', bookingType: 'hourly', bookingId, wa_id: normalizedPhone });
     return result;
   }
 
-  console.error('WHATSAPP_BOOKING_CONFIRMATION_FAILED', { bookingType: 'hourly', bookingId, ...result });
+  logger.error({ event: 'wa_booking_confirmation_failed', bookingType: 'hourly', bookingId, wa_id: normalizedPhone, ...result });
   return result;
 };
 
@@ -315,17 +306,6 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
     return { ok: false, skipped: true, reason: 'invalid_phone' };
   }
 
-  const optOutStatus = await isWhatsAppOptedOut(normalizedPhone);
-  if (optOutStatus.optedOut) {
-    logger.info({
-      event: 'wa_booking_confirmation_opted_out_block',
-      bookingType: 'birthday',
-      bookingId,
-      wa_id: normalizedPhone
-    });
-    return { ok: false, skipped: true, reason: 'opted_out' };
-  }
-
   const messageBody = buildBirthdayBookingMessage({
     customerName,
     date,
@@ -339,11 +319,11 @@ const sendBirthdayBookingWhatsAppConfirmation = async ({
 
   const result = await postWhatsAppText({ to: normalizedPhone, messageBody });
   if (result.ok) {
-    console.log('WHATSAPP_BOOKING_CONFIRMATION_SENT', { bookingType: 'birthday', bookingId });
+    logger.info({ event: 'wa_booking_confirmation_sent', bookingType: 'birthday', bookingId, wa_id: normalizedPhone });
     return result;
   }
 
-  console.error('WHATSAPP_BOOKING_CONFIRMATION_FAILED', { bookingType: 'birthday', bookingId, ...result });
+  logger.error({ event: 'wa_booking_confirmation_failed', bookingType: 'birthday', bookingId, wa_id: normalizedPhone, ...result });
   return result;
 };
 

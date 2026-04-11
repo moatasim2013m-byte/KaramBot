@@ -39,12 +39,14 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
 
   const optOutStatus = await isWhatsAppOptedOut(to);
   if (optOutStatus.optedOut) {
+    const reason = optOutStatus.error ? 'opt_out_check_failed' : 'opted_out';
     logger.info({
       event: 'wa_marketing_opted_out_block',
       wa_id: to,
-      templateName
+      templateName,
+      reason
     });
-    return { ok: false, reason: 'opted_out' };
+    return { ok: false, skipped: true, reason };
   }
 
   const endpoint = `https://graph.facebook.com/v25.0/${phoneNumberId}/marketing_messages`;

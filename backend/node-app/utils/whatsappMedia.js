@@ -5,6 +5,8 @@
 
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
 const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/3gpp', 'video/quicktime'];
+const { logger } = require('./logger');
+const { isWhatsAppOptedOut } = require('./whatsappOptOut');
 
 const META_TIMEOUT_MS = 15000;
 const MAX_RETRIES = 3;
@@ -151,6 +153,13 @@ async function sendMetaImageMessage({ to, mediaId, caption }) {
   const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
 
+  const optOutStatus = await isWhatsAppOptedOut(to);
+  if (optOutStatus.optedOut) {
+    const reason = optOutStatus.error ? 'opt_out_check_failed' : 'opted_out';
+    logger.info({ event: 'wa_media_image_opted_out_block', wa_id: to, reason });
+    return { ok: false, skipped: true, reason };
+  }
+
   try {
     const response = await metaFetchWithRetry(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
       method: 'POST',
@@ -186,6 +195,13 @@ async function sendMetaVideoMessage({ to, mediaId, caption }) {
   const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
   const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
   if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
+
+  const optOutStatus = await isWhatsAppOptedOut(to);
+  if (optOutStatus.optedOut) {
+    const reason = optOutStatus.error ? 'opt_out_check_failed' : 'opted_out';
+    logger.info({ event: 'wa_media_video_opted_out_block', wa_id: to, reason });
+    return { ok: false, skipped: true, reason };
+  }
 
   try {
     const response = await metaFetchWithRetry(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {

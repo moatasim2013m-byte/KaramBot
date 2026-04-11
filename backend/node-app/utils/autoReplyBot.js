@@ -1068,6 +1068,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       });
 
       if (!sendResult?.ok) {
+        logRoutingBlock({
+          messageId,
+          senderWaId: normalizedWaId,
+          route: optCommand,
+          reason: 'opt_command_confirmation_failed'
+        });
         return { skipped: true, reason: 'opt_command_confirmation_failed', command: optCommand };
       }
 
