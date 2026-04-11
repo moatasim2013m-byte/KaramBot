@@ -27,7 +27,7 @@ const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
 const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
   'pricing',
   'hours',
-  'subscription'
+  'location'
 ]);
 const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
 const MAX_TOKENS_FOR_AUTO_REPLY = 90;
@@ -60,11 +60,21 @@ const AI_ALLOWED_KEYWORDS = [
   'توصيل',
   'نقل'
 ];
-const DETERMINISTIC_CANNED_KEYS = new Set(['location', 'hours', 'pricing']);
-const COMPARISON_KEYWORDS = [
-  'فرق', 'الفرق', 'مقارنه', 'مقارنة', 'انسب', 'أنسب', 'افضل', 'أفضل',
-  'ولا', 'او', 'أو', 'مع', 'احسن', 'أحسن', 'ايهم', 'أيهم'
-];
+const DETERMINISTIC_INTENT_PATTERNS = {
+  pricing: [
+    'قديش الساعة', 'قديش الساعه', 'كم الساعة', 'كم الساعه',
+    'بكام الساعة', 'بكام الساعه', 'سعر الساعة', 'سعر الساعه',
+    'رسوم اللعب', 'سعر الدخول', 'اسعار اللعب', 'أسعار اللعب'
+  ],
+  hours: [
+    'اليوم فاتحين', 'متى دوامكم', 'ساعات العمل', 'اوقات الدوام',
+    'الدوام', 'متى تفتحوا', 'متى تفتحون', 'شو مواعيدكم', 'شو دوامكم'
+  ],
+  location: [
+    'وين موقعكم', 'وين مكانكم', 'موقعكم', 'العنوان',
+    'وين انتو', 'وينكم', 'لوكيشن', 'location', 'address'
+  ]
+};
 
 const normalizeText = (value) =>
   String(value || '')
@@ -165,9 +175,18 @@ const passesLocalScopePrecheck = (textBody) => {
   if (normalized.length > LOCAL_SCOPE_MAX_CHARS) return false;
 
   const words = tokenize(normalized);
-  if (words.length < LOCAL_SCOPE_MIN_WORDS) return false;
+  return words.length >= LOCAL_SCOPE_MIN_WORDS;
+};
 
-  return AI_ALLOWED_KEYWORDS.some((keyword) => normalized.includes(normalizeText(keyword)));
+const detectDeterministicIntent = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return null;
+
+  for (const [intentKey, patterns] of Object.entries(DETERMINISTIC_INTENT_PATTERNS)) {
+    const isMatched = patterns.some((pattern) => normalized.includes(normalizeText(pattern)));
+    if (isMatched) return intentKey;
+  }
+  return null;
 };
 
 // ─── DB fetch helpers ────────────────────────────────────────────────────────
@@ -535,34 +554,6 @@ const detectKeywordMatches = (textBody) => {
     if (b.score !== a.score) return b.score - a.score;
     return a.index - b.index;
   });
-};
-
-const shouldPreferAiForMixedIntent = ({ textBody, keywordMatches = [] }) => {
-  if (!Array.isArray(keywordMatches) || keywordMatches.length === 0) return false;
-
-  const normalized = normalizeText(textBody);
-  if (!normalized) return false;
-
-  const topMatch = keywordMatches[0];
-  const secondMatch = keywordMatches[1];
-  const hasComparisonWording = COMPARISON_KEYWORDS.some((keyword) =>
-    normalized.includes(normalizeText(keyword))
-  );
-  const hasConnector = /\b(و|او|أو|ولا|مع)\b/u.test(normalized);
-  const hasQuestionTone = String(textBody || '').includes('?') || SHORT_QUESTION_WORDS.some((word) =>
-    normalized.includes(normalizeText(word))
-  );
-  const secondIsStrong = Boolean(
-    secondMatch &&
-    secondMatch.entry?.key !== topMatch.entry?.key &&
-    secondMatch.score >= Math.max(3, topMatch.score - 2)
-  );
-
-  if (DETERMINISTIC_CANNED_KEYS.has(topMatch.entry?.key) && !hasComparisonWording && !secondIsStrong) {
-    return false;
-  }
-
-  return Boolean(hasQuestionTone && (hasComparisonWording || secondIsStrong || (hasConnector && secondIsStrong)));
 };
 
 const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
@@ -1133,45 +1124,34 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
     const greetingOpening = detectGreetingOpening(effectiveTextBody);
     const greetingOnly = greetingOpening ? isGreetingOnlyMessage(effectiveTextBody) : false;
     const keywordMatches = greetingOnly ? [] : detectKeywordMatches(effectiveTextBody);
-    const matched = keywordMatches[0]?.entry || null;
-    const preferAiForMixedIntent = shouldPreferAiForMixedIntent({
-      textBody: effectiveTextBody,
-      keywordMatches
-    });
+    const deterministicIntentKey = greetingOnly ? null : detectDeterministicIntent(effectiveTextBody);
+    const deterministicMatchedEntry = deterministicIntentKey
+      ? keywordMap.find((entry) => entry.key === deterministicIntentKey) || null
+      : null;
     let replyText;
     let matchedKey;
     if (greetingOnly && greetingOpening) {
       replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
       matchedKey = 'intro';
-    } else if (matched && !preferAiForMixedIntent) {
-      if (matched.buildReply) {
-        replyText = await matched.buildReply({ footer: config.footer });
+    } else if (deterministicMatchedEntry) {
+      if (deterministicMatchedEntry.buildReply) {
+        replyText = await deterministicMatchedEntry.buildReply({ footer: config.footer });
       } else {
-        replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
+        replyText = [deterministicMatchedEntry.reply, config.footer].filter(Boolean).join('\n');
       }
-      if (greetingOpening && matched.key !== 'intro') {
+      if (greetingOpening && deterministicMatchedEntry.key !== 'intro') {
         replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
-      } else if (greetingOpening && matched.key === 'intro') {
+      } else if (greetingOpening && deterministicMatchedEntry.key === 'intro') {
         replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
       }
-      matchedKey = matched.key;
+      matchedKey = deterministicMatchedEntry.key;
+      logRoutingDecision({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'deterministic_canned',
+        keywordMatchedKey: matchedKey
+      });
     } else {
-      if (preferAiForMixedIntent) {
-        logAutoReply('AUTO_REPLY_MIXED_INTENT_TO_AI', {
-          messageId,
-          senderWaId: normalizedWaId,
-          topIntent: matched?.key || null,
-          secondaryIntent: keywordMatches[1]?.entry?.key || null
-        });
-        logRoutingDecision({
-          messageId,
-          senderWaId: normalizedWaId,
-          route: 'ai_candidate',
-          reason: 'mixed_intent_to_ai',
-          topIntent: matched?.key || null,
-          secondaryIntent: keywordMatches[1]?.entry?.key || null
-        });
-      }
       const escalationDecision = shouldEscalateFallback(effectiveTextBody);
       if (escalationDecision.escalate) {
         replyText = [greetingOpening, escalationDecision.reply].filter(Boolean).join('\n');
@@ -1186,7 +1166,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           senderWaId: normalizedWaId,
           route: 'escalation_handoff',
           escalationReason: escalationDecision.reason,
-          keywordMatchedKey: matched?.key || null
+          keywordMatchedKey: keywordMatches[0]?.entry?.key || null
         });
       } else {
         try {
@@ -1254,7 +1234,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
               logRoutingDecision({
                 messageId,
                 senderWaId: normalizedWaId,
-                route: 'ai_used',
+                route: 'ai_primary_used',
                 aiUsed: true,
                 aiTopic: aiResult.topic || 'unknown',
                 aiConfidence: aiResult.confidence
@@ -1271,16 +1251,29 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
               logRoutingDecision({
                 messageId,
                 senderWaId: normalizedWaId,
-                route: 'fallback',
-                reason: 'ai_low_confidence_fallback',
+                route: 'ai_rejected_low_confidence',
+                reason: 'ai_low_confidence_or_out_of_scope',
                 aiUsed: false,
                 aiConfidence: aiResult?.confidence ?? null
+              });
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'fallback_used',
+                reason: 'ai_rejected'
               });
             }
           } else {
             replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
             matchedKey = 'fallback';
-            if (!passesScopePrecheck && config.useAiFallback) {
+            if (!config.useAiFallback) {
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'fallback_used',
+                reason: 'ai_disabled'
+              });
+            } else if (!passesScopePrecheck && config.useAiFallback) {
               logAutoReply('AUTO_REPLY_AI_SKIPPED', {
                 messageId,
                 senderWaId: normalizedWaId,
@@ -1289,7 +1282,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
               logRoutingDecision({
                 messageId,
                 senderWaId: normalizedWaId,
-                route: 'fallback',
+                route: 'fallback_used',
                 reason: 'local_scope_precheck_failed',
                 aiUsed: false
               });
@@ -1300,6 +1293,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           // AI/decision failure fallback: keep existing safe generic fallback reply.
           replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
           matchedKey = 'fallback';
+          logRoutingDecision({
+            messageId,
+            senderWaId: normalizedWaId,
+            route: 'fallback_used',
+            reason: 'ai_exception'
+          });
         }
       }
     }
@@ -1332,15 +1331,6 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         suppressionWindowMinutes: DUPLICATE_INTENT_SUPPRESSION_MINUTES
       });
       return { skipped: true, reason: 'duplicate_intent_recent', matchedKey };
-    }
-
-    if (matchedKey && matchedKey !== 'ai_fallback' && matchedKey !== 'fallback' && matchedKey !== 'escalation_handoff') {
-      logRoutingDecision({
-        messageId,
-        senderWaId: normalizedWaId,
-        route: 'keyword',
-        keywordMatchedKey: matchedKey
-      });
     }
 
     const sendResult = await postWhatsAppText({
