@@ -68,7 +68,11 @@ const DETERMINISTIC_INTENT_PATTERNS = {
   ],
   hours: [
     'اليوم فاتحين', 'متى دوامكم', 'ساعات العمل', 'اوقات الدوام',
-    'الدوام', 'متى تفتحوا', 'متى تفتحون', 'شو مواعيدكم', 'شو دوامكم'
+    'الدوام', 'متى تفتحوا', 'متى تفتحون', 'شو مواعيدكم', 'شو دوامكم',
+    'مداومين', 'دوامكم', 'فاتحين بكره', 'فاتحين بكرا', 'فاتحين اليوم',
+    'مفتوح بكره', 'مفتوح بكرا', 'مفتوحين بكره', 'مفتوحين بكرا',
+    'بكره مداومين', 'بكرا مداومين', 'اليوم مداومين',
+    'مفتوحين اليوم', 'بكره فاتحين', 'بكرا فاتحين'
   ],
   location: [
     'وين موقعكم', 'وين مكانكم', 'موقعكم', 'العنوان',
@@ -92,9 +96,13 @@ const normalizeText = (value) =>
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
 
 const WHATSAPP_OPT_OUT_PHRASES = new Set([
-  'وقف الرسائل',
-  'اوقف الرسائل',
-  'أوقف الرسائل'
+  'stop', 'unsubscribe', 'opt out', 'optout',
+  'وقف', 'أوقف', 'اوقف',
+  'ايقاف', 'إيقاف',
+  'وقف الرسائل', 'اوقف الرسائل', 'أوقف الرسائل',
+  'إلغاء الرسائل', 'الغاء الرسائل',
+  'ما بدي رسائل', 'لا تراسلني', 'لا تراسلوني',
+  'بطل ترسل', 'بطلوا ترسلوا'
 ].map((phrase) => normalizeText(phrase)));
 
 const WHATSAPP_OPT_IN_PHRASES = new Set([
@@ -659,7 +667,7 @@ const hasLowDomainConfidence = (textBody) => {
   return domainTokenHits <= 1 && domainPhraseHits === 0 && !hasShortInDomainHint && !shortLikelyInDomainQuestion;
 };
 
-const shouldEscalateFallback = (textBody) => {
+const shouldEscalateFallback = (textBody, { useAiFallback = false } = {}) => {
   if (includesAnyKeyword(textBody, COMPLAINT_OR_SENSITIVE_KEYWORDS)) {
     return { escalate: true, reason: 'complaint_sensitive', reply: COMPLAINT_HANDOFF_REPLY };
   }
@@ -672,7 +680,10 @@ const shouldEscalateFallback = (textBody) => {
     return { escalate: true, reason: 'out_of_scope', reply: SAFE_HANDOFF_REPLY };
   }
 
-  if (hasLowDomainConfidence(textBody)) {
+  // When AI fallback is enabled, let Gemini evaluate scope instead of
+  // pre-blocking on low domain confidence. Gemini has its own in_scope
+  // check and confidence threshold. When AI is disabled, keep the guard.
+  if (!useAiFallback && hasLowDomainConfidence(textBody)) {
     return { escalate: true, reason: 'low_confidence', reply: SAFE_HANDOFF_REPLY };
   }
 
@@ -1156,7 +1167,9 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         keywordMatchedKey: matchedKey
       });
     } else {
-      const escalationDecision = shouldEscalateFallback(effectiveTextBody);
+      const escalationDecision = shouldEscalateFallback(effectiveTextBody, {
+        useAiFallback: config.useAiFallback
+      });
       if (escalationDecision.escalate) {
         replyText = [greetingOpening, escalationDecision.reply].filter(Boolean).join('\n');
         matchedKey = 'escalation_handoff';
