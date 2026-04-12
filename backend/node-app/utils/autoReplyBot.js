@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
-const BURST_WINDOW_SECONDS = 25;
+const BURST_WINDOW_SECONDS = 8;
 const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
 const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
   'pricing',

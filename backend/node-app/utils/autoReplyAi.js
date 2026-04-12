@@ -175,7 +175,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
           generationConfig: {
             temperature: 0,
             topP: 0.8,
-            maxOutputTokens: 220,
+            maxOutputTokens: 150,
             responseMimeType: 'application/json'
           }
         })
