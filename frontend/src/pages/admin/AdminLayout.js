@@ -96,7 +96,7 @@ export default function AdminLayout() {
     footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
     fallbackReply:
       'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
-    useAiFallback: false,
+    useAiFallback: true,
     aiConfidenceThreshold: 0.7,
     aiMaxReplyChars: 500
   });
