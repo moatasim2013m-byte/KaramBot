@@ -1492,7 +1492,7 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
       footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
       fallbackReply:
         'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
-      useAiFallback: false,
+      useAiFallback: true,
       aiConfidenceThreshold: 0.7,
       aiMaxReplyChars: 500
     };
@@ -1505,7 +1505,8 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
         ...value,
         enabled: Boolean(value.enabled),
         cooldownMinutes: Math.max(1, Number(value.cooldownMinutes || defaults.cooldownMinutes)),
-        useAiFallback: Boolean(value.useAiFallback),
+        useAiFallback:
+          typeof value.useAiFallback === 'boolean' ? value.useAiFallback : defaults.useAiFallback,
         aiConfidenceThreshold: Math.min(
           1,
           Math.max(0, Number(value.aiConfidenceThreshold ?? defaults.aiConfidenceThreshold))
@@ -1528,7 +1529,7 @@ router.put('/whatsapp-auto-reply', async (req, res) => {
       cooldownMinutes: Math.max(1, Number(payload.cooldownMinutes || 30)),
       footer: String(payload.footer || '').trim(),
       fallbackReply: String(payload.fallbackReply || '').trim(),
-      useAiFallback: Boolean(payload.useAiFallback),
+      useAiFallback: typeof payload.useAiFallback === 'boolean' ? payload.useAiFallback : true,
       aiConfidenceThreshold: Math.min(1, Math.max(0, Number(payload.aiConfidenceThreshold ?? 0.7))),
       aiMaxReplyChars: Math.max(50, Number(payload.aiMaxReplyChars || 500))
     };

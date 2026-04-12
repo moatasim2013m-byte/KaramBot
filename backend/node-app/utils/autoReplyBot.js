@@ -15,7 +15,7 @@ const DEFAULT_CONFIG = {
   footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
     'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
-  useAiFallback: false,
+  useAiFallback: true,
   aiConfidenceThreshold: 0.7,
   aiMaxReplyChars: 500
 };
@@ -513,7 +513,8 @@ const loadAutoReplyConfig = async () => {
     ...value,
     enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
-    useAiFallback: Boolean(value?.useAiFallback),
+    useAiFallback:
+      typeof value?.useAiFallback === 'boolean' ? value.useAiFallback : DEFAULT_CONFIG.useAiFallback,
     aiConfidenceThreshold: Math.min(
       1,
       Math.max(0, Number(value?.aiConfidenceThreshold ?? DEFAULT_CONFIG.aiConfidenceThreshold))

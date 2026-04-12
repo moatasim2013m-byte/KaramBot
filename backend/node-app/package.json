@@ -31,7 +31,6 @@
   "scripts": {
     "test:whatsapp-webhook": "node scripts/test-whatsapp-webhook.js",
     "diagnose:meta-token": "node scripts/diagnose-meta-token.js",
-    "meta:me": "node scripts/get-meta-me.js",
-    "settings:enable-ai-fallback": "node scripts/set-whatsapp-ai-fallback.js"
+    "meta:me": "node scripts/get-meta-me.js"
   }
 }
