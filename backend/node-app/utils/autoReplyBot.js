@@ -26,8 +26,9 @@ const BURST_WINDOW_SECONDS = 8;
 const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
 const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
   'pricing',
+  'daycare',
   'hours',
-  'location'
+  'subscription'
 ]);
 const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
 const MAX_TOKENS_FOR_AUTO_REPLY = 90;

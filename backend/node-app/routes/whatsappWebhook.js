@@ -154,15 +154,17 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       return;
     }
     
-    const senderWaIdRaw = message?.from;
-    if (!senderWaIdRaw) {
+    const rawSenderWaId = message?.from;
+    if (!rawSenderWaId) {
       console.warn('WHATSAPP_MESSAGE_NO_SENDER', { messageId });
       return;
     }
-    const senderWaId = normalizePhoneForWhatsApp(senderWaIdRaw);
-    if (!senderWaId) {
-      console.warn('WHATSAPP_MESSAGE_INVALID_SENDER', { messageId, senderWaIdRaw });
-      return;
+    const senderWaId = normalizePhoneForWhatsApp(rawSenderWaId) || rawSenderWaId;
+    if (senderWaId !== rawSenderWaId) {
+      console.log('WHATSAPP_SENDER_NORMALIZED', { messageId, raw: rawSenderWaId, normalized: senderWaId });
+    }
+    if (!normalizePhoneForWhatsApp(rawSenderWaId)) {
+      console.warn('WHATSAPP_MESSAGE_INVALID_SENDER', { messageId, rawSenderWaId });
     }
     
     // Extract message content based on type
