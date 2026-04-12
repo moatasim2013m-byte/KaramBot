@@ -15,7 +15,7 @@ const DEFAULT_CONFIG = {
   footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
     'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
-  useAiFallback: true,
+  useAiFallback: false,
   aiConfidenceThreshold: 0.7,
   aiMaxReplyChars: 500
 };
@@ -361,7 +361,7 @@ const keywordMap = [
     keywords: ['ساعات', 'الدوام', 'تفتح', 'تسكر', 'تغلق', 'hours', 'open'],
     buildReply: async ({ footer }) => {
       const hoursText = await buildHoursText();
-      return [`🕒 ساعات العمل الحالية:\n${hoursText}`, 'إذا حابة، ارسلي "موقع" عشان نبعتلك اللوكيشن مباشرة.', footer].filter(Boolean).join('\n');
+      return [`🕒 ساعات العمل الحالية:\n${hoursText}`, 'إذا حابة، ارسلي “موقع” عشان نبعتلك اللوكيشن مباشرة.', footer].filter(Boolean).join('\n');
     }
   },
   {
@@ -404,7 +404,7 @@ const keywordMap = [
   {
     key: 'age',
     keywords: [
-      'عمر', 'سنوات', 'مناسب', 'كم', 'متى', 'شو', 'اعمار', 'أعمار',
+      'عمر', 'سنوات', 'مناسب', 'كم', 'متى', 'شو', 'كيم', 'اعمار', 'أعمار',
       'شو العمر', 'كم العمر', 'الاعمار', 'age', 'years', 'old',
       'من اي عمر', 'من أي عمر',
       'لعمر كم', 'اقل عمر', 'أقل عمر', 'اكبر عمر', 'أكبر عمر',
@@ -513,8 +513,7 @@ const loadAutoReplyConfig = async () => {
     ...value,
     enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
-    useAiFallback:
-      typeof value?.useAiFallback === 'boolean' ? value.useAiFallback : DEFAULT_CONFIG.useAiFallback,
+    useAiFallback: Boolean(value?.useAiFallback),
     aiConfidenceThreshold: Math.min(
       1,
       Math.max(0, Number(value?.aiConfidenceThreshold ?? DEFAULT_CONFIG.aiConfidenceThreshold))
@@ -579,7 +578,6 @@ const OUT_OF_SCOPE_KEYWORDS = [
   'اخبار', 'أخبار', 'برمجه', 'برمجة', 'كود', 'bitcoin', 'crypto'
 ];
 
-
 const SHORT_IN_DOMAIN_HINTS = [
   'داي كير', 'دايكير', 'حضانه', 'حضانة',
   'اشتراك', 'باقه', 'باقة', 'زيارات',
@@ -592,15 +590,11 @@ const SHORT_QUESTION_WORDS = [
   'وين', 'وينكم', 'كم', 'قديش', 'شو', 'ايش', 'ليش', 'متى', 'هل', 'بقدر', 'ممكن'
 ];
 
-const CHILD_SUPERVISION_HINTS = Array.from(
-  new Set([
-    'طفل', 'طفلي', 'ابني', 'بنتي',
-    'لحاله', 'لحالو', 'لحالها',
-    'وحده', 'وحدها', 'لوحده', 'لوحدها', 'لوحدو',
-    'مرافق', 'مرافقة',
-    'اترك', 'اخليه', 'خليه'
-  ])
-);
+const CHILD_SUPERVISION_HINTS = [
+  'طفل', 'طفلي', 'ابني', 'ابني', 'بنتي', 'بنتي',
+  'لحاله', 'لحالو', 'وحده', 'وحده', 'لوحده', 'لوحدو', 'مرافق', 'مرافقه', 'مرافقة',
+  'اترك', 'اخليه', 'خليه'
+];
 
 const DOMAIN_GUARD_KEYWORDS = Array.from(
   new Set(
@@ -1139,185 +1133,146 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
 
     const greetingOpening = detectGreetingOpening(effectiveTextBody);
     const greetingOnly = greetingOpening ? isGreetingOnlyMessage(effectiveTextBody) : false;
-    const keywordMatches = greetingOnly ? [] : detectKeywordMatches(effectiveTextBody);
-    const deterministicIntentKey = greetingOnly ? null : detectDeterministicIntent(effectiveTextBody);
-    const deterministicMatchedEntry = deterministicIntentKey
-      ? keywordMap.find((entry) => entry.key === deterministicIntentKey) || null
-      : null;
     let replyText;
     let matchedKey;
+
+    // ─── STEP 1: Greeting-only → instant intro reply ──────────────────────
     if (greetingOnly && greetingOpening) {
       replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
       matchedKey = 'intro';
-    } else if (deterministicMatchedEntry) {
-      if (deterministicMatchedEntry.buildReply) {
-        replyText = await deterministicMatchedEntry.buildReply({ footer: config.footer });
-      } else {
-        replyText = [deterministicMatchedEntry.reply, config.footer].filter(Boolean).join('\n');
-      }
-      if (greetingOpening && deterministicMatchedEntry.key !== 'intro') {
-        replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
-      } else if (greetingOpening && deterministicMatchedEntry.key === 'intro') {
-        replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
-      }
-      matchedKey = deterministicMatchedEntry.key;
-      logRoutingDecision({
-        messageId,
-        senderWaId: normalizedWaId,
-        route: 'deterministic_canned',
-        keywordMatchedKey: matchedKey
-      });
-    } else {
-      const escalationDecision = shouldEscalateFallback(effectiveTextBody, {
-        useAiFallback: config.useAiFallback
-      });
-      if (escalationDecision.escalate) {
-        replyText = [greetingOpening, escalationDecision.reply].filter(Boolean).join('\n');
-        matchedKey = 'escalation_handoff';
-        logAutoReply('AUTO_REPLY_ESCALATED', {
-          messageId,
-          senderWaId: normalizedWaId,
-          reason: escalationDecision.reason
-        });
-        logRoutingDecision({
-          messageId,
-          senderWaId: normalizedWaId,
-          route: 'escalation_handoff',
-          escalationReason: escalationDecision.reason,
-          keywordMatchedKey: keywordMatches[0]?.entry?.key || null
-        });
-      } else {
-        try {
-          const passesScopePrecheck = passesLocalScopePrecheck(effectiveTextBody);
-          if (passesScopePrecheck && config.useAiFallback) {
-            const recentMessages = await WhatsAppMessage.find({
-              sender_wa_id: normalizedWaId,
-              platform: 'whatsapp',
-              message_type: 'text',
-              text_body: { $exists: true, $ne: '' },
-              message_id: { $not: /^auto_trigger_/ }
+
+      // ─── STEP 2: Hard blocks — complaints, sensitive, out-of-scope ────────
+      // These MUST be caught before AI to prevent inappropriate responses.
+    } else if (includesAnyKeyword(effectiveTextBody, COMPLAINT_OR_SENSITIVE_KEYWORDS)) {
+      replyText = [greetingOpening, COMPLAINT_HANDOFF_REPLY].filter(Boolean).join('\n');
+      matchedKey = 'escalation_handoff';
+      logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'complaint_sensitive' });
+
+    } else if (isVeryLongMessage(effectiveTextBody)) {
+      replyText = [greetingOpening, SAFE_HANDOFF_REPLY].filter(Boolean).join('\n');
+      matchedKey = 'escalation_handoff';
+      logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'long_or_ambiguous' });
+
+    } else if (includesAnyKeyword(effectiveTextBody, OUT_OF_SCOPE_KEYWORDS)) {
+      replyText = [greetingOpening, SAFE_HANDOFF_REPLY].filter(Boolean).join('\n');
+      matchedKey = 'escalation_handoff';
+      logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'out_of_scope' });
+
+      // ─── STEP 3: GEMINI-FIRST (AI primary — like Voiceflow) ───────────────
+      // Every non-blocked message goes to Gemini with knowledge base context.
+      // Gemini has: live DB facts (hours, prices, plans, birthday packages),
+      // FAQ memory (AIFaqMemory collection), and conversation history.
+      // Gemini decides if it can answer (in_scope + confidence) or declines.
+    } else if (config.useAiFallback) {
+      try {
+        const passesScopePrecheck = passesLocalScopePrecheck(effectiveTextBody);
+        if (passesScopePrecheck) {
+          const recentMessages = await WhatsAppMessage.find({
+            sender_wa_id: normalizedWaId,
+            platform: 'whatsapp',
+            message_type: 'text',
+            text_body: { $exists: true, $ne: '' },
+            message_id: { $not: /^auto_trigger_/ }
+          })
+            .sort({ timestamp: -1 })
+            .limit(6)
+            .lean();
+
+          const conversationHistory = recentMessages
+            .reverse()
+            .map((m) => ({
+              role: m.direction === 'inbound' ? 'user' : 'model',
+              text: String(m.text_body || '').trim()
+            }))
+            .filter((m) => m.text.length > 0)
+            .filter((m, idx, arr) => {
+              if (idx === arr.length - 1 && m.role === 'user' && m.text === effectiveTextBody.trim()) {
+                return false;
+              }
+              return true;
             })
-              .sort({ timestamp: -1 })
-              .limit(6)
-              .lean();
+            .slice(-5);
 
-            // Reverse to chronological, then exclude current message if already stored
-            const conversationHistory = recentMessages
-              .reverse()
-              .map((m) => ({
-                role: m.direction === 'inbound' ? 'user' : 'model',
-                text: String(m.text_body || '').trim()
-              }))
-              .filter((m) => m.text.length > 0)
-              .filter((m, idx, arr) => {
-                // Remove the last entry if it matches the current message (avoid duplicate)
-                if (idx === arr.length - 1 && m.role === 'user' && m.text === effectiveTextBody.trim()) {
-                  return false;
-                }
-                return true;
-              })
-              .slice(-5); // keep at most 5 turns
+          const aiResult = await getScopedAiFallbackReply({
+            userText: effectiveTextBody,
+            maxChars: config.aiMaxReplyChars,
+            conversationHistory
+          });
+          const requiredConfidence = Math.max(
+            MIN_AI_CONFIDENCE_FLOOR,
+            Number(config.aiConfidenceThreshold || 0)
+          );
+          const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
+            0,
+            Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
+          );
 
-            const aiResult = await getScopedAiFallbackReply({
-              userText: effectiveTextBody,
-              maxChars: config.aiMaxReplyChars,
-              conversationHistory
+          const aiReplyAllowed = Boolean(
+            aiResult &&
+              aiResult.in_scope === true &&
+              aiResult.confidence >= requiredConfidence &&
+              boundedAiReply &&
+              boundedAiReply.length >= 2
+          );
+
+          if (aiReplyAllowed) {
+            replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
+            matchedKey = 'ai_primary';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_primary_used',
+              aiTopic: aiResult.topic || 'unknown',
+              aiConfidence: aiResult.confidence
             });
-            const requiredConfidence = Math.max(
-              MIN_AI_CONFIDENCE_FLOOR,
-              Number(config.aiConfidenceThreshold || 0)
-            );
-            const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
-              0,
-              Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
-            );
-
-            const aiReplyAllowed = Boolean(
-              aiResult &&
-                aiResult.in_scope === true &&
-                aiResult.confidence >= requiredConfidence &&
-                boundedAiReply &&
-                boundedAiReply.length >= 2
-            );
-
-            if (aiReplyAllowed) {
-              replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
-              matchedKey = 'ai_fallback';
-              logAutoReply('AUTO_REPLY_AI_USED', {
-                messageId,
-                senderWaId: normalizedWaId,
-                topic: aiResult.topic || 'unknown',
-                confidence: aiResult.confidence
-              });
-              logRoutingDecision({
-                messageId,
-                senderWaId: normalizedWaId,
-                route: 'ai_primary_used',
-                aiUsed: true,
-                aiTopic: aiResult.topic || 'unknown',
-                aiConfidence: aiResult.confidence
-              });
-            } else {
-              replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
-              matchedKey = 'fallback';
-              logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-                messageId,
-                senderWaId: normalizedWaId,
-                reason: aiResult?.in_scope === false ? 'out_of_scope_or_uncertain' : 'invalid_or_low_confidence',
-                confidence: aiResult?.confidence ?? null
-              });
-              logRoutingDecision({
-                messageId,
-                senderWaId: normalizedWaId,
-                route: 'ai_rejected_low_confidence',
-                reason: 'ai_low_confidence_or_out_of_scope',
-                aiUsed: false,
-                aiConfidence: aiResult?.confidence ?? null
-              });
-              logRoutingDecision({
-                messageId,
-                senderWaId: normalizedWaId,
-                route: 'fallback_used',
-                reason: 'ai_rejected'
-              });
-            }
           } else {
+            // Gemini declined or low confidence → generic fallback
             replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
             matchedKey = 'fallback';
-            if (!config.useAiFallback) {
-              logRoutingDecision({
-                messageId,
-                senderWaId: normalizedWaId,
-                route: 'fallback_used',
-                reason: 'ai_disabled'
-              });
-            } else if (!passesScopePrecheck && config.useAiFallback) {
-              logAutoReply('AUTO_REPLY_AI_SKIPPED', {
-                messageId,
-                senderWaId: normalizedWaId,
-                reason: 'local_scope_precheck_failed'
-              });
-              logRoutingDecision({
-                messageId,
-                senderWaId: normalizedWaId,
-                route: 'fallback_used',
-                reason: 'local_scope_precheck_failed',
-                aiUsed: false
-              });
-            }
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_declined_fallback',
+              aiConfidence: aiResult?.confidence ?? null,
+              aiInScope: aiResult?.in_scope ?? null
+            });
           }
-        } catch (error) {
-          console.error('AUTO_REPLY_FALLBACK_DECISION_ERROR', error.message);
-          // AI/decision failure fallback: keep existing safe generic fallback reply.
+        } else {
+          // Single word or too long for AI — generic fallback
           replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
           matchedKey = 'fallback';
-          logRoutingDecision({
-            messageId,
-            senderWaId: normalizedWaId,
-            route: 'fallback_used',
-            reason: 'ai_exception'
-          });
+          logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'fallback_scope_precheck_failed' });
         }
+      } catch (aiError) {
+        console.error('AI_PRIMARY_ROUTE_ERROR', aiError.message);
+        replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
+        matchedKey = 'fallback';
+      }
+
+      // ─── STEP 4: AI disabled → legacy keyword matching ────────────────────
+      // Only runs when useAiFallback is false in config (backward compatibility).
+    } else {
+      const keywordMatches = detectKeywordMatches(effectiveTextBody);
+      const matched = keywordMatches[0]?.entry || null;
+      if (matched) {
+        if (matched.buildReply) {
+          replyText = await matched.buildReply({ footer: config.footer });
+        } else {
+          replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
+        }
+        if (greetingOpening && matched.key !== 'intro') {
+          replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
+        }
+        matchedKey = matched.key;
+        logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'keyword_legacy', keywordMatchedKey: matchedKey });
+      } else if (hasLowDomainConfidence(effectiveTextBody)) {
+        replyText = [greetingOpening, SAFE_HANDOFF_REPLY].filter(Boolean).join('\n');
+        matchedKey = 'escalation_handoff';
+        logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'legacy_low_confidence_handoff' });
+      } else {
+        replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
+        matchedKey = 'fallback';
+        logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'legacy_fallback' });
       }
     }
 
@@ -1408,5 +1363,7 @@ module.exports = {
   buildHoursText,
   buildLocationText,
   buildDaycareText,
-  buildBirthdayText
+  buildBirthdayText,
+  detectDeterministicIntent,
+  shouldEscalateFallback
 };
