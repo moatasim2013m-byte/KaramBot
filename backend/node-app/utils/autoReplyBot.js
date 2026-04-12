@@ -1165,83 +1165,75 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       // Gemini decides if it can answer (in_scope + confidence) or declines.
     } else if (config.useAiFallback) {
       try {
-        const passesScopePrecheck = passesLocalScopePrecheck(effectiveTextBody);
-        if (passesScopePrecheck) {
-          const recentMessages = await WhatsAppMessage.find({
-            sender_wa_id: normalizedWaId,
-            platform: 'whatsapp',
-            message_type: 'text',
-            text_body: { $exists: true, $ne: '' },
-            message_id: { $not: /^auto_trigger_/ }
+        const recentMessages = await WhatsAppMessage.find({
+          sender_wa_id: normalizedWaId,
+          platform: 'whatsapp',
+          message_type: 'text',
+          text_body: { $exists: true, $ne: '' },
+          message_id: { $not: /^auto_trigger_/ }
+        })
+          .sort({ timestamp: -1 })
+          .limit(6)
+          .lean();
+
+        const conversationHistory = recentMessages
+          .reverse()
+          .map((m) => ({
+            role: m.direction === 'inbound' ? 'user' : 'model',
+            text: String(m.text_body || '').trim()
+          }))
+          .filter((m) => m.text.length > 0)
+          .filter((m, idx, arr) => {
+            if (idx === arr.length - 1 && m.role === 'user' && m.text === effectiveTextBody.trim()) {
+              return false;
+            }
+            return true;
           })
-            .sort({ timestamp: -1 })
-            .limit(6)
-            .lean();
+          .slice(-5);
 
-          const conversationHistory = recentMessages
-            .reverse()
-            .map((m) => ({
-              role: m.direction === 'inbound' ? 'user' : 'model',
-              text: String(m.text_body || '').trim()
-            }))
-            .filter((m) => m.text.length > 0)
-            .filter((m, idx, arr) => {
-              if (idx === arr.length - 1 && m.role === 'user' && m.text === effectiveTextBody.trim()) {
-                return false;
-              }
-              return true;
-            })
-            .slice(-5);
+        const aiResult = await getScopedAiFallbackReply({
+          userText: effectiveTextBody,
+          maxChars: config.aiMaxReplyChars,
+          conversationHistory
+        });
+        const requiredConfidence = Math.max(
+          MIN_AI_CONFIDENCE_FLOOR,
+          Number(config.aiConfidenceThreshold || 0)
+        );
+        const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
+          0,
+          Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
+        );
 
-          const aiResult = await getScopedAiFallbackReply({
-            userText: effectiveTextBody,
-            maxChars: config.aiMaxReplyChars,
-            conversationHistory
+        const aiReplyAllowed = Boolean(
+          aiResult &&
+            aiResult.in_scope === true &&
+            aiResult.confidence >= requiredConfidence &&
+            boundedAiReply &&
+            boundedAiReply.length >= 2
+        );
+
+        if (aiReplyAllowed) {
+          replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
+          matchedKey = 'ai_primary';
+          logRoutingDecision({
+            messageId,
+            senderWaId: normalizedWaId,
+            route: 'ai_primary_used',
+            aiTopic: aiResult.topic || 'unknown',
+            aiConfidence: aiResult.confidence
           });
-          const requiredConfidence = Math.max(
-            MIN_AI_CONFIDENCE_FLOOR,
-            Number(config.aiConfidenceThreshold || 0)
-          );
-          const boundedAiReply = String(aiResult?.reply_ar || '').trim().slice(
-            0,
-            Math.max(50, Number(config.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
-          );
-
-          const aiReplyAllowed = Boolean(
-            aiResult &&
-              aiResult.in_scope === true &&
-              aiResult.confidence >= requiredConfidence &&
-              boundedAiReply &&
-              boundedAiReply.length >= 2
-          );
-
-          if (aiReplyAllowed) {
-            replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
-            matchedKey = 'ai_primary';
-            logRoutingDecision({
-              messageId,
-              senderWaId: normalizedWaId,
-              route: 'ai_primary_used',
-              aiTopic: aiResult.topic || 'unknown',
-              aiConfidence: aiResult.confidence
-            });
-          } else {
-            // Gemini declined or low confidence → generic fallback
-            replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
-            matchedKey = 'fallback';
-            logRoutingDecision({
-              messageId,
-              senderWaId: normalizedWaId,
-              route: 'ai_declined_fallback',
-              aiConfidence: aiResult?.confidence ?? null,
-              aiInScope: aiResult?.in_scope ?? null
-            });
-          }
         } else {
-          // Single word or too long for AI — generic fallback
+          // Gemini declined or low confidence → generic fallback
           replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
           matchedKey = 'fallback';
-          logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'fallback_scope_precheck_failed' });
+          logRoutingDecision({
+            messageId,
+            senderWaId: normalizedWaId,
+            route: 'ai_declined_fallback',
+            aiConfidence: aiResult?.confidence ?? null,
+            aiInScope: aiResult?.in_scope ?? null
+          });
         }
       } catch (aiError) {
         console.error('AI_PRIMARY_ROUTE_ERROR', aiError.message);
