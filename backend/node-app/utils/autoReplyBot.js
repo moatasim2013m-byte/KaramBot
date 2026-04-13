@@ -723,10 +723,7 @@ const hasRecentStaffReply = async (senderWaId) => {
     sender_wa_id: senderWaId,
     direction: 'outbound',
     platform: 'whatsapp',
-    $or: [
-      { 'raw_payload.auto_reply': { $exists: false } },
-      { 'raw_payload.auto_reply': false }
-    ],
+    sent_by_staff_id: { $ne: null },
     timestamp: { $gte: cutoff }
   })
     .sort({ timestamp: -1 })
