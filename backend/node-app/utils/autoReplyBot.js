@@ -346,10 +346,8 @@ const keywordMap = [
       'سعر الساعه', 'سعر الساعة',
       'رسوم اللعب', 'سعر الدخول'
     ],
-    buildReply: async ({ footer }) => {
-      const pricingText = await buildPlayPricingText();
-      return [pricingText, '', 'للحجز المباشر:', 'https://peekaboojor.com/tickets'].filter(Boolean).join('\n');
-    }
+    reply:
+      'أكيد 💛\nقبل ما نعطيك السعر، أي خدمة مهتم/ة فيها؟\n• لعب بالساعة\n• عيد ميلاد\n• اشتراك\n• داي كير\n\nاكتب/ي اسم الخدمة وبنبعتلك الأسعار والتفاصيل مباشرة.'
   },
   {
     key: 'price_negotiation',
