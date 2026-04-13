@@ -23,7 +23,8 @@ const getGeminiAutoReply = async ({ userText, maxChars = 260 }) => {
     'You classify and draft a short WhatsApp auto-reply for Peekaboo kids play center in Irbid, Jordan.',
     'Scope: hours, location, pricing, booking, birthday packages, daycare, age policy, parents area, transportation.',
     'Return JSON only with keys: in_scope (boolean), confidence (number 0..1), reply (string).',
-    `Reply language: Arabic. Keep under ${Math.max(40, Number(maxChars) || 260)} characters.`,
+    `Reply language: Arabic (Jordanian colloquial, Irbid accent). Keep under ${Math.max(40, Number(maxChars) || 260)} characters.`,
+    'Tone: warm, friendly, playful, and concise. Use light emojis when suitable without overdoing them.',
     'If unsure or out of scope, set in_scope=false and reply="".',
     `User message: ${String(userText || '').trim()}`
   ].join('\n');
