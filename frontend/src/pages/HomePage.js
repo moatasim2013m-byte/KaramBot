@@ -40,7 +40,8 @@ const resolveMediaUrl = (url) => {
     try {
       const parsed = new URL(normalizedUrl);
       if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
-        normalizedUrl = `${parsed.pathname}${parsed.search}`;
+        const normalizedPath = parsed.pathname.replace(/^\/api\/api\/uploads\//i, '/api/uploads/');
+        normalizedUrl = `${normalizedPath}${parsed.search}`;
       } else {
         return normalizedUrl;
       }
@@ -48,6 +49,8 @@ const resolveMediaUrl = (url) => {
       return normalizedUrl;
     }
   }
+
+  normalizedUrl = normalizedUrl.replace(/^\/api\/api\/uploads\//i, '/api/uploads/');
 
   if (normalizedUrl.startsWith('/uploads/')) {
     normalizedUrl = `/api${normalizedUrl}`;

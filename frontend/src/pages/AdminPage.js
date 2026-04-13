@@ -23,7 +23,7 @@ const RAW_BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const BACKEND_ORIGIN =
   !RAW_BACKEND_URL || RAW_BACKEND_URL === 'undefined' || RAW_BACKEND_URL === 'null'
     ? ''
-    : RAW_BACKEND_URL.replace(/\/+$/, '');
+    : RAW_BACKEND_URL.replace(/\/+$/, '').replace(/\/api$/i, '');
 const MAX_IMAGE_UPLOAD_MB = 25;
 const MAX_IMAGE_UPLOAD_BYTES = MAX_IMAGE_UPLOAD_MB * 1024 * 1024;
 
@@ -43,7 +43,8 @@ const resolveMediaUrl = (url) => {
     try {
       const parsed = new URL(normalizedUrl);
       if (parsed.pathname.startsWith('/api/uploads/') || parsed.pathname.startsWith('/uploads/')) {
-        normalizedUrl = `${parsed.pathname}${parsed.search}`;
+        const normalizedPath = parsed.pathname.replace(/^\/api\/api\/uploads\//i, '/api/uploads/');
+        normalizedUrl = `${normalizedPath}${parsed.search}`;
       } else {
         return normalizedUrl;
       }
@@ -51,6 +52,8 @@ const resolveMediaUrl = (url) => {
       return normalizedUrl;
     }
   }
+
+  normalizedUrl = normalizedUrl.replace(/^\/api\/api\/uploads\//i, '/api/uploads/');
 
   if (normalizedUrl.startsWith('/uploads/')) {
     normalizedUrl = `/api${normalizedUrl}`;
