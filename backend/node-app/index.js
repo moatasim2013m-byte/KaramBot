@@ -28,13 +28,12 @@ logger.info({
 
 const isProductionEnv = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 if (isProductionEnv && UPLOAD_STORAGE_MODE !== 'local' && !isGcsBucketConfigured) {
-  logger.fatal({
-    event: 'boot_storage_invalid',
-    reason: 'Missing durable upload storage configuration',
-    required_env: 'GCS_BUCKET_NAME',
-    upload_storage_mode: UPLOAD_STORAGE_MODE
-  }, 'Refusing to start in production without durable upload storage');
-  process.exit(1);
+  logger.warn({
+    event: 'boot_storage_degraded',
+    reason: 'Missing GCS bucket; uploads will fall back to local storage',
+    upload_storage_mode: UPLOAD_STORAGE_MODE,
+    local_uploads_dir: LOCAL_UPLOADS_DIR
+  }, 'Starting with local upload fallback; set GCS_BUCKET_NAME for durable uploads');
 }
 
 // ==================== PROCESS ERROR HANDLERS ====================

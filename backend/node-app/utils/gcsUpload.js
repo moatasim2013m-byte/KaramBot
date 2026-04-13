@@ -64,20 +64,8 @@ const uploadBufferToGcsOnly = async ({
 };
 
 const uploadBufferToGcs = async (args) => {
-  const isProduction = process.env.NODE_ENV === 'production';
-
   if (UPLOAD_STORAGE_MODE === 'local') {
     return uploadBufferToLocal(args);
-  }
-
-  // In production, local storage is not durable across restarts/instances.
-  // Never fall back to local unless storage mode is explicitly forced to `local`.
-  if (!isGcsBucketConfigured && isProduction) {
-    throw new Error('Durable upload storage is not configured (missing GCS_BUCKET_NAME)');
-  }
-
-  if (isProduction) {
-    return uploadBufferToGcsOnly(args);
   }
 
   try {
