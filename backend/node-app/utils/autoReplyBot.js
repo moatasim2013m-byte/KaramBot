@@ -791,6 +791,44 @@ const persistAutoTriggerMarker = async ({ messageId, senderWaId, skipped, matche
   }).catch(() => {});
 };
 
+const acquireBurstLock = async (senderWaId) => {
+  if (!senderWaId) return false;
+  const lockId = `burst_lock_${senderWaId}`;
+  const lockExpiry = new Date(Date.now() - (BURST_WINDOW_SECONDS + 10) * 1000);
+  try {
+    const result = await WhatsAppMessage.updateOne(
+      {
+        message_id: lockId,
+        $or: [
+          { timestamp: { $lte: lockExpiry } },
+          { _id: { $exists: false } }
+        ]
+      },
+      {
+        $setOnInsert: {
+          message_id: lockId,
+          sender_wa_id: senderWaId,
+          message_type: 'unsupported',
+          text_body: '',
+          direction: 'outbound',
+          platform: 'whatsapp',
+          status: 'sent',
+          is_read_by_staff: true,
+          is_replied: false,
+          raw_payload: { burst_lock: true }
+        },
+        $set: { timestamp: new Date() }
+      },
+      { upsert: true }
+    );
+    return result.upsertedCount === 1 || result.modifiedCount === 1;
+  } catch (error) {
+    if (error?.code === 11000) return false;
+    console.error('BURST_LOCK_ERROR', error.message);
+    return false;
+  }
+};
+
 const resolveBurstText = async ({ senderWaId, messageId }) => {
   const burstWindowMs = BURST_WINDOW_SECONDS * 1000;
   const triggerMessage = await WhatsAppMessage.findOne({
@@ -968,6 +1006,22 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         reason: 'duplicate_trigger'
       });
       return { skipped: true, reason: 'duplicate_trigger' };
+    }
+
+    const gotBurstLock = await acquireBurstLock(normalizedWaId);
+    if (!gotBurstLock) {
+      logAutoReply('AUTO_REPLY_SKIPPED', {
+        messageId,
+        senderWaId: normalizedWaId,
+        reason: 'burst_lock_held'
+      });
+      logRoutingBlock({
+        messageId,
+        senderWaId: normalizedWaId,
+        route: 'skip',
+        reason: 'burst_lock_held'
+      });
+      return { skipped: true, reason: 'burst_lock_held' };
     }
 
     const burstResolution = await resolveBurstText({
