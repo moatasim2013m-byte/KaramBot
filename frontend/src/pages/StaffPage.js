@@ -21,11 +21,16 @@ const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   error?.response?.data?.error ||
   error?.message ||
   fallback;
-const getMediaSrc = (mediaUrl) => {
+const getMediaSrc = (mediaUrl, token = '') => {
   if (!mediaUrl) return '';
-  if (mediaUrl.startsWith('/')) return mediaUrl;
+  const appendTokenIfNeeded = (url) => {
+    if (!token || !url.startsWith('/api/')) return url;
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+  };
+  if (mediaUrl.startsWith('/')) return appendTokenIfNeeded(mediaUrl);
   if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://')) return mediaUrl;
-  return `/api/staff/inbox/media/${mediaUrl}`;
+  return appendTokenIfNeeded(`/api/staff/inbox/media/${mediaUrl}`);
 };
 
 const getRelativeTime = (timestamp) => {
@@ -1264,7 +1269,7 @@ export default function StaffPage() {
                               ) : msg.message_type === 'image' && msg.media_url ? (
                                 <div className="space-y-1">
                                   {(() => {
-                                    const mediaSrc = getMediaSrc(msg.media_proxy_url || msg.media_url);
+                                    const mediaSrc = getMediaSrc(msg.media_proxy_url || msg.media_url, token);
                                     return (
                                   <img
                                     src={mediaSrc}
@@ -1281,7 +1286,7 @@ export default function StaffPage() {
                               ) : msg.message_type === 'video' && msg.media_url ? (
                                 <div className="space-y-1">
                                   {(() => {
-                                    const mediaSrc = getMediaSrc(msg.media_proxy_url || msg.media_url);
+                                    const mediaSrc = getMediaSrc(msg.media_proxy_url || msg.media_url, token);
                                     return (
                                       <>
                                         <video
@@ -1305,10 +1310,10 @@ export default function StaffPage() {
                                   {msg.text_body ? <p className="text-sm mt-1" dir="auto">{msg.text_body}</p> : null}
                                 </div>
                               ) : msg.message_type === 'audio' && msg.media_url ? (
-                                <audio src={getMediaSrc(msg.media_proxy_url || msg.media_url)} controls className="max-w-[220px]" />
+                                <audio src={getMediaSrc(msg.media_proxy_url || msg.media_url, token)} controls className="max-w-[220px]" />
                               ) : msg.message_type === 'document' && msg.media_url ? (
                                 <a
-                                  href={getMediaSrc(msg.media_proxy_url || msg.media_url)}
+                                  href={getMediaSrc(msg.media_proxy_url || msg.media_url, token)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="flex items-center gap-2 text-sm underline"
@@ -1317,7 +1322,7 @@ export default function StaffPage() {
                                 </a>
                               ) : msg.message_type === 'sticker' && msg.media_url ? (
                                 <img
-                                  src={getMediaSrc(msg.media_proxy_url || msg.media_url)}
+                                  src={getMediaSrc(msg.media_proxy_url || msg.media_url, token)}
                                   alt="ملصق"
                                   className="max-w-[100px]"
                                 />
