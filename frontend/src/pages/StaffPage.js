@@ -1106,8 +1106,8 @@ export default function StaffPage() {
           </TabsContent>
 
           <TabsContent value="inbox" className="min-h-0">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[calc(100dvh-250px)] min-h-[520px]">
-              <div className={`lg:col-span-1 flex flex-col ${mobileShowThread ? 'hidden lg:flex' : 'flex'}`}>
+            <div className="staff-page-inbox-shell grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 h-[calc(100dvh-190px)] sm:h-[calc(100dvh-210px)] lg:h-[calc(100dvh-185px)] min-h-[560px] max-h-[980px]">
+              <div className={`lg:col-span-5 xl:col-span-4 2xl:col-span-3 flex flex-col min-h-0 ${mobileShowThread ? 'hidden lg:flex' : 'flex'}`}>
                 <div className="rounded-2xl border bg-white shadow-sm flex-1 flex flex-col overflow-hidden">
                   <div className="px-4 py-3 border-b bg-gradient-to-r from-[#66A9E9]/10 to-white flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1162,7 +1162,7 @@ export default function StaffPage() {
                       <Filter className="h-3 w-3" />{showUnreadOnly ? 'Show All' : 'Unread Only'}
                     </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto inbox-scroll">
                     {inboxLoading ? (
                       <div className="flex justify-center items-center py-12"><Loader2 className="h-6 w-6 animate-spin text-[#66A9E9]" /></div>
                     ) : conversations.length === 0 ? (
@@ -1190,7 +1190,7 @@ export default function StaffPage() {
                 </div>
               </div>
 
-              <div className={`lg:col-span-2 flex flex-col ${mobileShowThread ? 'flex' : 'hidden lg:flex'}`}>
+              <div className={`lg:col-span-7 xl:col-span-8 2xl:col-span-9 flex flex-col min-h-0 ${mobileShowThread ? 'flex' : 'hidden lg:flex'}`}>
                 {!selectedConversation ? (
                   <div className="rounded-2xl border bg-white shadow-sm flex-1 flex items-center justify-center">
                     <div className="text-center text-gray-400">
@@ -1256,14 +1256,14 @@ export default function StaffPage() {
                     <div
                       ref={messagesContainerRef}
                       onScroll={handleMessagesScroll}
-                      className="flex-1 overflow-y-auto p-4 space-y-3 inbox-messages-bg"
+                      className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 space-y-3 inbox-messages-bg inbox-scroll"
                     >
                       {messages.length === 0 ? (
                         <div className="text-center text-gray-400 py-12"><p className="text-sm">No messages yet</p></div>
                       ) : (
                         messages.map((msg) => (
                           <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'} message-animated`}>
-                            <div className={`max-w-[72%] rounded-2xl px-4 py-2.5 shadow-sm ${msg.direction === 'outbound' ? 'bg-[#66A9E9] text-white rounded-tr-sm' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'}`}>
+                            <div className={`max-w-[88%] sm:max-w-[80%] lg:max-w-[72%] xl:max-w-[66%] rounded-2xl px-4 py-2.5 shadow-sm ${msg.direction === 'outbound' ? 'bg-[#66A9E9] text-white rounded-tr-sm' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'}`}>
                               {msg.message_type === 'text' ? (
                                 <p className="text-sm leading-relaxed whitespace-pre-wrap" dir="auto">{msg.text_body}</p>
                               ) : msg.message_type === 'image' && msg.media_url ? (
@@ -1544,7 +1544,7 @@ export default function StaffPage() {
                       </div>
                     )}
 
-                    <div className="border-t bg-white px-4 py-3 flex-shrink-0">
+                    <div className="border-t bg-white px-3 sm:px-4 py-3 flex-shrink-0">
                       {mediaPreview?.length > 0 && (
                         <div className="mb-2 flex flex-wrap gap-2">
                           {mediaPreview.map(({ url, type }, idx) => (
@@ -1569,7 +1569,7 @@ export default function StaffPage() {
                           )}
                         </div>
                       )}
-                      <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-end gap-3">
+                      <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-end gap-2 sm:gap-3">
                         <button
                           type="button"
                           onClick={() => setShowTemplatePicker(!showTemplatePicker)}
@@ -1594,7 +1594,7 @@ export default function StaffPage() {
                         >
                           <ImageIcon className="h-4 w-4" />
                         </button>
-                        <textarea ref={replyTextareaRef} value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm leading-6 min-h-[52px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
+                        <textarea ref={replyTextareaRef} value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendMessage(); } }} placeholder="اكتب رسالة... (Enter للإرسال)" rows={2} disabled={sending} className="flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-3 sm:px-4 py-2.5 sm:py-3 text-sm leading-6 min-h-[48px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-[#66A9E9]/40 focus:border-[#66A9E9] focus:bg-white transition-all disabled:opacity-50" />
                         <button
                           type={mediaFiles?.length ? 'button' : 'submit'}
                           onClick={mediaFiles?.length ? handleSendMedia : undefined}
@@ -1858,6 +1858,15 @@ export default function StaffPage() {
         .pulse-badge { animation: pulseBadge 2s infinite; }
         .inbox-messages-bg { background: linear-gradient(180deg, #f0f4f8 0%, #e8eef5 100%); }
         .inbox-quick-replies-bg { background: linear-gradient(135deg, #66A9E9 0%, #4a8fd4 100%); }
+        .inbox-scroll { scrollbar-width: thin; scrollbar-color: #b9c7d7 transparent; }
+        .inbox-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .inbox-scroll::-webkit-scrollbar-thumb { background: #c4d1de; border-radius: 999px; }
+        .inbox-scroll::-webkit-scrollbar-thumb:hover { background: #a9bccf; }
+        @media (max-width: 1023px) {
+          .staff-page-inbox-shell {
+            min-height: 70dvh;
+          }
+        }
       `}</style>
       </div>
     </div>
