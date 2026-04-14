@@ -249,6 +249,8 @@ const campaignsRoutes = require('./routes/campaigns');
 const staffCampaignRoutes = require('./routes/staffCampaigns');
 const templatesRoutes = require('./routes/templates');
 const consentRoutes = require('./routes/consent');
+const adminMarketingRoutes = require('./routes/adminMarketing');
+const { startMarketingCampaignRunner } = require('./utils/marketingCampaignService');
 
 // Routes
 // Apply strict auth limiter to sensitive endpoints
@@ -262,6 +264,7 @@ app.use('/api/subscriptions', subscriptionsRoutes);
 app.use('/api/loyalty', loyaltyRoutes);
 app.use('/api/admin/cron', adminCronRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/marketing', adminMarketingRoutes);
 app.use('/api/staff/inbox', staffInboxRoutes);
 app.use('/api/staff/campaigns', staffCampaignRoutes);
 app.use('/api/staff', staffRoutes);
@@ -275,6 +278,8 @@ app.use('/api/campaigns', campaignsRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/instagram', instagramIceBreakersRoutes);
 app.use('/api', consentRoutes);
+
+startMarketingCampaignRunner();
 
 // Public settings endpoint (for homepage hero config)
 const Settings = require('./models/Settings');
