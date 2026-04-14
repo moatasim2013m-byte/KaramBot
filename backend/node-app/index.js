@@ -127,6 +127,38 @@ app.use(helmet({
   contentSecurityPolicy: false
 }));
 
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 30000);
+app.use((req, res, next) => {
+  if (!Number.isFinite(REQUEST_TIMEOUT_MS) || REQUEST_TIMEOUT_MS <= 0) {
+    return next();
+  }
+
+  let didTimeout = false;
+  const timeoutHandle = setTimeout(() => {
+    if (res.headersSent) return;
+    didTimeout = true;
+    const rid = req.req_id || 'no_req_id';
+    logger.warn({
+      event: 'request_timeout',
+      req_id: rid,
+      method: req.method,
+      url: req.originalUrl || req.url,
+      timeout_ms: REQUEST_TIMEOUT_MS
+    }, 'Request timed out');
+    res.status(504).json({
+      error: 'انتهت مهلة معالجة الطلب',
+      req_id: rid
+    });
+  }, REQUEST_TIMEOUT_MS);
+
+  const clear = () => clearTimeout(timeoutHandle);
+  res.on('finish', clear);
+  res.on('close', clear);
+
+  if (didTimeout) return;
+  return next();
+});
+
 const sanitizeObject = (obj) => {
   if (!obj || typeof obj !== 'object') return obj;
 
