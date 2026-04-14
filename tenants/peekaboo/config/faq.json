@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "question": "What are your support hours?",
+      "answer": "Our support team is available Mon-Fri 09:00-17:00."
+    },
+    {
+      "question": "How can I reach support?",
+      "answer": "You can email support@peekaboo.example or call +1-000-000-0000."
+    }
+  ]
+}
