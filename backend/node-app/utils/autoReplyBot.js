@@ -23,6 +23,19 @@ const DEFAULT_CONFIG = {
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
 const BURST_WINDOW_SECONDS = 8;
+const FORCE_IN_SCOPE_KEYWORDS = [
+  'اسعار', 'الاسعار', 'سعر', 'كم', 'اديش', 'قديش', 'بكم',
+  'حجز', 'احجز', 'بدي احجز',
+  'عيد ميلاد', 'حفله', 'حفلة', 'حفلات', 'birthday',
+  'موقع', 'العنوان', 'وين موقعكم', 'لوكيشن',
+  'ساعات', 'الدوام', 'فاتحين', 'مسكرين', 'مفتوح',
+  'داي كير', 'حضانه', 'حضانة',
+  'اشتراك', 'باقه', 'باقة', 'باقات',
+  'رمل', 'توصيل', 'نقل',
+  'اعمار', 'عمر', 'مرافق',
+  'جوارب', 'انشطه', 'فعاليات', 'العاب',
+  'خصم', 'تخفيض', 'عرض', 'عروض'
+];
 const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
 const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
   'pricing',
@@ -1220,7 +1233,14 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           platform: 'whatsapp',
           message_type: 'text',
           text_body: { $exists: true, $ne: '' },
-          message_id: { $not: /^auto_trigger_/ }
+          message_id: { $not: /^auto_trigger_/ },
+          $or: [
+            { direction: 'inbound' },
+            {
+              direction: 'outbound',
+              'raw_payload.matched_key': { $nin: ['fallback', 'escalation_handoff'] }
+            }
+          ]
         })
           .sort({ timestamp: -1 })
           .limit(6)
@@ -1274,16 +1294,68 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
             aiConfidence: aiResult.confidence
           });
         } else {
-          // Gemini declined or low confidence → generic fallback
-          replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
-          matchedKey = 'fallback';
-          logRoutingDecision({
-            messageId,
-            senderWaId: normalizedWaId,
-            route: 'ai_declined_fallback',
-            aiConfidence: aiResult?.confidence ?? null,
-            aiInScope: aiResult?.in_scope ?? null
-          });
+          // Check if Gemini misclassified a clearly in-domain message
+          const normalizedForOverride = normalizeText(effectiveTextBody);
+          const hasDomainKeyword = FORCE_IN_SCOPE_KEYWORDS.some(
+            (kw) => normalizedForOverride.includes(normalizeText(kw))
+          );
+
+          if (hasDomainKeyword && boundedAiReply && boundedAiReply.length >= 2) {
+            // Gemini generated a reply but said out_of_scope — override and use the reply
+            replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
+            matchedKey = 'ai_override';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_scope_override',
+              reason: 'domain_keyword_detected',
+              aiConfidence: aiResult?.confidence ?? null,
+              aiInScope: aiResult?.in_scope ?? null,
+              aiTopic: aiResult?.topic ?? null
+            });
+          } else if (hasDomainKeyword) {
+            // Gemini said out_of_scope AND gave no usable reply — fall back to legacy keyword matching
+            const keywordMatches = detectKeywordMatches(effectiveTextBody);
+            const matched = keywordMatches[0]?.entry || null;
+            if (matched) {
+              if (matched.buildReply) {
+                replyText = await matched.buildReply({ footer: config.footer });
+              } else {
+                replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
+              }
+              if (greetingOpening) {
+                replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
+              }
+              matchedKey = matched.key;
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'ai_failed_keyword_rescue',
+                keywordMatchedKey: matchedKey
+              });
+            } else {
+              replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
+              matchedKey = 'fallback';
+              logRoutingDecision({
+                messageId,
+                senderWaId: normalizedWaId,
+                route: 'ai_declined_fallback',
+                aiConfidence: aiResult?.confidence ?? null,
+                aiInScope: aiResult?.in_scope ?? null
+              });
+            }
+          } else {
+            // Genuinely out of scope — no domain keywords found
+            replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
+            matchedKey = 'fallback';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_declined_fallback',
+              aiConfidence: aiResult?.confidence ?? null,
+              aiInScope: aiResult?.in_scope ?? null
+            });
+          }
         }
       } catch (aiError) {
         console.error('AI_PRIMARY_ROUTE_ERROR', aiError.message);
