@@ -1,0 +1,5 @@
+{
+  "intro_text": "I can help with booking requests.",
+  "required_fields": ["date", "time", "party_size", "name", "contact"],
+  "confirmation_text": "Thanks! I will pass your booking details to the team for confirmation."
+}
