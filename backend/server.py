@@ -137,12 +137,14 @@ async def proxy_to_node(request: Request, path: str):
 
             body = await request.body()
 
+            # Long timeout for bulk-send (up to 1000 sequential WhatsApp sends)
+            req_timeout = 600.0 if path == 'staff/campaigns/bulk-send' else 30.0
             response = await client.request(
                 method=request.method,
                 url=url,
                 headers=headers,
                 content=body,
-                timeout=30.0
+                timeout=req_timeout
             )
 
             return Response(

@@ -233,6 +233,127 @@ router.get('/preview', async (req, res) => {
   }
 });
 
+// POST /bulk-send — DB-neutral manual bulk template send (max 1000 recipients)
+// No new DB models, no campaign state, no queue/cron/scheduler.
+// Sends sequentially in small batches and returns per-recipient results synchronously.
+router.post('/bulk-send', async (req, res) => {
+  const BULK_BATCH_SIZE = 20;
+  const BULK_BATCH_DELAY_MS = 500;
+  const MAX_RECIPIENTS = 1000;
+
+  try {
+    const { template_name, language_code, components, ttl_hours, recipients } = req.body;
+
+    // --- Validation ---
+    if (!template_name || typeof template_name !== 'string' || !template_name.trim()) {
+      return res.status(400).json({ error: 'template_name is required' });
+    }
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'recipients array is required and must not be empty' });
+    }
+    if (recipients.length > MAX_RECIPIENTS) {
+      return res.status(400).json({ error: `Maximum ${MAX_RECIPIENTS} recipients per run. Received: ${recipients.length}` });
+    }
+    if (ttl_hours !== undefined && ttl_hours !== null && ttl_hours !== '') {
+      const ttlNum = Number(ttl_hours);
+      if (isNaN(ttlNum) || ttlNum < 12 || ttlNum > 720) {
+        return res.status(400).json({ error: 'ttl_hours must be between 12 and 720' });
+      }
+    }
+
+    // Validate template exists and is approved
+    const templateDoc = await TemplateDefinition.findOne({ name: template_name.trim() });
+    if (!templateDoc) {
+      return res.status(400).json({ error: `Template "${template_name.trim()}" not found. Register or sync it first.` });
+    }
+    if (templateDoc.status !== 'approved') {
+      return res.status(400).json({ error: `Template "${template_name.trim()}" status is "${templateDoc.status}". Only approved templates can be sent.` });
+    }
+
+    // Normalize, deduplicate, and categorize recipients
+    const seen = new Set();
+    const validRecipients = [];
+    const results = [];
+
+    for (const raw of recipients) {
+      const phone = String(raw || '').trim();
+      if (!phone) continue;
+      const normalized = normalizePhoneForWhatsApp(phone);
+      if (!normalized) {
+        results.push({ phone, normalized_phone: null, status: 'skipped_invalid', reason: 'invalid_phone_format' });
+        continue;
+      }
+      if (seen.has(normalized)) continue; // deduplicate silently
+      seen.add(normalized);
+      validRecipients.push({ phone, normalized });
+    }
+
+    if (validRecipients.length === 0) {
+      return res.status(400).json({ error: 'No valid phone numbers after normalization', results });
+    }
+
+    // Send in small sequential batches using existing postWhatsAppTemplate
+    const staffId = req.user._id;
+    const langCode = (language_code || 'ar').trim();
+    const tplComponents = Array.isArray(components) ? components : [];
+    const ttlSeconds = ttl_hours ? Number(ttl_hours) * 3600 : null;
+
+    for (let i = 0; i < validRecipients.length; i += BULK_BATCH_SIZE) {
+      const batch = validRecipients.slice(i, i + BULK_BATCH_SIZE);
+
+      for (const { phone, normalized } of batch) {
+        try {
+          const result = await postWhatsAppTemplate({
+            to: normalized,
+            templateName: template_name.trim(),
+            languageCode: langCode,
+            components: tplComponents,
+            staffId,
+            ttl_seconds: ttlSeconds
+          });
+
+          if (result.ok) {
+            results.push({ phone, normalized_phone: normalized, status: 'sent', messageId: result.messageId || null });
+          } else if (result.skipped && (result.reason === 'opted_out' || result.reason === 'opt_out_check_failed')) {
+            results.push({ phone, normalized_phone: normalized, status: 'skipped_opted_out', reason: result.reason });
+          } else if (result.reason === 'missing_config') {
+            results.push({ phone, normalized_phone: normalized, status: 'failed', reason: 'whatsapp_not_configured' });
+          } else {
+            results.push({ phone, normalized_phone: normalized, status: 'failed', reason: result.error || result.reason || 'api_error' });
+          }
+        } catch (sendErr) {
+          results.push({ phone, normalized_phone: normalized, status: 'failed', reason: sendErr.message || 'exception' });
+        }
+      }
+
+      // Small delay between batches to avoid rate-limit spikes
+      if (i + BULK_BATCH_SIZE < validRecipients.length) {
+        await new Promise(resolve => setTimeout(resolve, BULK_BATCH_DELAY_MS));
+      }
+    }
+
+    // Build summary
+    const summary = {
+      total: results.length,
+      sent: results.filter(r => r.status === 'sent').length,
+      skipped_opted_out: results.filter(r => r.status === 'skipped_opted_out').length,
+      skipped_invalid: results.filter(r => r.status === 'skipped_invalid').length,
+      failed: results.filter(r => r.status === 'failed').length
+    };
+
+    if (!res.headersSent) {
+      res.json({ success: true, template_name: template_name.trim(), summary, results });
+    }
+  } catch (error) {
+    console.error('Bulk send error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Bulk send failed', details: error.message });
+    }
+  }
+});
+
+
+
 // GET /:id/recipients — list campaign audience with exclusion flags
 router.get('/:id/recipients', async (req, res) => {
   try {

@@ -132,6 +132,10 @@ app.use((req, res, next) => {
   if (!Number.isFinite(REQUEST_TIMEOUT_MS) || REQUEST_TIMEOUT_MS <= 0) {
     return next();
   }
+  // Skip timeout for long-running bulk-send operations (up to 1000 sequential sends)
+  if (req.method === 'POST' && (req.originalUrl || req.url) === '/api/staff/campaigns/bulk-send') {
+    return next();
+  }
 
   let didTimeout = false;
   const timeoutHandle = setTimeout(() => {

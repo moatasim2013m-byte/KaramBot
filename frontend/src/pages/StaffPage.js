@@ -136,6 +136,17 @@ export default function StaffPage() {
   const imageInputRef = useRef(null);
   const replyTextareaRef = useRef(null);
   const inboxEventsRef = useRef(null);
+
+  // Bulk Send state
+  const [showBulkSend, setShowBulkSend] = useState(false);
+  const [bulkTemplateName, setBulkTemplateName] = useState('');
+  const [bulkLanguageCode, setBulkLanguageCode] = useState('ar');
+  const [bulkComponentsJson, setBulkComponentsJson] = useState('');
+  const [bulkTtlHours, setBulkTtlHours] = useState('');
+  const [bulkPhones, setBulkPhones] = useState('');
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResults, setBulkResults] = useState(null);
+  const [approvedTemplates, setApprovedTemplates] = useState([]);
   const staffPermissions = useMemo(() => ({
     access_staff_tools: user?.role === 'admin'
       ? true
@@ -819,6 +830,51 @@ export default function StaffPage() {
   useEffect(() => {
     if (activeTab === 'campaigns' && staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
   }, [activeTab, fetchCampaigns, staffPermissions.access_whatsapp_campaigns]);
+
+  // Fetch approved templates for bulk send
+  const fetchApprovedTemplates = useCallback(async () => {
+    try {
+      const response = await api.get('/templates?status=approved&limit=100');
+      setApprovedTemplates(response.data.templates || []);
+    } catch (err) { console.error('Failed to fetch approved templates:', err); }
+  }, [api]);
+
+  useEffect(() => {
+    if (showBulkSend && approvedTemplates.length === 0) fetchApprovedTemplates();
+  }, [showBulkSend, approvedTemplates.length, fetchApprovedTemplates]);
+
+  const handleBulkSend = async () => {
+    if (!bulkTemplateName.trim()) { toast.error('اسم القالب مطلوب'); return; }
+    const phoneLines = bulkPhones.split('\n').map(l => l.trim()).filter(Boolean);
+    if (phoneLines.length === 0) { toast.error('أدخل أرقام الهواتف'); return; }
+    if (phoneLines.length > 1000) { toast.error('الحد الأقصى 1000 رقم لكل إرسال'); return; }
+
+    let parsedComponents = [];
+    if (bulkComponentsJson.trim()) {
+      try { parsedComponents = JSON.parse(bulkComponentsJson); }
+      catch { toast.error('صيغة JSON غير صحيحة لمعلمات القالب'); return; }
+    }
+
+    if (!window.confirm(`هل تريد إرسال القالب "${bulkTemplateName}" إلى ${phoneLines.length} مستلم؟`)) return;
+
+    setBulkSending(true);
+    setBulkResults(null);
+    try {
+      const response = await api.post('/staff/campaigns/bulk-send', {
+        template_name: bulkTemplateName.trim(),
+        language_code: bulkLanguageCode || 'ar',
+        components: parsedComponents,
+        ttl_hours: bulkTtlHours ? Number(bulkTtlHours) : undefined,
+        recipients: phoneLines
+      }, { timeout: 600000 });
+      setBulkResults(response.data);
+      toast.success(`تم الإرسال: ${response.data.summary?.sent || 0} من ${response.data.summary?.total || 0}`);
+    } catch (error) {
+      const errMsg = error.response?.data?.error || error.message || 'فشل الإرسال الجماعي';
+      toast.error(errMsg);
+      if (error.response?.data?.results) setBulkResults(error.response.data);
+    } finally { setBulkSending(false); }
+  };
 
   const statusBadgeClass = (status) => {
     switch (status) {
@@ -1651,6 +1707,85 @@ export default function StaffPage() {
                     </Button>
                   </div>
                 </CardHeader>
+              </Card>
+
+              {/* ===== BULK SEND CARD (DB-neutral, no campaign state) ===== */}
+              <Card className="rounded-2xl border-dashed border-2 border-primary/30">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2"><Send className="h-4 w-4 text-primary" /> إرسال جماعي يدوي</CardTitle>
+                      <p className="text-xs text-muted-foreground mt-1">أرسل قالب معتمد مباشرة بدون حفظ حملة — حتى 1,000 مستلم</p>
+                    </div>
+                    <Button size="sm" variant={showBulkSend ? 'outline' : 'default'} onClick={() => { setShowBulkSend(!showBulkSend); setBulkResults(null); }} className="rounded-full gap-1.5">
+                      {showBulkSend ? <><X className="h-3.5 w-3.5" /> إغلاق</> : <><Send className="h-3.5 w-3.5" /> ابدأ</>}
+                    </Button>
+                  </div>
+                </CardHeader>
+                {showBulkSend && (
+                  <CardContent className="space-y-3 pt-0">
+                    <div>
+                      <Label className="text-xs">اسم القالب المعتمد *</Label>
+                      {approvedTemplates.length > 0 ? (
+                        <select value={bulkTemplateName} onChange={(e) => setBulkTemplateName(e.target.value)} className="w-full mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                          <option value="">— اختر قالب —</option>
+                          {approvedTemplates.map(t => <option key={t._id || t.name} value={t.name}>{t.name} ({t.language || 'ar'}) — {t.category}</option>)}
+                        </select>
+                      ) : (
+                        <Input value={bulkTemplateName} onChange={(e) => setBulkTemplateName(e.target.value)} placeholder="اسم القالب كما هو في Meta" className="rounded-xl mt-1" />
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">اللغة</Label>
+                        <Input value={bulkLanguageCode} onChange={(e) => setBulkLanguageCode(e.target.value)} placeholder="ar" className="rounded-xl mt-1" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">صلاحية (ساعات)</Label>
+                        <Input type="number" min="12" max="720" value={bulkTtlHours} onChange={(e) => setBulkTtlHours(e.target.value)} placeholder="اختياري" className="rounded-xl mt-1" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">معلمات القالب (JSON — اختياري)</Label>
+                      <textarea value={bulkComponentsJson} onChange={(e) => setBulkComponentsJson(e.target.value)} placeholder={'مثال:\n[{"type":"body","parameters":[{"type":"text","text":"مرحباً"}]}]'} rows={3} className="w-full mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">أرقام الهواتف * (رقم واحد في كل سطر، حتى 1,000)</Label>
+                      <textarea value={bulkPhones} onChange={(e) => setBulkPhones(e.target.value)} placeholder={'962791234567\n962797654321\n...'} rows={5} className="w-full mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y" />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        عدد الأسطر: {bulkPhones.split('\n').filter(l => l.trim()).length} / 1,000
+                      </p>
+                    </div>
+                    <Button onClick={handleBulkSend} disabled={bulkSending || !bulkTemplateName.trim() || !bulkPhones.trim()} className="w-full rounded-full gap-2">
+                      {bulkSending ? <><Loader2 className="h-4 w-4 animate-spin" /> جاري الإرسال...</> : <><Send className="h-4 w-4" /> إرسال جماعي</>}
+                    </Button>
+
+                    {/* Bulk send results */}
+                    {bulkResults && (
+                      <div className="bg-muted/30 rounded-xl p-3 space-y-2">
+                        <p className="text-sm font-semibold">نتائج الإرسال</p>
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          <div className="bg-green-50 rounded-lg py-2"><p className="text-lg font-bold text-green-700">{bulkResults.summary?.sent || 0}</p><p className="text-[10px] text-green-600">تم الإرسال</p></div>
+                          <div className="bg-yellow-50 rounded-lg py-2"><p className="text-lg font-bold text-yellow-700">{bulkResults.summary?.skipped_opted_out || 0}</p><p className="text-[10px] text-yellow-600">إلغاء اشتراك</p></div>
+                          <div className="bg-orange-50 rounded-lg py-2"><p className="text-lg font-bold text-orange-700">{bulkResults.summary?.skipped_invalid || 0}</p><p className="text-[10px] text-orange-600">رقم غير صالح</p></div>
+                          <div className="bg-red-50 rounded-lg py-2"><p className="text-lg font-bold text-red-700">{bulkResults.summary?.failed || 0}</p><p className="text-[10px] text-red-600">فشل</p></div>
+                        </div>
+                        {Array.isArray(bulkResults.results) && bulkResults.results.length > 0 && (
+                          <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
+                            {bulkResults.results.map((r, idx) => (
+                              <div key={idx} className="flex items-center justify-between bg-white rounded-lg px-2 py-1 border text-xs">
+                                <span className="font-mono truncate max-w-[50%]">{r.phone}</span>
+                                <span className={`px-2 py-0.5 rounded-full font-medium ${r.status === 'sent' ? 'bg-green-100 text-green-700' : r.status === 'skipped_opted_out' ? 'bg-yellow-100 text-yellow-700' : r.status === 'skipped_invalid' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                                  {r.status === 'sent' ? 'تم' : r.status === 'skipped_opted_out' ? 'إلغاء اشتراك' : r.status === 'skipped_invalid' ? 'غير صالح' : 'فشل'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                )}
               </Card>
 
               {showCampaignForm && (
