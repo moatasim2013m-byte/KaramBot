@@ -53,4 +53,5 @@ const setWhatsAppOptOut = async (waId, optOut = true) => {
 module.exports = {
   isWhatsAppOptedOut,
   setWhatsAppOptOut,
+  phoneLookupFormats,
 };

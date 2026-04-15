@@ -18,6 +18,7 @@ const TemplateDefinition = require('../models/TemplateDefinition');
 const { authMiddleware, staffMiddleware, staffPermissionMiddleware } = require('../middleware/auth');
 const { normalizePhoneForWhatsApp, postWhatsAppText } = require('../utils/whatsappBookingConfirmation');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
+const { phoneLookupFormats } = require('../utils/whatsappOptOut');
 
 const router = express.Router();
 router.use(authMiddleware, staffMiddleware);
@@ -92,12 +93,18 @@ async function buildAudience(audienceFilters) {
   }
 
   // Exclude opted-out users (Meta compliance)
+  // Use phoneLookupFormats for multi-format matching (same logic as isWhatsAppOptedOut)
   const rawPhones = contacts.map(c => c._id).filter(Boolean);
+  const allOptOutVariants = rawPhones.flatMap(p => phoneLookupFormats(p));
   const optedOutUsers = await User.find(
-    { whatsapp_opted_out_at: { $ne: null }, phone: { $in: rawPhones } },
+    { whatsapp_opted_out_at: { $ne: null }, phone: { $in: allOptOutVariants } },
     { phone: 1 }
   ).lean();
-  const optedOutSet = new Set(optedOutUsers.map(u => String(u.phone)));
+  const optedOutNormalized = new Set();
+  for (const u of optedOutUsers) {
+    const norm = normalizePhoneForWhatsApp(u.phone);
+    if (norm) optedOutNormalized.add(norm);
+  }
 
   // Exclude recipients without explicit marketing consent (Meta compliance)
   const consentedUsers = await User.find(
@@ -113,7 +120,7 @@ async function buildAudience(audienceFilters) {
       linked_user_id: c.linked_user_id || null,
       last_inbound_at: c.last_inbound_at || null
     }))
-    .filter(c => c.wa_id && !optedOutSet.has(c.wa_id) && c.linked_user_id && consentedIdSet.has(String(c.linked_user_id)));
+    .filter(c => c.wa_id && !optedOutNormalized.has(c.wa_id) && c.linked_user_id && consentedIdSet.has(String(c.linked_user_id)));
 }
 
 function getExcludedWaIds(campaign) {
@@ -303,11 +310,8 @@ router.post('/bulk-send', async (req, res) => {
     }
 
     // Build consent lookup: only send to recipients with explicit marketing consent
-    const allPhoneVariants = [];
-    for (const { normalized } of validRecipients) {
-      allPhoneVariants.push(normalized, `+${normalized}`);
-      if (normalized.startsWith('962')) allPhoneVariants.push(`0${normalized.slice(3)}`);
-    }
+    // Use phoneLookupFormats for consistent multi-format matching
+    const allPhoneVariants = validRecipients.flatMap(({ normalized }) => phoneLookupFormats(normalized));
     const consentedUsers = await User.find({
       phone: { $in: allPhoneVariants },
       whatsapp_marketing_consent: true,
