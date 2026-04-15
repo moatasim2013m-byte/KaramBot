@@ -328,81 +328,17 @@ router.patch('/:id', async (req, res) => {
 
 /**
  * POST /api/campaigns/:id/execute
- * Execute campaign broadcast
  * 
- * COMPLIANCE CHECKPOINTS:
- * 1. Validate opt-in consent for all recipients
- * 2. Check 24-hour window for free-form eligibility
- * 3. Enforce template usage outside 24h window
- * 4. Log all send attempts for audit
- * 5. Handle rate limiting (1 msg/sec per phone)
+ * DISABLED: This legacy execution path sends via postWhatsAppText (the /messages
+ * endpoint) instead of postWhatsAppTemplate (the /marketing_messages endpoint).
+ * Template content would be sent as plain text, bypassing Meta's template system.
+ * Use POST /api/staff/campaigns/:id/execute instead.
  */
 router.post('/:id/execute', async (req, res) => {
-  try {
-    const { force_send_all = false } = req.body;
-    
-    const campaign = await Campaign.findById(req.params.id);
-    
-    if (!campaign) {
-      return res.status(404).json({ error: 'Campaign not found' });
-    }
-    
-    if (!campaign.canExecute()) {
-      return res.status(400).json({ error: `Cannot execute campaign in status: ${campaign.status}` });
-    }
-    
-    // Lock campaign
-    campaign.status = 'active';
-    await campaign.save();
-    
-    // Query audience
-    const recipients = await queryAudience(campaign.audience_filter);
-    
-    if (recipients.length === 0) {
-      campaign.status = 'completed';
-      await campaign.save();
-      return res.status(400).json({ error: 'No recipients found matching audience filter' });
-    }
-    
-    // Get next broadcast number
-    const lastBroadcast = await CampaignBroadcast.findOne({ campaign_id: campaign._id })
-      .sort({ broadcast_number: -1 });
-    const broadcastNumber = lastBroadcast ? lastBroadcast.broadcast_number + 1 : 1;
-    
-    // Create broadcast record
-    const broadcast = new CampaignBroadcast({
-      campaign_id: campaign._id,
-      broadcast_number: broadcastNumber,
-      status: 'in_progress',
-      started_at: new Date(),
-      total_recipients: recipients.length,
-      recipients: recipients.map(r => ({
-        phone: r.phone,
-        wa_id: r.wa_id,
-        user_id: r.user?._id,
-        consent_verified: r.consent_verified,
-        last_inbound_time: r.last_inbound_time,
-        within_24h_window: isWithin24HourWindow(r.last_inbound_time),
-        status: 'pending'
-      }))
-    });
-    
-    broadcast.addAuditLog('broadcast_started', `Campaign execution started with ${recipients.length} recipients`);
-    await broadcast.save();
-    
-    // Execute sends asynchronously (don't block response)
-    setImmediate(() => executeBroadcastSends(campaign, broadcast));
-    
-    res.json({
-      success: true,
-      broadcast_id: broadcast._id,
-      status: 'in_progress',
-      total_recipients: recipients.length
-    });
-  } catch (error) {
-    console.error('Execute campaign error:', error);
-    res.status(500).json({ error: 'Failed to execute campaign' });
-  }
+  return res.status(410).json({
+    error: 'This legacy campaign execution path is disabled. It uses an incorrect Meta API endpoint for template sends.',
+    use_instead: 'POST /api/staff/campaigns/:id/execute'
+  });
 });
 
 /**

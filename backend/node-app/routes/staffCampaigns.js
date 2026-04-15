@@ -527,6 +527,15 @@ async function runBroadcast({ campaign, recipients, staffId, campaignId, message
   const BATCH_DELAY_MS = 1000;
   try {
     for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      // Re-check campaign status each batch — stop if paused/cancelled externally
+      if (i > 0) {
+        const current = await Campaign.findById(campaignId).select('status').lean();
+        if (!current || current.status !== 'running') {
+          console.log('STAFF_CAMPAIGN_BROADCAST_STOPPED', { campaignId: String(campaignId), stoppedAtIndex: i, reason: current?.status || 'not_found' });
+          return;
+        }
+      }
+
       const batch = recipients.slice(i, i + BATCH_SIZE);
       for (const waId of batch) {
         try {
@@ -548,13 +557,18 @@ async function runBroadcast({ campaign, recipients, staffId, campaignId, message
       }
       if (i + BATCH_SIZE < recipients.length) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
     }
+    // Only mark completed if still running (respect external pause/cancel)
     const done = await Campaign.findById(campaignId);
-    if (done) { done.status = 'completed'; await done.save(); }
+    if (done && done.status === 'running') { done.status = 'completed'; await done.save(); }
     console.log('STAFF_CAMPAIGN_BROADCAST_COMPLETED', { campaignId: String(campaignId), totalRecipients: recipients.length });
   } catch (err) {
     console.error('STAFF_CAMPAIGN_BROADCAST_ERROR', { campaignId: String(campaignId), error: err.message });
-    const failed = await Campaign.findById(campaignId);
-    if (failed) { failed.status = 'failed'; await failed.save(); }
+    try {
+      const failed = await Campaign.findById(campaignId);
+      if (failed && failed.status === 'running') { failed.status = 'failed'; await failed.save(); }
+    } catch (dbErr) {
+      console.error('STAFF_CAMPAIGN_STATUS_UPDATE_FAILED', { campaignId: String(campaignId), error: dbErr.message });
+    }
   }
 }
 
