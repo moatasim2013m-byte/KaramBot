@@ -23,6 +23,9 @@ const router = express.Router();
 router.use(authMiddleware, staffMiddleware);
 router.use(staffPermissionMiddleware('access_whatsapp_campaigns'));
 
+const MANUAL_BULK_MAX_RECIPIENTS = 1000;
+const MANUAL_BULK_SEND_DELAY_MS = 250;
+
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 async function isWithin24hWindow(waId) {
@@ -121,6 +124,142 @@ function getExcludedWaIds(campaign) {
   if (!Array.isArray(excluded)) return [];
   return excluded.map(waId => normalizePhoneForWhatsApp(waId)).filter(Boolean);
 }
+
+function extractRawRecipientValue(recipient) {
+  if (typeof recipient === 'string' || typeof recipient === 'number') return String(recipient);
+  if (recipient && typeof recipient === 'object') {
+    if (recipient.wa_id !== undefined && recipient.wa_id !== null) return String(recipient.wa_id);
+    if (recipient.phone !== undefined && recipient.phone !== null) return String(recipient.phone);
+  }
+  return '';
+}
+
+function normalizeTemplateParams(templateParams) {
+  if (!Array.isArray(templateParams)) return [];
+  return templateParams.map(value => String(value ?? '').trim());
+}
+
+function buildBodyComponentsFromParams(templateParams) {
+  return [{
+    type: 'body',
+    parameters: templateParams.map(value => ({ type: 'text', text: value }))
+  }];
+}
+
+// POST /manual-bulk-send — direct manual bulk template send (no campaign persistence)
+router.post('/manual-bulk-send', async (req, res) => {
+  try {
+    const {
+      template_name,
+      template_language,
+      template_params,
+      recipients
+    } = req.body || {};
+
+    if (!template_name || !String(template_name).trim()) {
+      return res.status(400).json({ error: 'template_name is required' });
+    }
+
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'recipients must be a non-empty array' });
+    }
+
+    if (recipients.length > MANUAL_BULK_MAX_RECIPIENTS) {
+      return res.status(400).json({
+        error: `Maximum ${MANUAL_BULK_MAX_RECIPIENTS} recipients allowed per manual send`
+      });
+    }
+
+    const templateDoc = await TemplateDefinition.findOne({ name: String(template_name).trim() }).lean();
+    if (!templateDoc) {
+      return res.status(400).json({
+        error: `Template "${template_name}" not found. Register it first via POST /api/templates.`
+      });
+    }
+    if (templateDoc.status !== 'approved') {
+      return res.status(400).json({
+        error: `Template "${template_name}" status is "${templateDoc.status}". Only approved templates can be sent.`
+      });
+    }
+
+    const normalizedTemplateParams = normalizeTemplateParams(template_params);
+    const requiredParamsCount = Array.isArray(templateDoc.variables) ? templateDoc.variables.length : 0;
+    if (requiredParamsCount > 0 && normalizedTemplateParams.length < requiredParamsCount) {
+      return res.status(400).json({
+        error: `Missing required template params: expected ${requiredParamsCount}, received ${normalizedTemplateParams.length}`
+      });
+    }
+
+    if (requiredParamsCount > 0 && normalizedTemplateParams.slice(0, requiredParamsCount).some(value => !value)) {
+      return res.status(400).json({ error: 'template_params contains empty required values' });
+    }
+
+    const components = requiredParamsCount > 0
+      ? buildBodyComponentsFromParams(normalizedTemplateParams.slice(0, requiredParamsCount))
+      : [];
+
+    const seenWaIds = new Set();
+    const perRecipient = [];
+    let sent = 0;
+    let skipped_opted_out = 0;
+    let skipped_invalid = 0;
+    let failed = 0;
+
+    for (const recipient of recipients) {
+      const original = extractRawRecipientValue(recipient);
+      const waId = normalizePhoneForWhatsApp(original);
+
+      if (!waId) {
+        skipped_invalid += 1;
+        perRecipient.push({ recipient: original, status: 'skipped_invalid' });
+        continue;
+      }
+
+      if (seenWaIds.has(waId)) {
+        skipped_invalid += 1;
+        perRecipient.push({ recipient: waId, status: 'skipped_invalid', reason: 'duplicate' });
+        continue;
+      }
+      seenWaIds.add(waId);
+
+      const result = await postWhatsAppTemplate({
+        to: waId,
+        templateName: String(template_name).trim(),
+        languageCode: template_language || templateDoc.language || 'ar',
+        components,
+        staffId: req.user._id
+      });
+
+      if (result.ok) {
+        sent += 1;
+        perRecipient.push({ recipient: waId, status: 'sent', message_id: result.messageId || null });
+      } else if (result.skipped && result.reason === 'opted_out') {
+        skipped_opted_out += 1;
+        perRecipient.push({ recipient: waId, status: 'skipped_opted_out' });
+      } else {
+        failed += 1;
+        perRecipient.push({
+          recipient: waId,
+          status: 'failed',
+          reason: result.reason || result.error || 'send_failed'
+        });
+      }
+
+      await new Promise(resolve => setTimeout(resolve, MANUAL_BULK_SEND_DELAY_MS));
+    }
+
+    res.json({
+      success: true,
+      template_name: String(template_name).trim(),
+      recipient_count: recipients.length,
+      summary: { sent, skipped_opted_out, skipped_invalid, failed },
+      results: perRecipient
+    });
+  } catch (error) {
+    console.error('Staff manual bulk send error:', error);
+    res.status(500).json({ error: 'Failed to execute manual bulk send' });
+  }
+});
 
 // POST / — create campaign
 router.post('/', async (req, res) => {
