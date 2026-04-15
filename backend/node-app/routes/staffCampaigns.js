@@ -99,6 +99,13 @@ async function buildAudience(audienceFilters) {
   ).lean();
   const optedOutSet = new Set(optedOutUsers.map(u => String(u.phone)));
 
+  // Exclude recipients without explicit marketing consent (Meta compliance)
+  const consentedUsers = await User.find(
+    { whatsapp_marketing_consent: true, whatsapp_opted_out_at: null },
+    { _id: 1 }
+  ).lean();
+  const consentedIdSet = new Set(consentedUsers.map(u => String(u._id)));
+
   return contacts
     .map(c => ({
       wa_id: normalizePhoneForWhatsApp(c._id),
@@ -106,7 +113,7 @@ async function buildAudience(audienceFilters) {
       linked_user_id: c.linked_user_id || null,
       last_inbound_at: c.last_inbound_at || null
     }))
-    .filter(c => c.wa_id && !optedOutSet.has(c.wa_id));
+    .filter(c => c.wa_id && !optedOutSet.has(c.wa_id) && c.linked_user_id && consentedIdSet.has(String(c.linked_user_id)));
 }
 
 function getExcludedWaIds(campaign) {
@@ -269,6 +276,9 @@ router.post('/bulk-send', async (req, res) => {
     if (templateDoc.status !== 'approved') {
       return res.status(400).json({ error: `Template "${template_name.trim()}" status is "${templateDoc.status}". Only approved templates can be sent.` });
     }
+    if (templateDoc.category !== 'marketing') {
+      return res.status(400).json({ error: `Template "${template_name.trim()}" category is "${templateDoc.category}". Only marketing templates can be used for bulk marketing sends.` });
+    }
 
     // Normalize, deduplicate, and categorize recipients
     const seen = new Set();
@@ -292,6 +302,23 @@ router.post('/bulk-send', async (req, res) => {
       return res.status(400).json({ error: 'No valid phone numbers after normalization', results });
     }
 
+    // Build consent lookup: only send to recipients with explicit marketing consent
+    const allPhoneVariants = [];
+    for (const { normalized } of validRecipients) {
+      allPhoneVariants.push(normalized, `+${normalized}`);
+      if (normalized.startsWith('962')) allPhoneVariants.push(`0${normalized.slice(3)}`);
+    }
+    const consentedUsers = await User.find({
+      phone: { $in: allPhoneVariants },
+      whatsapp_marketing_consent: true,
+      whatsapp_opted_out_at: null
+    }).select('phone').lean();
+    const consentedPhoneSet = new Set();
+    for (const u of consentedUsers) {
+      const norm = normalizePhoneForWhatsApp(u.phone);
+      if (norm) consentedPhoneSet.add(norm);
+    }
+
     // Send in small sequential batches using existing postWhatsAppTemplate
     const staffId = req.user._id;
     const langCode = (language_code || 'ar').trim();
@@ -302,6 +329,11 @@ router.post('/bulk-send', async (req, res) => {
       const batch = validRecipients.slice(i, i + BULK_BATCH_SIZE);
 
       for (const { phone, normalized } of batch) {
+        // Skip recipients without explicit marketing consent
+        if (!consentedPhoneSet.has(normalized)) {
+          results.push({ phone, normalized_phone: normalized, status: 'skipped_no_consent', reason: 'no_marketing_consent' });
+          continue;
+        }
         try {
           const result = await postWhatsAppTemplate({
             to: normalized,
@@ -337,6 +369,7 @@ router.post('/bulk-send', async (req, res) => {
       total: results.length,
       sent: results.filter(r => r.status === 'sent').length,
       skipped_opted_out: results.filter(r => r.status === 'skipped_opted_out').length,
+      skipped_no_consent: results.filter(r => r.status === 'skipped_no_consent').length,
       skipped_invalid: results.filter(r => r.status === 'skipped_invalid').length,
       failed: results.filter(r => r.status === 'failed').length
     };
@@ -456,6 +489,9 @@ router.post('/:id/execute', async (req, res) => {
       });
       if (templateDoc.status !== 'approved') return res.status(400).json({
         error: `Template "${tplName}" status is "${templateDoc.status}". Only approved templates can be sent.`
+      });
+      if (templateDoc.category !== 'marketing') return res.status(400).json({
+        error: `Template "${tplName}" category is "${templateDoc.category}". Only marketing templates can be used for campaign sends.`
       });
     }
 
