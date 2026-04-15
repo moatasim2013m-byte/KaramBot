@@ -14,7 +14,7 @@ import { format } from 'date-fns';
 import {
   LayoutDashboard, Users, Clock, Cake, Star, Settings, Image,
   Plus, Edit, Trash2, Loader2, Gift, Calendar, DollarSign, Home, Upload, Search, UserPlus, Eye, Ban, Check, X, MessageSquare,
-  Megaphone, FileText, Palette, RefreshCw, QrCode,
+  FileText, Palette, RefreshCw, QrCode,
   CalendarDays, UserCog, LogOut
 } from 'lucide-react';
 import logoImg from '../../assets/logo.png';
@@ -25,7 +25,6 @@ import ContentTab from './tabs/ContentTab';
 import StaffTab from './tabs/StaffTab';
 import SettingsTab from './tabs/SettingsTab';
 import ThemesTab from './tabs/ThemesTab';
-import MarketingTab from './tabs/MarketingTab';
 
 const RAW_BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const BACKEND_ORIGIN =
@@ -1423,7 +1422,6 @@ export default function AdminLayout() {
             { id: 'themes', label: 'الثيمات', icon: <Palette className="h-4 w-4" /> },
             { id: 'content', label: 'المحتوى', icon: <Image className="h-4 w-4" /> },
             { id: 'staff', label: 'الموظفون', icon: <UserCog className="h-4 w-4" /> },
-            { id: 'marketing', label: 'التسويق', icon: <Megaphone className="h-4 w-4" /> },
             { id: 'settings', label: 'الإعدادات', icon: <Settings className="h-4 w-4" /> },
           ].map(item => (
             <button
@@ -1479,7 +1477,6 @@ export default function AdminLayout() {
         {currentTab === 'themes' && <ThemesTab themes={allProps.themes} setThemes={allProps.setThemes} api={allProps.api} />}
         {currentTab === 'content' && <ContentTab {...allProps} />}
         {currentTab === 'staff' && <StaffTab {...allProps} />}
-        {currentTab === 'marketing' && <MarketingTab api={api} />}
         {currentTab === 'settings' && <SettingsTab {...allProps} />}
       </main>
 
@@ -1492,7 +1489,6 @@ export default function AdminLayout() {
           { id: 'themes', icon: <Palette className="h-5 w-5" /> },
           { id: 'content', icon: <Image className="h-5 w-5" /> },
           { id: 'staff', icon: <UserCog className="h-5 w-5" /> },
-          { id: 'marketing', icon: <Megaphone className="h-5 w-5" /> },
           { id: 'settings', icon: <Settings className="h-5 w-5" /> },
         ].map(item => (
           <button

@@ -7,7 +7,6 @@ const { emitInboxUpdate } = require('../utils/inboxEvents');
 const { maybeAutoReply } = require('../utils/autoReplyBot');
 const { normalizePhoneForWhatsApp } = require('../utils/whatsappBookingConfirmation');
 const TemplateDefinition = require('../models/TemplateDefinition');
-const { syncRecipientStatusFromWebhook } = require('../utils/marketingCampaignService');
 
 const router = express.Router();
 const META_GRAPH_API_VERSION = 'v22.0';
@@ -302,8 +301,6 @@ const updateMessageStatus = async (statusUpdate) => {
       { message_id: messageId },
       { $set: { status } }
     );
-
-    await syncRecipientStatusFromWebhook({ messageId, status });
 
     console.log('WHATSAPP_MESSAGE_STATUS_UPDATED', { messageId, status });
     emitInboxUpdate(null, 'status_update');
