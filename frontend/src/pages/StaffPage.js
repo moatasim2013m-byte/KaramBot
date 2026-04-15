@@ -181,8 +181,10 @@ export default function StaffPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const requestedTab = params.get('tab');
-    if (requestedTab === 'inbox' && staffPermissions.access_whatsapp_inbox) setActiveTab('inbox');
-  }, [location.search, staffPermissions.access_whatsapp_inbox]);
+    if (requestedTab && allowedTabs.includes(requestedTab)) {
+      setActiveTab(requestedTab);
+    }
+  }, [location.search, allowedTabs]);
 
   useEffect(() => {
     if (allowedTabs.length === 0) return;
