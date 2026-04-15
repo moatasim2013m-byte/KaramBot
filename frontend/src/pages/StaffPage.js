@@ -141,7 +141,9 @@ export default function StaffPage() {
   const [showBulkSend, setShowBulkSend] = useState(false);
   const [bulkTemplateName, setBulkTemplateName] = useState('');
   const [bulkLanguageCode, setBulkLanguageCode] = useState('ar');
-  const [bulkComponentsJson, setBulkComponentsJson] = useState('');
+  const [bulkVarValues, setBulkVarValues] = useState({});
+  const [bulkAdvancedJson, setBulkAdvancedJson] = useState('');
+  const [showBulkAdvanced, setShowBulkAdvanced] = useState(false);
   const [bulkTtlHours, setBulkTtlHours] = useState('');
   const [bulkPhones, setBulkPhones] = useState('');
   const [bulkSending, setBulkSending] = useState(false);
@@ -849,10 +851,26 @@ export default function StaffPage() {
     if (phoneLines.length === 0) { toast.error('أدخل أرقام الهواتف'); return; }
     if (phoneLines.length > 1000) { toast.error('الحد الأقصى 1000 رقم لكل إرسال'); return; }
 
+    // Build components payload from variable inputs or advanced JSON
     let parsedComponents = [];
-    if (bulkComponentsJson.trim()) {
-      try { parsedComponents = JSON.parse(bulkComponentsJson); }
+    if (showBulkAdvanced && bulkAdvancedJson.trim()) {
+      try { parsedComponents = JSON.parse(bulkAdvancedJson); }
       catch { toast.error('صيغة JSON غير صحيحة لمعلمات القالب'); return; }
+    } else {
+      const selectedTpl = approvedTemplates.find(t => t.name === bulkTemplateName.trim());
+      let vars = selectedTpl?.variables || [];
+      // Fallback: detect {N} or {{N}} placeholders from body_text
+      if (vars.length === 0 && selectedTpl?.body_text) {
+        const matches = selectedTpl.body_text.match(/\{\{?\d+\}?\}/g);
+        if (matches) {
+          const indices = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''), 10)))].sort((a, b) => a - b);
+          vars = indices.map(n => ({ name: `var_${n}` }));
+        }
+      }
+      const filledVars = vars.map((v, idx) => (bulkVarValues[idx] || '').trim()).filter(Boolean);
+      if (filledVars.length > 0) {
+        parsedComponents = [{ type: 'body', parameters: filledVars.map(text => ({ type: 'text', text })) }];
+      }
     }
 
     if (!window.confirm(`هل تريد إرسال القالب "${bulkTemplateName}" إلى ${phoneLines.length} مستلم؟`)) return;
@@ -1727,13 +1745,18 @@ export default function StaffPage() {
                     <div>
                       <Label className="text-xs">اسم القالب المعتمد *</Label>
                       {approvedTemplates.length > 0 ? (
-                        <select value={bulkTemplateName} onChange={(e) => setBulkTemplateName(e.target.value)} className="w-full mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
+                        <select value={bulkTemplateName} onChange={(e) => { setBulkTemplateName(e.target.value); setBulkVarValues({}); }} className="w-full mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                           <option value="">— اختر قالب —</option>
                           {approvedTemplates.map(t => <option key={t._id || t.name} value={t.name}>{t.name} ({t.language || 'ar'}) — {t.category}</option>)}
                         </select>
                       ) : (
                         <Input value={bulkTemplateName} onChange={(e) => setBulkTemplateName(e.target.value)} placeholder="اسم القالب كما هو في Meta" className="rounded-xl mt-1" />
                       )}
+                      {(() => {
+                        const selTpl = approvedTemplates.find(t => t.name === bulkTemplateName);
+                        if (selTpl?.body_text) return <p className="text-xs text-muted-foreground mt-1.5 bg-gray-50 rounded-lg px-2 py-1.5 border border-gray-100 leading-relaxed" dir="auto">{selTpl.body_text}</p>;
+                        return null;
+                      })()}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -1745,9 +1768,43 @@ export default function StaffPage() {
                         <Input type="number" min="12" max="720" value={bulkTtlHours} onChange={(e) => setBulkTtlHours(e.target.value)} placeholder="اختياري" className="rounded-xl mt-1" />
                       </div>
                     </div>
+
+                    {/* Smart variable inputs — shown only when template has variables or body_text placeholders */}
+                    {(() => {
+                      if (showBulkAdvanced) return null;
+                      const selTpl = approvedTemplates.find(t => t.name === bulkTemplateName);
+                      if (!selTpl) return null;
+                      let vars = selTpl.variables || [];
+                      // Fallback: detect {1}/{2} or {{1}}/{{2}} placeholders from body_text
+                      if (vars.length === 0 && selTpl.body_text) {
+                        const matches = selTpl.body_text.match(/\{\{?\d+\}?\}/g);
+                        if (matches) {
+                          const indices = [...new Set(matches.map(m => parseInt(m.replace(/[{}]/g, ''), 10)))].sort((a, b) => a - b);
+                          vars = indices.map(n => ({ name: `المتغير ${n}`, example: '' }));
+                        }
+                      }
+                      if (vars.length === 0) return null;
+                      return (
+                        <div className="space-y-2">
+                          <Label className="text-xs">متغيرات القالب</Label>
+                          {vars.map((v, idx) => (
+                            <div key={idx}>
+                              <label className="text-[11px] text-muted-foreground">{v.name || `المتغير ${idx + 1}`}{v.example ? ` — مثال: ${v.example}` : ''}</label>
+                              <Input value={bulkVarValues[idx] || ''} onChange={(e) => setBulkVarValues(prev => ({ ...prev, [idx]: e.target.value }))} placeholder={v.example || `المتغير ${idx + 1}`} className="rounded-xl mt-0.5" />
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Advanced JSON toggle */}
                     <div>
-                      <Label className="text-xs">معلمات القالب (JSON — اختياري)</Label>
-                      <textarea value={bulkComponentsJson} onChange={(e) => setBulkComponentsJson(e.target.value)} placeholder={'مثال:\n[{"type":"body","parameters":[{"type":"text","text":"مرحباً"}]}]'} rows={3} className="w-full mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+                      <button type="button" onClick={() => setShowBulkAdvanced(!showBulkAdvanced)} className="text-[11px] text-muted-foreground underline">
+                        {showBulkAdvanced ? 'إخفاء الوضع المتقدم' : 'وضع متقدم (JSON)'}
+                      </button>
+                      {showBulkAdvanced && (
+                        <textarea value={bulkAdvancedJson} onChange={(e) => setBulkAdvancedJson(e.target.value)} placeholder={'[{"type":"body","parameters":[{"type":"text","text":"..."}]}]'} rows={3} className="w-full mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+                      )}
                     </div>
                     <div>
                       <Label className="text-xs">أرقام الهواتف * (رقم واحد في كل سطر، حتى 1,000)</Label>
