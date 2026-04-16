@@ -261,7 +261,7 @@ const buildHoursText = async () => {
   } catch (err) {
     console.error('buildHoursText error:', err.message);
   }
-  return 'الأحد-الخميس: 10ص-11م، الجمعة-السبت: 10ص-12ص';
+  return 'الأحد-الأربعاء: 10ص-11م، الخميس-السبت: 10ص-12ص';
 };
 
 const buildLocationText = async () => {
@@ -1238,7 +1238,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
             { direction: 'inbound' },
             {
               direction: 'outbound',
-              'raw_payload.matched_key': { $nin: ['fallback', 'escalation_handoff'] }
+              'raw_payload.matched_key': { $nin: ['escalation_handoff'] }
             }
           ]
         })

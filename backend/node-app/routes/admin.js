@@ -1599,7 +1599,7 @@ router.get('/business-info', async (req, res) => {
   try {
     const docs = await Settings.find({ key: { $in: ['whatsapp_hours', 'whatsapp_location'] } }).lean();
     const info = {
-      whatsapp_hours: 'الأحد-الخميس: 10:00 ص - 11:00 م، الجمعة-السبت: 10:00 ص - 12:00 ص',
+      whatsapp_hours: 'الأحد-الأربعاء: 10:00 ص - 11:00 م، الخميس-السبت: 10:00 ص - 12:00 ص',
       whatsapp_location: 'إربد - شارع أبو راشد، مجمع السيف التجاري، الطابق الثاني'
     };
     docs.forEach(d => { info[d.key] = d.value; });
