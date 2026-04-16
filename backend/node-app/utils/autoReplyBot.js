@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
-const BURST_WINDOW_SECONDS = 8;
+const BURST_WINDOW_SECONDS = 3;
 const FORCE_IN_SCOPE_KEYWORDS = [
   'اسعار', 'الاسعار', 'سعر', 'كم', 'اديش', 'قديش', 'بكم',
   'حجز', 'احجز', 'بدي احجز',
@@ -181,6 +181,33 @@ const isGreetingOnlyMessage = (textBody) => {
   return normalizeText(normalized).length === 0;
 };
 
+const removeLeadingDuplicateGreeting = ({ greetingOpening, replyText }) => {
+  if (!greetingOpening || !replyText) return String(replyText || '').trim();
+
+  const normalizedOpening = normalizeText(greetingOpening);
+  const lines = String(replyText)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return lines.join('\n');
+
+  const firstLineNormalized = normalizeText(lines[0]);
+  const secondLineNormalized = normalizeText(lines[1]);
+
+  if (firstLineNormalized === normalizedOpening && secondLineNormalized === normalizedOpening) {
+    lines.splice(1, 1);
+  } else if (
+    firstLineNormalized === normalizedOpening &&
+    secondLineNormalized.startsWith(normalizedOpening)
+  ) {
+    const escapedOpening = greetingOpening.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    lines[1] = lines[1].replace(new RegExp(`^${escapedOpening}\\s*`), '').trim();
+  }
+
+  return lines.join('\n');
+};
+
 const buildGreetingOnlyIntroReply = ({ opening, footer }) =>
   [
     opening,
@@ -261,7 +288,7 @@ const buildHoursText = async () => {
   } catch (err) {
     console.error('buildHoursText error:', err.message);
   }
-  return 'الأحد-الخميس: 10ص-11م، الجمعة-السبت: 10ص-12ص';
+  return 'الأحد-الأربعاء والسبت: 10ص-11م، الخميس-الجمعة: 10ص-12ص';
 };
 
 const buildLocationText = async () => {
@@ -1389,6 +1416,8 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
         logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'legacy_fallback' });
       }
     }
+
+    replyText = removeLeadingDuplicateGreeting({ greetingOpening, replyText });
 
     const duplicateIntentSuppressed = await hasRecentDuplicateIntentAutoReply({
       senderWaId: normalizedWaId,
