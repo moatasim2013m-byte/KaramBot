@@ -8,10 +8,17 @@ const parseBoolean = (value) => {
 };
 
 const bootstrapAdminUser = async () => {
-  const enabled = parseBoolean(process.env.ADMIN_BOOTSTRAP_ENABLED);
+  const hasBootstrapEmail = Boolean((process.env.ADMIN_BOOTSTRAP_EMAIL || '').trim());
+  const hasBootstrapPassword = Boolean(process.env.ADMIN_BOOTSTRAP_PASSWORD);
+  const enabledFromEnv = parseBoolean(process.env.ADMIN_BOOTSTRAP_ENABLED);
+  const enabled = enabledFromEnv || (hasBootstrapEmail && hasBootstrapPassword);
   if (!enabled) {
     console.log('ADMIN_BOOTSTRAP_SKIPPED: admin bootstrap skipped (disabled)');
     return;
+  }
+
+  if (!enabledFromEnv && hasBootstrapEmail && hasBootstrapPassword) {
+    console.log('ADMIN_BOOTSTRAP_IMPLICITLY_ENABLED: ADMIN_BOOTSTRAP_ENABLED not set, bootstrapping enabled because credentials are present');
   }
 
   const email = (process.env.ADMIN_BOOTSTRAP_EMAIL || '').trim().toLowerCase();

@@ -196,11 +196,15 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 
 app.get('/health', (req, res) => {
   const isDbConnected = mongoose?.connection?.readyState === 1;
+  const resolvedDbName = process.env.DB_NAME || mongoose?.connection?.name || null;
+  const resolvedDbHost = mongoose?.connection?.host || null;
 
   res.status(200).json({
     status: 'ok',
     service: 'peekaboo',
     db: isDbConnected ? 'connected' : 'disconnected',
+    db_name: resolvedDbName,
+    db_host: resolvedDbHost,
     ai_image_generation: {
       enabled: Boolean(process.env.GEMINI_API_KEY),
       model: process.env.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002'
