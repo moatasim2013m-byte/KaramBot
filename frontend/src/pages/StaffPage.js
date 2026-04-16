@@ -841,6 +841,19 @@ export default function StaffPage() {
     } catch (err) { console.error('Failed to fetch approved templates:', err); }
   }, [api]);
 
+  const [syncingTemplates, setSyncingTemplates] = useState(false);
+  const handleSyncTemplates = async () => {
+    setSyncingTemplates(true);
+    try {
+      const response = await api.post('/templates/sync');
+      const synced = response.data.synced_count || 0;
+      toast.success(`تمت مزامنة ${synced} قالب من Meta`);
+      await fetchApprovedTemplates();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'فشلت مزامنة القوالب');
+    } finally { setSyncingTemplates(false); }
+  };
+
   useEffect(() => {
     if (showBulkSend && approvedTemplates.length === 0) fetchApprovedTemplates();
   }, [showBulkSend, approvedTemplates.length, fetchApprovedTemplates]);
@@ -1743,7 +1756,13 @@ export default function StaffPage() {
                 {showBulkSend && (
                   <CardContent className="space-y-3 pt-0">
                     <div>
-                      <Label className="text-xs">اسم القالب المعتمد *</Label>
+                      <div className="flex items-center justify-between mb-1">
+                        <Label className="text-xs">اسم القالب المعتمد *</Label>
+                        <button type="button" onClick={handleSyncTemplates} disabled={syncingTemplates} className="flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50">
+                          {syncingTemplates ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                          {syncingTemplates ? 'جاري المزامنة...' : 'مزامنة من Meta'}
+                        </button>
+                      </div>
                       {approvedTemplates.length > 0 ? (
                         <select value={bulkTemplateName} onChange={(e) => { setBulkTemplateName(e.target.value); setBulkVarValues({}); }} className="w-full mt-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
                           <option value="">— اختر قالب —</option>
