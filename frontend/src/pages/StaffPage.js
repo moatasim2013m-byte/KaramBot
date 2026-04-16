@@ -1851,11 +1851,16 @@ export default function StaffPage() {
                         {Array.isArray(bulkResults.results) && bulkResults.results.length > 0 && (
                           <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
                             {bulkResults.results.map((r, idx) => (
-                              <div key={idx} className="flex items-center justify-between bg-white rounded-lg px-2 py-1 border text-xs">
-                                <span className="font-mono truncate max-w-[50%]">{r.phone}</span>
-                                <span className={`px-2 py-0.5 rounded-full font-medium ${r.status === 'sent' ? 'bg-green-100 text-green-700' : r.status === 'skipped_opted_out' ? 'bg-yellow-100 text-yellow-700' : r.status === 'skipped_invalid' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
-                                  {r.status === 'sent' ? 'تم' : r.status === 'skipped_opted_out' ? 'إلغاء اشتراك' : r.status === 'skipped_invalid' ? 'غير صالح' : 'فشل'}
-                                </span>
+                              <div key={idx} className="bg-white rounded-lg px-2 py-1 border text-xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-mono truncate max-w-[50%]">{r.phone}</span>
+                                  <span className={`px-2 py-0.5 rounded-full font-medium ${r.status === 'sent' ? 'bg-green-100 text-green-700' : r.status === 'skipped_opted_out' ? 'bg-yellow-100 text-yellow-700' : r.status === 'skipped_invalid' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                                    {r.status === 'sent' ? 'تم' : r.status === 'skipped_opted_out' ? 'إلغاء اشتراك' : r.status === 'skipped_invalid' ? 'غير صالح' : 'فشل'}
+                                  </span>
+                                </div>
+                                {!!r.reason && (
+                                  <p className="mt-1 text-[11px] text-red-700 break-words ltr:text-left ltr:font-mono">{r.reason}</p>
+                                )}
                               </div>
                             ))}
                           </div>

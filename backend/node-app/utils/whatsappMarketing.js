@@ -13,6 +13,30 @@ const { logger } = require('./logger');
 const { isWhatsAppOptedOut } = require('./whatsappOptOut');
 
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
+const formatMetaErrorReason = (responseText = '', fallbackError = '', status = null) => {
+  let parsed = null;
+  try {
+    parsed = responseText ? JSON.parse(responseText) : null;
+  } catch (_err) {
+    parsed = null;
+  }
+
+  const metaErr = parsed?.error;
+  if (metaErr) {
+    const parts = [];
+    if (metaErr.code !== undefined && metaErr.code !== null) parts.push(`meta_code_${metaErr.code}`);
+    if (metaErr.message) parts.push(metaErr.message);
+    if (metaErr.error_data?.details) parts.push(metaErr.error_data.details);
+    if (metaErr.error_subcode !== undefined && metaErr.error_subcode !== null) parts.push(`subcode_${metaErr.error_subcode}`);
+    if (metaErr.type) parts.push(`type_${metaErr.type}`);
+    return parts.join(' | ');
+  }
+
+  if (fallbackError) return String(fallbackError);
+  if (responseText) return String(responseText).slice(0, 500);
+  if (status) return `meta_http_${status}`;
+  return 'api_error';
+};
 
 /**
  * Send a pre-approved WhatsApp template message via the Marketing Messages API.
@@ -74,6 +98,7 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
     const responseText = result.text || '';
 
     if (!result.ok) {
+      const exactReason = formatMetaErrorReason(responseText, result.error, result.status);
       logger.error({
         event: 'wa_marketing_api_error',
         status: result.status,
@@ -81,7 +106,7 @@ const postWhatsAppTemplate = async ({ to, templateName, languageCode, components
         templateName,
         metaError: responseText.slice(0, 500)
       });
-      return { ok: false, status: result.status, responseText: responseText.slice(0, 500), error: result.error };
+      return { ok: false, status: result.status, responseText: responseText.slice(0, 500), error: exactReason };
     }
 
     let responseData = {};
