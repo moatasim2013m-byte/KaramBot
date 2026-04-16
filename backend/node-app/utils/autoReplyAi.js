@@ -152,10 +152,67 @@ const sanitizeArabicReply = (value, maxChars) => {
   return hasArabic ? text : '';
 };
 
+const JORDAN_TIME_ZONE = 'Asia/Amman';
+const DEFAULT_OPENING_TIME = '10:00';
+const DEFAULT_REGULAR_CLOSING_TIME = '23:00';
+const SPECIAL_CLOSING_BY_DAY = {
+  thursday: '24:00',
+  friday: '24:00'
+};
+
+const normalizeTime24 = (value, fallback) => {
+  const candidate = String(value || '').trim();
+  const match = candidate.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return fallback;
+  if (hours < 0 || hours > 24 || minutes < 0 || minutes > 59) return fallback;
+  if (hours === 24 && minutes !== 0) return fallback;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
+const time24ToMinutes = (time24) => {
+  const normalized = normalizeTime24(time24, DEFAULT_OPENING_TIME);
+  const [hours, minutes] = normalized.split(':').map(Number);
+  return (hours * 60) + minutes;
+};
+
+const formatTimeArabic = (time24) => {
+  const normalized = normalizeTime24(time24, DEFAULT_OPENING_TIME);
+  if (normalized === '24:00') return '12:00 صباحًا';
+  const [hours, minutes] = normalized.split(':').map(Number);
+  const suffix = hours >= 12 ? 'م' : 'ص';
+  const hour12 = ((hours + 11) % 12) + 1;
+  return `${String(hour12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${suffix}`;
+};
+
+const getJordanNowParts = () => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: JORDAN_TIME_ZONE,
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const weekday = String(lookup.weekday || '').toLowerCase();
+  const hour = Number(lookup.hour || '0');
+  const minute = Number(lookup.minute || '0');
+  return {
+    weekday,
+    hour,
+    minute,
+    minutesNow: (hour * 60) + minute
+  };
+};
+
 const loadFacts = async () => {
-  const [hoursDoc, locationDoc, pricingDocs, plans, birthdayThemes] = await Promise.all([
+  const [hoursDoc, locationDoc, openingDoc, closingDoc, pricingDocs, plans, birthdayThemes] = await Promise.all([
     Settings.findOne({ key: 'whatsapp_hours' }).lean(),
     Settings.findOne({ key: 'whatsapp_location' }).lean(),
+    Settings.findOne({ key: 'opening_time' }).lean(),
+    Settings.findOne({ key: 'closing_time' }).lean(),
     Settings.find({
       key: {
         $in: ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'sand_area_addon', 'transport_one_way']
@@ -172,6 +229,8 @@ const loadFacts = async () => {
   return {
     hours: String(hoursDoc?.value || ''),
     location: String(locationDoc?.value || ''),
+    openingTime: normalizeTime24(openingDoc?.value, DEFAULT_OPENING_TIME),
+    regularClosingTime: normalizeTime24(closingDoc?.value, DEFAULT_REGULAR_CLOSING_TIME),
     pricing: priceFacts,
     daycare: daycareFacts,
     birthday: birthdayFacts
@@ -234,20 +293,22 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     const contents = [...historyTurns, currentTurn];
 
     const jordanNow = new Date().toLocaleString('ar-JO', {
-      timeZone: 'Asia/Amman',
+      timeZone: JORDAN_TIME_ZONE,
       weekday: 'long',
       hour: '2-digit',
       minute: '2-digit',
       hour12: true
     });
-    const jordanHour24 = parseInt(
-      new Date().toLocaleString('en-US', { timeZone: 'Asia/Amman', hour: 'numeric', hour12: false }),
-      10
-    );
-    const jordanDayEn = new Date().toLocaleString('en-US', { timeZone: 'Asia/Amman', weekday: 'long' }).toLowerCase();
+    const jordanNowParts = getJordanNowParts();
+    const todayClosingTime = SPECIAL_CLOSING_BY_DAY[jordanNowParts.weekday] || facts.regularClosingTime;
+    const isOpenNow = jordanNowParts.minutesNow >= time24ToMinutes(facts.openingTime) &&
+      jordanNowParts.minutesNow < time24ToMinutes(todayClosingTime);
 
     const dynamicContext = [
-      `الوقت الحالي: ${jordanNow} (${jordanHour24}:00، ${jordanDayEn})`,
+      `الوقت الحالي: ${jordanNow} (${String(jordanNowParts.hour).padStart(2, '0')}:${String(jordanNowParts.minute).padStart(2, '0')}، ${jordanNowParts.weekday})`,
+      `business_hours_source_of_truth: {"timezone":"${JORDAN_TIME_ZONE}","opening_time":"${facts.openingTime}","regular_closing_time":"${facts.regularClosingTime}","special_closing":{"thursday":"24:00","friday":"24:00"}}`,
+      `today_schedule: {"day":"${jordanNowParts.weekday}","opening_time":"${facts.openingTime}","closing_time":"${todayClosingTime}","closing_time_ar":"${formatTimeArabic(todayClosingTime)}"}`,
+      `open_now_state: {"is_open_now":${isOpenNow},"evaluated_at_time":"${String(jordanNowParts.hour).padStart(2, '0')}:${String(jordanNowParts.minute).padStart(2, '0')}","timezone":"${JORDAN_TIME_ZONE}"}`,
       `hours: ${facts.hours || 'unknown'}`,
       `location: ${facts.location || 'unknown'}`,
       `pricing: ${facts.pricing || 'unknown'}`,
@@ -255,6 +316,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       `birthday_packages: ${facts.birthday || 'unknown'}`,
       approvedFaqContext,
       'بيانات النظام تكمّل الحقائق الثابتة. إذا تعارضت: اتبع الحقائق الثابتة.',
+      'لا تخمّن ساعات العمل من النص الحر إذا كانت business_hours_source_of_truth أو today_schedule موجودة.',
       'ما عرفت الإجابة: 0777775652 (عام) أو 0799241993 (أعياد/مدارس).',
       `الرد يجب أن لا يتجاوز ${Math.max(80, Number(maxChars) || 500)} حرف.`
     ].join('\n');
