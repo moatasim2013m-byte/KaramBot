@@ -72,9 +72,37 @@ router.post('/sync', authMiddleware, adminMiddleware, async (req, res) => {
       clearTimeout(timeout);
 
       if (!response.ok) {
+        // Parse Meta's structured error for diagnosis
+        let metaError = {};
+        try { metaError = JSON.parse(responseText)?.error || {}; } catch (_) {}
+
+        const maskedToken = accessToken.length > 10
+          ? `${accessToken.slice(0, 6)}...${accessToken.slice(-4)}`
+          : '(short/invalid)';
+
+        console.error('TEMPLATE_SYNC_META_ERROR', {
+          http_status: response.status,
+          meta_code: metaError.code,
+          meta_subcode: metaError.error_subcode,
+          meta_type: metaError.type,
+          meta_message: metaError.message,
+          meta_fbtrace_id: metaError.fbtrace_id,
+          waba_id: wabaId,
+          token_masked: maskedToken,
+          endpoint: `v23.0/${wabaId}/message_templates`
+        });
+
         return res.status(502).json({
-          error: 'Meta API returned an error. Check WHATSAPP_ACCESS_TOKEN has whatsapp_business_management permission.',
-          details: responseText.slice(0, 300)
+          error: metaError.message
+            ? `Meta API error ${metaError.code || response.status}: ${metaError.message}`
+            : `Meta API returned HTTP ${response.status}. Check WHATSAPP_ACCESS_TOKEN and WHATSAPP_WABA_ID.`,
+          meta_status: response.status,
+          meta_code: metaError.code || null,
+          meta_subcode: metaError.error_subcode || null,
+          meta_type: metaError.type || null,
+          meta_message: metaError.message || null,
+          meta_fbtrace_id: metaError.fbtrace_id || null,
+          details: responseText.slice(0, 500)
         });
       }
 
