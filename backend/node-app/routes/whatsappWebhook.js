@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const express = require('express');
+const mongoose = require('mongoose');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
 const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
@@ -200,15 +201,32 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       textBody = '🎭 Sticker';
     }
     
-    // Try to link to existing user
+    // Try to link to existing user (non-blocking: do not fail inbound flow if lookup is unavailable)
     let linkedUserId = null;
-    const phoneFormats = normalizePhoneForLookup(senderWaId);
-    const existingUser = await User.findOne({
-      phone: { $in: phoneFormats }
-    });
-    
-    if (existingUser) {
-      linkedUserId = existingUser._id;
+    const isDbReadyForLookup = mongoose?.connection?.readyState === 1;
+    if (isDbReadyForLookup) {
+      try {
+        const phoneFormats = normalizePhoneForLookup(senderWaId);
+        const existingUser = await User.findOne({
+          phone: { $in: phoneFormats }
+        }).lean();
+
+        if (existingUser?._id) {
+          linkedUserId = existingUser._id;
+        }
+      } catch (lookupError) {
+        console.warn('WHATSAPP_USER_LOOKUP_SKIPPED', {
+          error: lookupError?.message || String(lookupError),
+          senderWaId,
+          messageId
+        });
+      }
+    } else {
+      console.warn('WHATSAPP_USER_LOOKUP_DB_NOT_READY', {
+        dbReadyState: mongoose?.connection?.readyState,
+        senderWaId,
+        messageId
+      });
     }
     
     // Parse timestamp
