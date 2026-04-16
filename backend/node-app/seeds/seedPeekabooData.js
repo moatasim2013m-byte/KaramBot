@@ -41,7 +41,7 @@ async function seedSettings() {
     { key: 'transport_one_way',   value: 40 },
     {
       key: 'whatsapp_hours',
-      value: 'الأحد-الخميس: 10:00 ص - 11:00 م، الجمعة-السبت: 10:00 ص - 12:00 ص'
+      value: 'الأحد-الأربعاء: 10:00 ص - 11:00 م، الخميس-السبت: 10:00 ص - 12:00 ص'
     },
     {
       key: 'whatsapp_location',

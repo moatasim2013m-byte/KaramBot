@@ -1266,7 +1266,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
             { direction: 'inbound' },
             {
               direction: 'outbound',
-              'raw_payload.matched_key': { $nin: ['fallback', 'escalation_handoff'] }
+              'raw_payload.matched_key': { $nin: ['escalation_handoff'] }
             }
           ]
         })
