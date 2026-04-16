@@ -61,10 +61,6 @@ router.post('/sync', authMiddleware, adminMiddleware, async (req, res) => {
       });
     }
 
-    // Resolve actual WABA ID — the configured value may be a phone number ID
-    let wabaId = configuredWabaId;
-    let resolvedFrom = 'env';
-
     const fetchTemplatesFromWaba = async (wId) => {
       const url = `https://graph.facebook.com/v22.0/${wId}/message_templates?fields=id,name,status,language,category,components,quality_score&limit=100`;
       const ctrl = new AbortController();
@@ -78,85 +74,95 @@ router.post('/sync', authMiddleware, adminMiddleware, async (req, res) => {
       return { ok: resp.ok, status: resp.status, text };
     };
 
-    const resolveWabaFromPhoneNumber = async (pnId) => {
-      const url = `https://graph.facebook.com/v22.0/${pnId}?fields=whatsapp_business_account`;
-      const ctrl = new AbortController();
-      const tmout = setTimeout(() => ctrl.abort(), 10000);
-      const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        signal: ctrl.signal
-      });
-      const text = await resp.text();
-      clearTimeout(tmout);
-      if (!resp.ok) return null;
+    // Resolve WABA ID from a phone-number or WABA node
+    const resolveWabaFromId = async (nodeId, label) => {
       try {
+        const url = `https://graph.facebook.com/v22.0/${nodeId}?fields=whatsapp_business_account`;
+        const ctrl = new AbortController();
+        const tmout = setTimeout(() => ctrl.abort(), 10000);
+        const resp = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: ctrl.signal
+        });
+        const text = await resp.text();
+        clearTimeout(tmout);
+        if (!resp.ok) {
+          console.warn('TEMPLATE_SYNC_RESOLVE_FAILED', { label, nodeId, status: resp.status, body: text.slice(0, 200) });
+          return null;
+        }
         const data = JSON.parse(text);
-        return data?.whatsapp_business_account?.id || null;
-      } catch { return null; }
+        const resolved = data?.whatsapp_business_account?.id || null;
+        console.log('TEMPLATE_SYNC_RESOLVE_RESULT', { label, nodeId, resolved_waba: resolved });
+        return resolved;
+      } catch (err) {
+        console.warn('TEMPLATE_SYNC_RESOLVE_ERROR', { label, nodeId, error: err.message });
+        return null;
+      }
     };
 
+    // --- Step 1: Resolve the real WABA ID before fetching templates ---
+    let wabaId = null;
+    let resolvedFrom = 'unknown';
+
+    // Try every available ID to resolve the real WABA
+    const candidateIds = [...new Set([configuredWabaId, phoneNumberId].filter(Boolean))];
+    for (const candidateId of candidateIds) {
+      const resolved = await resolveWabaFromId(candidateId, candidateId === configuredWabaId ? 'WHATSAPP_WABA_ID' : 'WHATSAPP_PHONE_NUMBER_ID');
+      if (resolved) {
+        wabaId = resolved;
+        resolvedFrom = `resolved_from_${candidateId}`;
+        break;
+      }
+    }
+
+    // If resolution didn't yield a WABA, fall back to the configured value
+    if (!wabaId) {
+      wabaId = configuredWabaId || phoneNumberId;
+      resolvedFrom = 'env_fallback';
+      console.log('TEMPLATE_SYNC_USING_FALLBACK', { wabaId, reason: 'WABA resolve returned null for all candidates' });
+    }
+
+    // --- Step 2: Fetch templates from the resolved WABA ---
     let metaTemplates = [];
     try {
-      // First attempt with configured WABA ID
-      let result = await fetchTemplatesFromWaba(wabaId);
+      const result = await fetchTemplatesFromWaba(wabaId);
 
-      // If error 100 (nonexisting field) — the ID is likely a phone number, not a WABA
       if (!result.ok) {
         let metaError = {};
         try { metaError = JSON.parse(result.text)?.error || {}; } catch (_) {}
 
-        if (metaError.code === 100 && phoneNumberId) {
-          console.log('TEMPLATE_SYNC_WABA_RESOLVE', {
-            reason: 'configured WABA ID returned error 100, attempting WABA lookup from phone number',
-            configured_waba_id: wabaId,
-            phone_number_id: phoneNumberId
-          });
+        const maskedToken = accessToken.length > 10
+          ? `${accessToken.slice(0, 6)}...${accessToken.slice(-4)}`
+          : '(short/invalid)';
 
-          const resolvedWaba = await resolveWabaFromPhoneNumber(phoneNumberId);
-          if (resolvedWaba && resolvedWaba !== wabaId) {
-            wabaId = resolvedWaba;
-            resolvedFrom = 'phone_number_lookup';
-            console.log('TEMPLATE_SYNC_WABA_RESOLVED', { resolved_waba_id: wabaId, from: phoneNumberId });
-            result = await fetchTemplatesFromWaba(wabaId);
-          }
-        }
+        console.error('TEMPLATE_SYNC_META_ERROR', {
+          http_status: result.status,
+          meta_code: metaError.code,
+          meta_message: metaError.message,
+          meta_fbtrace_id: metaError.fbtrace_id,
+          waba_id: wabaId,
+          resolved_from: resolvedFrom,
+          token_masked: maskedToken
+        });
 
-        // If still failing, return the error with diagnostic info
-        if (!result.ok) {
-          let finalError = {};
-          try { finalError = JSON.parse(result.text)?.error || {}; } catch (_) {}
+        const hint = metaError.code === 100
+          ? ' Hint: WHATSAPP_WABA_ID may not be a WhatsApp Business Account ID. Check Meta Business Suite > Business Settings > WhatsApp Accounts for the correct WABA ID.'
+          : '';
 
-          const maskedToken = accessToken.length > 10
-            ? `${accessToken.slice(0, 6)}...${accessToken.slice(-4)}`
-            : '(short/invalid)';
-
-          console.error('TEMPLATE_SYNC_META_ERROR', {
-            http_status: result.status,
-            meta_code: finalError.code,
-            meta_message: finalError.message,
-            meta_fbtrace_id: finalError.fbtrace_id,
-            waba_id: wabaId,
-            resolved_from: resolvedFrom,
-            token_masked: maskedToken
-          });
-
-          const hint = metaError.code === 100
-            ? ' Hint: WHATSAPP_WABA_ID may be a phone number ID instead of a WhatsApp Business Account ID.'
-            : '';
-
-          return res.status(502).json({
-            error: (finalError.message
-              ? `Meta API error ${finalError.code || result.status}: ${finalError.message}`
-              : `Meta API returned HTTP ${result.status}.`) + hint,
-            meta_status: result.status,
-            meta_code: finalError.code || null,
-            meta_subcode: finalError.error_subcode || null,
-            meta_type: finalError.type || null,
-            meta_message: finalError.message || null,
-            meta_fbtrace_id: finalError.fbtrace_id || null,
-            details: result.text.slice(0, 500)
-          });
-        }
+        return res.status(502).json({
+          error: (metaError.message
+            ? `Meta API error ${metaError.code || result.status}: ${metaError.message}`
+            : `Meta API returned HTTP ${result.status}.`) + hint,
+          meta_status: result.status,
+          meta_code: metaError.code || null,
+          meta_subcode: metaError.error_subcode || null,
+          meta_type: metaError.type || null,
+          meta_message: metaError.message || null,
+          meta_fbtrace_id: metaError.fbtrace_id || null,
+          waba_id_used: wabaId,
+          resolved_from: resolvedFrom,
+          details: result.text.slice(0, 500)
+        });
       }
 
       const data = JSON.parse(result.text);
