@@ -4,6 +4,20 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
+const buildPhoneLookupFormats = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return [];
+
+  const formats = [digits, `+${digits}`];
+
+  if (digits.startsWith('962')) {
+    formats.push(`0${digits.slice(3)}`);
+    formats.push(`00${digits}`);
+  }
+
+  return [...new Set(formats)];
+};
+
 /**
  * POST /api/opt-out
  * Public endpoint - no auth required
@@ -16,7 +30,11 @@ router.post('/opt-out', async (req, res) => {
       return res.status(400).json({ error: 'wa_id or phone is required' });
     }
 
-    const query = wa_id ? { phone: wa_id } : { phone };
+    const lookupValue = wa_id || phone;
+    const phoneFormats = buildPhoneLookupFormats(lookupValue);
+    const query = phoneFormats.length > 0
+      ? { phone: { $in: phoneFormats } }
+      : { phone: lookupValue };
     const user = await User.findOne(query);
 
     if (!user) {
