@@ -52,64 +52,116 @@ router.get('/', authMiddleware, staffMiddleware, async (req, res) => {
 router.post('/sync', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
-    const wabaId = String(process.env.WHATSAPP_WABA_ID || '').trim();
+    const configuredWabaId = String(process.env.WHATSAPP_WABA_ID || '').trim();
+    const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
 
-    if (!accessToken || !wabaId) {
+    if (!accessToken || (!configuredWabaId && !phoneNumberId)) {
       return res.status(500).json({
-        error: 'WHATSAPP_ACCESS_TOKEN and WHATSAPP_WABA_ID must be set in environment variables'
+        error: 'WHATSAPP_ACCESS_TOKEN and either WHATSAPP_WABA_ID or WHATSAPP_PHONE_NUMBER_ID must be set'
       });
     }
 
-    const endpoint = `https://graph.facebook.com/v23.0/${wabaId}/message_templates?fields=id,name,status,language,category,components,quality_score&limit=100&access_token=${accessToken}`;
+    // Resolve actual WABA ID — the configured value may be a phone number ID
+    let wabaId = configuredWabaId;
+    let resolvedFrom = 'env';
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const fetchTemplatesFromWaba = async (wId) => {
+      const url = `https://graph.facebook.com/v22.0/${wId}/message_templates?fields=id,name,status,language,category,components,quality_score&limit=100`;
+      const ctrl = new AbortController();
+      const tmout = setTimeout(() => ctrl.abort(), 15000);
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: ctrl.signal
+      });
+      const text = await resp.text();
+      clearTimeout(tmout);
+      return { ok: resp.ok, status: resp.status, text };
+    };
+
+    const resolveWabaFromPhoneNumber = async (pnId) => {
+      const url = `https://graph.facebook.com/v22.0/${pnId}?fields=whatsapp_business_account`;
+      const ctrl = new AbortController();
+      const tmout = setTimeout(() => ctrl.abort(), 10000);
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: ctrl.signal
+      });
+      const text = await resp.text();
+      clearTimeout(tmout);
+      if (!resp.ok) return null;
+      try {
+        const data = JSON.parse(text);
+        return data?.whatsapp_business_account?.id || null;
+      } catch { return null; }
+    };
 
     let metaTemplates = [];
     try {
-      const response = await fetch(endpoint, { signal: controller.signal });
-      const responseText = await response.text();
-      clearTimeout(timeout);
+      // First attempt with configured WABA ID
+      let result = await fetchTemplatesFromWaba(wabaId);
 
-      if (!response.ok) {
-        // Parse Meta's structured error for diagnosis
+      // If error 100 (nonexisting field) — the ID is likely a phone number, not a WABA
+      if (!result.ok) {
         let metaError = {};
-        try { metaError = JSON.parse(responseText)?.error || {}; } catch (_) {}
+        try { metaError = JSON.parse(result.text)?.error || {}; } catch (_) {}
 
-        const maskedToken = accessToken.length > 10
-          ? `${accessToken.slice(0, 6)}...${accessToken.slice(-4)}`
-          : '(short/invalid)';
+        if (metaError.code === 100 && phoneNumberId) {
+          console.log('TEMPLATE_SYNC_WABA_RESOLVE', {
+            reason: 'configured WABA ID returned error 100, attempting WABA lookup from phone number',
+            configured_waba_id: wabaId,
+            phone_number_id: phoneNumberId
+          });
 
-        console.error('TEMPLATE_SYNC_META_ERROR', {
-          http_status: response.status,
-          meta_code: metaError.code,
-          meta_subcode: metaError.error_subcode,
-          meta_type: metaError.type,
-          meta_message: metaError.message,
-          meta_fbtrace_id: metaError.fbtrace_id,
-          waba_id: wabaId,
-          token_masked: maskedToken,
-          endpoint: `v23.0/${wabaId}/message_templates`
-        });
+          const resolvedWaba = await resolveWabaFromPhoneNumber(phoneNumberId);
+          if (resolvedWaba && resolvedWaba !== wabaId) {
+            wabaId = resolvedWaba;
+            resolvedFrom = 'phone_number_lookup';
+            console.log('TEMPLATE_SYNC_WABA_RESOLVED', { resolved_waba_id: wabaId, from: phoneNumberId });
+            result = await fetchTemplatesFromWaba(wabaId);
+          }
+        }
 
-        return res.status(502).json({
-          error: metaError.message
-            ? `Meta API error ${metaError.code || response.status}: ${metaError.message}`
-            : `Meta API returned HTTP ${response.status}. Check WHATSAPP_ACCESS_TOKEN and WHATSAPP_WABA_ID.`,
-          meta_status: response.status,
-          meta_code: metaError.code || null,
-          meta_subcode: metaError.error_subcode || null,
-          meta_type: metaError.type || null,
-          meta_message: metaError.message || null,
-          meta_fbtrace_id: metaError.fbtrace_id || null,
-          details: responseText.slice(0, 500)
-        });
+        // If still failing, return the error with diagnostic info
+        if (!result.ok) {
+          let finalError = {};
+          try { finalError = JSON.parse(result.text)?.error || {}; } catch (_) {}
+
+          const maskedToken = accessToken.length > 10
+            ? `${accessToken.slice(0, 6)}...${accessToken.slice(-4)}`
+            : '(short/invalid)';
+
+          console.error('TEMPLATE_SYNC_META_ERROR', {
+            http_status: result.status,
+            meta_code: finalError.code,
+            meta_message: finalError.message,
+            meta_fbtrace_id: finalError.fbtrace_id,
+            waba_id: wabaId,
+            resolved_from: resolvedFrom,
+            token_masked: maskedToken
+          });
+
+          const hint = metaError.code === 100
+            ? ' Hint: WHATSAPP_WABA_ID may be a phone number ID instead of a WhatsApp Business Account ID.'
+            : '';
+
+          return res.status(502).json({
+            error: (finalError.message
+              ? `Meta API error ${finalError.code || result.status}: ${finalError.message}`
+              : `Meta API returned HTTP ${result.status}.`) + hint,
+            meta_status: result.status,
+            meta_code: finalError.code || null,
+            meta_subcode: finalError.error_subcode || null,
+            meta_type: finalError.type || null,
+            meta_message: finalError.message || null,
+            meta_fbtrace_id: finalError.fbtrace_id || null,
+            details: result.text.slice(0, 500)
+          });
+        }
       }
 
-      const data = JSON.parse(responseText);
+      const data = JSON.parse(result.text);
       metaTemplates = Array.isArray(data.data) ? data.data : [];
     } catch (fetchErr) {
-      clearTimeout(timeout);
       return res.status(502).json({ error: 'Failed to reach Meta API', details: fetchErr.message });
     }
 
@@ -163,6 +215,8 @@ router.post('/sync', authMiddleware, adminMiddleware, async (req, res) => {
       synced_count: synced,
       skipped_count: skipped,
       total_from_meta: metaTemplates.length,
+      waba_id_used: wabaId,
+      waba_resolved_from: resolvedFrom,
       errors: errors.length > 0 ? errors : undefined
     });
   } catch (error) {
