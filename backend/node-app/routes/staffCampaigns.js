@@ -260,6 +260,7 @@ router.post('/manual-bulk-send', async (req, res) => {
       template_name,
       template_language,
       template_params,
+      header_image_url,
       recipients
     } = req.body || {};
 
@@ -304,6 +305,16 @@ router.post('/manual-bulk-send', async (req, res) => {
     const components = requiredParamsCount > 0
       ? buildBodyComponentsFromParams(normalizedTemplateParams.slice(0, requiredParamsCount))
       : [];
+
+    // Add header image component if template has image header and URL provided
+    if (header_image_url && String(header_image_url).trim()) {
+      components.unshift({
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: String(header_image_url).trim() } }]
+      });
+    } else if (templateDoc.header_type === 'image') {
+      return res.status(400).json({ error: 'This template requires a header_image_url' });
+    }
 
     // Normalize, deduplicate, and separate invalid recipients
     const seenWaIds = new Set();
