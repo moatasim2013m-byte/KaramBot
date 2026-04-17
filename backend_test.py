@@ -10,7 +10,7 @@ import sys
 import time
 
 # Configuration
-BACKEND_URL = "https://marketing-verify.preview.emergentagent.com"
+BACKEND_URL = "https://whatsapp-audit-2.preview.emergentagent.com"
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 
