@@ -10,7 +10,7 @@ import sys
 import time
 
 # Configuration
-BACKEND_URL = "https://whatsapp-bulk-send-11.preview.emergentagent.com"
+BACKEND_URL = "https://marketing-verify.preview.emergentagent.com"
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 

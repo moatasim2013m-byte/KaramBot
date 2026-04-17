@@ -1842,8 +1842,9 @@ export default function StaffPage() {
                     {bulkResults && (
                       <div className="bg-muted/30 rounded-xl p-3 space-y-2">
                         <p className="text-sm font-semibold">نتائج الإرسال</p>
-                        <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
                           <div className="bg-green-50 rounded-lg py-2"><p className="text-lg font-bold text-green-700">{bulkResults.summary?.sent || 0}</p><p className="text-[10px] text-green-600">تم الإرسال</p></div>
+                          <div className="bg-amber-50 rounded-lg py-2"><p className="text-lg font-bold text-amber-700">{bulkResults.summary?.skipped_no_consent || 0}</p><p className="text-[10px] text-amber-600">بدون موافقة تسويقية</p></div>
                           <div className="bg-yellow-50 rounded-lg py-2"><p className="text-lg font-bold text-yellow-700">{bulkResults.summary?.skipped_opted_out || 0}</p><p className="text-[10px] text-yellow-600">إلغاء اشتراك</p></div>
                           <div className="bg-orange-50 rounded-lg py-2"><p className="text-lg font-bold text-orange-700">{bulkResults.summary?.skipped_invalid || 0}</p><p className="text-[10px] text-orange-600">رقم غير صالح</p></div>
                           <div className="bg-red-50 rounded-lg py-2"><p className="text-lg font-bold text-red-700">{bulkResults.summary?.failed || 0}</p><p className="text-[10px] text-red-600">فشل</p></div>
@@ -1854,12 +1855,12 @@ export default function StaffPage() {
                               <div key={idx} className="bg-white rounded-lg px-2 py-1 border text-xs">
                                 <div className="flex items-center justify-between">
                                   <span className="font-mono truncate max-w-[50%]">{r.phone}</span>
-                                  <span className={`px-2 py-0.5 rounded-full font-medium ${r.status === 'sent' ? 'bg-green-100 text-green-700' : r.status === 'skipped_opted_out' ? 'bg-yellow-100 text-yellow-700' : r.status === 'skipped_invalid' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
-                                    {r.status === 'sent' ? 'تم' : r.status === 'skipped_opted_out' ? 'إلغاء اشتراك' : r.status === 'skipped_invalid' ? 'غير صالح' : 'فشل'}
+                                  <span className={`px-2 py-0.5 rounded-full font-medium ${r.status === 'sent' ? 'bg-green-100 text-green-700' : r.status === 'skipped_no_consent' ? 'bg-amber-100 text-amber-700' : r.status === 'skipped_opted_out' ? 'bg-yellow-100 text-yellow-700' : r.status === 'skipped_invalid' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                                    {r.status === 'sent' ? 'تم' : r.status === 'skipped_no_consent' ? 'بدون موافقة' : r.status === 'skipped_opted_out' ? 'إلغاء اشتراك' : r.status === 'skipped_invalid' ? 'غير صالح' : 'فشل'}
                                   </span>
                                 </div>
                                 {!!r.reason && (
-                                  <p className="mt-1 text-[11px] text-red-700 break-words ltr:text-left ltr:font-mono">{r.reason}</p>
+                                  <p className={`mt-1 text-[11px] break-words ltr:text-left ltr:font-mono ${r.status === 'sent' ? 'text-green-700' : r.status === 'skipped_no_consent' ? 'text-amber-700' : r.status === 'skipped_opted_out' ? 'text-yellow-700' : r.status === 'skipped_invalid' ? 'text-orange-700' : 'text-red-700'}`}>{r.reason}</p>
                                 )}
                               </div>
                             ))}
