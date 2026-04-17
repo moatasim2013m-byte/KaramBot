@@ -504,6 +504,23 @@ export default function StaffPage() {
     }
   };
 
+  const handleRecordMarketingConsent = async () => {
+    if (!selectedConversation) return;
+    if (!window.confirm('هل تؤكد أن العميل وافق صراحةً على استلام الرسائل التسويقية عبر واتساب؟ سيتم تسجيل الموافقة مع التاريخ والمصدر.')) return;
+    setTogglingOptOut(true);
+    try {
+      await api.post('/staff/inbox/opt-in', {
+        wa_id: selectedConversation.wa_id
+      });
+      toast.success('تم تسجيل الموافقة التسويقية');
+      await fetchCustomerProfile(selectedConversation.wa_id);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل تسجيل الموافقة');
+    } finally {
+      setTogglingOptOut(false);
+    }
+  };
+
   const handleStartConversation = async () => {
     if (!newChatPhone.trim() || !newChatMessage.trim()) return;
     setStartingChat(true);
@@ -1516,7 +1533,7 @@ export default function StaffPage() {
                               </div>
                             </div>
                             {customerProfile?.user && (
-                              <div className="border-t pt-2 mt-1">
+                              <div className="border-t pt-2 mt-1 space-y-2">
                                 {customerProfile.user.whatsapp_opted_out_at ? (
                                   <div className="space-y-1">
                                     <p className="text-xs text-red-500 font-medium">⛔ تم إيقاف الرسائل التسويقية</p>
@@ -1536,6 +1553,23 @@ export default function StaffPage() {
                                   >
                                     {togglingOptOut ? '...' : '⛔ إيقاف الرسائل التسويقية'}
                                   </button>
+                                )}
+                                {!customerProfile.user.whatsapp_opted_out_at && (
+                                  customerProfile.user.whatsapp_marketing_consent ? (
+                                    <p className="text-[11px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
+                                      ✅ موافقة تسويقية مسجّلة
+                                      {customerProfile.user.whatsapp_consent_date ? ` · ${new Date(customerProfile.user.whatsapp_consent_date).toLocaleDateString('ar-JO')}` : ''}
+                                      {customerProfile.user.whatsapp_consent_source ? ` · ${customerProfile.user.whatsapp_consent_source}` : ''}
+                                    </p>
+                                  ) : (
+                                    <button
+                                      onClick={handleRecordMarketingConsent}
+                                      disabled={togglingOptOut}
+                                      className="w-full text-xs bg-amber-500 text-white py-1.5 rounded-lg hover:bg-amber-600 disabled:opacity-50"
+                                    >
+                                      {togglingOptOut ? '...' : '✅ تسجيل موافقة تسويقية'}
+                                    </button>
+                                  )
                                 )}
                               </div>
                             )}
