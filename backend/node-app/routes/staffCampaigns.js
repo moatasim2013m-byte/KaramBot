@@ -566,6 +566,16 @@ router.post('/bulk-send', async (req, res) => {
   try {
     const { template_name, language_code, components, ttl_hours, recipients } = req.body;
 
+    // Extract header image from components if present (for templates with image headers)
+    let headerImageUrl = null;
+    const tplComponents = Array.isArray(components) ? components.filter(c => {
+      if (c.type === 'header' && c.parameters?.[0]?.type === 'image') {
+        headerImageUrl = c.parameters[0].image?.link || null;
+        return true;
+      }
+      return true;
+    }) : [];
+
     // --- Validation ---
     if (!template_name || typeof template_name !== 'string' || !template_name.trim()) {
       return res.status(400).json({ error: 'template_name is required' });
@@ -634,7 +644,6 @@ router.post('/bulk-send', async (req, res) => {
     // Send in small sequential batches using existing postWhatsAppTemplate
     const staffId = req.user._id;
     const langCode = (language_code || 'ar').trim();
-    const tplComponents = Array.isArray(components) ? components : [];
     const ttlSeconds = ttl_hours ? Number(ttl_hours) * 3600 : null;
 
     for (let i = 0; i < validRecipients.length; i += BULK_BATCH_SIZE) {
