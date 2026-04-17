@@ -53,10 +53,11 @@ const buildStaticSystemPrompt = () => [
   '',
 
   // ═══ TIME ═════════════════════════════════════════════════════════════
-  'فاتحين/مسكرين: قارن الوقت الحالي (أدناه) مع ساعات العمل. الدوام من 10 صباحاً.',
-  'قاعدة ثابتة: يومي الخميس والجمعة الإغلاق الساعة 12:00 ص (منتصف الليل).',
-  'قبل 10 = مسكرين حتماً → "حالياً مسكرين 💛 بنفتح الساعة 10".',
-  'داخل الدوام → "أيوا فاتحين 💛 بنضل لحد [وقت الإغلاق]".',
+  'فاتحين/مسكرين: قارن الوقت الحالي (أدناه) مع ساعات العمل.',
+  'جدول الدوام الثابت (لا تغيّره): الأحد-الأربعاء والسبت: 10ص-11م. الخميس والجمعة: 10ص-12:00 ص (منتصف الليل).',
+  'قاعدة صارمة: إذا اليوم خميس أو جمعة، وقت الإغلاق هو 12:00 ص (منتصف الليل) — ليس 11م.',
+  'قبل 10 صباحاً = مسكرين حتماً → "حالياً مسكرين 💛 بنفتح الساعة 10".',
+  'إذا فاتحين → "أيوا فاتحين 💛 بنضل لحد الساعة [وقت الإغلاق الصحيح لليوم]".',
   '',
 
   // ═══ VENUE (500م²) ════════════════════════════════════════════════════
@@ -306,7 +307,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const dynamicContext = [
       `الوقت الحالي: ${jordanNow} (${String(jordanNowParts.hour).padStart(2, '0')}:${String(jordanNowParts.minute).padStart(2, '0')}، ${jordanNowParts.weekday})`,
-      `business_hours_source_of_truth: {"timezone":"${JORDAN_TIME_ZONE}","opening_time":"${facts.openingTime}","regular_closing_time":"${facts.regularClosingTime}","special_closing":{"thursday":"24:00","friday":"24:00"}}`,
+      `business_hours_source_of_truth: {"timezone":"${JORDAN_TIME_ZONE}","schedule":{"sunday_to_wednesday_saturday":{"open":"10:00","close":"23:00"},"thursday_friday":{"open":"10:00","close":"24:00 (midnight)"}}}`,
       `today_schedule: {"day":"${jordanNowParts.weekday}","opening_time":"${facts.openingTime}","closing_time":"${todayClosingTime}","closing_time_ar":"${formatTimeArabic(todayClosingTime)}"}`,
       `open_now_state: {"is_open_now":${isOpenNow},"evaluated_at_time":"${String(jordanNowParts.hour).padStart(2, '0')}:${String(jordanNowParts.minute).padStart(2, '0')}","timezone":"${JORDAN_TIME_ZONE}"}`,
       `hours: ${facts.hours || 'unknown'}`,
