@@ -9,6 +9,7 @@
 
 const express = require('express');
 const Campaign = require('../models/Campaign');
+const CampaignBroadcast = require('../models/CampaignBroadcast');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
 const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
@@ -153,7 +154,106 @@ function buildBodyComponentsFromParams(templateParams) {
   }];
 }
 
-// POST /manual-bulk-send — direct manual bulk template send (no campaign persistence)
+// Background runner for manual-bulk-send (fires after 202 response)
+async function runManualBulkSend({ broadcastId, campaignId, validRecipients, templateName, languageCode, components, staffId }) {
+  const BATCH_SIZE = 20;
+  const BATCH_DELAY_MS = 500;
+
+  let broadcast;
+  try {
+    broadcast = await CampaignBroadcast.findById(broadcastId);
+    if (!broadcast) {
+      console.error('MANUAL_BULK_SEND_BG_NO_BROADCAST', { broadcastId: String(broadcastId) });
+      return;
+    }
+    broadcast.status = 'in_progress';
+    broadcast.started_at = new Date();
+    broadcast.addAuditLog('broadcast_started', `Sending ${validRecipients.length} recipients, template: ${templateName}`);
+    await broadcast.save();
+  } catch (initErr) {
+    console.error('MANUAL_BULK_SEND_BG_INIT_ERROR', { broadcastId: String(broadcastId), error: initErr.message });
+    return;
+  }
+
+  try {
+    for (let i = 0; i < validRecipients.length; i += BATCH_SIZE) {
+      const batch = validRecipients.slice(i, i + BATCH_SIZE);
+
+      for (const { waId } of batch) {
+        try {
+          const result = await postWhatsAppTemplate({
+            to: waId,
+            templateName,
+            languageCode,
+            components,
+            staffId
+          });
+
+          if (result.ok) {
+            broadcast.updateRecipientStatus(waId, 'sent', {
+              whatsapp_message_id: result.messageId || null,
+              sent_at: new Date(),
+              template_used: true
+            });
+          } else if (result.skipped && (result.reason === 'opted_out' || result.reason === 'opt_out_check_failed')) {
+            broadcast.updateRecipientStatus(waId, 'opted_out', {
+              error_reason: result.reason
+            });
+          } else {
+            broadcast.updateRecipientStatus(waId, 'failed', {
+              error_reason: result.reason || result.error || 'send_failed',
+              meta_error_code: result.status ? String(result.status) : null
+            });
+          }
+        } catch (sendErr) {
+          broadcast.updateRecipientStatus(waId, 'failed', {
+            error_reason: sendErr.message || 'exception'
+          });
+        }
+      }
+
+      // Persist progress after each batch
+      try {
+        broadcast.recalculateCounters();
+        await broadcast.save();
+      } catch (saveErr) {
+        console.error('MANUAL_BULK_SEND_BG_SAVE_ERROR', { broadcastId: String(broadcastId), batch: i, error: saveErr.message });
+      }
+
+      if (i + BATCH_SIZE < validRecipients.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+    }
+
+    broadcast.markCompleted();
+    await broadcast.save();
+
+    // Update parent campaign status
+    try {
+      await Campaign.findByIdAndUpdate(campaignId, { status: 'completed' });
+    } catch (_) { /* non-critical */ }
+
+    console.log('MANUAL_BULK_SEND_BG_COMPLETED', {
+      broadcastId: String(broadcastId),
+      sent: broadcast.total_sent,
+      failed: broadcast.total_failed,
+      opted_out: broadcast.total_opted_out,
+      skipped: broadcast.total_skipped
+    });
+  } catch (fatalErr) {
+    console.error('MANUAL_BULK_SEND_BG_FATAL', { broadcastId: String(broadcastId), error: fatalErr.message });
+    try {
+      broadcast.status = 'failed';
+      broadcast.completed_at = new Date();
+      broadcast.addAuditLog('broadcast_failed', fatalErr.message, 'failed');
+      broadcast.recalculateCounters();
+      await broadcast.save();
+      await Campaign.findByIdAndUpdate(campaignId, { status: 'cancelled' });
+    } catch (_) { /* best effort */ }
+  }
+}
+
+// POST /manual-bulk-send — async: returns 202 immediately, sends in background
 router.post('/manual-bulk-send', async (req, res) => {
   try {
     const {
@@ -205,66 +305,124 @@ router.post('/manual-bulk-send', async (req, res) => {
       ? buildBodyComponentsFromParams(normalizedTemplateParams.slice(0, requiredParamsCount))
       : [];
 
+    // Normalize, deduplicate, and separate invalid recipients
     const seenWaIds = new Set();
-    const perRecipient = [];
-    let sent = 0;
-    let skipped_opted_out = 0;
-    let skipped_invalid = 0;
-    let failed = 0;
+    const validRecipients = [];
+    const skippedRecipients = [];
 
     for (const recipient of recipients) {
       const original = extractRawRecipientValue(recipient);
       const waId = normalizePhoneForWhatsApp(original);
 
       if (!waId) {
-        skipped_invalid += 1;
-        perRecipient.push({ recipient: original, status: 'skipped_invalid' });
+        skippedRecipients.push({ phone: original, wa_id: '', status: 'skipped', error_reason: 'invalid_phone_format' });
         continue;
       }
 
-      if (seenWaIds.has(waId)) {
-        skipped_invalid += 1;
-        perRecipient.push({ recipient: waId, status: 'skipped_invalid', reason: 'duplicate' });
-        continue;
-      }
+      if (seenWaIds.has(waId)) continue; // deduplicate silently
       seenWaIds.add(waId);
+      validRecipients.push({ waId, original });
+    }
 
-      const result = await postWhatsAppTemplate({
-        to: waId,
+    if (validRecipients.length === 0) {
+      return res.status(400).json({ error: 'No valid phone numbers after normalization' });
+    }
+
+    // Create lightweight Campaign as parent for the broadcast
+    const campaign = await new Campaign({
+      name: `manual_bulk_${Date.now()}`,
+      template_name: String(template_name).trim(),
+      created_by: req.user._id,
+      status: 'active',
+      metadata: {
+        message_type: 'template',
+        manual_bulk: true,
+        template_language: template_language || templateDoc.language || 'ar',
+        template_components: components
+      }
+    }).save();
+
+    // Create CampaignBroadcast with valid recipients seeded as 'pending'
+    const broadcastRecipients = validRecipients.map(({ waId, original }) => ({
+      phone: original,
+      wa_id: waId,
+      status: 'pending',
+      template_used: true,
+      template_id: templateDoc.meta_template_id || null
+    }));
+
+    const broadcast = await new CampaignBroadcast({
+      campaign_id: campaign._id,
+      broadcast_number: 1,
+      status: 'queued',
+      total_recipients: validRecipients.length,
+      recipients: broadcastRecipients
+    }).save();
+
+    // Return 202 immediately
+    res.status(202).json({
+      success: true,
+      broadcast_id: broadcast._id,
+      campaign_id: campaign._id,
+      template_name: String(template_name).trim(),
+      recipient_count: validRecipients.length,
+      skipped_invalid: skippedRecipients.length,
+      status: 'queued',
+      poll_url: `/api/staff/campaigns/manual-bulk-send/${broadcast._id}`
+    });
+
+    // Fire background send after response is flushed
+    setImmediate(() => {
+      runManualBulkSend({
+        broadcastId: broadcast._id,
+        campaignId: campaign._id,
+        validRecipients,
         templateName: String(template_name).trim(),
         languageCode: template_language || templateDoc.language || 'ar',
         components,
         staffId: req.user._id
-      });
-
-      if (result.ok) {
-        sent += 1;
-        perRecipient.push({ recipient: waId, status: 'sent', message_id: result.messageId || null });
-      } else if (result.skipped && result.reason === 'opted_out') {
-        skipped_opted_out += 1;
-        perRecipient.push({ recipient: waId, status: 'skipped_opted_out' });
-      } else {
-        failed += 1;
-        perRecipient.push({
-          recipient: waId,
-          status: 'failed',
-          reason: result.reason || result.error || 'send_failed'
-        });
-      }
-
-      await new Promise(resolve => setTimeout(resolve, MANUAL_BULK_SEND_DELAY_MS));
-    }
-
-    res.json({
-      success: true,
-      template_name: String(template_name).trim(),
-      recipient_count: recipients.length,
-      summary: { sent, skipped_opted_out, skipped_invalid, failed },
-      results: perRecipient
+      }).catch(err => console.error('MANUAL_BULK_SEND_SETIMMEDIATE_ERROR', err.message));
     });
   } catch (error) {
     console.error('Staff manual bulk send error:', error);
-    res.status(500).json({ error: 'Failed to execute manual bulk send' });
+    res.status(500).json({ error: 'Failed to initiate manual bulk send' });
+  }
+});
+
+// GET /manual-bulk-send/:broadcastId — poll progress of a background manual bulk send
+router.get('/manual-bulk-send/:broadcastId', async (req, res) => {
+  try {
+    const broadcast = await CampaignBroadcast.findById(req.params.broadcastId).lean();
+    if (!broadcast) {
+      return res.status(404).json({ error: 'Broadcast not found' });
+    }
+
+    res.json({
+      broadcast_id: broadcast._id,
+      campaign_id: broadcast.campaign_id,
+      status: broadcast.status,
+      started_at: broadcast.started_at,
+      completed_at: broadcast.completed_at,
+      summary: {
+        total_recipients: broadcast.total_recipients,
+        sent: broadcast.total_sent,
+        delivered: broadcast.total_delivered,
+        failed: broadcast.total_failed,
+        opted_out: broadcast.total_opted_out,
+        skipped: broadcast.total_skipped,
+        pending: (broadcast.recipients || []).filter(r => r.status === 'pending').length
+      },
+      recipients: (broadcast.recipients || []).map(r => ({
+        wa_id: r.wa_id,
+        status: r.status,
+        whatsapp_message_id: r.whatsapp_message_id || null,
+        error_reason: r.error_reason || null,
+        sent_at: r.sent_at || null
+      }))
+    });
+  } catch (error) {
+    console.error('Manual bulk send status error:', error);
+    res.status(500).json({ error: 'Failed to get broadcast status' });
   }
 });
 

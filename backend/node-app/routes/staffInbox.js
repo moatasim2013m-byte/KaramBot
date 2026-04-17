@@ -333,7 +333,10 @@ router.get('/customer-profile/:wa_id', async (req, res) => {
         email: user.email,
         phone: user.phone,
         created_at: user.createdAt,
-        whatsapp_opted_out_at: user.whatsapp_opted_out_at || null
+        whatsapp_opted_out_at: user.whatsapp_opted_out_at || null,
+        whatsapp_marketing_consent: user.whatsapp_marketing_consent === true,
+        whatsapp_consent_date: user.whatsapp_consent_date || null,
+        whatsapp_consent_source: user.whatsapp_consent_source || null
       },
       children: children.map(c => ({
         id: c._id,
@@ -994,6 +997,47 @@ router.post('/opt-out', async (req, res) => {
   } catch (error) {
     console.error('Opt-out error:', error);
     res.status(500).json({ error: 'Failed to update opt-out status' });
+  }
+});
+
+// Staff-attested WhatsApp marketing opt-in for an existing linked contact.
+// Writes explicit consent to the already-existing User schema fields so future
+// marketing campaigns (which require whatsapp_marketing_consent=true AND
+// whatsapp_opted_out_at=null) can send to this recipient. Mirrors /opt-out.
+router.post('/opt-in', async (req, res) => {
+  try {
+    const { wa_id } = req.body;
+    if (!wa_id) {
+      return res.status(400).json({ error: 'wa_id is required' });
+    }
+
+    const message = await WhatsAppMessage.findOne(withVisibleInboxMessages({ sender_wa_id: wa_id }))
+      .populate('linked_user_id');
+
+    if (!message || !message.linked_user_id) {
+      return res.status(404).json({ error: 'No linked user found for this contact' });
+    }
+
+    const user = message.linked_user_id;
+    user.whatsapp_marketing_consent = true;
+    user.whatsapp_consent_date = new Date();
+    user.whatsapp_consent_source = 'manual_opt_in';
+    user.whatsapp_opted_out_at = null;
+    await user.save();
+
+    console.log(`WHATSAPP_OPT_IN_STAFF staff_id=${req.user?._id} user_id=${user._id} wa_id=${wa_id}`);
+
+    res.json({
+      success: true,
+      wa_id,
+      whatsapp_marketing_consent: user.whatsapp_marketing_consent,
+      whatsapp_consent_date: user.whatsapp_consent_date,
+      whatsapp_consent_source: user.whatsapp_consent_source,
+      whatsapp_opted_out_at: user.whatsapp_opted_out_at
+    });
+  } catch (error) {
+    console.error('Staff opt-in error:', error);
+    res.status(500).json({ error: 'Failed to record marketing consent' });
   }
 });
 

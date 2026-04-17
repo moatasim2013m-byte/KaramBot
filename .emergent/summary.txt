@@ -1,156 +1,109 @@
 <analysis>**original_problem_statement**: 
-- Ensure Peekaboo’s backend remains the primary owner of WhatsApp integration (webhooks) and create a sophisticated internal staff inbox for viewing/responding to messages.
-- Implement Meta WhatsApp Business API-Compliant Marketing Campaigns & Broadcasts (Campaign, CampaignBroadcast, TemplateDefinition models).
-- Enforce strict Meta compliance: Template approval, 24h window validation, Opt-in tracking, TTL support, and read receipts.
+Audit the current WhatsApp marketing campaign implementation against the full Meta Marketing Messages documentation. Compare the current repo with Meta requirements (templates, user opt-in/opt-out handling, send paths, etc.) to produce a gap analysis. Produce the smallest safe plan before writing code. 
+PRODUCT REQUIREMENTS: 
+- Audit first.
+- Read repo, then Meta docs.
+- Determine if the repo is compliant, partially compliant, or missing functionality.
+- Decision output required (NO CODE CHANGE NEEDED, SMALL PATCH NEEDED, or CONFIG / OPERATIONS STEP NEEDED).
+- DO NOT write code until the audit and plan are provided.
 
-**User's preferred language**: English
-*(INSTRUCTION to next agent: Respond in English ONLY)*
+**User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
 **what currently exists?** 
-A full-stack React and Express app with WhatsApp webhook integration. The staff dashboard now includes a WhatsApp Inbox tab with complete real-time messaging, read receipts, and profile fallbacks. The backend handles Meta Business marketing campaigns with models to manage template definitions, campaign execution, and broadcast logs.
+A MERN stack application (React frontend, Node.js/Express backend in , MongoDB) with an existing WhatsApp marketing module. It includes strict consent enforcement, webhook synchronization for Meta template approval statuses, an auto-reply bot parsing for opt-out keywords (in Arabic), and bulk-send functionality. 
 
-**Last working item**: 
-- **Last item agent was working**: Applying three critical compliance gaps to the campaigns backend (specifically routing). The user requested changes to , but since this file doesn't exist, the agent accurately deduced it should be . The agent attempted to add the required  and  imports, but the  tool failed due to a string mismatch.
-- **Status**: IN PROGRESS
-- **Agent Testing Done**: N
-- **Which testing method agent to use?**: manual testing by curl / python -c (as requested in the test steps provided by the user)
-- **User Testing Done**: N
+**Last working item**:
+- **Last item agent was working**: The agent used the  tool to confirm the proposed plan to synthesize the WhatsApp marketing compliance audit. It had previously reviewed the backend codebase and Meta documentation, and is now ready to generate the final analysis response once the user approves.
+- **Status**: BLOCKED (Waiting for user response to )
+- **Agent Testing Done**: N/A
+- **Which testing method agent to use?**: NA (Task is purely analytical text generation at this stage)
+- **User Testing Done**: N/A
 
-**All Pending/In progress Issue list**: 
-Issue 1: Fix three critical compliance gaps in the campaign backend routes (P0)
-- **Attempted fixes**: Tried to add  and  imports at the top of . The string replacement failed because the target string was slightly off.
-- **Next debug checklist**: 
-  - File: 
-  - 1. Add  and  to the imports.
-  - 2. Find  function and replace Step 5 to query MongoDB and exclude users where  is not null.
-  - 3. In  route, add template approval validation block () before setting . Fix the duplicate  declaration below it.
-  - 4. Add a  endpoint to estimate audience size *before* the  route block.
-- **Why fix this issue and what will be achieved with the fix?**: It meets Meta's compliance requirements for campaigns (excluding opted-out contacts, requiring approved templates) and adds necessary UI support via a preview endpoint.
-- **Status**: IN PROGRESS
-- **Is recurring issue?**: N
-- **Should Test frontend/backend/both after fix?**: backend
-- **Blocked on other issue**: None
+**All Pending/In progress Issue list**:  
+None.
 
-**In progress Task List**: 
-Task 1: Complete Campaign Backend Compliance implementation
-- **Where to resume**: In , execute the 4 changes outlined in the latest user prompt.
-- **What will be achieved with this?**: Complete compliance with Meta's strict marketing requirements.
-- **Status**: IN PROGRESS
-- **Should Test frontend/backend/both after fix?**: backend
-- **Blocked on something**: Nothing
+**In progress Task List**:
+Task 1: Generate WhatsApp Marketing Audit & Plan (P0)
+- **Where to resume**: Await the user's response to the pending  plan confirmation. Once received, immediately synthesize the previously gathered codebase context and Meta documentation into the final gap analysis text response. Follow the strict requested output format: 1. Meta requirements summary, 2. Pages reviewed, 3. Current repo audit findings, 4. Gap analysis (compliant/partial/missing), 5. Decision, 6. Patch plan (if needed), 7. Manual verification plan.
+- **What will be achieved with this?**: The user will get a clear view of the system's Meta compliance and can approve any needed fixes before actual code is written.
+- **Status**: BLOCKED (Waiting for user confirmation)
+- **Should Test frontend/backend/both after fix?**: NA (Do not write code yet)
+- **Blocked on something**: Pending human reply to .
 
 **Upcoming and Future Tasks**:
-- Test the  endpoint with varying audience filters (e.g., ).
-- Test executing a template campaign with a non-existent or pending template to confirm the 400 error is thrown.
+Upcoming Tasks:
+- Execute the patch plan (P1) (Only if the audit determines one is needed AND the user subsequently approves it in a future step).
+
+Future Tasks:
+- None identified beyond potential patch execution.
 
 **Completed work in this session**:
-- Created  MongoDB model and persisting inbound messages via .
-- Developed Staff Inbox UI in  and  backend routes.
-- Handled profile_name fallback in Staff Inbox for users with no WA profile name.
-- Implemented Meta WA Business API-Compliant Marketing Campaigns (Models: , , ).
-- Fixed WhatsApp send button failure by extracting message_id and saving outbound messages to MongoDB in .
-- Implemented WA Read Receipts (Meta compliance) via .
-- Added Campaign UI TTL (Time-To-Live) support by applying Claude's frontend patch file to .
+- None in this specific fork (previous fork completed staff opt-in and UI fixes, but this session was purely setting up the audit plan).
 
 **Earlier issues found/mentioned but not fixed**:
-- None explicitly left behind. The agent correctly navigated missing files/misnamed files requested by the user. 
+None.
 
 **Known issue recurrence from previous fork**:
+- Issue recurrence in previous fork: None
 - Recurrence count: 0
-- Status: NONE
+- Status: N/A
 
 **Code Architecture**:
--  -> Contains Express server.
-  -  -> Mongoose schemas (, , , etc.)
-  -  -> API definitions (, , )
-  -  -> Helpers ()
--  -> React application
-  -  -> Contains UI for staff dashboard including QR Scanner, Inbox, and Campaigns.
+
 
 **Key Technical Concepts**:
-- React Frontend (Tailwind)
-- Express.js Backend
-- MongoDB (Mongoose)
-- Meta WhatsApp Cloud API / Marketing Messages API
-- Webhooks handling & Signature verification (META_APP_SECRET)
+React, Node.js (Express), MongoDB, Meta WhatsApp Business API (Templates, Webhooks, Marketing Messages), Rate Limiting.
 
 **key DB schema**:
-- : { message_id, sender_wa_id, profile_name, message_type, text_body, direction, status, sent_by_staff_id, platform }
-- : { name, description, template_id, audience_filter, personalization, require_consent, allow_24h_window, status, metadata: { ttl_hours } }
-- : { meta_template_id, name, status, body_text, variables }
+- : 
+- : 
 
 **changes in tech stack**:
-- None
+- **NOTE**: Backend uses Node.js (Express) located in , NOT FastAPI as the generic system prompt might imply. Respect the Node.js architecture.
 
-**All files of reference**:
--  (Target file for current in-progress task)
--  (Holds WhatsApp API outbound functions)
--  (Inbox API endpoints)
--  (Inbox & Campaign UI)
-- 
-- 
+**All files of reference**: 
+-  (WhatsApp sending utility)
+-  (Bulk send logic and campaign execution)
+-  (Webhook handling for template status updates)
+-  (Opt-out keyword handling)
 
 **Areas that need refactoring**:
-- User prompt nomenclature mismatch: User repeatedly asks to modify  and , but these files do not exist. The actual implementation in the codebase resides in  and . The next agent must remain vigilant and map user requests to the correct existing files instead of creating new ones blindly.
+None.
 
 **key api endpoints**:
-- 
-- 
-- 
-- 
--  (Currently being added)
+-  (Manual bulk template send)
+-  (Staff attested consent)
+-  (Staff attested opt-out)
 
 **Critical Info for New Agent**:
-- **CRITICAL**: The user prompt specifically asks you to modify . **THIS FILE DOES NOT EXIST**. The correct file you need to modify is . Do not create .
-- The last  failed because the target string in  didn't exactly match the pattern you provided. Use a broader or more precise  or  to correctly inject the imports.
+- **CRITICAL:** The user explicitly requested an **Audit and Plan ONLY**. Do **NOT** write any code, modify any files, or create new configurations yet. 
+- You are currently blocked waiting for the user to respond to an  tool call regarding your audit plan. 
+- Once the user responds, provide the audit strictly following the output format requested in the original problem statement.
+- Remember the backend is Express.js, not FastAPI.
 
 **documents and test reports created in this job**:
-- 
-- 
-- 
-- 
-- 
+None.
 
 **Last 10 User Messages and any pending HUMAN messages**:
-1. (Pending) Fix three critical compliance gaps in the campaign backend... Scope — ONE file only: /app/backend/node-app/routes/staffCampaigns.js
-2. PREVIOUS SESSION COMPLETE. Campaigns tab UI is done... Fix two compliance gaps in the WhatsApp Marketing Messages API (recipient_type, TTL support)...
-3. Uploaded artifact: whatsapp coding correction.zip. see claude feedback stick exactly to what he proposed.
-4. Run this exact command right now... ls /app/backend/node-app/utils/ ...
-5. Verify actual file paths in repo ...
-6. Uploaded artifact: Peekaboo_Phase2_Prompt.docx. Respond to attached.
-7. Fix backend only. Two changes in two files... Remove duplicate outbound persist block... Add mark-as-read before sending reply.
-8. reviewed the Meta official WhatsApp demo... backend fix from previous session is partially wrong.
-9. Fix WhatsApp Staff Inbox Send Button - Message Sending Failure.
-10. Great news! The WhatsApp marketing campaigns system is fully implemented and operational...
+1. *User*: [Tool result: Question has been sent to the user. Waiting for response] (PENDING)
+2. *Assistant*: Called  to confirm the plan. (COMPLETED)
+3. *User*: Please use ask_human tool and confirm your plan now. (COMPLETED)
+4. *User*: Provided the initial handoff summary requesting the compliance audit. (COMPLETED)
 
 **Project Health Check**:
-- Backend service starts cleanly on internal port 8002.
-- Frontend builds cleanly in ~38s.
+Codebase is healthy. Frontend hot-reloads locally.
 
 **3rd Party Integrations**:
-- WhatsApp Cloud API — requires User API Key (, , )
+- Meta / WhatsApp Business API (Messaging, Webhooks, Templates) — requires User API Key/System integration variables.
 
 **Testing status**:
-- Testing agent used after significant changes: NO (Tested via bash curl scripts and testing shells).
+- Testing agent used after significant changes: NO (Not applicable for text audit)
 - Troubleshoot agent used after agent stuck in loop: NO
-- Test files created: , 
-- Known regressions: None.
+- Test files created: []
+- Known regressions: []
 
 **Credentials to test flow**:
-- To test the inbox and campaigns, a  or  user token is required. (Auth route ).
--  and  are required in  to successfully hit Meta endpoints.
+Check  if needed (Testing is not required in this purely analytical phase).
 
 **What agent forgot to execute**:
-The agent attempted but failed to complete the very last prompt requesting 3 changes in the  file:
-1. Adding  and  requires.
-2. Filtering out  inside .
-3. Adding Template Validation to  and removing duplicate .
-4. Creating a  route.
-
-**Debugging checklist for current issue**:
-Issue: Compliance gaps and  route pending in 
-Backend files to check: 
-- Lines 1-15: Safely inject  and .
-- Line ~40-60: Locate  and replace the mapping logic as requested.
-- Line ~150-200: Locate  and place  **before** it.
-- Locate : Inject template validation logic and remove the secondary  before .</analysis>
+The agent did not forget anything; it correctly halted execution to seek user confirmation via  before generating the final comprehensive audit report.</analysis>

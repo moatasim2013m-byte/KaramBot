@@ -1,101 +1,34 @@
-# Peekaboo - Deployment Ready PRD
+# WhatsApp Marketing System — PRD
 
-## Project Status: ✅ DEPLOYMENT READY
-**Domain**: peekaboojor.com  
-**Target**: Google Cloud Run  
-**Date**: February 2026
+## Original Problem Statement
+1. Audit the current WhatsApp marketing campaign implementation against Meta Marketing Messages documentation — produce gap analysis and compliance decision.
+2. Make `POST /api/staff/campaigns/manual-bulk-send` async — return 202 immediately, process sends in the background, track progress via existing CampaignBroadcast model.
 
----
+## Architecture
+- Backend: Node.js/Express in `/app/backend/node-app/`, proxied via FastAPI wrapper on port 8001
+- Database: MongoDB Atlas
+- Frontend: React
+- WhatsApp: Meta Cloud API v25.0, Marketing Messages endpoint
+- Deployment: GCP Cloud Run
 
-## Completed Features
+## Completed
+- [x] Meta Compliance Audit — all 7 pillars COMPLIANT, decision: NO CODE CHANGE NEEDED (Feb 2026)
+- [x] Async manual-bulk-send — returns 202 immediately, background processing via setImmediate, progress tracking via CampaignBroadcast (Feb 2026)
 
-### Customer Features
-- ✅ Homepage with hero, services, gallery
-- ✅ Hourly play booking (date/time/child selection)
-- ✅ Birthday party booking (themes, guest count)
-- ✅ Subscriptions purchase (3 tiers)
-- ✅ Profile with children, bookings, loyalty points
-- ✅ User registration/login
-- ✅ Morning/Afternoon booking modes with distinct pricing
-- ✅ Policy pages (Terms, Privacy, Refund)
-- ✅ Payment card icons and trust badges
+## Implementation Details (Async Manual Bulk Send)
+**File modified:** `backend/node-app/routes/staffCampaigns.js` only
+**Files read-only:** `whatsappMarketing.js`, `CampaignBroadcast.js`, `Campaign.js`, `User.js`
 
-### Payment Methods
-- ✅ **Card**: Online card checkout redirect (provider-managed)
-- ✅ **Cash**: Direct booking → Confirmation page
-- ✅ **CliQ**: Direct booking → Confirmation page + Bank info
+### Endpoints:
+- `POST /api/staff/campaigns/manual-bulk-send` — validates inputs, creates Campaign + CampaignBroadcast, returns 202 with broadcast_id, fires background send loop
+- `GET /api/staff/campaigns/manual-bulk-send/:broadcastId` — polls broadcast progress (status, summary counters, per-recipient results)
 
-### Admin/Staff Features
-- ✅ Admin dashboard
-- ✅ Staff check-in interface
-- ✅ QR code scanning
+### Key Design Decisions:
+- Uses `setImmediate()` for background execution (no new queue system)
+- Creates a lightweight Campaign doc as parent (CampaignBroadcast.campaign_id is required)
+- Persists progress after each batch of 20 sends
+- Background runner handles fatal errors gracefully (marks broadcast as failed)
 
-### UI/UX (Feb 2026 Redesign)
-- ✅ Wonderland-inspired sky theme with fluffy clouds and floating balloons
-- ✅ Cleaner navbar with glass-morphism effect
-- ✅ Rounded cards with colorful icon badges
-- ✅ Improved hero section with better whitespace
-- ✅ Consistent section containers with soft pastel backgrounds
-- ✅ Mobile-responsive design with RTL support
-- ✅ PublicPageShell component for consistent informational page layouts
-- ✅ Themed informational pages (About, FAQ, Contact, Rules, Pricing)
-
----
-
-## Technical Stack
-- **Frontend**: React.js + Tailwind + Shadcn/UI
-- **Backend**: Node.js/Express (FastAPI wrapper)
-- **Database**: MongoDB
-- **Payments**: capital_bank + offline methods (cash/CliQ/manual)
-- **Email**: Resend
-
----
-
-## Design System (Updated Feb 2026)
-- Primary Red: #FF4757
-- Yellow: #FFD93D
-- Blue: #45AAF2
-- Green: #26DE81
-- Orange: #FF9F43
-- Pink: #FF6B9D
-- Sky Background: #87CEEB → #FFF8E7 gradient
-- Headings: Baloo Bhaijaan 2
-- Body: Cairo
-- Language: Arabic (RTL)
-- Border Radius: 24px-40px (rounded, playful)
-
----
-
-## Environment Variables Required
-
-### Frontend
-```
-REACT_APP_BACKEND_URL=https://peekaboojor.com
-```
-
-### Backend
-```
-MONGO_URL=mongodb+srv://...
-DB_NAME=peekaboo
-JWT_SECRET=<secure-random-string>
-RESEND_API_KEY=re_...
-SENDER_EMAIL=noreply@peekaboojor.com
-```
-
----
-
-## Deployment Steps
-1. Build frontend: `cd /app/frontend && yarn build`
-2. Containerize with Dockerfile
-3. Deploy to Google Cloud Run
-4. Configure environment variables
-5. Point DNS (peekaboojor.com) to Cloud Run
-6. Enable HTTPS (automatic with Cloud Run)
-7. Final smoke test
-
----
-
-## Backlog (Post-Launch)
-- P1: Points Redemption Flow (QR code generation)
-- P2: Resolve ESLint dependency warnings properly (code quality)
-- P3: Implement contact form submission backend
+## Backlog
+- P2: (Advisory A1) Add `whatsapp_marketing_consent` check to `manual-bulk-send` for parity with `/bulk-send`
+- P2: (Advisory A2) Staff opt-out handler should also clear `whatsapp_marketing_consent` for data consistency
