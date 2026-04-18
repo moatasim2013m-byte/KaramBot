@@ -296,6 +296,7 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       textBody,
       mediaId: (messageType === 'audio') ? (message?.audio?.id || null)
             : (messageType === 'image') ? (message?.image?.id || null)
+            : (messageType === 'video') ? (message?.video?.id || null)
             : null
     }).catch(err => console.error('AUTO_REPLY_TRIGGER_ERROR', err.message));
   } catch (error) {

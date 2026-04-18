@@ -277,7 +277,7 @@ const buildApprovedFaqContext = (faqItems = []) => {
   return ['approved_faq_examples:', ...lines].join('\n');
 };
 
-const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null, imageMediaId = null }) => {
+const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null, imageMediaId = null, videoMediaId = null }) => {
   if (!process.env.GEMINI_API_KEY) {
     logAutoReplyAi('WA_BOT_AI_ROUTE', {
       route: 'ai_not_called',
@@ -364,6 +364,35 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       }
     }
 
+    if (videoMediaId) {
+      try {
+        const mediaUrl = await getMetaMediaUrl(videoMediaId);
+        if (mediaUrl) {
+          const downloaded = await downloadMetaMedia(mediaUrl);
+          if (downloaded.ok && downloaded.buffer) {
+            const mimeType = downloaded.contentType || 'video/mp4';
+            const base64Video = downloaded.buffer.toString('base64');
+            const captionText = String(userText || '').trim();
+            currentTurnParts = [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Video
+                }
+              },
+              {
+                text: captionText && captionText !== '[فيديو من الزبون]'
+                  ? `الزبون بعث هاي الفيديو مع الرسالة: "${captionText}". شوف الفيديو وافهم شو بده، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك شفت فيديو — رد مباشرة على المحتوى.`
+                  : 'الزبون بعث هاي الفيديو بدون نص. شوف الفيديو وافهم شو بده أو شو سؤاله، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك شفت فيديو — رد مباشرة على المحتوى. إذا ما فهمت شو بده من الفيديو، اسأله بلطف.'
+              }
+            ];
+          }
+        }
+      } catch (videoErr) {
+        console.warn('GEMINI_VIDEO_DOWNLOAD_ERROR', videoErr.message);
+      }
+    }
+
     const currentTurn = { role: 'user', parts: currentTurnParts };
 
     const contents = [...historyTurns, currentTurn];
@@ -399,7 +428,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const systemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
 
-    const isMediaCall = Boolean(audioMediaId || imageMediaId);
+    const isMediaCall = Boolean(audioMediaId || imageMediaId || videoMediaId);
     const GEMINI_TIMEOUT_MS = isMediaCall ? 20000 : 12000;
 
     const controller = new AbortController();
@@ -476,7 +505,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     return result;
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.warn('GEMINI_TIMEOUT', { model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId), timeoutMs: (audioMediaId || imageMediaId) ? 20000 : 12000 });
+      console.warn('GEMINI_TIMEOUT', { model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId || videoMediaId), timeoutMs: (audioMediaId || imageMediaId || videoMediaId) ? 20000 : 12000 });
     } else {
       logAutoReplyAi('WA_BOT_AI_ROUTE', {
         route: 'ai_call_failed',

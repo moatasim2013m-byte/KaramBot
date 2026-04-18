@@ -867,7 +867,7 @@ const acquireBurstLock = async (senderWaId) => {
 
 const resolveBurstText = async ({ senderWaId, messageId }) => {
   const burstWindowMs = BURST_WINDOW_SECONDS * 1000;
-  const BURST_SUPPORTED_TYPES = ['text', 'audio', 'image'];
+  const BURST_SUPPORTED_TYPES = ['text', 'audio', 'image', 'video'];
   const triggerMessage = await WhatsAppMessage.findOne({
     message_id: messageId,
     sender_wa_id: senderWaId,
@@ -993,7 +993,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { skipped: true, reason: 'missing_payload' };
     }
 
-    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio', 'image'];
+    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio', 'image', 'video'];
     if (!SUPPORTED_MESSAGE_TYPES.includes(messageType)) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'unsupported_message_type', messageType });
       logRoutingBlock({
@@ -1121,6 +1121,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     // For image messages, use caption if present, otherwise placeholder
     if (messageType === 'image' && !effectiveTextBody) {
       effectiveTextBody = '[صورة من الزبون]';
+    }
+
+    // For video messages, use caption if present, otherwise placeholder
+    if (messageType === 'video' && !effectiveTextBody) {
+      effectiveTextBody = '[فيديو من الزبون]';
     }
 
     const optCommand = detectOptCommand(effectiveTextBody);
@@ -1308,9 +1313,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           .slice(-5);
 
         const aiResult = await getScopedAiFallbackReply({
-          userText: messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : effectiveTextBody,
+          userText: messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : messageType === 'video' ? (effectiveTextBody !== '[فيديو من الزبون]' ? effectiveTextBody : '[فيديو من الزبون]') : effectiveTextBody,
           audioMediaId: messageType === 'audio' ? (mediaId || null) : null,
           imageMediaId: messageType === 'image' ? (mediaId || null) : null,
+          videoMediaId: messageType === 'video' ? (mediaId || null) : null,
           maxChars: config.aiMaxReplyChars,
           conversationHistory
         });
@@ -1343,7 +1349,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           });
         } else {
           // Audio and image messages are always in-domain — force use Gemini reply if available
-          const isMediaMessage = messageType === 'audio' || messageType === 'image';
+          const isMediaMessage = messageType === 'audio' || messageType === 'image' || messageType === 'video';
 
           // Check if Gemini misclassified a clearly in-domain text message
           const normalizedForOverride = normalizeText(effectiveTextBody);
