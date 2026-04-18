@@ -1184,7 +1184,13 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { ok: true, matchedKey: optCommand };
     }
 
-    const optOutStatus = await isWhatsAppOptedOut(normalizedWaId);
+    // Parallel pre-Gemini checks — all independent, all use normalizedWaId only
+    const [optOutStatus, recentStaffReply, recentAutoReply] = await Promise.all([
+      isWhatsAppOptedOut(normalizedWaId),
+      hasRecentStaffReply(normalizedWaId),
+      hasRecentAutoReply(normalizedWaId, config.cooldownMinutes)
+    ]);
+
     if (optOutStatus.optedOut) {
       logAutoReply('AUTO_REPLY_SKIPPED', {
         messageId,
@@ -1200,7 +1206,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { skipped: true, reason: 'opted_out' };
     }
 
-    if (await hasRecentStaffReply(normalizedWaId)) {
+    if (recentStaffReply) {
       logAutoReply('AUTO_REPLY_SKIPPED', {
         messageId,
         senderWaId: normalizedWaId,
@@ -1217,7 +1223,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { skipped: true, reason: 'recent_staff_reply' };
     }
 
-    if (await hasRecentAutoReply(normalizedWaId, config.cooldownMinutes)) {
+    if (recentAutoReply) {
       await persistAutoTriggerMarker({
         messageId: resolvedTriggerMessageId,
         senderWaId: normalizedWaId,
