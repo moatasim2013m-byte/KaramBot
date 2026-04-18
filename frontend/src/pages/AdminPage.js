@@ -68,6 +68,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeFilter, setActiveFilter] = useState(null); // 'today', 'active', 'custom_pending'
+  const [hourlyStatusFilter, setHourlyStatusFilter] = useState('all');
+  const [hourlySourceFilter, setHourlySourceFilter] = useState('all');
   const [stats, setStats] = useState({});
   const [users, setUsers] = useState([]);
   const [hourlyBookings, setHourlyBookings] = useState([]);
@@ -729,10 +731,17 @@ export default function AdminPage() {
   };
 
   const getFilteredHourlyBookings = () => {
+    let list = hourlyBookings;
     if (activeFilter === 'today') {
-      return hourlyBookings.filter(b => isToday(b.booking_date || b.created_at));
+      list = list.filter(b => isToday(b.booking_date || b.created_at));
     }
-    return hourlyBookings;
+    if (hourlyStatusFilter && hourlyStatusFilter !== 'all') {
+      list = list.filter(b => b.status === hourlyStatusFilter);
+    }
+    if (hourlySourceFilter === 'whatsapp') {
+      list = list.filter(b => String(b.booking_code || '').startsWith('WA-H-'));
+    }
+    return list;
   };
 
   const formatSessionTimer = (endTime) => {
@@ -1499,13 +1508,6 @@ export default function AdminPage() {
                   <p className="text-sm text-muted-foreground">Today Birthday</p>
                 </CardContent>
               </Card>
-              <Card className="rounded-2xl cursor-pointer hover:shadow-lg hover:border-primary transition-all" onClick={() => handleDashboardCardClick('subscriptions', 'active')}>
-                <CardContent className="p-4 text-center">
-                  <Star className="h-8 w-8 text-secondary mx-auto mb-2" />
-                  <p className="text-2xl font-bold">{stats.active_subscriptions || 0}</p>
-                  <p className="text-sm text-muted-foreground">Active Subs</p>
-                </CardContent>
-              </Card>
               <Card className="rounded-2xl cursor-pointer hover:shadow-lg hover:border-primary transition-all" onClick={() => handleDashboardCardClick('birthday', 'custom_pending')}>
                 <CardContent className="p-4 text-center">
                   <Cake className="h-8 w-8 text-purple-500 mx-auto mb-2" />
@@ -2084,7 +2086,44 @@ export default function AdminPage() {
           <TabsContent value="hourly">
             <Card className="rounded-2xl">
               <CardHeader>
-                <CardTitle>Hourly Bookings {activeFilter === 'today' && <Badge className="ml-2 bg-blue-500">Today</Badge>}</CardTitle>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle>
+                    حجوزات بالساعة
+                    {activeFilter === 'today' && <Badge className="ml-2 bg-blue-500">Today</Badge>}
+                  </CardTitle>
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex gap-1 rounded-xl border p-1">
+                      {[
+                        { value: 'all', label: 'الكل' },
+                        { value: 'whatsapp', label: 'واتساب' },
+                      ].map(f => (
+                        <button
+                          key={f.value}
+                          onClick={() => setHourlySourceFilter(f.value)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${hourlySourceFilter === f.value ? 'bg-[#25D366] text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-1 rounded-xl border p-1">
+                      {[
+                        { value: 'all', label: 'الكل' },
+                        { value: 'confirmed', label: 'مؤكد' },
+                        { value: 'checked_in', label: 'داخل' },
+                        { value: 'completed', label: 'منتهي' },
+                      ].map(f => (
+                        <button
+                          key={f.value}
+                          onClick={() => setHourlyStatusFilter(f.value)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${hourlyStatusFilter === f.value ? 'bg-primary text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -2094,6 +2133,9 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2">
                           <span className="font-semibold">{booking.booking_code}</span>
                           <Badge className={getStatusBadge(booking.status)}>{booking.status}</Badge>
+                          {String(booking.booking_code || '').startsWith('WA-H-') && (
+                            <Badge className="bg-[#25D366] text-white text-xs">واتساب</Badge>
+                          )}
                           {booking.status === 'checked_in' && (
                             <Badge className="bg-blue-600 text-white">
                               Running: {formatSessionTimer(booking.session_end_time) || '--:--'}
@@ -2109,7 +2151,7 @@ export default function AdminPage() {
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
-                        <p className="font-bold">${booking.amount}</p>
+                        <p className="font-bold">{formatCurrency(booking.amount)}</p>
                         {booking.status === 'confirmed' && booking.payment_method && booking.payment_method !== 'card' && (
                           <Button
                             size="sm"
@@ -2132,7 +2174,7 @@ export default function AdminPage() {
           <TabsContent value="birthday">
             <Card className="rounded-2xl">
               <CardHeader>
-                <CardTitle>Birthday Bookings {activeFilter === 'today' && <Badge className="ml-2 bg-pink-500">Today</Badge>}{activeFilter === 'custom_pending' && <Badge className="ml-2 bg-purple-500">Custom Pending</Badge>}</CardTitle>
+                <CardTitle>حفلات أعياد الميلاد {activeFilter === 'today' && <Badge className="ml-2 bg-pink-500">Today</Badge>}{activeFilter === 'custom_pending' && <Badge className="ml-2 bg-purple-500">Custom Pending</Badge>}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -2152,7 +2194,7 @@ export default function AdminPage() {
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-2">
-                        <p className="font-bold">{booking.amount ? `$${booking.amount}` : 'Pending'}</p>
+                        <p className="font-bold">{booking.amount ? formatCurrency(booking.amount) : 'Pending'}</p>
                         {(booking.status === 'custom_pending' || booking.status === 'pending') && (
                           <Button
                             size="sm"
