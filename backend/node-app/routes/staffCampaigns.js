@@ -8,6 +8,7 @@
  */
 
 const express = require('express');
+const JORDAN_MARKETING_RATE_JOD = 0.024; // Meta "Rest of Middle East" marketing rate in JOD
 const Campaign = require('../models/Campaign');
 const CampaignBroadcast = require('../models/CampaignBroadcast');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
@@ -400,6 +401,7 @@ router.post('/manual-bulk-send', async (req, res) => {
       template_name: String(template_name).trim(),
       recipient_count: validRecipients.length,
       skipped_invalid: skippedRecipients.length,
+      estimated_cost_jod: Math.round(validRecipients.length * JORDAN_MARKETING_RATE_JOD * 100) / 100,
       status: 'queued',
       poll_url: `/api/staff/campaigns/manual-bulk-send/${broadcast._id}`
     });
@@ -570,7 +572,12 @@ router.get('/preview', async (req, res) => {
       last_message_before: last_message_before || null
     };
     const recipients = await buildAudience(audienceFilters);
-    res.json({ estimated_recipients: recipients.length, filters_applied: audienceFilters });
+    res.json({
+      estimated_recipients: recipients.length,
+      filters_applied: audienceFilters,
+      estimated_cost_jod: Math.round(recipients.length * JORDAN_MARKETING_RATE_JOD * 100) / 100,
+      cost_disclaimer: 'تقدير بناءً على سعر Meta الحالي للأردن. التكلفة الفعلية قد تختلف. تحقق من developers.facebook.com/documentation/business-messaging/whatsapp/pricing'
+    });
   } catch (error) {
     console.error('Campaign preview error:', error);
     res.status(500).json({ error: 'Failed to estimate audience' });

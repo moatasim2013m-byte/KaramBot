@@ -115,6 +115,7 @@ export default function StaffPage() {
   const [loadingRecipientsId, setLoadingRecipientsId] = useState(null);
   const [removingRecipientKey, setRemovingRecipientKey] = useState('');
   const [audiencePreview, setAudiencePreview] = useState(null);
+  const [audienceCostEstimate, setAudienceCostEstimate] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [savingLabel, setSavingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState('');
@@ -784,6 +785,7 @@ export default function StaffPage() {
       if (campaignForm.audience_filters.last_message_before) params.append('last_message_before', campaignForm.audience_filters.last_message_before);
       const response = await api.get(`/staff/campaigns/preview?${params}`);
       setAudiencePreview(response.data.estimated_recipients);
+      setAudienceCostEstimate(response.data.estimated_cost_jod);
     } catch (error) {
       console.error('Preview failed:', error);
     } finally {
@@ -1439,7 +1441,12 @@ export default function StaffPage() {
                                 />
                               ) : (
                                 <p className="text-sm italic opacity-70">
-                                  {msg.message_type === 'location' ? msg.text_body : `[${msg.message_type}]`}
+                                  {msg.message_type === 'location' ? msg.text_body
+                                    : msg.message_type === 'reaction' ? `${msg.text_body || '👍'} رد فعل`
+                                    : msg.message_type === 'button' ? `↩️ ${msg.text_body || 'رد سريع'}`
+                                    : msg.message_type === 'interactive' ? `↩️ ${msg.text_body || 'رد تفاعلي'}`
+                                    : msg.message_type === 'unsupported' ? '(غير مدعوم)'
+                                    : `[${msg.message_type}]`}
                                 </p>
                               )}
                               <div className={`flex items-center gap-1.5 mt-1 text-xs ${msg.direction === 'outbound' ? 'text-white/70 justify-end' : 'text-gray-400'}`}>
@@ -1994,6 +2001,11 @@ export default function StaffPage() {
                       {audiencePreview !== null && (
                         <p className="text-sm font-semibold text-green-700 mt-1">
                           المستلمون المتوقعون: {audiencePreview} شخص
+                        </p>
+                      )}
+                      {audienceCostEstimate !== null && audiencePreview > 0 && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          تكلفة تقديرية: ~{audienceCostEstimate} دينار (حسب سعر Meta الحالي)
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">الجمهور يُبنى من سجل رسائل واتساب فقط</p>

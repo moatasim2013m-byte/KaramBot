@@ -199,6 +199,13 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
     } else if (messageType === 'sticker') {
       mediaUrl = message?.sticker?.id || '';
       textBody = '🎭 Sticker';
+    } else if (messageType === 'reaction') {
+      textBody = message?.reaction?.emoji || '👍';
+    } else if (messageType === 'button') {
+      textBody = message?.button?.text || message?.button?.payload || '';
+    } else if (messageType === 'interactive') {
+      const reply = message?.interactive?.button_reply || message?.interactive?.list_reply;
+      textBody = reply?.title || reply?.id || '';
     }
     
     // Try to link to existing user (non-blocking: do not fail inbound flow if lookup is unavailable)
