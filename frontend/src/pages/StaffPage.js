@@ -145,6 +145,7 @@ export default function StaffPage() {
   const [bulkAdvancedJson, setBulkAdvancedJson] = useState('');
   const [showBulkAdvanced, setShowBulkAdvanced] = useState(false);
   const [bulkTtlHours, setBulkTtlHours] = useState('');
+  const [bulkHeaderImageUrl, setBulkHeaderImageUrl] = useState('');
   const [bulkPhones, setBulkPhones] = useState('');
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResults, setBulkResults] = useState(null);
@@ -902,6 +903,10 @@ export default function StaffPage() {
       const filledVars = vars.map((v, idx) => (bulkVarValues[idx] || '').trim()).filter(Boolean);
       if (filledVars.length > 0) {
         parsedComponents = [{ type: 'body', parameters: filledVars.map(text => ({ type: 'text', text })) }];
+      }
+      // Add header image component if URL provided
+      if (bulkHeaderImageUrl.trim()) {
+        parsedComponents.unshift({ type: 'header', parameters: [{ type: 'image', image: { link: bulkHeaderImageUrl.trim() } }] });
       }
     }
 
@@ -1823,6 +1828,18 @@ export default function StaffPage() {
                         <Input type="number" min="12" max="720" value={bulkTtlHours} onChange={(e) => setBulkTtlHours(e.target.value)} placeholder="اختياري" className="rounded-xl mt-1" />
                       </div>
                     </div>
+
+                    {/* Header image URL — shown when template has image header */}
+                    {(() => {
+                      const selTpl = approvedTemplates.find(t => t.name === bulkTemplateName);
+                      if (!selTpl || selTpl.header_type !== 'image') return null;
+                      return (
+                        <div>
+                          <Label className="text-xs">رابط صورة الهيدر *</Label>
+                          <Input value={bulkHeaderImageUrl} onChange={(e) => setBulkHeaderImageUrl(e.target.value)} placeholder="https://example.com/image.jpg" className="rounded-xl mt-1 text-xs" dir="ltr" />
+                        </div>
+                      );
+                    })()}
 
                     {/* Smart variable inputs — shown only when template has variables or body_text placeholders */}
                     {(() => {

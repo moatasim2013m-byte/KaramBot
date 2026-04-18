@@ -260,6 +260,7 @@ router.post('/manual-bulk-send', async (req, res) => {
       template_name,
       template_language,
       template_params,
+      header_image_url,
       recipients
     } = req.body || {};
 
@@ -288,6 +289,11 @@ router.post('/manual-bulk-send', async (req, res) => {
         error: `Template "${template_name}" status is "${templateDoc.status}". Only approved templates can be sent.`
       });
     }
+    if (templateDoc.category !== 'marketing') {
+      return res.status(400).json({
+        error: `Template "${template_name}" category is "${templateDoc.category}". Only marketing templates can be used for bulk marketing sends.`
+      });
+    }
 
     const normalizedTemplateParams = normalizeTemplateParams(template_params);
     const requiredParamsCount = Array.isArray(templateDoc.variables) ? templateDoc.variables.length : 0;
@@ -305,6 +311,27 @@ router.post('/manual-bulk-send', async (req, res) => {
       ? buildBodyComponentsFromParams(normalizedTemplateParams.slice(0, requiredParamsCount))
       : [];
 
+    // Add header image component if template has image header and URL provided
+    if (header_image_url && String(header_image_url).trim()) {
+      components.unshift({
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: String(header_image_url).trim() } }]
+      });
+    } else if (templateDoc.header_type === 'image') {
+      return res.status(400).json({ error: 'This template requires a header_image_url' });
+    }
+
+    // Build consented phone set — mirrors /bulk-send consent enforcement
+    const consentedUsers = await User.find(
+      { whatsapp_marketing_consent: true, whatsapp_opted_out_at: null },
+      { phone: 1 }
+    ).lean();
+    const consentedPhoneSet = new Set();
+    for (const u of consentedUsers) {
+      const norm = normalizePhoneForWhatsApp(u.phone);
+      if (norm) consentedPhoneSet.add(norm);
+    }
+
     // Normalize, deduplicate, and separate invalid recipients
     const seenWaIds = new Set();
     const validRecipients = [];
@@ -321,6 +348,12 @@ router.post('/manual-bulk-send', async (req, res) => {
 
       if (seenWaIds.has(waId)) continue; // deduplicate silently
       seenWaIds.add(waId);
+
+      if (!consentedPhoneSet.has(waId)) {
+        skippedRecipients.push({ phone: original, wa_id: waId, status: 'skipped_no_consent', error_reason: 'no_marketing_consent' });
+        continue;
+      }
+
       validRecipients.push({ waId, original });
     }
 
@@ -555,6 +588,16 @@ router.post('/bulk-send', async (req, res) => {
   try {
     const { template_name, language_code, components, ttl_hours, recipients } = req.body;
 
+    // Extract header image from components if present (for templates with image headers)
+    let headerImageUrl = null;
+    const tplComponents = Array.isArray(components) ? components.filter(c => {
+      if (c.type === 'header' && c.parameters?.[0]?.type === 'image') {
+        headerImageUrl = c.parameters[0].image?.link || null;
+        return true;
+      }
+      return true;
+    }) : [];
+
     // --- Validation ---
     if (!template_name || typeof template_name !== 'string' || !template_name.trim()) {
       return res.status(400).json({ error: 'template_name is required' });
@@ -623,7 +666,6 @@ router.post('/bulk-send', async (req, res) => {
     // Send in small sequential batches using existing postWhatsAppTemplate
     const staffId = req.user._id;
     const langCode = (language_code || 'ar').trim();
-    const tplComponents = Array.isArray(components) ? components : [];
     const ttlSeconds = ttl_hours ? Number(ttl_hours) * 3600 : null;
 
     for (let i = 0; i < validRecipients.length; i += BULK_BATCH_SIZE) {
