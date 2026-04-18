@@ -213,7 +213,14 @@ const getJordanNowParts = () => {
   };
 };
 
+let _cachedFacts = null;
+let _cachedFactsExpiry = 0;
+const FACTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 const loadFacts = async () => {
+  const now = Date.now();
+  if (_cachedFacts && now < _cachedFactsExpiry) return _cachedFacts;
+
   const [hoursDoc, locationDoc, openingDoc, closingDoc, pricingDocs, plans, birthdayThemes] = await Promise.all([
     Settings.findOne({ key: 'whatsapp_hours' }).lean(),
     Settings.findOne({ key: 'whatsapp_location' }).lean(),
@@ -232,7 +239,7 @@ const loadFacts = async () => {
   const daycareFacts = plans.map((plan) => `${plan.name_ar || plan.name}: ${plan.price} د.أ`).join(' | ');
   const birthdayFacts = birthdayThemes.map((theme) => `${theme.name_ar || theme.name}: ${theme.price} د.أ`).join(' | ');
 
-  return {
+  const facts = {
     hours: String(hoursDoc?.value || ''),
     location: String(locationDoc?.value || ''),
     openingTime: normalizeTime24(openingDoc?.value, DEFAULT_OPENING_TIME),
@@ -241,6 +248,10 @@ const loadFacts = async () => {
     daycare: daycareFacts,
     birthday: birthdayFacts
   };
+
+  _cachedFacts = facts;
+  _cachedFactsExpiry = Date.now() + FACTS_CACHE_TTL_MS;
+  return facts;
 };
 
 const buildApprovedFaqContext = (faqItems = []) => {
