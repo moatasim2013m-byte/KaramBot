@@ -471,6 +471,36 @@ router.post('/webhook', (req, res) => {
         continue;
       }
 
+      if (field === 'account_update') {
+        const event = value?.event || 'unknown';
+        const restrictionType = value?.restriction_info?.restriction_type || null;
+        const restrictionDuration = value?.restriction_info?.restriction_duration || null;
+        const banState = value?.ban_info?.waba_ban_state || null;
+        const banDate = value?.ban_info?.waba_ban_date || null;
+        if (banState === 'DISABLE' || banState === 'SCHEDULE_FOR_DISABLE') {
+          console.error('WHATSAPP_ACCOUNT_DISABLED', { event, banState, banDate, restrictionType, restrictionDuration, value });
+        } else if (restrictionType) {
+          console.error('WHATSAPP_ACCOUNT_RESTRICTED', { event, restrictionType, restrictionDuration, value });
+        } else {
+          console.warn('WHATSAPP_ACCOUNT_UPDATE', { event, value });
+        }
+        continue;
+      }
+
+      if (field === 'account_alerts') {
+        const alertType = value?.alert_type || 'unknown';
+        const alertDesc = value?.alert_description || '';
+        console.warn('WHATSAPP_ACCOUNT_ALERT', { alertType, alertDesc, value });
+        continue;
+      }
+
+      if (field === 'account_review_update') {
+        const decision = value?.decision || 'unknown';
+        const reviewStatus = value?.review_status || 'unknown';
+        console.warn('WHATSAPP_ACCOUNT_REVIEW_UPDATE', { decision, reviewStatus, value });
+        continue;
+      }
+
       const messages = Array.isArray(value?.messages) ? value.messages : [];
       const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
       const profileName = value?.contacts?.[0]?.profile?.name || '';
