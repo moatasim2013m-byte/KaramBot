@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
 
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
-const BURST_WINDOW_SECONDS = 3;
+const BURST_WINDOW_SECONDS = 2;
 const FORCE_IN_SCOPE_KEYWORDS = [
   'اسعار', 'الاسعار', 'سعر', 'كم', 'اديش', 'قديش', 'بكم',
   'حجز', 'احجز', 'بدي احجز',
