@@ -986,6 +986,9 @@ router.post('/opt-out', async (req, res) => {
 
     const user = message.linked_user_id;
     user.whatsapp_opted_out_at = opt_out ? new Date() : null;
+    if (opt_out) {
+      user.whatsapp_marketing_consent = false;
+    }
     await user.save();
 
     res.json({
