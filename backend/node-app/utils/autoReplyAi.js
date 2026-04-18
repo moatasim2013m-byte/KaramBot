@@ -277,7 +277,7 @@ const buildApprovedFaqContext = (faqItems = []) => {
   return ['approved_faq_examples:', ...lines].join('\n');
 };
 
-const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null, imageMediaId = null }) => {
+const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null, imageMediaId = null, videoMediaId = null }) => {
   if (!process.env.GEMINI_API_KEY) {
     logAutoReplyAi('WA_BOT_AI_ROUTE', {
       route: 'ai_not_called',
@@ -364,6 +364,35 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       }
     }
 
+    if (videoMediaId) {
+      try {
+        const mediaUrl = await getMetaMediaUrl(videoMediaId);
+        if (mediaUrl) {
+          const downloaded = await downloadMetaMedia(mediaUrl);
+          if (downloaded.ok && downloaded.buffer) {
+            const mimeType = downloaded.contentType || 'video/mp4';
+            const base64Video = downloaded.buffer.toString('base64');
+            const captionText = String(userText || '').trim();
+            currentTurnParts = [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Video
+                }
+              },
+              {
+                text: captionText && captionText !== '[فيديو من الزبون]'
+                  ? `الزبون بعث هاي الفيديو مع الرسالة: "${captionText}". شوف الفيديو وافهم شو بده، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك شفت فيديو — رد مباشرة على المحتوى.`
+                  : 'الزبون بعث هاي الفيديو بدون نص. شوف الفيديو وافهم شو بده أو شو سؤاله، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك شفت فيديو — رد مباشرة على المحتوى. إذا ما فهمت شو بده من الفيديو، اسأله بلطف.'
+              }
+            ];
+          }
+        }
+      } catch (videoErr) {
+        console.warn('GEMINI_VIDEO_DOWNLOAD_ERROR', videoErr.message);
+      }
+    }
+
     const currentTurn = { role: 'user', parts: currentTurnParts };
 
     const contents = [...historyTurns, currentTurn];
@@ -399,7 +428,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const systemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
 
-    const isMediaCall = Boolean(audioMediaId || imageMediaId);
+    const isMediaCall = Boolean(audioMediaId || imageMediaId || videoMediaId);
     const GEMINI_TIMEOUT_MS = isMediaCall ? 20000 : 12000;
 
     const controller = new AbortController();
@@ -476,7 +505,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     return result;
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.warn('GEMINI_TIMEOUT', { model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId), timeoutMs: (audioMediaId || imageMediaId) ? 20000 : 12000 });
+      console.warn('GEMINI_TIMEOUT', { model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId || videoMediaId), timeoutMs: (audioMediaId || imageMediaId || videoMediaId) ? 20000 : 12000 });
     } else {
       logAutoReplyAi('WA_BOT_AI_ROUTE', {
         route: 'ai_call_failed',
@@ -488,6 +517,214 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
   }
 };
 
+const { checkAvailability, findOrMatchChild, createWhatsAppBooking } = require('./whatsappBookingService');
+
+const BOOKING_KEYWORDS = ['احجز', 'حجز', 'اجلس', 'اشترك', 'ساعة', 'ساعتين', 'موعد', 'book', 'slot', 'reserve', 'أكد', 'اكد', 'نعم', 'تمام', 'ايوا', 'اي'];
+
+const BOOKING_TOOLS = [
+  {
+    function_declarations: [
+      {
+        name: 'check_availability',
+        description: 'Check if a play session slot is available at Peekaboo for a specific date and time',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            date: { type: 'STRING', description: 'Date in YYYY-MM-DD format' },
+            time: { type: 'STRING', description: 'Start time in HH:MM 24-hour format' },
+            duration_hours: { type: 'NUMBER', description: 'Duration in hours (1 or 2)' }
+          },
+          required: ['date', 'time', 'duration_hours']
+        }
+      },
+      {
+        name: 'find_child',
+        description: 'Find a registered child by name for the current WhatsApp customer',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            child_name: { type: 'STRING', description: 'Child name or partial name in Arabic or English' }
+          },
+          required: ['child_name']
+        }
+      },
+      {
+        name: 'confirm_booking',
+        description: 'Confirm and create a play session booking. Only call this when customer explicitly agrees to book.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            slot_id: { type: 'STRING', description: 'The slot ID returned from check_availability' },
+            child_id: { type: 'STRING', description: 'The child ID returned from find_child' },
+            duration_hours: { type: 'NUMBER', description: 'Duration in hours (1 or 2)' }
+          },
+          required: ['slot_id', 'child_id', 'duration_hours']
+        }
+      }
+    ]
+  }
+];
+
+const executeTool = async (functionName, args, senderWaId) => {
+  switch (functionName) {
+    case 'check_availability':
+      return await checkAvailability(args.date, args.time, args.duration_hours || 1);
+    case 'find_child':
+      return await findOrMatchChild(senderWaId, args.child_name);
+    case 'confirm_booking': {
+      // Need userId from find_child — look it up
+      const childResult = await findOrMatchChild(senderWaId, '');
+      if (!childResult.userId) return { success: false, error: 'user_not_found' };
+      return await createWhatsAppBooking(childResult.userId, args.child_id, args.slot_id, args.duration_hours || 1);
+    }
+    default:
+      return { error: 'unknown_function' };
+  }
+};
+
+const hasBookingIntent = (text, bookingState) => {
+  if (bookingState && bookingState.step) return true; // Active booking conversation
+  const normalized = String(text || '').toLowerCase();
+  return BOOKING_KEYWORDS.some(kw => normalized.includes(kw));
+};
+
+const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, bookingState, maxChars }) => {
+  if (!process.env.GEMINI_API_KEY) return null;
+
+  const bookingContext = bookingState && bookingState.step
+    ? `\n\nبيانات الحجز الحالية: ${JSON.stringify(bookingState)}`
+    : '';
+
+  const bookingSystemPrompt = systemInstruction + bookingContext + `
+\n\nأنت تقدر تحجز جلسات لعب للزبائن عبر واتساب.
+- استخدم check_availability للتحقق من التوفر (التاريخ بصيغة YYYY-MM-DD، الوقت بصيغة HH:MM 24 ساعة)
+- الحجز عبر واتساب متاح فقط من الساعة 2:00 الظهر (14:00) وبعدها. الأوقات الصباحية (10:00-13:59) غير متاحة عبر واتساب.
+- إذا الزبون طلب وقت صباحي، قله إنه غير متاح عبر واتساب واقترح أوقات بعد الساعة 2 الظهر.
+- لا تذكر أبداً أي سعر مخفض أو عرض صباحي أو Happy Hour. السعر دائماً: ساعة = 7 دنانير، ساعتين = 10 دنانير.
+- استخدم find_child لإيجاد الطفل المسجل
+- استخدم confirm_booking فقط لما الزبون يأكد بشكل صريح
+- "بكرا" = التاريخ اللي بعد اليوم، "اليوم" = تاريخ اليوم
+- الدفع كاش عند الوصول — اذكر هاد دائماً
+- لا تؤكد الحجز بدون موافقة صريحة من الزبون (نعم، تمام، أكد، etc.)
+- إذا الزبون ما ذكر الوقت، اسأله عن الوقت المفضل
+- إذا عنده أكثر من طفل، اسأله أي طفل بده يحجزله`;
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    let currentContents = [...contents];
+    let maxToolRounds = 3;
+
+    while (maxToolRounds > 0) {
+      maxToolRounds--;
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: bookingSystemPrompt }] },
+            contents: currentContents,
+            tools: BOOKING_TOOLS,
+            generationConfig: {
+              temperature: 0,
+              topP: 0.8,
+              maxOutputTokens: 300
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        console.error('BOOKING_GEMINI_HTTP_ERROR', response.status);
+        return null;
+      }
+
+      const payload = await response.json();
+      const candidate = payload?.candidates?.[0];
+      if (!candidate?.content?.parts) return null;
+
+      const parts = candidate.content.parts;
+      const functionCallPart = parts.find(p => p.functionCall);
+
+      if (!functionCallPart) {
+        // No function call — extract text reply
+        const textReply = parts.map(p => p.text || '').join('').trim();
+        if (textReply) {
+          return {
+            in_scope: true,
+            topic: 'booking_help',
+            confidence: 0.95,
+            reply_ar: textReply.slice(0, Math.max(80, maxChars || 500))
+          };
+        }
+        return null;
+      }
+
+      // Execute the function call
+      const { name, args } = functionCallPart.functionCall;
+      console.log('BOOKING_TOOL_CALL', { name, args });
+      const toolResult = await executeTool(name, args || {}, senderWaId);
+      console.log('BOOKING_TOOL_RESULT', { name, result: toolResult });
+
+      // Update booking state
+      if (name === 'check_availability' && toolResult.slotId) {
+        bookingState.slotId = toolResult.slotId;
+        bookingState.date = toolResult.date;
+        bookingState.time = toolResult.time;
+        bookingState.price = toolResult.price;
+        bookingState.durationHours = toolResult.durationHours;
+        bookingState.step = 'availability_checked';
+      }
+      if (name === 'find_child' && toolResult.found) {
+        bookingState.childId = toolResult.childId;
+        bookingState.childName = toolResult.childName;
+        bookingState.step = 'child_found';
+      }
+      if (name === 'confirm_booking') {
+        if (toolResult.success) {
+          bookingState.step = 'completed';
+          bookingState.bookingCode = toolResult.bookingCode;
+        } else {
+          bookingState.step = 'booking_failed';
+        }
+      }
+
+      // Add model response + function result to conversation and continue
+      currentContents.push({
+        role: 'model',
+        parts: [{ functionCall: { name, args } }]
+      });
+      currentContents.push({
+        role: 'user',
+        parts: [{
+          functionResponse: {
+            name,
+            response: toolResult
+          }
+        }]
+      });
+    }
+
+    return null; // Max rounds exceeded
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      console.warn('BOOKING_GEMINI_TIMEOUT');
+    } else {
+      console.error('BOOKING_GEMINI_ERROR', err.message);
+    }
+    return null;
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+};
+
 module.exports = {
-  getScopedAiFallbackReply
+  getScopedAiFallbackReply,
+  hasBookingIntent,
+  runBookingGeminiCall,
+  getStaticPrompt
 };

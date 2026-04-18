@@ -6,8 +6,33 @@ const {
   normalizePhoneForWhatsApp,
   postWhatsAppText
 } = require('./whatsappBookingConfirmation');
-const { getScopedAiFallbackReply } = require('./autoReplyAi');
+const { getScopedAiFallbackReply, hasBookingIntent, runBookingGeminiCall } = require('./autoReplyAi');
 const { isWhatsAppOptedOut, setWhatsAppOptOut } = require('./whatsappOptOut');
+
+// Booking conversation state cache (in-memory, TTL 10 minutes)
+const bookingStateCache = new Map();
+const BOOKING_STATE_TTL_MS = 10 * 60 * 1000;
+
+const getBookingState = (senderWaId) => {
+  const entry = bookingStateCache.get(senderWaId);
+  if (!entry) return {};
+  if (Date.now() > entry.expiresAt) {
+    bookingStateCache.delete(senderWaId);
+    return {};
+  }
+  return entry.state;
+};
+
+const setBookingState = (senderWaId, state) => {
+  if (state.step === 'completed') {
+    bookingStateCache.delete(senderWaId);
+    return;
+  }
+  bookingStateCache.set(senderWaId, {
+    state,
+    expiresAt: Date.now() + BOOKING_STATE_TTL_MS
+  });
+};
 
 const DEFAULT_CONFIG = {
   enabled: false,
@@ -867,7 +892,7 @@ const acquireBurstLock = async (senderWaId) => {
 
 const resolveBurstText = async ({ senderWaId, messageId }) => {
   const burstWindowMs = BURST_WINDOW_SECONDS * 1000;
-  const BURST_SUPPORTED_TYPES = ['text', 'audio', 'image'];
+  const BURST_SUPPORTED_TYPES = ['text', 'audio', 'image', 'video'];
   const triggerMessage = await WhatsAppMessage.findOne({
     message_id: messageId,
     sender_wa_id: senderWaId,
@@ -993,7 +1018,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { skipped: true, reason: 'missing_payload' };
     }
 
-    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio', 'image'];
+    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio', 'image', 'video'];
     if (!SUPPORTED_MESSAGE_TYPES.includes(messageType)) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'unsupported_message_type', messageType });
       logRoutingBlock({
@@ -1121,6 +1146,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     // For image messages, use caption if present, otherwise placeholder
     if (messageType === 'image' && !effectiveTextBody) {
       effectiveTextBody = '[صورة من الزبون]';
+    }
+
+    // For video messages, use caption if present, otherwise placeholder
+    if (messageType === 'video' && !effectiveTextBody) {
+      effectiveTextBody = '[فيديو من الزبون]';
     }
 
     const optCommand = detectOptCommand(effectiveTextBody);
@@ -1307,10 +1337,55 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           })
           .slice(-5);
 
+        const aiUserText = messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : messageType === 'video' ? (effectiveTextBody !== '[فيديو من الزبون]' ? effectiveTextBody : '[فيديو من الزبون]') : effectiveTextBody;
+
+        // Check for booking intent — use tool-calling Gemini path
+        const bookingState = getBookingState(normalizedWaId);
+        if (hasBookingIntent(aiUserText, bookingState)) {
+          const bookingContents = conversationHistory
+            .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+          bookingContents.push({ role: 'user', parts: [{ text: aiUserText }] });
+
+          const { getStaticPrompt } = require('./autoReplyAi');
+          const jordanNow = new Date().toLocaleString('ar-JO', {
+            timeZone: 'Asia/Amman', weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: true
+          });
+          const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Amman' });
+          const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Amman' });
+
+          const bookingDynamicCtx = `الوقت الحالي: ${jordanNow}\nتاريخ اليوم: ${today}\nتاريخ بكرا: ${tomorrow}`;
+          const bookingSystemPrompt = (typeof getStaticPrompt === 'function' ? getStaticPrompt() : '') + '\n\n' + bookingDynamicCtx;
+
+          const bookingResult = await runBookingGeminiCall({
+            systemInstruction: bookingSystemPrompt,
+            contents: bookingContents,
+            senderWaId: normalizedWaId,
+            bookingState,
+            maxChars: config.aiMaxReplyChars
+          });
+
+          if (bookingResult && bookingResult.reply_ar) {
+            setBookingState(normalizedWaId, bookingState);
+            replyText = [greetingOpening, bookingResult.reply_ar].filter(Boolean).join('\n');
+            matchedKey = 'ai_booking';
+
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_booking',
+              bookingStep: bookingState.step || 'active',
+              bookingCode: bookingState.bookingCode || null
+            });
+          }
+        }
+
+        // Fall through to regular Gemini if booking path didn't produce a reply
+        if (!replyText) {
         const aiResult = await getScopedAiFallbackReply({
-          userText: messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : effectiveTextBody,
+          userText: aiUserText,
           audioMediaId: messageType === 'audio' ? (mediaId || null) : null,
           imageMediaId: messageType === 'image' ? (mediaId || null) : null,
+          videoMediaId: messageType === 'video' ? (mediaId || null) : null,
           maxChars: config.aiMaxReplyChars,
           conversationHistory
         });
@@ -1343,7 +1418,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           });
         } else {
           // Audio and image messages are always in-domain — force use Gemini reply if available
-          const isMediaMessage = messageType === 'audio' || messageType === 'image';
+          const isMediaMessage = messageType === 'audio' || messageType === 'image' || messageType === 'video';
 
           // Check if Gemini misclassified a clearly in-domain text message
           const normalizedForOverride = normalizeText(effectiveTextBody);
@@ -1412,6 +1487,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
             });
           }
         }
+        } // close if (!replyText) — booking path may have already set replyText
       } catch (aiError) {
         console.error('AI_PRIMARY_ROUTE_ERROR', aiError.message);
         replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
