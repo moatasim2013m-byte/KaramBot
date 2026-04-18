@@ -266,7 +266,7 @@ const buildApprovedFaqContext = (faqItems = []) => {
   return ['approved_faq_examples:', ...lines].join('\n');
 };
 
-const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [] }) => {
+const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null }) => {
   if (!process.env.GEMINI_API_KEY) {
     logAutoReplyAi('WA_BOT_AI_ROUTE', {
       route: 'ai_not_called',
@@ -294,7 +294,37 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
         parts: [{ text: m.text.trim() }]
       }));
 
-    const currentTurn = { role: 'user', parts: [{ text: String(userText || '').trim() }] };
+    const { getMetaMediaUrl, downloadMetaMedia } = require('./whatsappMedia');
+
+    let currentTurnParts = [{ text: String(userText || '').trim() }];
+
+    if (audioMediaId) {
+      try {
+        const mediaUrl = await getMetaMediaUrl(audioMediaId);
+        if (mediaUrl) {
+          const downloaded = await downloadMetaMedia(mediaUrl);
+          if (downloaded.ok && downloaded.buffer) {
+            const mimeType = downloaded.contentType || 'audio/ogg';
+            const base64Audio = downloaded.buffer.toString('base64');
+            currentTurnParts = [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Audio
+                }
+              },
+              {
+                text: 'هذي رسالة صوتية من زبون. استمع لها وفهم السؤال أو الطلب، ثم رد عليه بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك سمعت رسالة صوتية في ردك — رد مباشرة على المحتوى.'
+              }
+            ];
+          }
+        }
+      } catch (audioErr) {
+        console.warn('GEMINI_AUDIO_DOWNLOAD_ERROR', audioErr.message);
+      }
+    }
+
+    const currentTurn = { role: 'user', parts: currentTurnParts };
 
     const contents = [...historyTurns, currentTurn];
 

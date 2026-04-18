@@ -286,7 +286,8 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       messageId,
       senderWaId,
       messageType,
-      textBody
+      textBody,
+      mediaId: messageType === 'audio' ? (message?.audio?.id || null) : null
     }).catch(err => console.error('AUTO_REPLY_TRIGGER_ERROR', err.message));
   } catch (error) {
     if (error?.code === 11000) {
