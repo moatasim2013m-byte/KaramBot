@@ -688,8 +688,28 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
         if (toolResult.success) {
           bookingState.step = 'completed';
           bookingState.bookingCode = toolResult.bookingCode;
+
+          // DETERMINISTIC confirmation — never let Gemini free-write this
+          const confirmReply = `تم الحجز بنجاح ✅\nرقم الحجز: ${toolResult.bookingCode}\nالتاريخ: ${toolResult.slotDate}\nالوقت: ${toolResult.slotTime}\nالمدة: ${toolResult.durationHours} ساعة\nالمبلغ: ${toolResult.amount} دنانير\nالدفع عند الوصول كاش 💛\nبنشوفكم!`;
+          return {
+            in_scope: true,
+            topic: 'booking_help',
+            confidence: 1.0,
+            reply_ar: confirmReply
+          };
         } else {
           bookingState.step = 'booking_failed';
+
+          // Deterministic failure — don't let Gemini say "تم"
+          const failReason = toolResult.error === 'slot_full'
+            ? `عذراً، الموعد اكتمل 😔 المتاح حالياً: ${toolResult.availableSpots || 0} مكان. جرب وقت ثاني؟`
+            : 'عذراً، ما قدرنا نكمل الحجز حالياً. حاول مرة ثانية أو تواصل معنا على 0777775652 💛';
+          return {
+            in_scope: true,
+            topic: 'booking_help',
+            confidence: 0.95,
+            reply_ar: failReason
+          };
         }
       }
 
