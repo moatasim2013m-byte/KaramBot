@@ -867,12 +867,13 @@ const acquireBurstLock = async (senderWaId) => {
 
 const resolveBurstText = async ({ senderWaId, messageId }) => {
   const burstWindowMs = BURST_WINDOW_SECONDS * 1000;
+  const BURST_SUPPORTED_TYPES = ['text', 'audio', 'image'];
   const triggerMessage = await WhatsAppMessage.findOne({
     message_id: messageId,
     sender_wa_id: senderWaId,
     direction: 'inbound',
     platform: 'whatsapp',
-    message_type: 'text'
+    message_type: { $in: BURST_SUPPORTED_TYPES }
   }).lean();
 
   if (!triggerMessage?.timestamp) {
@@ -890,7 +891,7 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
       sender_wa_id: senderWaId,
       direction: 'inbound',
       platform: 'whatsapp',
-      message_type: 'text',
+      message_type: { $in: BURST_SUPPORTED_TYPES },
       timestamp: { $gte: evaluationWindowStart, $lte: evaluationWindowEnd }
     })
       .sort({ timestamp: -1, _id: -1 })
@@ -925,7 +926,7 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     sender_wa_id: senderWaId,
     direction: 'inbound',
     platform: 'whatsapp',
-    message_type: 'text',
+    message_type: { $in: BURST_SUPPORTED_TYPES },
     timestamp: { $gte: aggregationWindowStart, $lte: aggregationWindowEnd }
   })
     .sort({ timestamp: 1, _id: 1 })
