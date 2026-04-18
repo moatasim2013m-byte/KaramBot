@@ -5,6 +5,7 @@
 
 const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png'];
 const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/3gpp', 'video/quicktime'];
+const ALLOWED_AUDIO_MIME_TYPES = ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/amr', 'audio/ogg', 'audio/opus'];
 const { logger } = require('./logger');
 const { isWhatsAppOptedOut } = require('./whatsappOptOut');
 
@@ -234,12 +235,57 @@ async function sendMetaVideoMessage({ to, mediaId, caption }) {
   }
 }
 
+async function sendMetaAudioMessage({ to, mediaId }) {
+  const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+  const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+  if (!accessToken || !phoneNumberId) return { ok: false, error: 'Missing credentials' };
+
+  const optOutStatus = await isWhatsAppOptedOut(to);
+  if (optOutStatus.optedOut) {
+    const reason = optOutStatus.error ? 'opt_out_check_failed' : 'opted_out';
+    logger.info({ event: 'wa_media_audio_opted_out_block', wa_id: to, reason });
+    return { ok: false, skipped: true, reason };
+  }
+
+  try {
+    const response = await metaFetchWithRetry(`https://graph.facebook.com/v23.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'audio',
+        audio: { id: mediaId }
+      })
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: responseText.slice(0, 500), status: response.status };
+    }
+
+    const data = JSON.parse(responseText);
+    return {
+      ok: true,
+      messageId: data?.messages?.[0]?.id || null
+    };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
 module.exports = {
   getMetaMediaUrl,
   downloadMetaMedia,
   uploadMediaToMeta,
   sendMetaImageMessage,
   sendMetaVideoMessage,
+  sendMetaAudioMessage,
   metaFetchWithRetry,
-  ALLOWED_VIDEO_MIME_TYPES
+  ALLOWED_VIDEO_MIME_TYPES,
+  ALLOWED_AUDIO_MIME_TYPES
 };
