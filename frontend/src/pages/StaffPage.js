@@ -1439,7 +1439,12 @@ export default function StaffPage() {
                                 />
                               ) : (
                                 <p className="text-sm italic opacity-70">
-                                  {msg.message_type === 'location' ? msg.text_body : `[${msg.message_type}]`}
+                                  {msg.message_type === 'location' ? msg.text_body
+                                    : msg.message_type === 'reaction' ? `${msg.text_body || '👍'} رد فعل`
+                                    : msg.message_type === 'button' ? `↩️ ${msg.text_body || 'رد سريع'}`
+                                    : msg.message_type === 'interactive' ? `↩️ ${msg.text_body || 'رد تفاعلي'}`
+                                    : msg.message_type === 'unsupported' ? '(غير مدعوم)'
+                                    : `[${msg.message_type}]`}
                                 </p>
                               )}
                               <div className={`flex items-center gap-1.5 mt-1 text-xs ${msg.direction === 'outbound' ? 'text-white/70 justify-end' : 'text-gray-400'}`}>
