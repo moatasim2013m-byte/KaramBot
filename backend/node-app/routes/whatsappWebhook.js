@@ -472,15 +472,28 @@ router.post('/webhook', (req, res) => {
       }
 
       if (field === 'account_update') {
+        // Policy enforcement: account warned, restricted, or disabled
         const event = value?.event || 'unknown';
         const restrictionType = value?.restriction_info?.restriction_type || null;
         const restrictionDuration = value?.restriction_info?.restriction_duration || null;
         const banState = value?.ban_info?.waba_ban_state || null;
         const banDate = value?.ban_info?.waba_ban_date || null;
         if (banState === 'DISABLE' || banState === 'SCHEDULE_FOR_DISABLE') {
-          console.error('WHATSAPP_ACCOUNT_DISABLED', { event, banState, banDate, restrictionType, restrictionDuration, value });
+          console.error('WHATSAPP_ACCOUNT_DISABLED', {
+            event,
+            banState,
+            banDate,
+            restrictionType,
+            restrictionDuration,
+            value
+          });
         } else if (restrictionType) {
-          console.error('WHATSAPP_ACCOUNT_RESTRICTED', { event, restrictionType, restrictionDuration, value });
+          console.error('WHATSAPP_ACCOUNT_RESTRICTED', {
+            event,
+            restrictionType,
+            restrictionDuration,
+            value
+          });
         } else {
           console.warn('WHATSAPP_ACCOUNT_UPDATE', { event, value });
         }
@@ -488,6 +501,7 @@ router.post('/webhook', (req, res) => {
       }
 
       if (field === 'account_alerts') {
+        // Capability or messaging limit alerts
         const alertType = value?.alert_type || 'unknown';
         const alertDesc = value?.alert_description || '';
         console.warn('WHATSAPP_ACCOUNT_ALERT', { alertType, alertDesc, value });
@@ -495,6 +509,7 @@ router.post('/webhook', (req, res) => {
       }
 
       if (field === 'account_review_update') {
+        // Appeal decision result
         const decision = value?.decision || 'unknown';
         const reviewStatus = value?.review_status || 'unknown';
         console.warn('WHATSAPP_ACCOUNT_REVIEW_UPDATE', { decision, reviewStatus, value });
