@@ -19,7 +19,9 @@ const {
   uploadMediaToMeta,
   sendMetaImageMessage,
   sendMetaVideoMessage,
-  ALLOWED_VIDEO_MIME_TYPES
+  sendMetaAudioMessage,
+  ALLOWED_VIDEO_MIME_TYPES,
+  ALLOWED_AUDIO_MIME_TYPES
 } = require('../utils/whatsappMedia');
 const TemplateDefinition = require('../models/TemplateDefinition');
 const { postWhatsAppTemplate } = require('../utils/whatsappMarketing');
@@ -43,6 +45,14 @@ const uploadVideoMemory = multer({
     const allowed = ALLOWED_VIDEO_MIME_TYPES;
     if (allowed.includes(file.mimetype)) return cb(null, true);
     return cb(new Error('Only MP4, 3GPP, or MOV video files are allowed'));
+  }
+});
+const uploadAudioMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_AUDIO_MIME_TYPES.includes(file.mimetype)) return cb(null, true);
+    return cb(new Error('Only AAC, MP4, MPEG, AMR, OGG, or Opus audio files are allowed'));
   }
 });
 
@@ -969,6 +979,93 @@ router.post('/send-video', sendLimiter, (req, res) => {
   });
 });
 
+
+// POST /send-audio — staff sends an audio message to a contact
+router.post('/send-audio', sendLimiter, (req, res) => {
+  uploadAudioMemory.single('audio')(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ error: uploadErr.message || 'Upload failed' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    const { wa_id } = req.body;
+    if (!wa_id) return res.status(400).json({ error: 'wa_id is required' });
+
+    const normalizedWaId = normalizePhoneForWhatsApp(wa_id);
+    if (!normalizedWaId) return res.status(400).json({ error: 'Invalid phone number format' });
+
+    try {
+      const uploadResult = await uploadMediaToMeta(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname || 'audio.ogg',
+        { allowedMimeTypes: ALLOWED_AUDIO_MIME_TYPES, defaultFilename: 'audio.ogg' }
+      );
+
+      if (!uploadResult.ok) {
+        logWhatsAppSendFailure({
+          event: 'whatsapp_audio_upload_failed',
+          wa_id: normalizedWaId,
+          mimeType: req.file.mimetype,
+          metaError: uploadResult.error,
+          statusCode: uploadResult.status
+        });
+        return res.status(502).json({ error: 'Failed to upload audio to Meta', details: uploadResult.error });
+      }
+
+      const mediaId = uploadResult.mediaId;
+      const sendResult = await sendMetaAudioMessage({
+        to: normalizedWaId,
+        mediaId
+      });
+      if (!sendResult.ok) {
+        logWhatsAppSendFailure({
+          event: 'whatsapp_audio_send_failed',
+          wa_id: normalizedWaId,
+          mimeType: req.file.mimetype,
+          metaError: sendResult.error,
+          statusCode: sendResult.status
+        });
+        return res.status(502).json({ error: 'Failed to send audio', details: sendResult.error });
+      }
+      const messageId = sendResult.messageId || `aud_${Date.now()}`;
+
+      try {
+        await WhatsAppMessage.create({
+          message_id: messageId,
+          sender_wa_id: normalizedWaId,
+          profile_name: '',
+          message_type: 'audio',
+          text_body: '',
+          media_url: mediaId,
+          media_mime_type: req.file.mimetype,
+          direction: 'outbound',
+          platform: 'whatsapp',
+          status: 'sent',
+          timestamp: new Date(),
+          sent_by_staff_id: req.user._id,
+          is_read_by_staff: true
+        });
+      } catch (persistErr) {
+        if (persistErr?.code !== 11000) console.error('AUDIO_SEND_PERSIST_ERROR', persistErr.message);
+      }
+
+      res.json({ success: true, message_id: messageId, media_id: mediaId });
+      emitInboxUpdate(normalizedWaId, 'staff_audio_send');
+    } catch (error) {
+      logWhatsAppSendFailure({
+        event: 'whatsapp_audio_send_exception',
+        wa_id: req.body?.wa_id,
+        mimeType: req.file?.mimetype,
+        metaError: error.message,
+        stack: error.stack
+      });
+      res.status(500).json({ error: 'Failed to send audio' });
+    }
+  });
+});
 
 router.post('/opt-out', async (req, res) => {
   try {

@@ -973,7 +973,7 @@ const persistAutoReplyMessage = async ({ waId, textBody, messageId, matchedKey }
   }
 };
 
-const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) => {
+const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, mediaId }) => {
   try {
     logAutoReply('AUTO_REPLY_TRIGGERED', {
       messageId,
@@ -992,7 +992,8 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       return { skipped: true, reason: 'missing_payload' };
     }
 
-    if (messageType !== 'text') {
+    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio', 'image'];
+    if (!SUPPORTED_MESSAGE_TYPES.includes(messageType)) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'unsupported_message_type', messageType });
       logRoutingBlock({
         messageId,
@@ -1109,7 +1110,17 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
       }
     }
 
-    const effectiveTextBody = burstResolution.burstText || textBody;
+    let effectiveTextBody = burstResolution.burstText || textBody;
+
+    // For audio messages, use a placeholder text body so greeting/keyword logic is bypassed
+    if (messageType === 'audio' && !effectiveTextBody) {
+      effectiveTextBody = '[رسالة صوتية]';
+    }
+
+    // For image messages, use caption if present, otherwise placeholder
+    if (messageType === 'image' && !effectiveTextBody) {
+      effectiveTextBody = '[صورة من الزبون]';
+    }
 
     const optCommand = detectOptCommand(effectiveTextBody);
     if (optCommand) {
@@ -1290,7 +1301,9 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody }) 
           .slice(-5);
 
         const aiResult = await getScopedAiFallbackReply({
-          userText: effectiveTextBody,
+          userText: messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : effectiveTextBody,
+          audioMediaId: messageType === 'audio' ? (mediaId || null) : null,
+          imageMediaId: messageType === 'image' ? (mediaId || null) : null,
           maxChars: config.aiMaxReplyChars,
           conversationHistory
         });
