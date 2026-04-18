@@ -1336,9 +1336,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
             aiConfidence: aiResult.confidence
           });
         } else {
-          // Check if Gemini misclassified a clearly in-domain message
+          // Audio and image messages are always in-domain — force use Gemini reply if available
+          const isMediaMessage = messageType === 'audio' || messageType === 'image';
+
+          // Check if Gemini misclassified a clearly in-domain text message
           const normalizedForOverride = normalizeText(effectiveTextBody);
-          const hasDomainKeyword = FORCE_IN_SCOPE_KEYWORDS.some(
+          const hasDomainKeyword = isMediaMessage || FORCE_IN_SCOPE_KEYWORDS.some(
             (kw) => normalizedForOverride.includes(normalizeText(kw))
           );
 
@@ -1350,7 +1353,8 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
               messageId,
               senderWaId: normalizedWaId,
               route: 'ai_scope_override',
-              reason: 'domain_keyword_detected',
+              reason: isMediaMessage ? 'media_message_always_in_scope' : 'domain_keyword_detected',
+              messageType,
               aiConfidence: aiResult?.confidence ?? null,
               aiInScope: aiResult?.in_scope ?? null,
               aiTopic: aiResult?.topic ?? null
@@ -1376,12 +1380,15 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
                 keywordMatchedKey: matchedKey
               });
             } else {
-              replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
-              matchedKey = 'fallback';
+              const mediaFallbackReply = isMediaMessage
+                ? 'ما قدرت أفهم رسالتك بشكل صحيح 💛 ممكن تكتبلي سؤالك بالنص وبساعدك فوراً؟'
+                : config.fallbackReply;
+              replyText = [greetingOpening, mediaFallbackReply].filter(Boolean).join('\n');
+              matchedKey = isMediaMessage ? 'media_fallback' : 'fallback';
               logRoutingDecision({
                 messageId,
                 senderWaId: normalizedWaId,
-                route: 'ai_declined_fallback',
+                route: isMediaMessage ? 'media_fallback' : 'ai_declined_fallback',
                 aiConfidence: aiResult?.confidence ?? null,
                 aiInScope: aiResult?.in_scope ?? null
               });

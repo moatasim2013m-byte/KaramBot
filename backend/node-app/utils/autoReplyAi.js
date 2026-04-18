@@ -388,23 +388,35 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const systemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemInstruction }] },
-          contents,
-          generationConfig: {
-            temperature: 0,
-            topP: 0.8,
-            maxOutputTokens: 180,
-            responseMimeType: 'application/json'
-          }
-        })
-      }
-    );
+    const isMediaCall = Boolean(audioMediaId || imageMediaId);
+    const GEMINI_TIMEOUT_MS = isMediaCall ? 20000 : 12000;
+
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemInstruction }] },
+            contents,
+            generationConfig: {
+              temperature: 0,
+              topP: 0.8,
+              maxOutputTokens: 180,
+              responseMimeType: 'application/json'
+            }
+          })
+        }
+      );
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
 
     if (!response.ok) {
       logAutoReplyAi('WA_BOT_AI_ROUTE', {
@@ -452,11 +464,15 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     });
     return result;
   } catch (error) {
-    logAutoReplyAi('WA_BOT_AI_ROUTE', {
-      route: 'ai_call_failed',
-      reason: 'exception',
-      error: error?.message || 'unknown_error'
-    });
+    if (error.name === 'AbortError') {
+      console.warn('GEMINI_TIMEOUT', { model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId), timeoutMs: (audioMediaId || imageMediaId) ? 20000 : 12000 });
+    } else {
+      logAutoReplyAi('WA_BOT_AI_ROUTE', {
+        route: 'ai_call_failed',
+        reason: 'exception',
+        error: error?.message || 'unknown_error'
+      });
+    }
     return null;
   }
 };
