@@ -56,18 +56,9 @@ const ensureHourlySlotsForDate = async (date) => {
   }
 };
 
-// --- Pricing (mirrors bookings.js getHourlyPrice) ---
-const getHourlyPrice = async (durationHours, startTime) => {
+// --- Pricing (standard only — NO Happy Hour for WhatsApp bookings) ---
+const getHourlyPrice = async (durationHours) => {
   const hours = Math.max(1, Math.min(5, Math.round(durationHours)));
-
-  if (startTime) {
-    try {
-      const [startHour] = startTime.split(':').map(Number);
-      if (startHour >= 10 && startHour < 14) {
-        return 3.5 * hours; // Happy Hour
-      }
-    } catch (_) { /* fall through */ }
-  }
 
   try {
     const pricingDocs = await Settings.find({
@@ -105,6 +96,12 @@ const checkAvailability = async (dateStr, startTime, durationHours = 1) => {
   try {
     const hours = Math.max(1, Math.min(3, Math.round(durationHours)));
 
+    // Block morning slots (10:00-13:59) for WhatsApp bookings
+    const [startHour] = startTime.split(':').map(Number);
+    if (startHour >= 10 && startHour < 14) {
+      return { available: false, spotsLeft: 0, slotId: null, price: null, reason: 'morning_unavailable' };
+    }
+
     // Ensure slots exist
     await ensureHourlySlotsForDate(dateStr);
 
@@ -121,7 +118,7 @@ const checkAvailability = async (dateStr, startTime, durationHours = 1) => {
     }
 
     const spotsLeft = slot.capacity - slot.booked_count;
-    const price = await getHourlyPrice(hours, startTime);
+    const price = await getHourlyPrice(hours);
 
     return {
       available: spotsLeft > 0,
@@ -226,7 +223,7 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
       return { success: false, error: 'slot_full', availableSpots: available };
     }
 
-    const price = await getHourlyPrice(hours, slot.start_time);
+    const price = await getHourlyPrice(hours);
     const bookingCode = `WA-H-${randomUUID().substring(0, 8).toUpperCase()}`;
     const qrCode = await QRCode.toDataURL(bookingCode, { width: 300, margin: 2 });
 
