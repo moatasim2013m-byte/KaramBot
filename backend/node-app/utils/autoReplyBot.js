@@ -992,7 +992,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { skipped: true, reason: 'missing_payload' };
     }
 
-    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio'];
+    const SUPPORTED_MESSAGE_TYPES = ['text', 'audio', 'image'];
     if (!SUPPORTED_MESSAGE_TYPES.includes(messageType)) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'unsupported_message_type', messageType });
       logRoutingBlock({
@@ -1115,6 +1115,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     // For audio messages, use a placeholder text body so greeting/keyword logic is bypassed
     if (messageType === 'audio' && !effectiveTextBody) {
       effectiveTextBody = '[رسالة صوتية]';
+    }
+
+    // For image messages, use caption if present, otherwise placeholder
+    if (messageType === 'image' && !effectiveTextBody) {
+      effectiveTextBody = '[صورة من الزبون]';
     }
 
     const optCommand = detectOptCommand(effectiveTextBody);
@@ -1296,8 +1301,9 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           .slice(-5);
 
         const aiResult = await getScopedAiFallbackReply({
-          userText: messageType === 'audio' ? '[رسالة صوتية من الزبون]' : effectiveTextBody,
+          userText: messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : effectiveTextBody,
           audioMediaId: messageType === 'audio' ? (mediaId || null) : null,
+          imageMediaId: messageType === 'image' ? (mediaId || null) : null,
           maxChars: config.aiMaxReplyChars,
           conversationHistory
         });

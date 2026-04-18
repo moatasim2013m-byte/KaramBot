@@ -266,7 +266,7 @@ const buildApprovedFaqContext = (faqItems = []) => {
   return ['approved_faq_examples:', ...lines].join('\n');
 };
 
-const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null }) => {
+const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversationHistory = [], audioMediaId = null, imageMediaId = null }) => {
   if (!process.env.GEMINI_API_KEY) {
     logAutoReplyAi('WA_BOT_AI_ROUTE', {
       route: 'ai_not_called',
@@ -321,6 +321,35 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
         }
       } catch (audioErr) {
         console.warn('GEMINI_AUDIO_DOWNLOAD_ERROR', audioErr.message);
+      }
+    }
+
+    if (imageMediaId) {
+      try {
+        const mediaUrl = await getMetaMediaUrl(imageMediaId);
+        if (mediaUrl) {
+          const downloaded = await downloadMetaMedia(mediaUrl);
+          if (downloaded.ok && downloaded.buffer) {
+            const mimeType = downloaded.contentType || 'image/jpeg';
+            const base64Image = downloaded.buffer.toString('base64');
+            const captionText = String(userText || '').trim();
+            currentTurnParts = [
+              {
+                inline_data: {
+                  mime_type: mimeType,
+                  data: base64Image
+                }
+              },
+              {
+                text: captionText && captionText !== '[صورة من الزبون]'
+                  ? `الزبون بعث هاي الصورة مع الرسالة: "${captionText}". شوف الصورة وافهم شو بده، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك شفت صورة — رد مباشرة على المحتوى.`
+                  : 'الزبون بعث هاي الصورة بدون نص. شوف الصورة وافهم شو بده أو شو سؤاله، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك شفت صورة — رد مباشرة على المحتوى. إذا ما فهمت شو بده من الصورة، اسأله بلطف.'
+              }
+            ];
+          }
+        }
+      } catch (imageErr) {
+        console.warn('GEMINI_IMAGE_DOWNLOAD_ERROR', imageErr.message);
       }
     }
 
