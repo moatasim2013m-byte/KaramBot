@@ -578,6 +578,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const _perfGeminiApiStart = Date.now();
     let response;
+    const fullSystemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
     try {
       if (cacheName) {
         // Use cached system prompt — only send dynamic context + conversation
@@ -600,9 +601,38 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
             })
           }
         );
+
+        if (response.status === 400) {
+          const cacheErrText = await response.text().catch(() => '');
+          console.warn('GEMINI_CACHE_ROUTE_400_RETRYING', {
+            status: response.status,
+            model: TEXT_MODEL,
+            bodySnippet: cacheErrText.slice(0, 500)
+          });
+          _geminiCacheName = null;
+          _geminiCacheExpiry = 0;
+
+          response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal,
+              body: JSON.stringify({
+                system_instruction: { parts: [{ text: fullSystemInstruction }] },
+                contents,
+                generationConfig: {
+                  temperature: 0,
+                  topP: 0.8,
+                  maxOutputTokens: 180,
+                  responseMimeType: 'application/json'
+                }
+              })
+            }
+          );
+        }
       } else {
         // Fallback: send full system prompt if cache unavailable
-        const systemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
         response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
           {
@@ -610,7 +640,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
             body: JSON.stringify({
-              system_instruction: { parts: [{ text: systemInstruction }] },
+              system_instruction: { parts: [{ text: fullSystemInstruction }] },
               contents,
               generationConfig: {
                 temperature: 0,
