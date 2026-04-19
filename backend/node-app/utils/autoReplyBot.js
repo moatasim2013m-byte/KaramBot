@@ -9,6 +9,30 @@ const {
 const { getScopedAiFallbackReply, hasBookingIntent, runBookingGeminiCall } = require('./autoReplyAi');
 const { isWhatsAppOptedOut, setWhatsAppOptOut } = require('./whatsappOptOut');
 
+// Send typing indicator + mark as read (non-blocking)
+const sendTypingIndicator = async (messageId) => {
+  try {
+    const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+    const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+    if (!accessToken || !phoneNumberId || !messageId) return;
+    await fetch(`https://graph.facebook.com/v25.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+        typing_indicator: { type: 'text' }
+      })
+    });
+  } catch (err) {
+    console.warn('TYPING_INDICATOR_ERROR', err?.message || err);
+  }
+};
+
 // Booking conversation state cache (in-memory, TTL 10 minutes)
 const bookingStateCache = new Map();
 const BOOKING_STATE_TTL_MS = 10 * 60 * 1000;
@@ -1137,6 +1161,9 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     }
 
     let effectiveTextBody = burstResolution.burstText || textBody;
+
+    // Fire typing indicator non-blocking — shows "typing..." to customer while we process
+    setImmediate(() => sendTypingIndicator(messageId).catch(() => {}));
 
     // For audio messages, use a placeholder text body so greeting/keyword logic is bypassed
     if (messageType === 'audio' && !effectiveTextBody) {
