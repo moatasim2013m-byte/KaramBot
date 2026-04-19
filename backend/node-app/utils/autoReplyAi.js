@@ -443,6 +443,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     if (audioMediaId) {
       try {
+        const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(audioMediaId);
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
@@ -461,6 +462,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               }
             ];
           }
+          console.log('PERF_MEDIA_DOWNLOAD', { type: 'audio', mediaMs: Date.now() - _perfMediaStart, ok: downloaded?.ok });
         }
       } catch (audioErr) {
         console.warn('GEMINI_AUDIO_DOWNLOAD_ERROR', audioErr.message);
@@ -469,6 +471,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     if (imageMediaId) {
       try {
+        const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(imageMediaId);
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
@@ -490,6 +493,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               }
             ];
           }
+          console.log('PERF_MEDIA_DOWNLOAD', { type: 'image', mediaMs: Date.now() - _perfMediaStart, ok: downloaded?.ok });
         }
       } catch (imageErr) {
         console.warn('GEMINI_IMAGE_DOWNLOAD_ERROR', imageErr.message);
@@ -498,6 +502,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     if (videoMediaId) {
       try {
+        const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(videoMediaId);
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
@@ -519,6 +524,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               }
             ];
           }
+          console.log('PERF_MEDIA_DOWNLOAD', { type: 'video', mediaMs: Date.now() - _perfMediaStart, ok: downloaded?.ok });
         }
       } catch (videoErr) {
         console.warn('GEMINI_VIDEO_DOWNLOAD_ERROR', videoErr.message);
@@ -567,6 +573,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     // Try to use Gemini context cache for static prompt (speeds up response significantly)
     const cacheName = await createOrRefreshGeminiCache();
 
+    const _perfGeminiApiStart = Date.now();
     let response;
     try {
       if (cacheName) {
@@ -614,6 +621,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       }
     } finally {
       clearTimeout(timeoutHandle);
+      console.log('PERF_GEMINI_API', { modelMs: Date.now() - _perfGeminiApiStart, model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId || videoMediaId) });
     }
 
     if (!response.ok) {

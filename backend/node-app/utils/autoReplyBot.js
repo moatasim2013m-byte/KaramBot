@@ -1160,7 +1160,9 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       }
     }
 
+    const _perfStart = Date.now();
     let effectiveTextBody = burstResolution.burstText || textBody;
+    console.log('PERF_BURST_DONE', { messageId, elapsedMs: Date.now() - _perfStart, messageType });
 
     // Fire typing indicator non-blocking — shows "typing..." to customer while we process
     setImmediate(() => sendTypingIndicator(messageId).catch(() => {}));
@@ -1408,6 +1410,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
 
         // Fall through to regular Gemini if booking path didn't produce a reply
         if (!replyText) {
+        const _perfBeforeGemini = Date.now();
         const aiResult = await getScopedAiFallbackReply({
           userText: aiUserText,
           audioMediaId: messageType === 'audio' ? (mediaId || null) : null,
@@ -1416,6 +1419,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           maxChars: config.aiMaxReplyChars,
           conversationHistory
         });
+        console.log('PERF_GEMINI_DONE', { messageId, geminiMs: Date.now() - _perfBeforeGemini, messageType, inScope: aiResult?.in_scope, topic: aiResult?.topic });
         const requiredConfidence = Math.max(
           MIN_AI_CONFIDENCE_FLOOR,
           Number(config.aiConfidenceThreshold || 0)
@@ -1610,6 +1614,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       triggerMessageId: resolvedTriggerMessageId
     });
 
+    console.log('PERF_TOTAL', { messageId, totalMs: Date.now() - _perfStart, messageType });
     logAutoReply('AUTO_REPLY_SENT', {
       messageId,
       senderWaId: normalizedWaId,
