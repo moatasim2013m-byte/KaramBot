@@ -108,10 +108,21 @@ router.post('/whatsapp-followup', async (req, res) => {
     const cutoff = new Date(now.getTime() - FOLLOWUP_DELAY_MS);
     const cooldownCutoff = new Date(now.getTime() - FOLLOWUP_COOLDOWN_MS);
 
-    // Get configurable template name
+    // Get configurable template name — fail loudly if not configured
     const templateSetting = await Settings.findOne({ key: 'whatsapp_followup_template_name' }).lean();
-    const templateName = templateSetting?.value || 'peekaboo_test_campaign';
-    const templateLanguage = req.body?.template_language || 'en';
+    const templateName = templateSetting?.value?.trim() || '';
+    const templateLanguage = req.body?.template_language || 'ar';
+
+    if (!templateName) {
+      console.error('FOLLOWUP_CRON_CONFIG_ERROR', {
+        reason: 'whatsapp_followup_template_name setting is missing or empty',
+        action: 'Set this key in admin Settings to enable follow-up sends'
+      });
+      return res.status(500).json({
+        error: 'Follow-up template not configured',
+        detail: 'Set whatsapp_followup_template_name in admin Settings'
+      });
+    }
 
     // Find all contacts with an inbound message older than 60 minutes
     // grouped by sender, with the latest inbound message per contact
