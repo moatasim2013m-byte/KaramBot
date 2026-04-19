@@ -206,6 +206,63 @@ const getStaticPrompt = () => {
   return _cachedStaticPrompt;
 };
 
+// Gemini context cache — stores the server-side cached system prompt ID
+let _geminiCacheName = null;
+let _geminiCacheExpiry = 0;
+const GEMINI_CACHE_TTL_SECONDS = 3600; // 1 hour — matches static prompt rebuild interval
+
+const createOrRefreshGeminiCache = async () => {
+  const now = Date.now();
+  // Return existing cache if still valid (with 5 minute buffer before expiry)
+  if (_geminiCacheName && now < _geminiCacheExpiry - 5 * 60 * 1000) {
+    return _geminiCacheName;
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const staticPrompt = getStaticPrompt();
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: `models/${TEXT_MODEL}`,
+          system_instruction: {
+            parts: [{ text: staticPrompt }]
+          },
+          contents: [],
+          ttl: `${GEMINI_CACHE_TTL_SECONDS}s`
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.warn('GEMINI_CACHE_CREATE_FAILED', { status: response.status, error: errText.slice(0, 200) });
+      return null;
+    }
+
+    const data = await response.json();
+    const cacheName = data?.name;
+
+    if (!cacheName) {
+      console.warn('GEMINI_CACHE_NO_NAME', { response: JSON.stringify(data).slice(0, 200) });
+      return null;
+    }
+
+    _geminiCacheName = cacheName;
+    _geminiCacheExpiry = now + GEMINI_CACHE_TTL_SECONDS * 1000;
+    console.log('GEMINI_CACHE_CREATED', { cacheName, expiresIn: `${GEMINI_CACHE_TTL_SECONDS}s` });
+    return cacheName;
+  } catch (err) {
+    console.warn('GEMINI_CACHE_CREATE_ERROR', err?.message || err);
+    return null;
+  }
+};
+
 const parseStrictJsonObject = (rawText) => {
   const text = String(rawText || '').trim();
   if (!text) return null;
@@ -386,6 +443,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     if (audioMediaId) {
       try {
+        const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(audioMediaId);
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
@@ -404,6 +462,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               }
             ];
           }
+          console.log('PERF_MEDIA_DOWNLOAD', { type: 'audio', mediaMs: Date.now() - _perfMediaStart, ok: downloaded?.ok });
         }
       } catch (audioErr) {
         console.warn('GEMINI_AUDIO_DOWNLOAD_ERROR', audioErr.message);
@@ -412,6 +471,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     if (imageMediaId) {
       try {
+        const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(imageMediaId);
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
@@ -433,6 +493,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               }
             ];
           }
+          console.log('PERF_MEDIA_DOWNLOAD', { type: 'image', mediaMs: Date.now() - _perfMediaStart, ok: downloaded?.ok });
         }
       } catch (imageErr) {
         console.warn('GEMINI_IMAGE_DOWNLOAD_ERROR', imageErr.message);
@@ -441,6 +502,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     if (videoMediaId) {
       try {
+        const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(videoMediaId);
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
@@ -462,6 +524,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               }
             ];
           }
+          console.log('PERF_MEDIA_DOWNLOAD', { type: 'video', mediaMs: Date.now() - _perfMediaStart, ok: downloaded?.ok });
         }
       } catch (videoErr) {
         console.warn('GEMINI_VIDEO_DOWNLOAD_ERROR', videoErr.message);
@@ -501,36 +564,64 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       `الرد يجب أن لا يتجاوز ${Math.max(80, Number(maxChars) || 500)} حرف.`
     ].join('\n');
 
-    const systemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
-
     const isMediaCall = Boolean(audioMediaId || imageMediaId || videoMediaId);
     const GEMINI_TIMEOUT_MS = isMediaCall ? 20000 : 12000;
 
     const controller = new AbortController();
     const timeoutHandle = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
 
+    // Try to use Gemini context cache for static prompt (speeds up response significantly)
+    const cacheName = await createOrRefreshGeminiCache();
+
+    const _perfGeminiApiStart = Date.now();
     let response;
     try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal,
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemInstruction }] },
-            contents,
-            generationConfig: {
-              temperature: 0,
-              topP: 0.8,
-              maxOutputTokens: 180,
-              responseMimeType: 'application/json'
-            }
-          })
-        }
-      );
+      if (cacheName) {
+        // Use cached system prompt — only send dynamic context + conversation
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              cached_content: cacheName,
+              system_instruction: { parts: [{ text: dynamicContext }] },
+              contents,
+              generationConfig: {
+                temperature: 0,
+                topP: 0.8,
+                maxOutputTokens: 180,
+                responseMimeType: 'application/json'
+              }
+            })
+          }
+        );
+      } else {
+        // Fallback: send full system prompt if cache unavailable
+        const systemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemInstruction }] },
+              contents,
+              generationConfig: {
+                temperature: 0,
+                topP: 0.8,
+                maxOutputTokens: 180,
+                responseMimeType: 'application/json'
+              }
+            })
+          }
+        );
+      }
     } finally {
       clearTimeout(timeoutHandle);
+      console.log('PERF_GEMINI_API', { modelMs: Date.now() - _perfGeminiApiStart, model: TEXT_MODEL, isMediaCall: Boolean(audioMediaId || imageMediaId || videoMediaId) });
     }
 
     if (!response.ok) {
