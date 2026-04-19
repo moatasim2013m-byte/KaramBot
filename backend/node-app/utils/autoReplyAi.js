@@ -450,6 +450,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
           if (downloaded.ok && downloaded.buffer) {
             const mimeType = downloaded.contentType || 'audio/ogg';
             const base64Audio = downloaded.buffer.toString('base64');
+            const captionText = String(userText || '').trim();
             currentTurnParts = [
               {
                 inline_data: {
@@ -458,7 +459,9 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
                 }
               },
               {
-                text: 'هذي رسالة صوتية من زبون. استمع لها وفهم السؤال أو الطلب، ثم رد عليه بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك سمعت رسالة صوتية في ردك — رد مباشرة على المحتوى.'
+                text: captionText && captionText !== '[رسالة صوتية من الزبون]' && captionText !== '[رسالة صوتية]'
+                  ? `الزبون بعث هاي الرسالة الصوتية مع النص: "${captionText}". استمع للصوت وافهم السؤال أو الطلب، اعتبر النص والصوت معاً، ثم رد بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك سمعت رسالة صوتية في ردك — رد مباشرة على المحتوى.`
+                  : 'هذي رسالة صوتية من زبون. استمع لها وفهم السؤال أو الطلب، ثم رد عليه بالعربي الأردني كـ شرومي من فريق بيكابو. لا تذكر إنك سمعت رسالة صوتية في ردك — رد مباشرة على المحتوى.'
               }
             ];
           }
@@ -625,10 +628,12 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     }
 
     if (!response.ok) {
+      const errBodyText = await response.text().catch(() => '');
       logAutoReplyAi('WA_BOT_AI_ROUTE', {
         route: 'ai_call_failed',
         reason: 'http_error',
-        status: response.status
+        status: response.status,
+        bodySnippet: errBodyText.slice(0, 500)
       });
       return null;
     }

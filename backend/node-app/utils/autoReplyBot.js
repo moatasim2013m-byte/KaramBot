@@ -1366,7 +1366,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           })
           .slice(-5);
 
-        const aiUserText = messageType === 'audio' ? '[رسالة صوتية من الزبون]' : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : messageType === 'video' ? (effectiveTextBody !== '[فيديو من الزبون]' ? effectiveTextBody : '[فيديو من الزبون]') : effectiveTextBody;
+        const aiUserText = messageType === 'audio' ? (effectiveTextBody && effectiveTextBody !== '[رسالة صوتية]' ? effectiveTextBody : '[رسالة صوتية من الزبون]') : messageType === 'image' ? (effectiveTextBody !== '[صورة من الزبون]' ? effectiveTextBody : '[صورة من الزبون]') : messageType === 'video' ? (effectiveTextBody !== '[فيديو من الزبون]' ? effectiveTextBody : '[فيديو من الزبون]') : effectiveTextBody;
 
         // Check for booking intent — use tool-calling Gemini path
         const bookingState = getBookingState(normalizedWaId);
