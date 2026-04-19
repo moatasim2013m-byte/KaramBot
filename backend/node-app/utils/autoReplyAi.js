@@ -68,6 +68,7 @@ const buildStaticSystemPrompt = () => [
   '• "في واي فاي؟" / "في كافيه؟" → جاوب مباشرة',
   '• "في جوارب؟" → جاوب مباشرة',
   '• "في صور للمكان؟" → وجّه للإنستغرام أو الموقع',
+  '• "اللعب بالساعه" / "بالساعة" / "كم سعر الساعة" / "سعر اللعب" / "الساعة بكم" / "قديش الساعة" → جاوب مباشرة بأسعار الدخول بالساعة من حقل pricing في البيانات الحية بدون أي سؤال متابعة.',
   '',
 
   // ═══ VENUE ════════════════════════════════════════════════════════════
@@ -580,7 +581,18 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     let response;
     try {
       if (cacheName) {
-        // Use cached system prompt — only send dynamic context + conversation
+        // Gemini API forbids sending system_instruction together with cached_content.
+        // Inject the live dynamic facts as a leading text part in the final user turn.
+        const _lastIdx = contents.length - 1;
+        const _lastTurn = contents[_lastIdx] || { role: 'user', parts: [] };
+        const contentsWithContext = [
+          ...contents.slice(0, _lastIdx),
+          {
+            ...(_lastIdx >= 0 ? _lastTurn : {}),
+            role: _lastTurn?.role || 'user',
+            parts: [{ text: dynamicContext }, ...((_lastTurn && _lastTurn.parts) || [])]
+          }
+        ];
         response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
           {
@@ -589,8 +601,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
             signal: controller.signal,
             body: JSON.stringify({
               cached_content: cacheName,
-              system_instruction: { parts: [{ text: dynamicContext }] },
-              contents,
+              contents: contentsWithContext,
               generationConfig: {
                 temperature: 0,
                 topP: 0.8,
