@@ -14,11 +14,13 @@ export default function StaffLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoginError('');
     setLoading(true);
 
     try {
@@ -39,7 +41,9 @@ export default function StaffLoginPage() {
         navigate('/reception');
       }
     } catch (error) {
-      toast.error(error.response?.data?.error || 'فشل تسجيل الدخول');
+      const backendMessage = error?.response?.data?.error;
+      const fallbackMessage = 'فشل تسجيل دخول الموظف. تأكد من البريد الإلكتروني وكلمة المرور.';
+      setLoginError(backendMessage || fallbackMessage);
     } finally {
       setLoading(false);
     }
@@ -73,6 +77,12 @@ export default function StaffLoginPage() {
             </p>
           </div>
 
+          {loginError && (
+            <div className="mb-4 p-3 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm text-right" role="alert" aria-live="polite">
+              {loginError}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">البريد الإلكتروني / Email</Label>
@@ -83,7 +93,10 @@ export default function StaffLoginPage() {
                   type="email"
                   placeholder="staff@peekaboo.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (loginError) setLoginError('');
+                  }}
                   className="pl-10 rounded-xl h-12"
                   required
                   data-testid="staff-login-email"
@@ -100,7 +113,10 @@ export default function StaffLoginPage() {
                   type="password"
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (loginError) setLoginError('');
+                  }}
                   className="pl-10 rounded-xl h-12"
                   required
                   data-testid="staff-login-password"
