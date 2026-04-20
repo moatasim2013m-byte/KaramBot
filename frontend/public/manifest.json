@@ -1,0 +1,24 @@
+{
+  "name": "Peekaboo Staff",
+  "short_name": "PB Staff",
+  "description": "Peekaboo staff operations panel",
+  "start_url": "/staff",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#1E293B",
+  "background_color": "#F8FAFC",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "2362x2362",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.png",
+      "sizes": "2362x2362",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
