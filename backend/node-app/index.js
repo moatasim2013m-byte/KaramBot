@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { logger, pinoHttpMiddleware, writeCloudError } = require('./utils/logger');
 const { GCS_BUCKET_NAME, LOCAL_UPLOADS_DIR, UPLOAD_STORAGE_MODE, isGcsBucketConfigured } = require('./utils/gcsUpload');
 const initialEnvPresence = {
-  MONGO_URL: Boolean(process.env.MONGO_URL),
+  MONGO_URL: Boolean(process.env.MONGO_URL || process.env.MONGODB_URI || process.env.MONGO_URI || process.env.DATABASE_URL),
   JWT_SECRET: Boolean(process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || process.env.JWT_KEY),
   FRONTEND_URL: Boolean(process.env.FRONTEND_URL),
   CORS_ORIGINS: Boolean(process.env.CORS_ORIGINS),
@@ -66,6 +66,17 @@ const app = express();
 app.set('trust proxy', 1);
 
 const DB_NAME_ENV_KEYS = ['DB_NAME', 'MONGO_DB_NAME', 'MONGODB_DB', 'MONGO_DATABASE'];
+const MONGO_URL_ENV_KEYS = ['MONGO_URL', 'MONGODB_URI', 'MONGO_URI', 'DATABASE_URL'];
+
+const resolveMongoUrl = () => {
+  for (const key of MONGO_URL_ENV_KEYS) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return { url: value.trim(), source: key };
+    }
+  }
+  return { url: null, source: 'none' };
+};
 
 const resolveConfiguredDbName = (mongoUri) => {
   for (const key of DB_NAME_ENV_KEYS) {
@@ -86,7 +97,11 @@ const resolveConfiguredDbName = (mongoUri) => {
       return { name: decodeURIComponent(pathName), source: 'mongo_url_path' };
     }
   } catch (error) {
-    console.warn('WARN: Failed to parse MONGO_URL for db name:', error?.message || error);
+    const match = String(mongoUri).match(/^[a-z][a-z0-9+.-]*:\/\/[^/]+\/([^?]+)/i);
+    if (match?.[1]) {
+      return { name: decodeURIComponent(match[1]), source: 'mongo_url_path_regex' };
+    }
+    console.warn('WARN: Failed to parse Mongo URL for db name:', error?.message || error);
   }
 
   return { name: null, source: 'none' };
@@ -223,7 +238,8 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 
 app.get('/health', (req, res) => {
   const isDbConnected = mongoose?.connection?.readyState === 1;
-  const configuredDb = resolveConfiguredDbName(process.env.MONGO_URL);
+  const mongoConfig = resolveMongoUrl();
+  const configuredDb = resolveConfiguredDbName(mongoConfig.url);
   const connectedDbName = mongoose?.connection?.name || null;
   const resolvedDbHost = mongoose?.connection?.host || null;
 
@@ -234,6 +250,7 @@ app.get('/health', (req, res) => {
     db_name: connectedDbName || configuredDb.name,
     db_config_name: configuredDb.name,
     db_config_source: configuredDb.source,
+    db_url_source: mongoConfig.source,
     db_name_mismatch: Boolean(isDbConnected && configuredDb.name && connectedDbName && configuredDb.name !== connectedDbName),
     db_host: resolvedDbHost,
     ai_image_generation: {
@@ -397,12 +414,16 @@ requiredEnvVars.forEach(varName => {
   const isPresent = initialEnvPresence[varName];
   if (varName === 'JWT_SECRET') {
     console.log(`ENV_REQUIRED ${varName}(or JWT_SECRET_KEY/JWT_KEY) ${isPresent}`);
+  } else if (varName === 'MONGO_URL') {
+    console.log(`ENV_REQUIRED ${varName}(or MONGODB_URI/MONGO_URI/DATABASE_URL) ${isPresent}`);
   } else {
     console.log(`ENV_REQUIRED ${varName} ${isPresent}`);
   }
   if (!isPresent) {
     if (varName === 'JWT_SECRET') {
       console.error('ERROR: Required env var JWT_SECRET is missing (no JWT_SECRET_KEY/JWT_KEY fallback found)');
+    } else if (varName === 'MONGO_URL') {
+      console.error('ERROR: Required env var MONGO_URL is missing (no MONGODB_URI/MONGO_URI/DATABASE_URL fallback found)');
     } else {
       console.error(`ERROR: Required env var ${varName} is missing`);
     }
@@ -425,13 +446,15 @@ if (!hasAllRequiredVars && isProduction) {
 }
 
 // ==================== MONGODB CONNECT ====================
-const mongoUrl = process.env.MONGO_URL;
+const mongoConfig = resolveMongoUrl();
+const mongoUrl = mongoConfig.url;
 const configuredDb = resolveConfiguredDbName(mongoUrl);
 
 if (!mongoUrl) {
-  console.error('❌ MONGO_URL is missing. App will run but DB features will NOT work.');
+  console.error('❌ Mongo URL is missing. Set MONGO_URL (or MONGODB_URI / MONGO_URI / DATABASE_URL). App will run but DB features will NOT work.');
 } else {
   console.log('⏳ Attempting to connect to MongoDB...');
+  console.log(`DB_URL source=${mongoConfig.source}`);
   if (configuredDb.name) {
     console.log(`DB_CONFIG name=${configuredDb.name} source=${configuredDb.source}`);
   } else {
