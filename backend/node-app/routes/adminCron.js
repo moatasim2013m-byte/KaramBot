@@ -108,10 +108,30 @@ router.post('/whatsapp-followup', async (req, res) => {
     const cutoff = new Date(now.getTime() - FOLLOWUP_DELAY_MS);
     const cooldownCutoff = new Date(now.getTime() - FOLLOWUP_COOLDOWN_MS);
 
-    // Get configurable template name
+    // Get configurable template name. If not set, skip the run entirely
+    // rather than falling back to a test template (which would send test
+    // strings to real customers). Matches the Cloud Scheduler runbook.
     const templateSetting = await Settings.findOne({ key: 'whatsapp_followup_template_name' }).lean();
-    const templateName = templateSetting?.value || 'peekaboo_test_campaign';
+    const templateName = (templateSetting?.value || '').trim();
     const templateLanguage = req.body?.template_language || 'en';
+
+    if (!templateName) {
+      console.log('FOLLOWUP_CRON_SKIPPED', {
+        reason: 'missing_template_setting',
+        setting_key: 'whatsapp_followup_template_name'
+      });
+      return res.json({
+        template: null,
+        scanned: 0,
+        sent: 0,
+        skipped_replied: 0,
+        skipped_opted_out: 0,
+        skipped_already_sent: 0,
+        skipped_failed: 0,
+        skipped_run: true,
+        skip_reason: 'missing_template_setting'
+      });
+    }
 
     // Find all contacts with an inbound message older than 60 minutes
     // grouped by sender, with the latest inbound message per contact

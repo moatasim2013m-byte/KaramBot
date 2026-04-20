@@ -25,6 +25,7 @@
 - [x] WhatsApp bot: typing indicator, 5s burst window, Gemini context caching, media fallback fixes, Jordanian Arabic vocab, DB readiness gate (Feb 2026)
 - [x] Staff Panel shell extraction — shared `DashboardLayout`/`Sidebar`/`Header`/`MobileNav` in `frontend/src/components/admin/`, `StaffPage` now wraps existing tabs in the new shell (Feb 2026)
 
+- [x] `adminCron.js` fallback fixed — `whatsapp-followup` cron now skips silently with `{skipped_run: true, skip_reason: 'missing_template_setting'}` when `whatsapp_followup_template_name` setting is absent, instead of falling back to the `peekaboo_test_campaign` test template (Feb 2026)
+
 ## Backlog
 - [ ] Apply the same `DashboardLayout` shell to `AdminPage.js` (legacy, still uses Tabs + Navbar). New admin at `/app/frontend/src/pages/admin/AdminLayout.js` already uses a sidebar layout.
-- [ ] `backend/node-app/routes/adminCron.js`: when `whatsapp_followup_template_name` setting is missing, code falls back to `peekaboo_test_campaign` instead of skipping. Decide: adjust code to skip silently OR update the runbook.
