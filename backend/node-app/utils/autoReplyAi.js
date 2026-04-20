@@ -68,6 +68,7 @@ const buildStaticSystemPrompt = () => [
   '• "في واي فاي؟" / "في كافيه؟" → جاوب مباشرة',
   '• "في جوارب؟" → جاوب مباشرة',
   '• "في صور للمكان؟" → وجّه للإنستغرام أو الموقع',
+  '• "اللعب بالساعه" / "بالساعة" / "كم سعر الساعة" / "سعر اللعب" / "الساعة بكم" / "قديش الساعة" → جاوب مباشرة بأسعار الدخول بالساعة من حقل pricing في البيانات الحية بدون أي سؤال متابعة.',
   '',
 
   // ═══ VENUE ════════════════════════════════════════════════════════════
@@ -581,7 +582,18 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     const fullSystemInstruction = getStaticPrompt() + '\n\n' + dynamicContext;
     try {
       if (cacheName) {
-        // Use cached system prompt — only send dynamic context + conversation
+        // Gemini API forbids sending system_instruction together with cached_content.
+        // Inject the live dynamic facts as a leading text part in the final user turn.
+        const _lastIdx = contents.length - 1;
+        const _lastTurn = contents[_lastIdx] || { role: 'user', parts: [] };
+        const contentsWithContext = [
+          ...contents.slice(0, _lastIdx),
+          {
+            ...(_lastIdx >= 0 ? _lastTurn : {}),
+            role: _lastTurn?.role || 'user',
+            parts: [{ text: dynamicContext }, ...((_lastTurn && _lastTurn.parts) || [])]
+          }
+        ];
         response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(TEXT_MODEL)}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`,
           {
@@ -590,13 +602,12 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
             signal: controller.signal,
             body: JSON.stringify({
               cached_content: cacheName,
-              system_instruction: { parts: [{ text: dynamicContext }] },
-              contents,
+              contents: contentsWithContext,
               generationConfig: {
                 temperature: 0,
                 topP: 0.8,
                 maxOutputTokens: 180,
-                responseMimeType: 'application/json'
+                ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
           }
@@ -646,7 +657,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
                 temperature: 0,
                 topP: 0.8,
                 maxOutputTokens: 180,
-                responseMimeType: 'application/json'
+                ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
           }
@@ -670,25 +681,45 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const payload = await response.json();
     const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('\n') || '';
-    const parsed = parseStrictJsonObject(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      logAutoReplyAi('WA_BOT_AI_ROUTE', {
-        route: 'ai_call_failed',
-        reason: 'invalid_json_payload'
-      });
-      return null;
-    }
 
-    const topicRaw = String(parsed.topic || '').trim();
-    const topic = ALLOWED_TOPICS.includes(topicRaw) || topicRaw === OUT_OF_SCOPE_TOPIC
-      ? topicRaw
-      : OUT_OF_SCOPE_TOPIC;
-    const confidenceNumber = Number(parsed.confidence);
-    const confidence = Number.isFinite(confidenceNumber)
-      ? Math.max(0, Math.min(1, confidenceNumber))
-      : 0;
-    const inScope = parsed.in_scope === true && ALLOWED_TOPICS.includes(topic);
-    const replyAr = sanitizeArabicReply(parsed.reply_ar, maxChars);
+    let inScope, topic, confidence, replyAr;
+
+    if (isMediaCall) {
+      // Media calls return plain text — treat the whole response as the Arabic reply
+      const plainReply = sanitizeArabicReply(raw.trim(), maxChars);
+      if (!plainReply) {
+        logAutoReplyAi('WA_BOT_AI_ROUTE', {
+          route: 'ai_call_failed',
+          reason: 'empty_media_reply'
+        });
+        return null;
+      }
+      inScope = true;
+      topic = 'general';
+      confidence = 0.9;
+      replyAr = plainReply;
+    } else {
+      // Text calls return JSON
+      const parsed = parseStrictJsonObject(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        logAutoReplyAi('WA_BOT_AI_ROUTE', {
+          route: 'ai_call_failed',
+          reason: 'invalid_json_payload',
+          rawSnippet: raw.slice(0, 100)
+        });
+        return null;
+      }
+      const topicRaw = String(parsed.topic || '').trim();
+      topic = ALLOWED_TOPICS.includes(topicRaw) || topicRaw === OUT_OF_SCOPE_TOPIC
+        ? topicRaw
+        : OUT_OF_SCOPE_TOPIC;
+      const confidenceNumber = Number(parsed.confidence);
+      confidence = Number.isFinite(confidenceNumber)
+        ? Math.max(0, Math.min(1, confidenceNumber))
+        : 0;
+      inScope = parsed.in_scope === true && ALLOWED_TOPICS.includes(topic);
+      replyAr = sanitizeArabicReply(parsed.reply_ar, maxChars);
+    }
 
     const result = {
       in_scope: inScope,
