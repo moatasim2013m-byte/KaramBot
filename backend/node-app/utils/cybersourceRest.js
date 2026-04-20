@@ -4,6 +4,7 @@ const CYBERSOURCE_SECURE_ACCEPTANCE_TEST_URL = 'https://testsecureacceptance.cyb
 const CYBERSOURCE_SECURE_ACCEPTANCE_LIVE_URL = 'https://secureacceptance.cybersource.com/pay';
 const SECURE_ACCEPTANCE_RESPONSE_SIGNED_FIELDS = 'signed_field_names,signature';
 const REQUIRED_SIGNED_FIELDS = [
+  'merchant_id',
   'access_key',
   'profile_id',
   'transaction_uuid',
@@ -19,7 +20,8 @@ const REQUIRED_SIGNED_FIELDS = [
   'bill_to_email',
   'bill_to_address_country',
   'bill_to_address_city',
-  'bill_to_address_line1'
+  'bill_to_address_line1',
+  'payment_method'
 ];
 const CYBERSOURCE_HOSTS = {
   test: 'testsecureacceptance.cybersource.com',
@@ -193,15 +195,20 @@ const validateSecureAcceptanceFields = (fields = {}) => {
     .filter((fieldName) => REQUIRED_SIGNED_FIELDS.includes(fieldName))
     .join(',');
   const hasRequiredOrderMismatch = actualRequiredOrder !== expectedRequiredOrder;
+  const hasUnsignedFieldNames = Object.prototype.hasOwnProperty.call(fields, 'unsigned_field_names');
+  const payloadFields = Object.keys(fields).filter((fieldName) => fieldName !== 'signature');
+  const unsignedPayloadFields = payloadFields.filter((fieldName) => !signedFieldNames.includes(fieldName));
   const details = {
     missing_fields: missingFields,
     missing_signed_fields: missingSignedFields,
     signed_field_count: signedFieldNames.length,
     expected_required_signed_field_order: expectedRequiredOrder,
-    actual_required_signed_field_order: actualRequiredOrder
+    actual_required_signed_field_order: actualRequiredOrder,
+    has_unsigned_field_names: hasUnsignedFieldNames,
+    unsigned_payload_fields: unsignedPayloadFields
   };
 
-  if (missingFields.length || missingSignedFields.length || hasRequiredOrderMismatch) {
+  if (missingFields.length || missingSignedFields.length || hasRequiredOrderMismatch || hasUnsignedFieldNames || unsignedPayloadFields.length) {
     return {
       ok: false,
       code: 'CAPITAL_BANK_SIGNATURE_INVALID',
@@ -341,8 +348,7 @@ const buildSecureAcceptanceFields = ({
   billToAddressCity = 'Amman',
   billToAddressCountry = 'JO',
   overrideCustomReceiptPage,
-  overrideCustomCancelPage,
-  unsignedFieldNames = ''
+  overrideCustomCancelPage
 }) => {
   if (!merchantId) throw new Error('CAPITAL_BANK_MERCHANT_ID is required');
   if (!profileId) throw new Error('CAPITAL_BANK_PROFILE_ID is required');
@@ -354,15 +360,11 @@ const buildSecureAcceptanceFields = ({
     throw new Error('Payment amount must be a positive number');
   }
 
-  const signedFieldNames = REQUIRED_SIGNED_FIELDS.join(',');
-
-  const unsignedFields = [
-    'merchant_id',
-    'payment_method',
-    ...String(unsignedFieldNames || '').split(',').map((fieldName) => fieldName.trim()).filter(Boolean),
+  const signedFieldNames = [
+    ...REQUIRED_SIGNED_FIELDS,
     ...(overrideCustomReceiptPage ? ['override_custom_receipt_page'] : []),
     ...(overrideCustomCancelPage ? ['override_custom_cancel_page'] : [])
-  ];
+  ].join(',');
 
   const fields = {
     merchant_id: String(merchantId),
@@ -370,7 +372,6 @@ const buildSecureAcceptanceFields = ({
     profile_id: String(profileId),
     transaction_uuid: String(transactionUuid),
     signed_field_names: signedFieldNames,
-    unsigned_field_names: unsignedFields.join(','),
     signed_date_time: toCyberSourceIsoDate(),
     locale: normalizeCyberSourceLocale(locale),
     transaction_type: String(transactionType || 'sale').toLowerCase(),
@@ -407,6 +408,11 @@ const buildSecureAcceptanceFields = ({
     'bill_to_address_line1'
   ];
   const missingFields = requiredFields.filter((fieldName) => !String(fields[fieldName] || '').trim());
+  const allFieldNames = Object.keys(fields);
+  const unsignedSentFields = allFieldNames.filter((fieldName) => !signedFieldNames.split(',').includes(fieldName));
+  const fieldsMissingFromPayload = signedFieldNames
+    .split(',')
+    .filter((fieldName) => !allFieldNames.includes(fieldName));
   if (missingFields.length > 0) {
     console.error('[CyberSource Secure Acceptance] Missing fields in signed payload', {
       missing_fields: missingFields,
@@ -414,6 +420,11 @@ const buildSecureAcceptanceFields = ({
       transaction_uuid: fields.transaction_uuid
     });
     throw new Error(`Missing required Secure Acceptance fields: ${missingFields.join(', ')}`);
+  }
+  if (unsignedSentFields.length > 0 || fieldsMissingFromPayload.length > 0) {
+    throw new Error(
+      `Signed field set mismatch. Unsigned sent fields: ${unsignedSentFields.join(', ') || 'none'}. Missing payload fields: ${fieldsMissingFromPayload.join(', ') || 'none'}.`
+    );
   }
 
   const { signature, dataToSign, signedFieldNames: parsedSignedFields } = signFields(fields, secretKey);
