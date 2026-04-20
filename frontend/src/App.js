@@ -159,7 +159,7 @@ function AppRoutes() {
           path="/staff"
           element={
             <ProtectedRoute staffOnly>
-              <AdminLayout><StaffPage /></AdminLayout>
+              <StaffPage />
             </ProtectedRoute>
           }
         />
@@ -167,7 +167,7 @@ function AppRoutes() {
           path="/staff/*"
           element={
             <ProtectedRoute staffOnly>
-              <AdminLayout><StaffPage /></AdminLayout>
+              <StaffPage />
             </ProtectedRoute>
           }
         />

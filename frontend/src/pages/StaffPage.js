@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Tabs, TabsContent } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import {
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
@@ -15,6 +15,8 @@ import {
   PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
   Image as ImageIcon, Bot, User
 } from 'lucide-react';
+import { DashboardLayout } from '../components/admin/DashboardLayout';
+import logoImg from '../assets/logo.png';
 
 const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   error?.response?.data?.details ||
@@ -64,7 +66,7 @@ const CAMPAIGN_FORM_INITIAL = {
 };
 
 export default function StaffPage() {
-  const { api, user, token } = useAuth();
+  const { api, user, token, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(true);
@@ -170,6 +172,71 @@ export default function StaffPage() {
     if (staffPermissions.access_whatsapp_campaigns) tabs.push('campaigns');
     return tabs;
   }, [staffPermissions]);
+
+  const navItems = useMemo(() => {
+    const items = [];
+    if (staffPermissions.access_staff_tools) {
+      items.push({
+        id: 'scanner',
+        label: 'QR Scanner',
+        icon: <QrCode className="h-4 w-4" />,
+      });
+      items.push({
+        id: 'sessions',
+        label: 'Active Sessions',
+        icon: <Clock className="h-4 w-4" />,
+        badge: activeSessions.length,
+      });
+      items.push({
+        id: 'subscriptions',
+        label: 'Subscriptions',
+        icon: <Star className="h-4 w-4" />,
+      });
+      items.push({
+        id: 'birthdays',
+        label: "Today's Parties",
+        icon: <Cake className="h-4 w-4" />,
+        badge: todayParties.length,
+      });
+    }
+    if (staffPermissions.access_whatsapp_inbox) {
+      items.push({
+        id: 'inbox',
+        label: 'Inbox',
+        icon: <MessageSquare className="h-4 w-4" />,
+        badge: inboxStats?.unread_messages || 0,
+        badgeVariant: 'danger',
+      });
+    }
+    if (staffPermissions.access_whatsapp_campaigns) {
+      items.push({
+        id: 'campaigns',
+        label: 'Campaigns',
+        icon: <Megaphone className="h-4 w-4" />,
+      });
+    }
+    return items;
+  }, [
+    staffPermissions,
+    activeSessions.length,
+    todayParties.length,
+    inboxStats?.unread_messages,
+  ]);
+
+  const handleLogout = useCallback(() => {
+    logout();
+    navigate('/staff/login');
+  }, [logout, navigate]);
+
+  const handleRefresh = useCallback(() => {
+    if (staffPermissions.access_staff_tools) {
+      fetchActiveSessions();
+      fetchPendingCheckins();
+      fetchTodayParties();
+    }
+    if (staffPermissions.access_whatsapp_inbox) fetchInboxStats();
+    if (staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
+  }, [staffPermissions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createAuthedEventSource = useCallback((path) => {
     if (!token) return null;
@@ -958,30 +1025,29 @@ export default function StaffPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 py-8">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="font-heading text-3xl font-bold" data-testid="staff-title">
-            <Users className="inline-block h-8 w-8 text-primary mr-2" />
-            Staff Panel
-          </h1>
+    <DashboardLayout
+      title="Staff Panel"
+      logoSrc={logoImg}
+      navItems={navItems}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      onLogout={handleLogout}
+      headerActions={
+        allowedTabs.length > 0 ? (
           <Button
             variant="outline"
-            onClick={() => {
-              if (staffPermissions.access_staff_tools) {
-                fetchActiveSessions();
-                fetchPendingCheckins();
-                fetchTodayParties();
-              }
-              if (staffPermissions.access_whatsapp_inbox) fetchInboxStats();
-              if (staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
-            }}
-            className="w-full rounded-full gap-2 sm:w-auto"
+            size="sm"
+            onClick={handleRefresh}
+            className="rounded-full gap-2"
+            data-testid="staff-refresh-btn"
           >
-            <RefreshCw className="h-4 w-4" /> Refresh
+            <RefreshCw className="h-4 w-4" />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
-        </div>
-
+        ) : null
+      }
+    >
+      <div className="max-w-6xl mx-auto w-full">
         {allowedTabs.length === 0 && (
           <Card className="rounded-2xl">
             <CardContent className="py-10 text-center text-muted-foreground">
@@ -992,42 +1058,6 @@ export default function StaffPage() {
 
         {allowedTabs.length > 0 && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="w-full justify-start overflow-x-auto bg-white border rounded-2xl p-1 gap-1">
-            {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="scanner" className="shrink-0 rounded-full gap-2" data-testid="tab-scanner">
-              <QrCode className="h-4 w-4" /> QR Scanner
-            </TabsTrigger>
-            )}
-            {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="sessions" className="shrink-0 rounded-full gap-2" data-testid="tab-sessions">
-              <Clock className="h-4 w-4" /> Active Sessions
-              {activeSessions.length > 0 && <Badge className="ml-1 bg-primary">{activeSessions.length}</Badge>}
-            </TabsTrigger>
-            )}
-            {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="subscriptions" className="shrink-0 rounded-full gap-2" data-testid="tab-subscriptions">
-              <Star className="h-4 w-4" /> Subscriptions
-            </TabsTrigger>
-            )}
-            {staffPermissions.access_staff_tools && (
-            <TabsTrigger value="birthdays" className="shrink-0 rounded-full gap-2" data-testid="tab-birthdays">
-              <Cake className="h-4 w-4" /> Today's Parties
-              {todayParties.length > 0 && <Badge className="ml-1 bg-accent">{todayParties.length}</Badge>}
-            </TabsTrigger>
-            )}
-            {staffPermissions.access_whatsapp_inbox && (
-            <TabsTrigger value="inbox" className="shrink-0 rounded-full gap-2" data-testid="tab-inbox">
-              <MessageSquare className="h-4 w-4" /> Inbox
-              {inboxStats?.unread_messages > 0 && <Badge className="ml-1 bg-red-500">{inboxStats.unread_messages}</Badge>}
-            </TabsTrigger>
-            )}
-            {staffPermissions.access_whatsapp_campaigns && (
-            <TabsTrigger value="campaigns" className="shrink-0 rounded-full gap-2" data-testid="tab-campaigns">
-              <Megaphone className="h-4 w-4" /> حملات
-            </TabsTrigger>
-            )}
-          </TabsList>
-
           <TabsContent value="scanner">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="rounded-2xl">
@@ -2151,6 +2181,6 @@ export default function StaffPage() {
         }
       `}</style>
       </div>
-    </div>
+    </DashboardLayout>
   );
 }

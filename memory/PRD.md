@@ -22,6 +22,9 @@
 - [x] Fix 1: Category check added to manual-bulk-send (Apr 2026)
 - [x] Fix 2: Consent check added to manual-bulk-send (Apr 2026)
 - [x] Fix 3: Staff opt-out now clears whatsapp_marketing_consent (Apr 2026)
+- [x] WhatsApp bot: typing indicator, 5s burst window, Gemini context caching, media fallback fixes, Jordanian Arabic vocab, DB readiness gate (Feb 2026)
+- [x] Staff Panel shell extraction — shared `DashboardLayout`/`Sidebar`/`Header`/`MobileNav` in `frontend/src/components/admin/`, `StaffPage` now wraps existing tabs in the new shell (Feb 2026)
 
 ## Backlog
-- None identified
+- [ ] Apply the same `DashboardLayout` shell to `AdminPage.js` (legacy, still uses Tabs + Navbar). New admin at `/app/frontend/src/pages/admin/AdminLayout.js` already uses a sidebar layout.
+- [ ] `backend/node-app/routes/adminCron.js`: when `whatsapp_followup_template_name` setting is missing, code falls back to `peekaboo_test_campaign` instead of skipping. Decide: adjust code to skip silently OR update the runbook.
