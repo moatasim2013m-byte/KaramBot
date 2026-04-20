@@ -65,6 +65,33 @@ const { bootstrapAdminUser } = require('./utils/adminBootstrap');
 const app = express();
 app.set('trust proxy', 1);
 
+const DB_NAME_ENV_KEYS = ['DB_NAME', 'MONGO_DB_NAME', 'MONGODB_DB', 'MONGO_DATABASE'];
+
+const resolveConfiguredDbName = (mongoUri) => {
+  for (const key of DB_NAME_ENV_KEYS) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return { name: value.trim(), source: `env:${key}` };
+    }
+  }
+
+  if (typeof mongoUri !== 'string' || !mongoUri.trim()) {
+    return { name: null, source: 'none' };
+  }
+
+  try {
+    const parsed = new URL(mongoUri);
+    const pathName = (parsed.pathname || '').replace(/^\/+/, '');
+    if (pathName) {
+      return { name: decodeURIComponent(pathName), source: 'mongo_url_path' };
+    }
+  } catch (error) {
+    console.warn('WARN: Failed to parse MONGO_URL for db name:', error?.message || error);
+  }
+
+  return { name: null, source: 'none' };
+};
+
 // Ignore favicon early to avoid middleware crashes
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
@@ -196,14 +223,18 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 
 app.get('/health', (req, res) => {
   const isDbConnected = mongoose?.connection?.readyState === 1;
-  const resolvedDbName = process.env.DB_NAME || mongoose?.connection?.name || null;
+  const configuredDb = resolveConfiguredDbName(process.env.MONGO_URL);
+  const connectedDbName = mongoose?.connection?.name || null;
   const resolvedDbHost = mongoose?.connection?.host || null;
 
   res.status(200).json({
     status: 'ok',
     service: 'peekaboo',
     db: isDbConnected ? 'connected' : 'disconnected',
-    db_name: resolvedDbName,
+    db_name: connectedDbName || configuredDb.name,
+    db_config_name: configuredDb.name,
+    db_config_source: configuredDb.source,
+    db_name_mismatch: Boolean(isDbConnected && configuredDb.name && connectedDbName && configuredDb.name !== connectedDbName),
     db_host: resolvedDbHost,
     ai_image_generation: {
       enabled: Boolean(process.env.GEMINI_API_KEY),
@@ -395,22 +426,28 @@ if (!hasAllRequiredVars && isProduction) {
 
 // ==================== MONGODB CONNECT ====================
 const mongoUrl = process.env.MONGO_URL;
+const configuredDb = resolveConfiguredDbName(mongoUrl);
 
 if (!mongoUrl) {
   console.error('❌ MONGO_URL is missing. App will run but DB features will NOT work.');
 } else {
   console.log('⏳ Attempting to connect to MongoDB...');
+  if (configuredDb.name) {
+    console.log(`DB_CONFIG name=${configuredDb.name} source=${configuredDb.source}`);
+  } else {
+    console.warn('WARN: No database name configured via DB_NAME/MONGO_DB_NAME/MONGODB_DB/MONGO_DATABASE or MONGO_URL path.');
+    console.warn('WARN: MongoDB driver default database may be used (often "test"), which can cause missing users/data.');
+  }
   
   const options = { serverSelectionTimeoutMS: 10000 };
-  if (process.env.DB_NAME) {
-    options.dbName = process.env.DB_NAME;
+  if (configuredDb.name) {
+    options.dbName = configuredDb.name;
   }
   
   mongoose
     .connect(mongoUrl, options)
     .then(async () => {
-      const dbName = process.env.DB_NAME || 'from URI';
-      console.log('✅ Connected to MongoDB:', dbName);
+      console.log('✅ Connected to MongoDB:', mongoose.connection.name);
       console.log('DB_CONNECTED name=' + mongoose.connection.name + ' host=' + mongoose.connection.host);
       logger.info({
         event: 'db_connected',
