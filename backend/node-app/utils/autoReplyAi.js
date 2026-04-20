@@ -281,7 +281,7 @@ const parseStrictJsonObject = (rawText) => {
   }
 };
 
-const sanitizeArabicReply = (value, maxChars) => {
+const sanitizeArabicReply = (value, maxChars, opts = {}) => {
   const safeMaxChars = Math.max(80, Number(maxChars) || 500);
   const text = String(value || '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -290,6 +290,7 @@ const sanitizeArabicReply = (value, maxChars) => {
     .slice(0, safeMaxChars);
 
   if (!text) return '';
+  if (opts.allowNonArabic) return text;
   const hasArabic = /[\u0600-\u06FF]/.test(text);
   return hasArabic ? text : '';
 };
@@ -449,10 +450,23 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       try {
         const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(audioMediaId);
+        if (!mediaUrl) {
+          console.warn('GEMINI_AUDIO_MEDIA_URL_MISSING', { audioMediaId });
+        }
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
+          if (!downloaded?.ok) {
+            console.warn('GEMINI_AUDIO_DOWNLOAD_NOT_OK', {
+              audioMediaId,
+              status: downloaded?.status ?? null,
+              error: (downloaded?.error ? String(downloaded.error).slice(0, 200) : null)
+            });
+          }
           if (downloaded.ok && downloaded.buffer) {
-            const mimeType = downloaded.contentType || 'audio/ogg';
+            // WhatsApp serves voice notes as "audio/ogg; codecs=opus"; Gemini REST
+            // rejects the codecs parameter on some revisions — strip it to the base type.
+            const rawMime = downloaded.contentType || 'audio/ogg';
+            const mimeType = String(rawMime).split(';')[0].trim() || 'audio/ogg';
             const base64Audio = downloaded.buffer.toString('base64');
             const captionText = String(userText || '').trim();
             currentTurnParts = [
@@ -666,7 +680,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       const mediaReplyText = parsed && typeof parsed === 'object' && parsed.reply_ar
         ? String(parsed.reply_ar)
         : raw.trim();
-      const plainReply = sanitizeArabicReply(mediaReplyText, maxChars);
+      const plainReply = sanitizeArabicReply(mediaReplyText, maxChars, { allowNonArabic: true });
       if (!plainReply) {
         logAutoReplyAi('WA_BOT_AI_ROUTE', {
           route: 'ai_call_failed',
