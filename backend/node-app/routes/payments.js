@@ -1069,8 +1069,7 @@ router.post('/capital-bank/initiate', authMiddleware, ensureHttpsForCapitalBank,
       amount: amount.toFixed(2),
       currency: secureAcceptance.currency,
       locale: secureAcceptance.locale,
-      signed_field_names: secureAcceptance.signed_field_names,
-      unsigned_field_names: secureAcceptance.unsigned_field_names
+      signed_field_names: secureAcceptance.signed_field_names
     });
 
     return res.status(200).json({

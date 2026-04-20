@@ -30,7 +30,22 @@ const buildStaticSystemPrompt = () => [
   '{ "in_scope": boolean, "topic": string, "confidence": number, "reply_ar": string }',
   '',
   'قاعدة تصنيف حاسمة — طبّقها قبل أي شيء آخر:',
-  'إذا الرسالة تذكر أي كلمة من هذي: اسعار، سعر، كم، اديش، قديش، ساعة، ساعتين، حجز، عيد ميلاد، حفلة، موقع، وين، فاتحين، مسكرين، ساعات، دوام، داي كير، حضانة، اشتراك، رمل، توصيل، أعمار، عمر، مرافق، جوارب، أنشطة، فعاليات، العاب، كافيه، سلايم، رضيع، طفل، بيبي، اشتراكات → in_scope=true حتماً.',
+  'إذا الرسالة تذكر أي كلمة من هذي → in_scope=true حتماً:',
+  'أسعار: اسعار، سعر، السعر، سعرها، سعره، الثمن، ثمنه، ثمنها، كم، بكم، بقديش، قديش، اديش، يعني قديش، بالقديش، بيكلف، تكلفة، التكلفة، حساب، الحساب',
+  'وقت الدخول: ساعة، الساعه، ساعه، ساعتين، الساعتين، ساعتين، ٣ساعات، ثلاث ساعات، نص ساعة، ربع ساعة، وقت، الوقت، مدة، المدة، كم ساعة، كم الوقت',
+  'دخول ولعب: دخول، الدخول، دخوليه، الدخوليه، دخولية، يدخل، تدخل، بدنا ندخل، نلعب، يلعبوا، تلعبوا، ألعاب، العاب، الالعاب، العبوا، يلعب، بيلعب، لعب، اللعب، ملاعب، ملعب',
+  'حجز: حجز، احجز، اشتري، احجزلي، بدي احجز، ابي احجز، بدنا نحجز، حابب احجز، حابة احجز، حاجز، محجوز، تذكرة، تذاكر، تيكت، تيكتات، بوك، بوكينج',
+  'عيد ميلاد وحفلات: عيد ميلاد، عيد الميلاد، عيدين، عيد، احتفال، احتفاليه، حفلة، حفله، حفلات، باكدج، باقة عيد، باقة حفله، ولادة، يوم الميلاد، كيكة، بالونات، ثيم، شخصية كرتونية، شخصيه',
+  'اشتراكات: اشتراك، الاشتراك، اشتراكات، مشترك، مشتركة، بلان، خطة، شهري، شهرية، باقة شهرية، كم الاشتراك، اشتراك شهري',
+  'داي كير وحضانة: داي كير، daycare، حضانة، الحضانة، حضانه، رعاية، رعاية يومية، اخلي طفلي، اتركه، اتركها، بيضلوا معه، بيتنافسوا، اشراف',
+  'رمل وسلايم: رمل، الرمل، ملعب رمل، منطقة الرمل، رملة، سلايم، الطين، طين لعب',
+  'أعمار وأطفال: عمر، العمر، عمره، عمرها، كم عمره، كم عمرها، اديش عمره، كم سنة، سنة، سنتين، ثلاث سنوات، أربع سنوات، ٣ سنوات، ٤ سنوات، طفل، طفلة، طفلتي، ولدي، بنتي، أطفال، اطفالنا، رضيع، بيبي، صغير، صغيرة، زغير، زغيرة',
+  'موقع ودوام: موقع، العنوان، وين، فين، كيف اجي، كيف أوصل، الطريق، المجمع، فاتحين، مسكرين، الدوام، ساعات العمل، اوقات، متى بتفتحوا، متى بتسكروا، الفتره، الوقت',
+  'مرافق وجوارب وكافيه: مرافق، مع الاهل، ينفع الاهل، يدخلوا الاهل، جوارب، شرابات، شراب، شرابه، كافيه، كافيتيريا، قهوة، اكل، وجبة، برجر، نجتس',
+  'أنشطة: نشاطات، نشاط، انشطة، فعاليات، فعالية، العاب، برنامج، شو فيها، شو عندكم، شو الانشطه، ايش عندكم',
+  'واي فاي وكاميرا: واي فاي، نت، انترنت، كاميرا، شاشات، بتراقبوا، بشوفهم',
+  'توصيل ومجموعات: توصيل، ديليفري، مدارس، رحلة مدرسية، مجموعة، جروب، مجموعات',
+  'تعابير استفسار عامة أردنية: ينفع، بينفع، مناسب، مناسبة، ممكن، لو سمحت، لو سمحتوا، بتقدروا، هل في، في عندكم، عندكم، مش عارف، ما عارف، بدي اعرف، ابي اعرف، سألني، قلت، حكيت، شو رأيك، شو رأيكم',
   'إذا الرسالة فيها تحية + سؤال: جاوب على السؤال مباشرة مع تحية قصيرة.',
   'إذا الرسالة تحية فقط: topic="greeting_social", in_scope=true.',
   `المواضيع المسموحة: ${ALLOWED_TOPICS.join(', ')}`,
@@ -69,6 +84,9 @@ const buildStaticSystemPrompt = () => [
   '• "في جوارب؟" → جاوب مباشرة',
   '• "في صور للمكان؟" → وجّه للإنستغرام أو الموقع',
   '• "اللعب بالساعه" / "بالساعة" / "كم سعر الساعة" / "سعر اللعب" / "الساعة بكم" / "قديش الساعة" → جاوب مباشرة بأسعار الدخول بالساعة من حقل pricing في البيانات الحية بدون أي سؤال متابعة.',
+  '• "كم دخوله طفل" / "بكم دخول الطفل" / "كم للطفل" / "قديش دخول الطفل" / "السعر دخول طفل" → topic="play_sessions"، جاوب مباشرة بسعر الدخول بالساعة والساعتين من pricing. لا تذكر داي كير إلا لو الزبون قالها.',
+  '• "ايش داي كير" / "شو الداي كير" / "شو هو الداي كير" / "يعني شو داي كير" → topic="daycare"، جاوب بتعريف مختصر للداي كير (رعاية يومية للأطفال بدون أهل) بدون ذكر أسعار إلا لو سأل عنها.',
+  '• "الداي كير كم" / "كم الداي كير" / "كم سعر الداي كير" / "بكم الداي كير" / "قديش الداي كير" → topic="daycare"، جاوب مباشرة بسعر الداي كير من البيانات الحية فقط، لا تخلط مع أسعار اللعب بالساعة.',
   '',
 
   // ═══ VENUE ════════════════════════════════════════════════════════════
@@ -175,7 +193,22 @@ const buildStaticSystemPrompt = () => [
   '',
 
   // ═══ MEDIA ════════════════════════════════════════════════════════════
-  'رسائل صوتية/صور/فيديو من الزبون: افهم المحتوى وجاوب بشكل طبيعي — لا تذكر إنك "سمعت" أو "شفت" رسالة وسائط.',
+  '=== فهم الرسائل الصوتية باللهجة الأردنية ===',
+  'الرسائل الصوتية غالباً باللهجة الأردنية العامية. افهم المعنى حتى لو النطق غير واضح أو الكلمات مختصرة.',
+  'أمثلة على نطق أردني شائع في الرسائل الصوتية:',
+  '• "قديش الساعه" = كم سعر الساعة',
+  '• "بكم الدخول" = كم سعر الدخول',
+  '• "في عندكم حضانه" = هل عندكم داي كير',
+  '• "بتقبلوا زغار" = هل تقبلون أطفال صغار',
+  '• "كيفاش احجز" = كيف أحجز',
+  '• "وين بالضبط" = أين موقعكم',
+  '• "شو في عندكم" = ماذا عندكم من خدمات',
+  '• "مناسب لطفل عمره سنتين" = هل مناسب لطفل عمره سنتين',
+  '• "بكم العيد" أو "بكم الحفله" = كم تكلف حفلة عيد الميلاد',
+  '• "الاشتراك بكم" = كم سعر الاشتراك',
+  'إذا الكلام غير واضح جزئياً في الرسالة الصوتية: اعمل على المعنى الأقرب وجاوب، لا تطلب إعادة الكتابة إلا لو ما فهمت شي أبداً.',
+  'لا تقول "ما فهمت رسالتك" إلا آخر خيار — حاول دائماً تفسير المعنى الأقرب للسياق وبيكابو.',
+  'رسائل صوتية/صور/فيديو: لا تذكر إنك "سمعت" أو "شفت" رسالة وسائط — رد مباشرة على المحتوى.',
   '',
 
   // ═══ SPECIAL SERVICES ═════════════════════════════════════════════════
@@ -278,7 +311,7 @@ const parseStrictJsonObject = (rawText) => {
   }
 };
 
-const sanitizeArabicReply = (value, maxChars) => {
+const sanitizeArabicReply = (value, maxChars, opts = {}) => {
   const safeMaxChars = Math.max(80, Number(maxChars) || 500);
   const text = String(value || '')
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -287,6 +320,7 @@ const sanitizeArabicReply = (value, maxChars) => {
     .slice(0, safeMaxChars);
 
   if (!text) return '';
+  if (opts.allowNonArabic) return text;
   const hasArabic = /[\u0600-\u06FF]/.test(text);
   return hasArabic ? text : '';
 };
@@ -446,10 +480,23 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       try {
         const _perfMediaStart = Date.now();
         const mediaUrl = await getMetaMediaUrl(audioMediaId);
+        if (!mediaUrl) {
+          console.warn('GEMINI_AUDIO_MEDIA_URL_MISSING', { audioMediaId });
+        }
         if (mediaUrl) {
           const downloaded = await downloadMetaMedia(mediaUrl);
+          if (!downloaded?.ok) {
+            console.warn('GEMINI_AUDIO_DOWNLOAD_NOT_OK', {
+              audioMediaId,
+              status: downloaded?.status ?? null,
+              error: (downloaded?.error ? String(downloaded.error).slice(0, 200) : null)
+            });
+          }
           if (downloaded.ok && downloaded.buffer) {
-            const mimeType = downloaded.contentType || 'audio/ogg';
+            // WhatsApp serves voice notes as "audio/ogg; codecs=opus"; Gemini REST
+            // rejects the codecs parameter on some revisions — strip it to the base type.
+            const rawMime = downloaded.contentType || 'audio/ogg';
+            const mimeType = String(rawMime).split(';')[0].trim() || 'audio/ogg';
             const base64Audio = downloaded.buffer.toString('base64');
             const captionText = String(userText || '').trim();
             currentTurnParts = [
@@ -685,8 +732,15 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     let inScope, topic, confidence, replyAr;
 
     if (isMediaCall) {
-      // Media calls return plain text — treat the whole response as the Arabic reply
-      const plainReply = sanitizeArabicReply(raw.trim(), maxChars);
+      // Even with responseMimeType disabled for media calls, Gemini usually still
+      // returns a JSON-shaped string because the static prompt explicitly instructs
+      // JSON format. Try to parse and extract reply_ar so we never leak raw JSON
+      // to the customer; only if parsing fails, treat the raw response as plain Arabic.
+      const parsed = parseStrictJsonObject(raw);
+      const mediaReplyText = parsed && typeof parsed === 'object' && parsed.reply_ar
+        ? String(parsed.reply_ar)
+        : raw.trim();
+      const plainReply = sanitizeArabicReply(mediaReplyText, maxChars, { allowNonArabic: true });
       if (!plainReply) {
         logAutoReplyAi('WA_BOT_AI_ROUTE', {
           route: 'ai_call_failed',
@@ -695,7 +749,8 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
         return null;
       }
       inScope = true;
-      topic = 'general';
+      const parsedTopic = parsed && typeof parsed === 'object' ? String(parsed.topic || '').trim() : '';
+      topic = ALLOWED_TOPICS.includes(parsedTopic) ? parsedTopic : 'general';
       confidence = 0.9;
       replyAr = plainReply;
     } else {

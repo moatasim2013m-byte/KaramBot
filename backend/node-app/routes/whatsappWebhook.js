@@ -270,6 +270,21 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
       is_replied: false
     };
 
+    // Bail out cleanly if DB isn't ready — avoids the 10s mongoose buffering
+    // timeout on whatsappmessages.updateOne, and prevents the downstream
+    // auto-reply (which also issues DB operations) from hanging on the same
+    // disconnected connection. Meta will not retry on our side; the inbound
+    // message is skipped with a clear log so ops can correlate.
+    if (mongoose?.connection?.readyState !== 1) {
+      console.warn('WHATSAPP_MESSAGE_PERSIST_DB_NOT_READY', {
+        dbReadyState: mongoose?.connection?.readyState,
+        messageId,
+        senderWaId,
+        messageType
+      });
+      return;
+    }
+
     // Atomic duplicate protection by message_id
     const result = await WhatsAppMessage.updateOne(
       { message_id: messageId },
