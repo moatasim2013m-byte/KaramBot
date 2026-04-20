@@ -606,7 +606,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
                 temperature: 0,
                 topP: 0.8,
                 maxOutputTokens: 180,
-                responseMimeType: 'application/json'
+                ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
           }
@@ -627,7 +627,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
                 temperature: 0,
                 topP: 0.8,
                 maxOutputTokens: 180,
-                responseMimeType: 'application/json'
+                ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
           }
@@ -651,25 +651,45 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
     const payload = await response.json();
     const raw = payload?.candidates?.[0]?.content?.parts?.map((part) => part?.text || '').join('\n') || '';
-    const parsed = parseStrictJsonObject(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      logAutoReplyAi('WA_BOT_AI_ROUTE', {
-        route: 'ai_call_failed',
-        reason: 'invalid_json_payload'
-      });
-      return null;
-    }
 
-    const topicRaw = String(parsed.topic || '').trim();
-    const topic = ALLOWED_TOPICS.includes(topicRaw) || topicRaw === OUT_OF_SCOPE_TOPIC
-      ? topicRaw
-      : OUT_OF_SCOPE_TOPIC;
-    const confidenceNumber = Number(parsed.confidence);
-    const confidence = Number.isFinite(confidenceNumber)
-      ? Math.max(0, Math.min(1, confidenceNumber))
-      : 0;
-    const inScope = parsed.in_scope === true && ALLOWED_TOPICS.includes(topic);
-    const replyAr = sanitizeArabicReply(parsed.reply_ar, maxChars);
+    let inScope, topic, confidence, replyAr;
+
+    if (isMediaCall) {
+      // Media calls return plain text — treat the whole response as the Arabic reply
+      const plainReply = sanitizeArabicReply(raw.trim(), maxChars);
+      if (!plainReply) {
+        logAutoReplyAi('WA_BOT_AI_ROUTE', {
+          route: 'ai_call_failed',
+          reason: 'empty_media_reply'
+        });
+        return null;
+      }
+      inScope = true;
+      topic = 'general';
+      confidence = 0.9;
+      replyAr = plainReply;
+    } else {
+      // Text calls return JSON
+      const parsed = parseStrictJsonObject(raw);
+      if (!parsed || typeof parsed !== 'object') {
+        logAutoReplyAi('WA_BOT_AI_ROUTE', {
+          route: 'ai_call_failed',
+          reason: 'invalid_json_payload',
+          rawSnippet: raw.slice(0, 100)
+        });
+        return null;
+      }
+      const topicRaw = String(parsed.topic || '').trim();
+      topic = ALLOWED_TOPICS.includes(topicRaw) || topicRaw === OUT_OF_SCOPE_TOPIC
+        ? topicRaw
+        : OUT_OF_SCOPE_TOPIC;
+      const confidenceNumber = Number(parsed.confidence);
+      confidence = Number.isFinite(confidenceNumber)
+        ? Math.max(0, Math.min(1, confidenceNumber))
+        : 0;
+      inScope = parsed.in_scope === true && ALLOWED_TOPICS.includes(topic);
+      replyAr = sanitizeArabicReply(parsed.reply_ar, maxChars);
+    }
 
     const result = {
       in_scope: inScope,
