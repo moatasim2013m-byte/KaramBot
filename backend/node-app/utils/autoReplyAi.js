@@ -69,6 +69,9 @@ const buildStaticSystemPrompt = () => [
   '• "في جوارب؟" → جاوب مباشرة',
   '• "في صور للمكان؟" → وجّه للإنستغرام أو الموقع',
   '• "اللعب بالساعه" / "بالساعة" / "كم سعر الساعة" / "سعر اللعب" / "الساعة بكم" / "قديش الساعة" → جاوب مباشرة بأسعار الدخول بالساعة من حقل pricing في البيانات الحية بدون أي سؤال متابعة.',
+  '• "كم دخوله طفل" / "بكم دخول الطفل" / "كم للطفل" / "قديش دخول الطفل" / "السعر دخول طفل" → topic="play_sessions"، جاوب مباشرة بسعر الدخول بالساعة والساعتين من pricing. لا تذكر داي كير إلا لو الزبون قالها.',
+  '• "ايش داي كير" / "شو الداي كير" / "شو هو الداي كير" / "يعني شو داي كير" → topic="daycare"، جاوب بتعريف مختصر للداي كير (رعاية يومية للأطفال بدون أهل) بدون ذكر أسعار إلا لو سأل عنها.',
+  '• "الداي كير كم" / "كم الداي كير" / "كم سعر الداي كير" / "بكم الداي كير" / "قديش الداي كير" → topic="daycare"، جاوب مباشرة بسعر الداي كير من البيانات الحية فقط، لا تخلط مع أسعار اللعب بالساعة.',
   '',
 
   // ═══ VENUE ════════════════════════════════════════════════════════════
@@ -685,8 +688,15 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     let inScope, topic, confidence, replyAr;
 
     if (isMediaCall) {
-      // Media calls return plain text — treat the whole response as the Arabic reply
-      const plainReply = sanitizeArabicReply(raw.trim(), maxChars);
+      // Even with responseMimeType disabled for media calls, Gemini usually still
+      // returns a JSON-shaped string because the static prompt explicitly instructs
+      // JSON format. Try to parse and extract reply_ar so we never leak raw JSON
+      // to the customer; only if parsing fails, treat the raw response as plain Arabic.
+      const parsed = parseStrictJsonObject(raw);
+      const mediaReplyText = parsed && typeof parsed === 'object' && parsed.reply_ar
+        ? String(parsed.reply_ar)
+        : raw.trim();
+      const plainReply = sanitizeArabicReply(mediaReplyText, maxChars);
       if (!plainReply) {
         logAutoReplyAi('WA_BOT_AI_ROUTE', {
           route: 'ai_call_failed',
@@ -695,7 +705,8 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
         return null;
       }
       inScope = true;
-      topic = 'general';
+      const parsedTopic = parsed && typeof parsed === 'object' ? String(parsed.topic || '').trim() : '';
+      topic = ALLOWED_TOPICS.includes(parsedTopic) ? parsedTopic : 'general';
       confidence = 0.9;
       replyAr = plainReply;
     } else {
