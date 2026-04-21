@@ -247,7 +247,7 @@ let _geminiCacheExpiry = 0;
 const GEMINI_CACHE_TTL_SECONDS = 3600; // 1 hour — matches static prompt rebuild interval
 
 const createOrRefreshGeminiCache = async () => {
-  // Cache route temporarily disabled due instability.
+  // Cache route temporarily disabled due to instability.
   return null;
 };
 
