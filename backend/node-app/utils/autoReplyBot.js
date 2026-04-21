@@ -1303,7 +1303,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     let matchedKey;
 
     // ─── STEP 1: Greeting-only → instant intro reply ──────────────────────
-    if (greetingOnly && greetingOpening && !config.useAiFallback) {
+    if (greetingOnly && greetingOpening) {
       replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
       matchedKey = 'intro';
 
