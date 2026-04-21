@@ -14,23 +14,13 @@ steps:
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
     entrypoint: gcloud
     args:
-      - 'projects'
-      - 'add-iam-policy-binding'
-      - '$PROJECT_ID'
-      - '--member=serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}'
-      - '--role=roles/secretmanager.secretAccessor'
-      - '--quiet'
-
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
-    entrypoint: gcloud
-    args:
       - 'run'
       - 'deploy'
       - '${_SERVICE_NAME}'
       - '--image=gcr.io/$PROJECT_ID/peekaboo:$SHORT_SHA'
       - '--region=${_REGION}'
       - '--platform=managed'
-      - '--service-account=${_RUNTIME_SERVICE_ACCOUNT}'
+      - '--service-account=peekaboo-indoor-playground@$PROJECT_ID.iam.gserviceaccount.com'
       - '--update-env-vars=NODE_ENV=production,DB_NAME=${_DB_NAME},GCS_BUCKET_NAME=${_GCS_BUCKET_NAME}'
       - '--update-secrets=MONGO_URL=MONGO_URL:latest,JWT_SECRET=JWT_SECRET:latest'
       - '--quiet'
@@ -40,7 +30,6 @@ images:
 
 substitutions:
   _SERVICE_NAME: 'peekaboo-indoor-playground'
-  _RUNTIME_SERVICE_ACCOUNT: 'peekaboo-indoor-playground@$PROJECT_ID.iam.gserviceaccount.com'
   _REGION: 'us-west1'
   _DB_NAME: 'peekaboo'
   _GCS_BUCKET_NAME: 'peekaboo-uploads'
