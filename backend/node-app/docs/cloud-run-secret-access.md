@@ -15,13 +15,23 @@ From repo root:
 backend/node-app/scripts/grant-cloud-run-secret-access.sh gen-lang-client-0086895721
 ```
 
-Or with an explicit service account:
+Or with explicit service account/service/region:
 
 ```bash
 backend/node-app/scripts/grant-cloud-run-secret-access.sh \
   gen-lang-client-0086895721 \
-  peekaboo-indoor-playground@gen-lang-client-0086895721.iam.gserviceaccount.com
+  peekaboo-indoor-playground@gen-lang-client-0086895721.iam.gserviceaccount.com \
+  peekaboo-indoor-playground \
+  us-west1
 ```
+
+The script grants access to:
+
+- a maintained baseline list of required secrets, and
+- any secret references currently configured on the Cloud Run service
+  (`spec.template.spec.containers[0].env[].valueSource.secretKeyRef.secret`).
+
+This helps when new secret env vars are added over time and avoids missing IAM bindings during deploy.
 
 ## Verify a single secret binding
 
