@@ -247,6 +247,8 @@ let _geminiCacheExpiry = 0;
 const GEMINI_CACHE_TTL_SECONDS = 3600; // 1 hour — matches static prompt rebuild interval
 
 const createOrRefreshGeminiCache = async () => {
+  return null;
+
   const now = Date.now();
   // Return existing cache if still valid (with 5 minute buffer before expiry)
   if (_geminiCacheName && now < _geminiCacheExpiry - 5 * 60 * 1000) {
