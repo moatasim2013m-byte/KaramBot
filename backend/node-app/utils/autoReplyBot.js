@@ -261,10 +261,8 @@ const removeLeadingDuplicateGreeting = ({ greetingOpening, replyText }) => {
 const buildGreetingOnlyIntroReply = ({ opening, footer }) =>
   [
     opening,
-    'أهلاً في بيكابو 💛',
-    '🎠 ملعب داخلي في إربد: المنطقة الرئيسية لعمر 1-10 سنوات، والداي كير لعمر 1-4 سنوات.',
-    'كيف نقدر نساعدك؟ ارسلي: أسعار | داي كير | أعمار | حجز | عيد ميلاد | عروض.',
-    '📞 عام: 0777775652 | مدارس/أعياد: 0799241993',
+    'معك شرومي 🍄 مساعدك في بيكابو! كيف بقدر أخدمك؟ 💛',
+    'ارسل/ي: أسعار | داي كير | عيد ميلاد | حجز | أعمار | موقع',
     footer
   ].filter(Boolean).join('\n');
 
@@ -1438,8 +1436,15 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         );
 
         if (aiReplyAllowed) {
-          replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
-          matchedKey = 'ai_primary';
+          // If Gemini identified this as a greeting (including voice note greetings),
+          // use Shroomi intro reply instead of Gemini's generic greeting
+          if (aiResult.topic === 'greeting_social') {
+            replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
+            matchedKey = 'intro';
+          } else {
+            replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
+            matchedKey = 'ai_primary';
+          }
           logRoutingDecision({
             messageId,
             senderWaId: normalizedWaId,
