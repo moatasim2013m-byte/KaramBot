@@ -247,57 +247,8 @@ let _geminiCacheExpiry = 0;
 const GEMINI_CACHE_TTL_SECONDS = 3600; // 1 hour — matches static prompt rebuild interval
 
 const createOrRefreshGeminiCache = async () => {
+  // Cache route temporarily disabled due instability.
   return null;
-
-  const now = Date.now();
-  // Return existing cache if still valid (with 5 minute buffer before expiry)
-  if (_geminiCacheName && now < _geminiCacheExpiry - 5 * 60 * 1000) {
-    return _geminiCacheName;
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const staticPrompt = getStaticPrompt();
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: `models/${TEXT_MODEL}`,
-          system_instruction: {
-            parts: [{ text: staticPrompt }]
-          },
-          contents: [],
-          ttl: `${GEMINI_CACHE_TTL_SECONDS}s`
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      console.warn('GEMINI_CACHE_CREATE_FAILED', { status: response.status, error: errText.slice(0, 200) });
-      return null;
-    }
-
-    const data = await response.json();
-    const cacheName = data?.name;
-
-    if (!cacheName) {
-      console.warn('GEMINI_CACHE_NO_NAME', { response: JSON.stringify(data).slice(0, 200) });
-      return null;
-    }
-
-    _geminiCacheName = cacheName;
-    _geminiCacheExpiry = now + GEMINI_CACHE_TTL_SECONDS * 1000;
-    console.log('GEMINI_CACHE_CREATED', { cacheName, expiresIn: `${GEMINI_CACHE_TTL_SECONDS}s` });
-    return cacheName;
-  } catch (err) {
-    console.warn('GEMINI_CACHE_CREATE_ERROR', err?.message || err);
-    return null;
-  }
 };
 
 const parseStrictJsonObject = (rawText) => {
