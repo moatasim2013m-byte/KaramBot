@@ -69,6 +69,16 @@ const DEFAULT_CONFIG = {
   aiMaxReplyChars: 500
 };
 
+const normalizeBoolean = (value, fallback) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
+
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
 const BURST_WINDOW_SECONDS = 5;
@@ -599,7 +609,7 @@ const loadAutoReplyConfig = async () => {
     ...value,
     enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
-    useAiFallback: Boolean(value?.useAiFallback),
+    useAiFallback: normalizeBoolean(value?.useAiFallback, DEFAULT_CONFIG.useAiFallback),
     aiConfidenceThreshold: Math.min(
       1,
       Math.max(0, Number(value?.aiConfidenceThreshold ?? DEFAULT_CONFIG.aiConfidenceThreshold))
@@ -1457,22 +1467,27 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         );
 
         if (aiReplyAllowed) {
-          // If Gemini identified this as a greeting (including voice note greetings),
-          // use Shroomi intro reply instead of Gemini's generic greeting
+          // Voice note or text that Gemini classified as greeting → use Shroomi intro
           if (aiResult.topic === 'greeting_social') {
             replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
             matchedKey = 'intro';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_greeting_intercepted',
+              aiTopic: 'greeting_social'
+            });
           } else {
             replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
             matchedKey = 'ai_primary';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_primary_used',
+              aiTopic: aiResult.topic || 'unknown',
+              aiConfidence: aiResult.confidence
+            });
           }
-          logRoutingDecision({
-            messageId,
-            senderWaId: normalizedWaId,
-            route: 'ai_primary_used',
-            aiTopic: aiResult.topic || 'unknown',
-            aiConfidence: aiResult.confidence
-          });
         } else {
           // Audio and image messages are always in-domain — force use Gemini reply if available
           const isMediaMessage = messageType === 'audio' || messageType === 'image' || messageType === 'video';
