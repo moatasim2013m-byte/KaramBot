@@ -171,14 +171,20 @@ const normalizeArabicDigits = (value) =>
   String(value || '').replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632));
 
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
+const MAX_SUPPORTED_CHILD_COUNT = 200;
+const BIRTHDAY_PACKAGE_INCLUDED_CHILDREN = 10;
+const BIRTHDAY_EXTRA_CHILD_PRICE = 7;
+const BIRTHDAY_BASIC_BASE_PRICE = 90;
+const BIRTHDAY_PREMIUM_BASE_PRICE = 150;
+const BIRTHDAY_PLATINUM_BASE_PRICE = 250;
 
 const extractChildCount = (textBody) => {
   const withNormalizedDigits = normalizeArabicDigits(textBody);
-  const numericMatch = withNormalizedDigits.match(/\b(\d{1,3})\b/);
+  const numericMatch = withNormalizedDigits.match(/(\d{1,3})/);
   if (!numericMatch) return null;
 
   const count = Number(numericMatch[1]);
-  if (!Number.isInteger(count) || count <= 0 || count > 200) return null;
+  if (!Number.isInteger(count) || count <= 0 || count > MAX_SUPPORTED_CHILD_COUNT) return null;
   return count;
 };
 
@@ -194,14 +200,14 @@ const isBirthdayChildCountFollowUp = (lastBotReplyText, userText) => {
 };
 
 const buildBirthdayChildCountReply = (childCount) => {
-  const extraKids = Math.max(0, childCount - 10);
-  const extraCost = extraKids * 7;
-  const basicTotal = 90 + extraCost;
-  const premiumTotal = 150 + extraCost;
-  const platinumTotal = 250 + extraCost;
+  const extraKids = Math.max(0, childCount - BIRTHDAY_PACKAGE_INCLUDED_CHILDREN);
+  const extraCost = extraKids * BIRTHDAY_EXTRA_CHILD_PRICE;
+  const basicTotal = BIRTHDAY_BASIC_BASE_PRICE + extraCost;
+  const premiumTotal = BIRTHDAY_PREMIUM_BASE_PRICE + extraCost;
+  const platinumTotal = BIRTHDAY_PLATINUM_BASE_PRICE + extraCost;
 
   return [
-    `ممتاز 💛 بما إنه العدد ${childCount} طفل${extraKids > 0 ? ` (في ${extraKids} أطفال إضافيين × 7 د)` : ''}، هاي تكلفة الباقات:`,
+    `ممتاز 💛 بما أن العدد ${childCount} طفل${extraKids > 0 ? ` (فيهم ${extraKids} أطفال إضافيين × ${BIRTHDAY_EXTRA_CHILD_PRICE} د)` : ''}، هاي تكلفة الباقات:`,
     `🎂 الأساسية: ${basicTotal} د`,
     `🎂 المميزة: ${premiumTotal} د`,
     `🎂 البلاتينية: ${platinumTotal} د`,
@@ -1453,9 +1459,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
             route: 'birthday_child_count_followup',
             childCount: birthdayChildCount
           });
-        }
-
-        if (!replyText && hasBookingIntent(aiUserText, bookingState)) {
+        } else if (hasBookingIntent(aiUserText, bookingState)) {
           const bookingContents = conversationHistory
             .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
           bookingContents.push({ role: 'user', parts: [{ text: aiUserText }] });
