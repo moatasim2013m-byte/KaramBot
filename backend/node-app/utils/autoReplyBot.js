@@ -598,11 +598,8 @@ const keywordMap = [
 
 const loadAutoReplyConfig = async () => {
   const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
-  const legacyEnabledSetting = await Settings.findOne({ key: 'whatsapp_auto_reply_enabled' }).lean();
   const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
-  const legacyEnabled = normalizeBoolean(legacyEnabledSetting?.value, undefined);
-  const enabledFromConfig = normalizeBoolean(value?.enabled, undefined);
-  const enabled = typeof enabledFromConfig === 'boolean' ? enabledFromConfig : Boolean(legacyEnabled);
+  const enabled = normalizeBoolean(value?.enabled, DEFAULT_CONFIG.enabled);
 
   return {
     ...DEFAULT_CONFIG,
