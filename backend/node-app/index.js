@@ -65,7 +65,16 @@ const { bootstrapAdminUser } = require('./utils/adminBootstrap');
 const app = express();
 app.set('trust proxy', 1);
 
-const DB_NAME_ENV_KEYS = ['DB_NAME', 'MONGO_DB_NAME', 'MONGODB_DB', 'MONGO_DATABASE'];
+const DB_NAME_ENV_KEYS = [
+  'DB_NAME',
+  'DATABASE_NAME',
+  'DB',
+  'MONGO_DB_NAME',
+  'MONGODB_DB_NAME',
+  'MONGODB_DB',
+  'MONGO_DATABASE',
+  'MONGO_DATABASE_NAME'
+];
 const MONGO_URL_ENV_KEYS = ['MONGO_URL', 'MONGODB_URI', 'MONGO_URI', 'DATABASE_URL'];
 
 const resolveMongoUrl = () => {
