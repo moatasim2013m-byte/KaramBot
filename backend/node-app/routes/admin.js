@@ -1482,6 +1482,15 @@ router.delete('/customers/:id/children/:childId', async (req, res) => {
 
 
 // ==================== WHATSAPP AUTO REPLY ====================
+const normalizeBoolean = (value, fallback) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
 
 router.get('/whatsapp-auto-reply', async (req, res) => {
   try {
@@ -1503,7 +1512,7 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
       config: {
         ...defaults,
         ...value,
-        enabled: Boolean(value.enabled),
+        enabled: normalizeBoolean(value.enabled, defaults.enabled),
         cooldownMinutes: Math.max(1, Number(value.cooldownMinutes || defaults.cooldownMinutes)),
         useAiFallback:
           typeof value.useAiFallback === 'boolean' ? value.useAiFallback : defaults.useAiFallback,
@@ -1525,11 +1534,11 @@ router.put('/whatsapp-auto-reply', async (req, res) => {
     const payload = req.body || {};
 
     const nextConfig = {
-      enabled: Boolean(payload.enabled),
+      enabled: normalizeBoolean(payload.enabled, false),
       cooldownMinutes: Math.max(1, Number(payload.cooldownMinutes || 30)),
       footer: String(payload.footer || '').trim(),
       fallbackReply: String(payload.fallbackReply || '').trim(),
-      useAiFallback: typeof payload.useAiFallback === 'boolean' ? payload.useAiFallback : true,
+      useAiFallback: normalizeBoolean(payload.useAiFallback, true),
       aiConfidenceThreshold: Math.min(1, Math.max(0, Number(payload.aiConfidenceThreshold ?? 0.7))),
       aiMaxReplyChars: Math.max(50, Number(payload.aiMaxReplyChars || 500))
     };
