@@ -176,7 +176,7 @@ const BIRTHDAY_PACKAGE_INCLUDED_CHILDREN = 10;
 const BIRTHDAY_EXTRA_CHILD_PRICE = 7;
 const BIRTHDAY_BASIC_BASE_PRICE = 90;
 const BIRTHDAY_PREMIUM_BASE_PRICE = 150;
-const BIRTHDAY_PLATINUM_BASE_PRICE = 250;
+const BIRTHDAY_VIP_BASE_PRICE = 250;
 
 const extractChildCount = (textBody) => {
   const withNormalizedDigits = normalizeArabicDigits(textBody);
@@ -204,13 +204,13 @@ const buildBirthdayChildCountReply = (childCount) => {
   const extraCost = extraKids * BIRTHDAY_EXTRA_CHILD_PRICE;
   const basicTotal = BIRTHDAY_BASIC_BASE_PRICE + extraCost;
   const premiumTotal = BIRTHDAY_PREMIUM_BASE_PRICE + extraCost;
-  const platinumTotal = BIRTHDAY_PLATINUM_BASE_PRICE + extraCost;
+  const vipTotal = BIRTHDAY_VIP_BASE_PRICE + extraCost;
 
   return [
     `ممتاز 💛 بما أن العدد ${childCount} طفل${extraKids > 0 ? ` (فيهم ${extraKids} أطفال إضافيين × ${BIRTHDAY_EXTRA_CHILD_PRICE} د)` : ''}، هاي تكلفة الباقات:`,
-    `🎂 الأساسية: ${basicTotal} د`,
-    `🎂 المميزة: ${premiumTotal} د`,
-    `🎂 البلاتينية: ${platinumTotal} د`,
+    `🎂 Basic: ${basicTotal} د`,
+    `🎂 Premium: ${premiumTotal} د`,
+    `🎂 VIP: ${vipTotal} د`,
     'إذا حابة نكمل الحجز، ابعتي اليوم والتوقيت المناسبين 🎉'
   ].join('\n');
 };
