@@ -599,7 +599,10 @@ const keywordMap = [
 const loadAutoReplyConfig = async () => {
   const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
   const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
-  const enabled = normalizeBoolean(value?.enabled, DEFAULT_CONFIG.enabled);
+
+  // whatsapp_auto_reply_config.enabled is the single source of truth.
+  // Legacy whatsapp_auto_reply_enabled key is ignored — admin panel controls the new config.
+  const enabled = typeof value?.enabled === 'boolean' ? value.enabled : false;
 
   return {
     ...DEFAULT_CONFIG,
@@ -1374,6 +1377,28 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
 
         // Check for booking intent — use tool-calling Gemini path
         const bookingState = getBookingState(normalizedWaId);
+
+        // Check if last bot reply was a booking question — force follow-up into booking flow
+        const lastBotReply = await WhatsAppMessage.findOne({
+          sender_wa_id: normalizedWaId,
+          direction: 'outbound',
+          platform: 'whatsapp',
+          'raw_payload.auto_reply': true
+        }).sort({ timestamp: -1 }).lean();
+        const lastMatchedKey = lastBotReply?.raw_payload?.matched_key || '';
+        const lastWasBookingQuestion = lastMatchedKey.includes('booking') || lastMatchedKey === 'ai_booking';
+
+        if (lastWasBookingQuestion && !bookingState.step) {
+          // Bot asked a booking choice question — treat any short reply as booking follow-up
+          bookingState.step = 'service_choice';
+          console.log('BOOKING_FOLLOWUP_FORCED', {
+            messageId,
+            senderWaId: normalizedWaId,
+            lastMatchedKey,
+            aiUserText: aiUserText.slice(0, 50)
+          });
+        }
+
         if (hasBookingIntent(aiUserText, bookingState)) {
           const bookingContents = conversationHistory
             .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
