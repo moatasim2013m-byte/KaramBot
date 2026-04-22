@@ -20,6 +20,7 @@ const ALLOWED_TOPICS = [
 ];
 const OUT_OF_SCOPE_TOPIC = 'out_of_scope';
 const MAX_MODEL_JSON_CHARS = 4000;
+const MEDIA_SAFE_FALLBACK_REPLY = 'وصلتنا رسالتك الصوتية 💛 ممكن توضحي طلبك بكلمات قليلة أو تعيدي إرسالها؟';
 const logAutoReplyAi = (event, payload = {}) => {
   console.log(event, payload);
 };
@@ -308,6 +309,15 @@ const parseStrictJsonObject = (rawText) => {
   } catch (error) {
     return null;
   }
+};
+
+const looksLikeStructuredPayload = (rawText) => {
+  const text = String(rawText || '').trim();
+  if (!text) return false;
+  if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+    return true;
+  }
+  return /"[^"]+"\s*:/.test(text);
 };
 
 const sanitizeArabicReply = (value, maxChars, opts = {}) => {
@@ -734,24 +744,33 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       // Even with responseMimeType disabled for media calls, Gemini usually still
       // returns a JSON-shaped string because the static prompt explicitly instructs
       // JSON format. Try to parse and extract reply_ar so we never leak raw JSON
-      // to the customer; only if parsing fails, treat the raw response as plain Arabic.
+      // to the customer; if a structured payload is returned without safe reply_ar,
+      // block it and use a safe Arabic fallback.
       const parsed = parseStrictJsonObject(raw);
-      const mediaReplyText = parsed && typeof parsed === 'object' && parsed.reply_ar
+      const rawTrimmed = String(raw || '').trim();
+      const parsedReply = parsed && typeof parsed === 'object' && parsed.reply_ar
         ? String(parsed.reply_ar)
-        : raw.trim();
+        : '';
+      const shouldBlockStructuredRaw = !parsedReply && looksLikeStructuredPayload(rawTrimmed);
+      if (shouldBlockStructuredRaw) {
+        console.warn('GEMINI_MEDIA_STRUCTURED_PAYLOAD_BLOCKED', {
+          rawSnippet: rawTrimmed.slice(0, 120)
+        });
+      }
+      const mediaReplyText = parsedReply || (shouldBlockStructuredRaw ? MEDIA_SAFE_FALLBACK_REPLY : rawTrimmed);
       const plainReply = sanitizeArabicReply(mediaReplyText, maxChars, { allowNonArabic: true });
       if (!plainReply) {
-        logAutoReplyAi('WA_BOT_AI_ROUTE', {
-          route: 'ai_call_failed',
-          reason: 'empty_media_reply'
-        });
-        return null;
+        inScope = true;
+        topic = 'general';
+        confidence = 0.9;
+        replyAr = MEDIA_SAFE_FALLBACK_REPLY;
+      } else {
+        inScope = true;
+        const parsedTopic = parsed && typeof parsed === 'object' ? String(parsed.topic || '').trim() : '';
+        topic = ALLOWED_TOPICS.includes(parsedTopic) ? parsedTopic : 'general';
+        confidence = 0.9;
+        replyAr = plainReply;
       }
-      inScope = true;
-      const parsedTopic = parsed && typeof parsed === 'object' ? String(parsed.topic || '').trim() : '';
-      topic = ALLOWED_TOPICS.includes(parsedTopic) ? parsedTopic : 'general';
-      confidence = 0.9;
-      replyAr = plainReply;
     } else {
       // Text calls return JSON
       const parsed = parseStrictJsonObject(raw);
