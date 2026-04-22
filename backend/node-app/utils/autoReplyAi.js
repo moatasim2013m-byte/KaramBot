@@ -760,7 +760,20 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
 const { checkAvailability, findOrMatchChild, createWhatsAppBooking } = require('./whatsappBookingService');
 
-const BOOKING_KEYWORDS = ['احجز', 'حجز', 'اجلس', 'اشترك', 'ساعة', 'ساعتين', 'موعد', 'book', 'slot', 'reserve', 'أكد', 'اكد', 'نعم', 'تمام', 'ايوا', 'اي'];
+const BOOKING_KEYWORDS = [
+  // Core booking intent
+  'احجز', 'حجز', 'اجلس', 'اشترك', 'موعد', 'book', 'slot', 'reserve', 'أكد', 'اكد',
+  // Confirmation words
+  'نعم', 'تمام', 'ايوا', 'اي', 'يلا', 'موافق', 'صح', 'اوك', 'ok', 'okay',
+  // Hourly play follow-ups (short answers to "دخول ولا عيد ميلاد؟")
+  'بالساعة', 'بالساعه', 'الساعه', 'ساعة', 'ساعتين', 'ساعه', 'دخول', 'لعب', 'اللعب', 'باللعب', 'العب',
+  // Birthday follow-ups
+  'عيد ميلاد', 'عيد', 'حفلة', 'حفله', 'ميلاد', 'عيدين',
+  // Date/time follow-ups
+  'بكرا', 'اليوم', 'الجمعة', 'السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس',
+  // Number follow-ups (child count, hours)
+  'واحد', 'اثنين', 'ثلاثة', 'اربعة', 'خمسة', '١', '٢', '٣', '٤', '٥', '1', '2', '3', '4', '5'
+];
 
 const BOOKING_TOOLS = [
   {
