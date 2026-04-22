@@ -166,10 +166,10 @@ const buildStaticSystemPrompt = () => [
 
   // ═══ BIRTHDAY ═════════════════════════════════════════════════════════
   '=== أعياد الميلاد ===',
-  '🎂 أساسية 90 د: دخول 10 أطفال + غرفة + شخصية + منظم + بالونات + وجبة',
-  '🎂 مميزة 150 د: + شخصيتين + بوستر + ستاندات + تجهيز طاولة',
-  '🎂 بلاتينية 250 د: + 3 شخصيات + ستاند رئيسي + ديكور كامل + رسم وجوه + هدية مميزة',
-  'إضافات: 7 د/طفل إضافي | فشار 10 د | غزل بنات 10 د | رسم وجوه 30 د',
+  '🎂 Basic 90 د: 10 أطفال + ساعة لعب + 30 دقيقة احتفال + DJ + 5 مرافقين + 10 وجبات + بالونات أساسي + ألعاب جماعية',
+  '🎂 Premium 150 د: 10 أطفال + ساعة لعب + 30 دقيقة احتفال + DJ + 10 مرافقين + 10 وجبات + بوستر مطبوع + ثيم كامل + Mascot واحد + هدية لصاحب/ة الميلاد',
+  '🎂 VIP 250 د: 10 أطفال + ساعة لعب + 60 دقيقة احتفال + DJ + 20 مرافقين + 10 وجبات + 4 ستاندات (رئيسي + 3 سلندر) + ثيم كامل + 3 Mascot + هدية لـ 10 أطفال + هدية لصاحب/ة الميلاد',
+  'إضافات: رسم وجه 3 د/طفل | Magical Event ساعة 100 د | ساعة لعب إضافية لـ 10 أطفال 30 د | الحجز يوم الخميس أو الجمعة: +50 د على أي باقة',
   'حجز وتفاصيل: 0799241993. اعرض الباقات أولاً ثم اعطِ الرقم.',
   'إذا سألوا عن عيد ميلاد: اسأل "كم عدد الأطفال المتوقع؟" لتساعدهم يختاروا الباقة المناسبة.',
   '',
@@ -667,7 +667,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               generationConfig: {
                 temperature: 0,
                 topP: 0.8,
-                maxOutputTokens: 180,
+                maxOutputTokens: 260,
                 ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
@@ -696,7 +696,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
                 generationConfig: {
                   temperature: 0,
                   topP: 0.8,
-                  maxOutputTokens: 180,
+                  maxOutputTokens: 260,
                   responseMimeType: 'application/json'
                 }
               })
@@ -717,7 +717,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               generationConfig: {
                 temperature: 0,
                 topP: 0.8,
-                maxOutputTokens: 180,
+                maxOutputTokens: 260,
                 ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
