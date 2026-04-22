@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -13,11 +12,12 @@ import {
   QrCode, Clock, Star, Cake, Search, CheckCircle, XCircle, 
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
-  PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText, Download,
+  PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
   Image as ImageIcon, Bot, User
 } from 'lucide-react';
 import { DashboardLayout } from '../components/admin/DashboardLayout';
 import logoImg from '../assets/logo.png';
+import InstallPWAButton from '../components/InstallPWAButton';
 
 const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   error?.response?.data?.details ||
@@ -154,10 +154,6 @@ export default function StaffPage() {
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkResults, setBulkResults] = useState(null);
   const [approvedTemplates, setApprovedTemplates] = useState([]);
-  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
-  const [isStandaloneMode, setIsStandaloneMode] = useState(false);
-  const [isIosSafari, setIsIosSafari] = useState(false);
-  const [showIosInstallHelp, setShowIosInstallHelp] = useState(false);
   const staffPermissions = useMemo(() => ({
     access_staff_tools: user?.role === 'admin'
       ? true
@@ -242,59 +238,6 @@ export default function StaffPage() {
     if (staffPermissions.access_whatsapp_inbox) fetchInboxStats();
     if (staffPermissions.access_whatsapp_campaigns) fetchCampaigns();
   }, [staffPermissions]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleInstallClick = useCallback(async () => {
-    if (isStandaloneMode) return;
-
-    if (deferredInstallPrompt) {
-      deferredInstallPrompt.prompt();
-      await deferredInstallPrompt.userChoice;
-      setDeferredInstallPrompt(null);
-      return;
-    }
-
-    if (isIosSafari) {
-      setShowIosInstallHelp(true);
-    }
-  }, [deferredInstallPrompt, isIosSafari, isStandaloneMode]);
-
-  const canShowInstallButton = !isStandaloneMode && (Boolean(deferredInstallPrompt) || isIosSafari);
-  const staffInstallUrl = `${window.location.origin}/staff`;
-
-  useEffect(() => {
-    const userAgent = window.navigator.userAgent || '';
-    const platform = window.navigator.platform || '';
-    const isIOSDevice = /iPhone|iPad|iPod/i.test(userAgent) || (platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
-    const isSafariBrowser = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(userAgent);
-    setIsIosSafari(isIOSDevice && isSafariBrowser);
-
-    const standaloneMedia = window.matchMedia('(display-mode: standalone)');
-    const syncStandaloneState = () => {
-      setIsStandaloneMode(standaloneMedia.matches || Boolean(window.navigator.standalone));
-    };
-
-    const handleBeforeInstallPrompt = (event) => {
-      event.preventDefault();
-      setDeferredInstallPrompt(event);
-    };
-
-    const handleAppInstalled = () => {
-      setDeferredInstallPrompt(null);
-      setShowIosInstallHelp(false);
-      setIsStandaloneMode(true);
-    };
-
-    syncStandaloneState();
-    standaloneMedia.addEventListener?.('change', syncStandaloneState);
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    return () => {
-      standaloneMedia.removeEventListener?.('change', syncStandaloneState);
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
 
   const createAuthedEventSource = useCallback((path) => {
     if (!token) return null;
@@ -1092,20 +1035,8 @@ export default function StaffPage() {
       onLogout={handleLogout}
       headerActions={
         <div className="flex items-center gap-2">
-          {canShowInstallButton ? (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleInstallClick}
-              className="rounded-full gap-2"
-              data-testid="staff-install-btn"
-            >
-              <Download className="h-4 w-4" />
-              <span className="hidden sm:inline">تثبيت تطبيق الموظفين</span>
-              <span className="sm:hidden">تثبيت</span>
-            </Button>
-          ) : null}
-          {allowedTabs.length > 0 ? (
+          <InstallPWAButton />
+          {allowedTabs.length > 0 && (
             <Button
               variant="outline"
               size="sm"
@@ -1116,28 +1047,11 @@ export default function StaffPage() {
               <RefreshCw className="h-4 w-4" />
               <span className="hidden sm:inline">تحديث</span>
             </Button>
-          ) : null}
+          )}
         </div>
       }
     >
       <div className="max-w-6xl mx-auto w-full">
-        <Dialog open={showIosInstallHelp} onOpenChange={setShowIosInstallHelp}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>تثبيت تطبيق الموظفين على iPhone</DialogTitle>
-              <DialogDescription>
-                اتبع هذه الخطوات من متصفح Safari لإضافة التطبيق إلى الشاشة الرئيسية:
-              </DialogDescription>
-            </DialogHeader>
-            <ol className="list-decimal pr-5 space-y-2 text-sm">
-              <li>افتح صفحة الموظفين في Safari: {staffInstallUrl}</li>
-              <li>اضغط زر المشاركة (Share).</li>
-              <li>اختر "Add to Home Screen".</li>
-              <li>اضغط "Add" لإكمال التثبيت.</li>
-            </ol>
-          </DialogContent>
-        </Dialog>
-
         {allowedTabs.length === 0 && (
           <Card className="rounded-2xl">
             <CardContent className="py-10 text-center text-muted-foreground">
