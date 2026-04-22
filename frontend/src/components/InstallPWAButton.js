@@ -64,10 +64,12 @@ export default function InstallPWAButton() {
           variant="outline"
           size="sm"
           onClick={() => setShowIosModal(true)}
-          title="تثبيت التطبيق على الشاشة الرئيسية"
+          title="تثبيت تطبيق الموظفين"
         >
-          <Download className="h-4 w-4 ml-1" />
-          <span className="hidden sm:inline">تثبيت</span>
+          <span className="inline-flex items-center gap-1">
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">تثبيت</span>
+          </span>
         </Button>
 
         {showIosModal && (
@@ -80,7 +82,7 @@ export default function InstallPWAButton() {
               dir="rtl"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-bold text-gray-900">تثبيت تطبيق بيكابو</h3>
+              <h3 className="text-lg font-bold text-gray-900">تثبيت تطبيق الموظفين</h3>
               <p className="text-sm text-gray-500">لتثبيت التطبيق على جهاز iPhone / iPad:</p>
               <ol className="space-y-2 text-sm text-gray-700">
                 <li className="flex items-start gap-2">
@@ -130,8 +132,10 @@ export default function InstallPWAButton() {
       onClick={handleInstall}
       title="تثبيت تطبيق الموظفين"
     >
-      <Download className="h-4 w-4 ml-1" />
-      <span className="hidden sm:inline">تثبيت</span>
+      <span className="inline-flex items-center gap-1">
+        <Download className="h-4 w-4" />
+        <span className="hidden sm:inline">تثبيت</span>
+      </span>
     </Button>
   );
 }
