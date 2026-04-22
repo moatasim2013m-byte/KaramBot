@@ -247,11 +247,9 @@ let _geminiCacheExpiry = 0;
 const GEMINI_CACHE_TTL_SECONDS = 3600; // 1 hour — matches static prompt rebuild interval
 
 const createOrRefreshGeminiCache = async () => {
-  const now = Date.now();
-  // Return existing cache if still valid (with 5 minute buffer before expiry)
-  if (_geminiCacheName && now < _geminiCacheExpiry - 5 * 60 * 1000) {
-    return _geminiCacheName;
-  }
+  // Context caching disabled — always use full prompt path which works reliably
+  // Re-enable once Gemini cachedContents API requirements are confirmed
+  return null;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;

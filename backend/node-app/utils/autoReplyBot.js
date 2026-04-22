@@ -1303,7 +1303,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     let matchedKey;
 
     // ─── STEP 1: Greeting-only → instant intro reply ──────────────────────
-    if (greetingOnly && greetingOpening && !config.useAiFallback) {
+    if (greetingOnly && greetingOpening) {
       replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
       matchedKey = 'intro';
 
@@ -1436,22 +1436,27 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         );
 
         if (aiReplyAllowed) {
-          // If Gemini identified this as a greeting (including voice note greetings),
-          // use Shroomi intro reply instead of Gemini's generic greeting
+          // Voice note or text that Gemini classified as greeting → use Shroomi intro
           if (aiResult.topic === 'greeting_social') {
             replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
             matchedKey = 'intro';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_greeting_intercepted',
+              aiTopic: 'greeting_social'
+            });
           } else {
             replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
             matchedKey = 'ai_primary';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_primary_used',
+              aiTopic: aiResult.topic || 'unknown',
+              aiConfidence: aiResult.confidence
+            });
           }
-          logRoutingDecision({
-            messageId,
-            senderWaId: normalizedWaId,
-            route: 'ai_primary_used',
-            aiTopic: aiResult.topic || 'unknown',
-            aiConfidence: aiResult.confidence
-          });
         } else {
           // Audio and image messages are always in-domain — force use Gemini reply if available
           const isMediaMessage = messageType === 'audio' || messageType === 'image' || messageType === 'video';
