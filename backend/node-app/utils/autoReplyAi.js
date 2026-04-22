@@ -314,7 +314,12 @@ const parseStrictJsonObject = (rawText) => {
 const looksLikeStructuredPayload = (rawText) => {
   const text = String(rawText || '').trim();
   if (!text) return false;
+  // Catch complete JSON objects/arrays
   if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+    return true;
+  }
+  // Catch truncated/partial JSON that starts with { or [ but was cut off mid-response
+  if (text.startsWith('{') || text.startsWith('[')) {
     return true;
   }
   return /"[^"]+"\s*:/.test(text);
