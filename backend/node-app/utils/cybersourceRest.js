@@ -380,6 +380,9 @@ const buildSecureAcceptanceFields = ({
 
   const signedFieldNames = [
     ...REQUIRED_SIGNED_FIELDS,
+    ...((overrideCustomReceiptPage || overrideCustomCancelPage) ? ['unsigned_field_names'] : [])
+  ].join(',');
+  const unsignedFieldNames = [
     ...(overrideCustomReceiptPage ? ['override_custom_receipt_page'] : []),
     ...(overrideCustomCancelPage ? ['override_custom_cancel_page'] : [])
   ].join(',');
@@ -403,6 +406,7 @@ const buildSecureAcceptanceFields = ({
     bill_to_address_line1: String(billToAddressLine1 || 'Amman'),
     bill_to_address_city: String(billToAddressCity || 'Amman'),
     bill_to_address_country: String(billToAddressCountry || 'JO').toUpperCase(),
+    ...(unsignedFieldNames ? { unsigned_field_names: unsignedFieldNames } : {}),
     ...(overrideCustomReceiptPage ? { override_custom_receipt_page: String(overrideCustomReceiptPage) } : {}),
     ...(overrideCustomCancelPage ? { override_custom_cancel_page: String(overrideCustomCancelPage) } : {})
   };
@@ -427,9 +431,18 @@ const buildSecureAcceptanceFields = ({
   ];
   const missingFields = requiredFields.filter((fieldName) => !String(fields[fieldName] || '').trim());
   const allFieldNames = Object.keys(fields);
-  const unsignedSentFields = allFieldNames.filter((fieldName) => !signedFieldNames.split(',').includes(fieldName));
+  const parsedSignedFieldNames = signedFieldNames.split(',');
+  const parsedUnsignedFieldNames = unsignedFieldNames
+    .split(',')
+    .map((fieldName) => fieldName.trim())
+    .filter(Boolean);
+  const unsignedSentFields = allFieldNames.filter(
+    (fieldName) => !parsedSignedFieldNames.includes(fieldName) && !parsedUnsignedFieldNames.includes(fieldName)
+  );
   const fieldsMissingFromPayload = signedFieldNames
     .split(',')
+    .filter((fieldName) => !allFieldNames.includes(fieldName));
+  const unsignedFieldsMissingFromPayload = parsedUnsignedFieldNames
     .filter((fieldName) => !allFieldNames.includes(fieldName));
   if (missingFields.length > 0) {
     console.error('[CyberSource Secure Acceptance] Missing fields in signed payload', {
@@ -439,9 +452,9 @@ const buildSecureAcceptanceFields = ({
     });
     throw new Error(`Missing required Secure Acceptance fields: ${missingFields.join(', ')}`);
   }
-  if (unsignedSentFields.length > 0 || fieldsMissingFromPayload.length > 0) {
+  if (unsignedSentFields.length > 0 || fieldsMissingFromPayload.length > 0 || unsignedFieldsMissingFromPayload.length > 0) {
     throw new Error(
-      `Signed field set mismatch. Unsigned sent fields: ${unsignedSentFields.join(', ') || 'none'}. Missing payload fields: ${fieldsMissingFromPayload.join(', ') || 'none'}.`
+      `Signed field set mismatch. Unsigned sent fields: ${unsignedSentFields.join(', ') || 'none'}. Missing payload fields: ${fieldsMissingFromPayload.join(', ') || 'none'}. Missing unsigned payload fields: ${unsignedFieldsMissingFromPayload.join(', ') || 'none'}.`
     );
   }
 
