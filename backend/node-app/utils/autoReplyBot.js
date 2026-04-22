@@ -69,6 +69,16 @@ const DEFAULT_CONFIG = {
   aiMaxReplyChars: 500
 };
 
+const normalizeBoolean = (value, fallback) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+};
+
 const PRICING_KEYS = ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', 'extra_companion', 'transport_one_way'];
 const STAFF_REPLY_BLOCK_MINUTES = 10;
 const BURST_WINDOW_SECONDS = 5;
@@ -588,19 +598,15 @@ const keywordMap = [
 
 const loadAutoReplyConfig = async () => {
   const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
-  const legacyEnabledSetting = await Settings.findOne({ key: 'whatsapp_auto_reply_enabled' }).lean();
   const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
-  const legacyEnabled =
-    typeof legacyEnabledSetting?.value === 'boolean' ? legacyEnabledSetting.value : undefined;
-  const enabledFromConfig = typeof value?.enabled === 'boolean' ? value.enabled : undefined;
-  const enabled = typeof enabledFromConfig === 'boolean' ? enabledFromConfig : Boolean(legacyEnabled);
+  const enabled = normalizeBoolean(value?.enabled, DEFAULT_CONFIG.enabled);
 
   return {
     ...DEFAULT_CONFIG,
     ...value,
     enabled,
     cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
-    useAiFallback: Boolean(value?.useAiFallback),
+    useAiFallback: normalizeBoolean(value?.useAiFallback, DEFAULT_CONFIG.useAiFallback),
     aiConfidenceThreshold: Math.min(
       1,
       Math.max(0, Number(value?.aiConfidenceThreshold ?? DEFAULT_CONFIG.aiConfidenceThreshold))
