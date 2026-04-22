@@ -167,7 +167,47 @@ const normalizeText = (value) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const normalizeArabicDigits = (value) =>
+  String(value || '').replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632));
+
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
+
+const extractChildCount = (textBody) => {
+  const withNormalizedDigits = normalizeArabicDigits(textBody);
+  const numericMatch = withNormalizedDigits.match(/\b(\d{1,3})\b/);
+  if (!numericMatch) return null;
+
+  const count = Number(numericMatch[1]);
+  if (!Number.isInteger(count) || count <= 0 || count > 200) return null;
+  return count;
+};
+
+const isBirthdayChildCountFollowUp = (lastBotReplyText, userText) => {
+  const lastNormalized = normalizeText(lastBotReplyText);
+  const userNormalized = normalizeText(userText);
+  if (!lastNormalized || !userNormalized) return false;
+  return (
+    lastNormalized.includes('كم') &&
+    (lastNormalized.includes('طفل') || lastNormalized.includes('اطفال')) &&
+    (lastNormalized.includes('عيد') || lastNormalized.includes('حفله') || lastNormalized.includes('حفلات'))
+  );
+};
+
+const buildBirthdayChildCountReply = (childCount) => {
+  const extraKids = Math.max(0, childCount - 10);
+  const extraCost = extraKids * 7;
+  const basicTotal = 90 + extraCost;
+  const premiumTotal = 150 + extraCost;
+  const platinumTotal = 250 + extraCost;
+
+  return [
+    `ممتاز 💛 بما إنه العدد ${childCount} طفل${extraKids > 0 ? ` (في ${extraKids} أطفال إضافيين × 7 د)` : ''}، هاي تكلفة الباقات:`,
+    `🎂 الأساسية: ${basicTotal} د`,
+    `🎂 المميزة: ${premiumTotal} د`,
+    `🎂 البلاتينية: ${platinumTotal} د`,
+    'إذا حابة نكمل الحجز، ابعتي اليوم والتوقيت المناسبين 🎉'
+  ].join('\n');
+};
 
 const WHATSAPP_OPT_OUT_PHRASES = new Set([
   'stop', 'unsubscribe', 'opt out', 'optout',
@@ -1387,6 +1427,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         }).sort({ timestamp: -1 }).lean();
         const lastMatchedKey = lastBotReply?.raw_payload?.matched_key || '';
         const lastWasBookingQuestion = lastMatchedKey.includes('booking') || lastMatchedKey === 'ai_booking';
+        const birthdayChildCount = extractChildCount(aiUserText);
+        const isBirthdayCountFollowUp =
+          messageType === 'text' &&
+          Number.isInteger(birthdayChildCount) &&
+          isBirthdayChildCountFollowUp(lastBotReply?.text_body, aiUserText);
 
         if (lastWasBookingQuestion && !bookingState.step) {
           // Bot asked a booking choice question — treat any short reply as booking follow-up
@@ -1399,7 +1444,18 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           });
         }
 
-        if (hasBookingIntent(aiUserText, bookingState)) {
+        if (isBirthdayCountFollowUp) {
+          replyText = [greetingOpening, buildBirthdayChildCountReply(birthdayChildCount)].filter(Boolean).join('\n');
+          matchedKey = 'birthday_child_count_followup';
+          logRoutingDecision({
+            messageId,
+            senderWaId: normalizedWaId,
+            route: 'birthday_child_count_followup',
+            childCount: birthdayChildCount
+          });
+        }
+
+        if (!replyText && hasBookingIntent(aiUserText, bookingState)) {
           const bookingContents = conversationHistory
             .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
           bookingContents.push({ role: 'user', parts: [{ text: aiUserText }] });

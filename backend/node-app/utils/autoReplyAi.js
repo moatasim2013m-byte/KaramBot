@@ -667,7 +667,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               generationConfig: {
                 temperature: 0,
                 topP: 0.8,
-                maxOutputTokens: 180,
+                maxOutputTokens: 260,
                 ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
@@ -696,7 +696,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
                 generationConfig: {
                   temperature: 0,
                   topP: 0.8,
-                  maxOutputTokens: 180,
+                  maxOutputTokens: 260,
                   responseMimeType: 'application/json'
                 }
               })
@@ -717,7 +717,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
               generationConfig: {
                 temperature: 0,
                 topP: 0.8,
-                maxOutputTokens: 180,
+                maxOutputTokens: 260,
                 ...(isMediaCall ? {} : { responseMimeType: 'application/json' })
               }
             })
