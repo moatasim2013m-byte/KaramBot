@@ -280,7 +280,8 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
         dbReadyState: mongoose?.connection?.readyState,
         messageId,
         senderWaId,
-        messageType
+        messageType,
+        raw_payload: compactPayload
       });
       return;
     }
