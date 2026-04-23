@@ -80,9 +80,17 @@ export default function BookingsTab(props) {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {booking.slot?.date} at {booking.slot?.start_time} - {booking.child?.name}
+                      {booking.slot?.date} at {booking.slot?.start_time}
                     </p>
-                    <p className="text-sm text-muted-foreground">{booking.user?.email}</p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">الوالد:</span> {booking.user?.name || '-'} &nbsp;|&nbsp; {booking.user?.email}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">الطفل:</span> {booking.child?.name || '-'}
+                      {booking.child?.birthday && (
+                        <> &nbsp;(🎂 {format(new Date(booking.child.birthday), 'yyyy-MM-dd')})</>
+                      )}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       Payment: {paymentMethodLabel[booking.payment_method] || booking.payment_method || 'N/A'} ({booking.payment_status || 'N/A'})
                     </p>
@@ -129,7 +137,15 @@ export default function BookingsTab(props) {
                     <p className="text-sm text-muted-foreground">
                       {booking.slot?.date} - {booking.is_custom ? 'Custom Theme' : booking.theme?.name}
                     </p>
-                    <p className="text-sm text-muted-foreground">{booking.user?.email}</p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">الوالد:</span> {booking.user?.name || '-'} &nbsp;|&nbsp; {booking.user?.email}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">الطفل:</span> {booking.child?.name || '-'}
+                      {booking.child?.birthday && (
+                        <> &nbsp;(🎂 {format(new Date(booking.child.birthday), 'yyyy-MM-dd')})</>
+                      )}
+                    </p>
                     {booking.is_custom && (
                       <p className="text-sm text-purple-600 mt-1">Request: {booking.custom_request}</p>
                     )}
@@ -248,7 +264,15 @@ export default function BookingsTab(props) {
                       <span className="font-semibold">{sub.plan?.name}</span>
                       <Badge className={getStatusBadge(sub.status)}>{sub.status}</Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{sub.user?.email} - {sub.child?.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">الوالد:</span> {sub.user?.name || '-'} &nbsp;|&nbsp; {sub.user?.email}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      <span className="font-medium">الطفل:</span> {sub.child?.name || '-'}
+                      {sub.child?.birthday && (
+                        <> &nbsp;(🎂 {format(new Date(sub.child.birthday), 'yyyy-MM-dd')})</>
+                      )}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-secondary">{sub.remaining_visits} left</p>
