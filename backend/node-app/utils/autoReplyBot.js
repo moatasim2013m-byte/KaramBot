@@ -93,7 +93,8 @@ const FORCE_IN_SCOPE_KEYWORDS = [
   'رمل', 'توصيل', 'نقل',
   'اعمار', 'عمر', 'مرافق',
   'جوارب', 'انشطه', 'فعاليات', 'العاب',
-  'خصم', 'تخفيض', 'عرض', 'عروض'
+  'خصم', 'تخفيض', 'عرض', 'عروض',
+  'دفع', 'الدفع', 'كاش', 'فيزا', 'ماستر', 'كليك', 'بطاقة', 'بطاقه', 'تحويل'
 ];
 const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
 const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
@@ -626,6 +627,16 @@ const keywordMap = [
       'حالياً ما في عرض خاص للإخوة/الأشقاء.\n💡 الأوفر: ساعتين بـ 10 دنانير، وبعدها ساعة بـ 7 دنانير.\nتابعوا صفحتنا للعروض الجديدة أول بأول.\n📞 0777775652'
   },
   {
+    key: 'payment_methods',
+    keywords: [
+      'كاش', 'كليك', 'فيزا', 'ماستر', 'بطاقة', 'بطاقه', 'تحويل', 'دفع اونلاين', 'دفع إلكتروني',
+      'طريقة الدفع', 'طريقه الدفع', 'كيف الدفع', 'في دفع', 'في فيزا', 'في كليك', 'في ماستر',
+      'في بطاقة', 'في بطاقه', 'بطاقة ائتمان', 'pay online', 'payment method'
+    ],
+    reply:
+      'الدفع كاش عند الوصول 💛\nحالياً ما عندنا دفع إلكتروني أو بطاقة.'
+  },
+  {
     key: 'subscription',
     keywords: [
       'اشتراك', 'باقه', 'باقة', 'subscription', 'plan', 'plans', 'زيارات',
@@ -710,7 +721,7 @@ const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
   'شكوى', 'مشتكي', 'زعلان', 'زعلانه', 'معصب', 'معصبه', 'سيئ', 'سيء', 'مشكله', 'مشكلة',
   'غلط', 'احتيال', 'نصب', 'استرجاع', 'refund', 'cancel', 'cancellation',
   'حادث', 'اصابه', 'إصابة', 'نزيف', 'تحرش', 'عنف', 'تهديد', 'ابتزاز',
-  'دفع', 'الدفع', 'دفعت', 'سحب', 'بطاقه', 'بطاقة', 'فيزا', 'ماستر', 'تحويل', 'payment', 'charged',
+  'دفعت', 'سحب', 'payment', 'charged',
   'خصوصيه', 'خصوصية', 'بيانات', 'privacy', 'data leak', 'تسريب',
   'فشل الحجز', 'الحجز فشل', 'الحجز ما زبط', 'ما زبط الحجز', 'الموقع ما حجز', 'booking failed', 'booking issue'
 ];
@@ -725,7 +736,8 @@ const SHORT_IN_DOMAIN_HINTS = [
   'اشتراك', 'باقه', 'باقة', 'زيارات',
   'الاسعار', 'الأسعار', 'اسعار', 'سعر',
   'وين', 'وينكم', 'موقع', 'العنوان',
-  'حجز', 'عيد ميلاد', 'اعمار', 'أعمار', 'عمر'
+  'حجز', 'عيد ميلاد', 'اعمار', 'أعمار', 'عمر',
+  'دفع', 'الدفع', 'كاش', 'فيزا', 'ماستر', 'كليك', 'بطاقة', 'بطاقه'
 ];
 
 const SHORT_QUESTION_WORDS = [
@@ -1542,7 +1554,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
 
         if (aiReplyAllowed) {
           // Voice note or text that Gemini classified as greeting → use Shroomi intro
-          if (aiResult.topic === 'greeting_social') {
+          if (aiResult.topic === 'greeting_social' && greetingOnly) {
             replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
             matchedKey = 'intro';
             logRoutingDecision({
@@ -1550,6 +1562,27 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
               senderWaId: normalizedWaId,
               route: 'ai_greeting_intercepted',
               aiTopic: 'greeting_social'
+            });
+          } else if (aiResult.topic === 'greeting_social' && !greetingOnly) {
+            // Burst contained greeting + substantive question — serve the question
+            const nonGreetingMatches = detectKeywordMatches(effectiveTextBody).filter((m) => m.entry.key !== 'intro');
+            const matched = nonGreetingMatches[0]?.entry || null;
+            if (matched) {
+              const kwReply = matched.buildReply
+                ? await matched.buildReply({ footer: config.footer })
+                : [matched.reply, config.footer].filter(Boolean).join('\n');
+              replyText = greetingOpening ? [greetingOpening, kwReply].join('\n') : kwReply;
+              matchedKey = matched.key;
+            } else {
+              replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
+              matchedKey = 'intro';
+            }
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'greeting_with_question',
+              aiTopic: 'greeting_social',
+              matchedKey
             });
           } else {
             replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
@@ -1644,7 +1677,12 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       // Only runs when useAiFallback is false in config (backward compatibility).
     } else {
       const keywordMatches = detectKeywordMatches(effectiveTextBody);
-      const matched = keywordMatches[0]?.entry || null;
+      let matched = keywordMatches[0]?.entry || null;
+      // If a greeting+question burst arrives and the top match is intro, prefer the question
+      if (matched?.key === 'intro' && !greetingOnly) {
+        const nonIntroMatch = keywordMatches.find((m) => m.entry.key !== 'intro')?.entry || null;
+        if (nonIntroMatch) matched = nonIntroMatch;
+      }
       if (matched) {
         if (matched.buildReply) {
           replyText = await matched.buildReply({ footer: config.footer });
