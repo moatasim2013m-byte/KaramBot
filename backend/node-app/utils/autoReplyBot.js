@@ -717,6 +717,14 @@ const detectKeywordMatches = (textBody) => {
   });
 };
 
+// Returns the best keyword match that is NOT the greeting/intro entry.
+// Used when a burst contains a greeting + a substantive question so the
+// question is served rather than repeating the intro menu.
+const selectActionKeywordMatch = (textBody) => {
+  const matches = detectKeywordMatches(textBody);
+  return matches.find((m) => m.entry.key !== 'intro')?.entry || null;
+};
+
 const COMPLAINT_OR_SENSITIVE_KEYWORDS = [
   'شكوى', 'مشتكي', 'زعلان', 'زعلانه', 'معصب', 'معصبه', 'سيئ', 'سيء', 'مشكله', 'مشكلة',
   'غلط', 'احتيال', 'نصب', 'استرجاع', 'refund', 'cancel', 'cancellation',
@@ -1565,8 +1573,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
             });
           } else if (aiResult.topic === 'greeting_social' && !greetingOnly) {
             // Burst contained greeting + substantive question — serve the question
-            const nonGreetingMatches = detectKeywordMatches(effectiveTextBody).filter((m) => m.entry.key !== 'intro');
-            const matched = nonGreetingMatches[0]?.entry || null;
+            const matched = selectActionKeywordMatch(effectiveTextBody);
             if (matched) {
               const kwReply = matched.buildReply
                 ? await matched.buildReply({ footer: config.footer })
@@ -1680,8 +1687,8 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       let matched = keywordMatches[0]?.entry || null;
       // If a greeting+question burst arrives and the top match is intro, prefer the question
       if (matched?.key === 'intro' && !greetingOnly) {
-        const nonIntroMatch = keywordMatches.find((m) => m.entry.key !== 'intro')?.entry || null;
-        if (nonIntroMatch) matched = nonIntroMatch;
+        const actionMatch = selectActionKeywordMatch(effectiveTextBody);
+        if (actionMatch) matched = actionMatch;
       }
       if (matched) {
         if (matched.buildReply) {
