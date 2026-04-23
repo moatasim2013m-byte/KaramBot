@@ -829,18 +829,25 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 
 const { checkAvailability, findOrMatchChild, createWhatsAppBooking } = require('./whatsappBookingService');
 
-const BOOKING_KEYWORDS = [
+// Strong keywords trigger the booking flow even when there is no active booking state.
+// Weak keywords are contextual follow-up words that only count when a booking
+// conversation is already in progress (bookingState.step is set).
+const BOOKING_KEYWORDS_STRONG = [
   // Core booking intent
   'احجز', 'حجز', 'اجلس', 'اشترك', 'موعد', 'book', 'slot', 'reserve', 'أكد', 'اكد',
-  // Confirmation words
+  // Hourly play follow-ups (explicit service mentions)
+  'بالساعة', 'بالساعه', 'الساعه', 'ساعتين',
+  // Birthday party intent
+  'عيد ميلاد', 'حفلة', 'حفله', 'ميلاد', 'عيدين'
+];
+const BOOKING_KEYWORDS_WEAK = [
+  // Confirmation words — meaningful only in an active booking exchange
   'نعم', 'تمام', 'ايوا', 'اي', 'يلا', 'موافق', 'صح', 'اوك', 'ok', 'okay',
-  // Hourly play follow-ups (short answers to "دخول ولا عيد ميلاد؟")
-  'بالساعة', 'بالساعه', 'الساعه', 'ساعة', 'ساعتين', 'ساعه', 'دخول', 'لعب', 'اللعب', 'باللعب', 'العب',
-  // Birthday follow-ups
-  'عيد ميلاد', 'عيد', 'حفلة', 'حفله', 'ميلاد', 'عيدين',
-  // Date/time follow-ups
+  // Ambiguous single words that could appear in any message
+  'ساعة', 'ساعه', 'دخول', 'لعب', 'اللعب', 'باللعب', 'العب', 'عيد',
+  // Day-name follow-ups
   'بكرا', 'اليوم', 'الجمعة', 'السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس',
-  // Number follow-ups (child count, hours)
+  // Number follow-ups — only useful inside an active booking conversation
   'واحد', 'اثنين', 'ثلاثة', 'اربعة', 'خمسة', '١', '٢', '٣', '٤', '٥', '1', '2', '3', '4', '5'
 ];
 
@@ -906,9 +913,12 @@ const executeTool = async (functionName, args, senderWaId) => {
 };
 
 const hasBookingIntent = (text, bookingState) => {
-  if (bookingState && bookingState.step) return true; // Active booking conversation
+  if (bookingState && bookingState.step) return true; // Active booking conversation — all keywords count
   const normalized = String(text || '').toLowerCase();
-  return BOOKING_KEYWORDS.some(kw => normalized.includes(kw));
+  // Without an active booking state only strong, unambiguous booking keywords trigger the flow.
+  // Weak/contextual keywords (numbers, day names, generic confirmations) must not pull general
+  // questions into the booking Gemini path — that causes wrong replies like "العدد 1".
+  return BOOKING_KEYWORDS_STRONG.some(kw => normalized.includes(kw));
 };
 
 const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, bookingState, maxChars }) => {
@@ -974,15 +984,20 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
       const functionCallPart = parts.find(p => p.functionCall);
 
       if (!functionCallPart) {
-        // No function call — extract text reply
+        // No function call — extract text reply.
+        // Guard against Gemini returning raw JSON instead of plain Arabic text
+        // (can happen when the model is confused between tool-use and JSON-output modes).
         const textReply = parts.map(p => p.text || '').join('').trim();
-        if (textReply) {
+        if (textReply && !looksLikeStructuredPayload(textReply)) {
           return {
             in_scope: true,
             topic: 'booking_help',
             confidence: 0.95,
             reply_ar: textReply.slice(0, Math.max(80, maxChars || 500))
           };
+        }
+        if (textReply) {
+          console.warn('BOOKING_GEMINI_STRUCTURED_REPLY_BLOCKED', { snippet: textReply.slice(0, 80) });
         }
         return null;
       }

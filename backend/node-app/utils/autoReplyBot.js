@@ -909,24 +909,32 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const persistAutoTriggerMarker = async ({ messageId, senderWaId, skipped, matchedKey, triggerMessageId }) => {
   if (!messageId || !senderWaId) return;
-  await WhatsAppMessage.create({
-    message_id: `auto_trigger_${messageId}`,
-    sender_wa_id: senderWaId,
-    message_type: 'unsupported',
-    text_body: '',
-    direction: 'outbound',
-    platform: 'whatsapp',
-    status: 'sent',
-    timestamp: new Date(),
-    raw_payload: {
-      auto_reply: true,
-      skipped,
-      trigger_message_id: triggerMessageId || messageId,
-      matched_key: matchedKey
+  // Use upsert so this works whether the atomic lock document already exists (the normal case)
+  // or needs to be created fresh (e.g. for burst-resolved trigger IDs that differ from messageId).
+  await WhatsAppMessage.updateOne(
+    { message_id: `auto_trigger_${messageId}` },
+    {
+      $set: {
+        sender_wa_id: senderWaId,
+        timestamp: new Date(),
+        'raw_payload.auto_reply': true,
+        'raw_payload.skipped': skipped,
+        'raw_payload.trigger_message_id': triggerMessageId || messageId,
+        'raw_payload.matched_key': matchedKey
+      },
+      $setOnInsert: {
+        message_id: `auto_trigger_${messageId}`,
+        message_type: 'unsupported',
+        text_body: '',
+        direction: 'outbound',
+        platform: 'whatsapp',
+        status: 'sent',
+        is_read_by_staff: true,
+        is_replied: false
+      }
     },
-    is_read_by_staff: true,
-    is_replied: false
-  }).catch(() => {});
+    { upsert: true }
+  ).catch(() => {});
 };
 
 const acquireBurstLock = async (senderWaId) => {
@@ -1134,10 +1142,16 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       return { skipped: true, reason: 'invalid_wa_id' };
     }
 
-    const alreadyHandled = await WhatsAppMessage.findOne({
-      message_id: `auto_trigger_${messageId}`
-    }).lean();
-    if (alreadyHandled) {
+    // Atomic duplicate protection — claim the processing lock before doing any work.
+    // A non-atomic findOne+insert sequence has a race window where two concurrent
+    // webhook deliveries for the same message both read "not found" and both send a reply.
+    // Using upsert with $setOnInsert ensures only one caller wins the lock.
+    const claimResult = await WhatsAppMessage.updateOne(
+      { message_id: `auto_trigger_${messageId}` },
+      { $setOnInsert: { message_id: `auto_trigger_${messageId}`, created_at: new Date() } },
+      { upsert: true }
+    );
+    if (claimResult.upsertedCount === 0) {
       logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'duplicate_trigger' });
       logRoutingBlock({
         messageId,
