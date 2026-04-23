@@ -434,7 +434,7 @@ export default function VisitorsTab(props) {
                                 {parentDetails.children.map(child => (
                                   <div key={child.id} className="p-2 rounded bg-muted/50 text-sm">
                                     <p className="font-semibold">{child.name}</p>
-                                    {child.date_of_birth && <p className="text-muted-foreground">العمر: {new Date().getFullYear() - new Date(child.date_of_birth).getFullYear()} سنة</p>}
+                                    {child.birthday && <p className="text-muted-foreground">🎂 {format(new Date(child.birthday), 'yyyy-MM-dd')} (العمر: {new Date().getFullYear() - new Date(child.birthday).getFullYear()} سنة)</p>}
                                   </div>
                                 ))}
                               </div>

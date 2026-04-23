@@ -751,6 +751,27 @@ export default function AdminLayout() {
     if (tabId === 'themes' && !loadedDataByTab.templates) {
       refreshTemplatesData();
     }
+    if (tabId === 'bookings') {
+      if (!loadedDataByTab.hourly) {
+        fetchHourlyBookings();
+      }
+      if (!loadedDataByTab.birthday) {
+        fetchBirthdayBookings();
+      }
+      if (!loadedDataByTab.subscriptions) {
+        fetchSubscriptions();
+      }
+    }
+    if (tabId === 'visitors') {
+      if (!loadedDataByTab.customers) {
+        fetchCustomers();
+        setLoadedDataByTab((prev) => ({ ...prev, customers: true }));
+      }
+      if (!loadedDataByTab.users) {
+        fetchUsers();
+        setLoadedDataByTab((prev) => ({ ...prev, users: true }));
+      }
+    }
   };
 
   const isToday = (dateStr) => {
