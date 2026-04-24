@@ -198,8 +198,8 @@ const buildStaticSystemPrompt = () => [
 
   // ═══ PAYMENT ══════════════════════════════════════════════════════════
   '=== طريقة الدفع ===',
-  'الدفع: كاش عند الوصول فقط 💛 لا يوجد دفع إلكتروني أو بطاقة ائتمانية حالياً.',
-  'إذا سألوا عن فيزا/ماستر/كليك/بطاقة/دفع أونلاين/تحويل: "الدفع كاش عند الوصول 💛 حالياً ما عندنا دفع إلكتروني أو بطاقة."',
+  'الدفع: كاش عند الوصول 💛 أو ببطاقة ائتمان (فيزا/ماستر) أو كليك.',
+  'إذا سألوا عن فيزا/ماستر/كليك/بطاقة/دفع أونلاين/تحويل: "الدفع عندنا: كاش 💛 أو ببطاقة ائتمان (فيزا/ماستر) أو كليك."',
   '',
 
   // ═══ MEDIA ════════════════════════════════════════════════════════════
@@ -953,7 +953,7 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
 - استخدم find_child لإيجاد الطفل المسجل
 - استخدم confirm_booking فقط لما الزبون يأكد بشكل صريح
 - "بكرا" = التاريخ اللي بعد اليوم، "اليوم" = تاريخ اليوم
-- الدفع كاش عند الوصول — اذكر هاد دائماً
+- الدفع: كاش أو ببطاقة ائتمان (فيزا/ماستر) أو كليك — اذكر هاد دائماً
 - لا تؤكد الحجز بدون موافقة صريحة من الزبون (نعم، تمام، أكد، etc.)
 - إذا الزبون ما ذكر الوقت، اسأله عن الوقت المفضل
 - إذا عنده أكثر من طفل، اسأله أي طفل بده يحجزله`;
@@ -1044,7 +1044,7 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
           bookingState.bookingCode = toolResult.bookingCode;
 
           // DETERMINISTIC confirmation — never let Gemini free-write this
-          const confirmReply = `تم الحجز بنجاح ✅\nرقم الحجز: ${toolResult.bookingCode}\nالتاريخ: ${toolResult.slotDate}\nالوقت: ${toolResult.slotTime}\nالمدة: ${toolResult.durationHours} ساعة\nالمبلغ: ${toolResult.amount} دنانير\nالدفع عند الوصول كاش 💛\nبنشوفكم!`;
+          const confirmReply = `تم الحجز بنجاح ✅\nرقم الحجز: ${toolResult.bookingCode}\nالتاريخ: ${toolResult.slotDate}\nالوقت: ${toolResult.slotTime}\nالمدة: ${toolResult.durationHours} ساعة\nالمبلغ: ${toolResult.amount} دنانير\nالدفع: كاش أو بطاقة أو كليك 💛\nبنشوفكم!`;
           return {
             in_scope: true,
             topic: 'booking_help',

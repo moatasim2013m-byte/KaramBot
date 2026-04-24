@@ -98,6 +98,7 @@ const FORCE_IN_SCOPE_KEYWORDS = [
 ];
 const DUPLICATE_INTENT_SUPPRESSION_MINUTES = 15;
 const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
+  'intro',
   'pricing',
   'daycare',
   'hours',
@@ -634,7 +635,7 @@ const keywordMap = [
       'في بطاقة', 'في بطاقه', 'بطاقة ائتمان', 'pay online', 'payment method'
     ],
     reply:
-      'الدفع كاش عند الوصول 💛\nحالياً ما عندنا دفع إلكتروني أو بطاقة.'
+      'الدفع عندنا: كاش 💛 أو ببطاقة ائتمان (فيزا/ماستر) أو كليك.\nبنشوفكم!'
   },
   {
     key: 'subscription',
@@ -1047,10 +1048,30 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
     return { skip: true, reason: 'missing_settled_trigger', burstText: '' };
   }
 
-  // Aggregate around the same evaluated trigger while keeping nearby pre-context.
+  // Aggregate around the same evaluated trigger.
+  // Instead of only looking 5s back from the settled trigger, look back to the
+  // last auto-reply so that messages arriving more than 5s apart (but all sent
+  // before the bot had a chance to reply) are combined into one context block.
+  const BURST_LOOKBACK_MAX_MS = 10 * 60 * 1000; // cap at 10 minutes
   const settledTriggerTime = new Date(settledTrigger.timestamp);
   const evaluationWindowEnd = new Date(settledTriggerTime.getTime() + burstWindowMs);
-  const aggregationWindowStart = new Date(settledTriggerTime.getTime() - burstWindowMs);
+
+  const lastAutoReplyBeforeTrigger = await WhatsAppMessage.findOne({
+    sender_wa_id: senderWaId,
+    direction: 'outbound',
+    platform: 'whatsapp',
+    'raw_payload.auto_reply': true,
+    timestamp: { $lte: settledTriggerTime }
+  }).sort({ timestamp: -1 }).lean();
+
+  const lookbackFloor = new Date(settledTriggerTime.getTime() - BURST_LOOKBACK_MAX_MS);
+  const aggregationWindowStart = lastAutoReplyBeforeTrigger?.timestamp
+    ? new Date(Math.max(
+        new Date(lastAutoReplyBeforeTrigger.timestamp).getTime(),
+        lookbackFloor.getTime()
+      ))
+    : new Date(settledTriggerTime.getTime() - burstWindowMs);
+
   const aggregationWindowEnd = evaluationWindowEnd;
   const burstMessages = await WhatsAppMessage.find({
     sender_wa_id: senderWaId,
