@@ -1549,13 +1549,13 @@ router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHt
     );
 
     if (!result.ok) {
-      console.error('[CyberSource Unified Checkout] Authorize failed', {
-        order_id: transaction.session_id,
-        status: result.status,
-        error: result.error,
-        provider_status: providerStatus,
-        reason_code: reasonCode
-      });
+      let providerBodyString = '';
+      try {
+        providerBodyString = JSON.stringify(providerData, null, 2);
+      } catch (_e) {
+        providerBodyString = String(providerData);
+      }
+      console.error(`[CyberSource Unified Checkout] Authorize failed order_id=${transaction.session_id} http_status=${result.status} error=${result.error} provider_status=${providerStatus} reason_code=${reasonCode}\n${providerBodyString}`);
       return res.status(402).json({
         success: false,
         orderId: transaction.session_id,
@@ -1564,7 +1564,10 @@ router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHt
         code: 'UNIFIED_CHECKOUT_AUTHORIZE_FAILED',
         provider: {
           status: providerStatus || null,
-          reasonCode: reasonCode || null
+          reasonCode: reasonCode || null,
+          httpStatus: result.status || null,
+          message: providerMessage || null,
+          body: providerData || null
         }
       });
     }

@@ -371,8 +371,20 @@ export default function CapitalBankCheckoutPage() {
         setProcessing(false);
       } catch (authorizeError) {
         if (isUnmountedRef.current) return;
-        const serverMsg = authorizeError?.response?.data?.error;
-        setErrorMessage(serverMsg || 'فشل الدفع — الرجاء المحاولة مرة أخرى.');
+        const resp = authorizeError?.response?.data || {};
+        const provider = resp?.provider || {};
+        const providerMsg = provider?.message;
+        const reason = provider?.reasonCode;
+        const pStatus = provider?.status;
+        const httpStatus = provider?.httpStatus;
+        const serverMsg = resp?.error;
+        const detailParts = [];
+        if (pStatus) detailParts.push(pStatus);
+        if (reason) detailParts.push(reason);
+        if (httpStatus && httpStatus !== 402) detailParts.push(`HTTP ${httpStatus}`);
+        const detail = detailParts.length > 0 ? ` (${detailParts.join(' · ')})` : '';
+        const base = providerMsg || serverMsg || 'فشل الدفع — الرجاء المحاولة مرة أخرى.';
+        setErrorMessage(`${base}${detail}`);
         setProcessing(false);
       }
     });
