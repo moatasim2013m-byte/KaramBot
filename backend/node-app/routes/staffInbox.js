@@ -57,7 +57,9 @@ const uploadAudioMemory = multer({
 });
 
 const router = express.Router();
-const INTERNAL_AUTO_REPLY_MARKER_REGEX = /^auto_trigger_/;
+// Exclude both the per-message processing markers and the per-sender burst-lock
+// documents that the bot writes to MongoDB as outbound/unsupported records.
+const INTERNAL_AUTO_REPLY_MARKER_REGEX = /^(auto_trigger_|burst_lock_)/;
 
 const withVisibleInboxMessages = (query = {}) => ({
   ...query,
