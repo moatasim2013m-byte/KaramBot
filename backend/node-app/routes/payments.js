@@ -1380,11 +1380,11 @@ router.post('/capital-bank/unified-checkout/session', authMiddleware, ensureHttp
     if (!result.ok) {
       let detailsString = '';
       try {
-        detailsString = JSON.stringify(result.data, null, 2);
+        detailsString = JSON.stringify(result.data || result.details, null, 2);
       } catch (_e) {
-        detailsString = String(result.data);
+        detailsString = String(result.data || result.details);
       }
-      console.error(`${LOG_PREFIX} createCaptureContext failed order_id=${transaction.session_id} status=${result.status} error=${result.error}\n${detailsString}`);
+      console.error(`[CyberSource Unified Checkout] createCaptureContext failed order_id=${transaction.session_id} status=${result.status} error=${result.error}\n${detailsString}`);
       return res.status(502).json({
         success: false,
         error: 'تعذر بدء عملية الدفع. Failed to create Unified Checkout capture context.',
