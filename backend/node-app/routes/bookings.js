@@ -77,6 +77,9 @@ const canBookBirthdayDate = (slotDate) => {
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
+const MAX_GUEST_CHILD_COUNT = 20;
+const MAX_GUEST_CHILD_NAME_LENGTH = 100;
+
 const normalizeGuestCount = (value, { min = 5, max = 100, fallback = 10 } = {}) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -274,7 +277,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
     const { childIds: childIdList, allValid } = normalizeChildIds(child_ids, child_id);
     const useGuestBooking = childIdList.length === 0;
     const effectiveCount = useGuestBooking
-      ? Math.max(1, Math.min(20, parseInt(child_count) || 1))
+      ? Math.max(1, Math.min(MAX_GUEST_CHILD_COUNT, parseInt(child_count) || 1))
       : childIdList.length;
 
     if (!useGuestBooking && !allValid) {
@@ -355,7 +358,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       const booking = new HourlyBooking({
         user_id: req.userId,
         child_id: null,
-        guest_child_name: (guest_child_name || '').trim().slice(0, 100),
+        guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
         child_count: effectiveCount,
         slot_id,
         duration_hours: hours,
@@ -472,7 +475,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
     const { childIds: childIdList, allValid } = normalizeChildIds(child_ids, child_id);
     const useGuestBooking = childIdList.length === 0;
     const effectiveCount = useGuestBooking
-      ? Math.max(1, Math.min(20, parseInt(child_count) || 1))
+      ? Math.max(1, Math.min(MAX_GUEST_CHILD_COUNT, parseInt(child_count) || 1))
       : childIdList.length;
 
     if (!useGuestBooking && !allValid) {
@@ -555,7 +558,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       const booking = new HourlyBooking({
         user_id: req.userId,
         child_id: null,
-        guest_child_name: (guest_child_name || '').trim().slice(0, 100),
+        guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
         child_count: effectiveCount,
         slot_id,
         duration_hours: hours,

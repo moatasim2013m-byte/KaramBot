@@ -13,6 +13,8 @@ const Child = require('../models/Child');
 const User = require('../models/User');
 const Settings = require('../models/Settings');
 
+const MAX_GUEST_CHILD_NAME_LENGTH = 100;
+
 // --- Slot generation (copied from slots.js — not exported) ---
 const HOURLY_CONFIG = {
   startHour: 10,
@@ -230,7 +232,7 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
     const booking = new HourlyBooking({
       user_id: userId,
       child_id: childId || null,
-      guest_child_name: childId ? '' : (guestChildName || '').trim().slice(0, 100),
+      guest_child_name: childId ? '' : (guestChildName || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
       child_count: count,
       booking_source: 'whatsapp',
       slot_id: slotId,

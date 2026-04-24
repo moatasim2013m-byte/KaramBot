@@ -779,7 +779,7 @@ export default function TicketsPage() {
                           <div className="flex items-center gap-2">
                             <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.max(1, c - 1))}>-</Button>
                             <span className="min-w-8 text-center font-bold text-lg">{guestChildCount}</span>
-                            <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.min(10, c + 1))}>+</Button>
+                            <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.min(20, c + 1))}>+</Button>
                           </div>
                         </div>
                         <Input
