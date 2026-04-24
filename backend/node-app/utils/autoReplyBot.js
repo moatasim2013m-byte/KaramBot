@@ -1065,11 +1065,11 @@ const resolveBurstText = async ({ senderWaId, messageId }) => {
   }).sort({ timestamp: -1 }).lean();
 
   const lookbackFloor = new Date(settledTriggerTime.getTime() - BURST_LOOKBACK_MAX_MS);
-  const aggregationWindowStart = lastAutoReplyBeforeTrigger?.timestamp
-    ? new Date(Math.max(
-        new Date(lastAutoReplyBeforeTrigger.timestamp).getTime(),
-        lookbackFloor.getTime()
-      ))
+  const lastAutoReplyTime = lastAutoReplyBeforeTrigger?.timestamp
+    ? new Date(lastAutoReplyBeforeTrigger.timestamp)
+    : null;
+  const aggregationWindowStart = lastAutoReplyTime
+    ? new Date(Math.max(lastAutoReplyTime.getTime(), lookbackFloor.getTime()))
     : new Date(settledTriggerTime.getTime() - burstWindowMs);
 
   const aggregationWindowEnd = evaluationWindowEnd;
