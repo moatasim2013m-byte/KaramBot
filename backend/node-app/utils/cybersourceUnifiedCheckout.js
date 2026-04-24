@@ -232,12 +232,18 @@ const cybersourceRestCall = async (method, path, body = null) => {
 
     const ok = response.status >= 200 && response.status < 300;
     if (!ok) {
-      console.error(`${LOG_PREFIX} Response error`, {
-        method: httpMethod,
-        path,
-        status: response.status,
-        body_preview: typeof parsed === 'string' ? parsed.slice(0, 500) : parsed
-      });
+      // Serialize the full response body (including nested arrays like
+      // `details`) so validation errors are actually visible in Cloud Run logs
+      // instead of `[ [Object] ]`.
+      let bodyPreview;
+      try {
+        bodyPreview = typeof parsed === 'string'
+          ? parsed.slice(0, 2000)
+          : JSON.stringify(parsed, null, 2).slice(0, 4000);
+      } catch (_jsonErr) {
+        bodyPreview = String(rawString).slice(0, 2000);
+      }
+      console.error(`${LOG_PREFIX} Response error ${httpMethod} ${path} status=${response.status}\n${bodyPreview}`);
     } else {
       console.info(`${LOG_PREFIX} Response ok`, {
         method: httpMethod,
