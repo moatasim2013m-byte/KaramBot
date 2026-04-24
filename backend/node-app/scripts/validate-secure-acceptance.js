@@ -31,14 +31,19 @@ const runScenario = (name, input) => {
       billToEmail: 'test@example.com',
       billToAddressLine1: 'Amman',
       billToAddressCity: 'Amman',
-      billToAddressCountry: 'JO'
+      billToAddressCountry: 'JO',
+      overrideCustomReceiptPage: input.overrideCustomReceiptPage,
+      overrideCustomCancelPage: input.overrideCustomCancelPage
     });
 
     const fieldsResult = validateSecureAcceptanceFields(payload);
     result.fieldsOk = fieldsResult.ok;
     result.fieldsCode = fieldsResult.code || null;
+    result.fieldsReason = fieldsResult.reason || null;
+    result.fieldsDetails = fieldsResult.details || null;
     result.url = input.endpoint || getCyberSourcePaymentUrl();
     result.pathOk = String(result.url).includes('/pay');
+    result.payloadUnsignedFieldNames = payload.unsigned_field_names || null;
   }
 
   return result;
@@ -88,6 +93,17 @@ const scenarios = [
       ...sharedCreds,
       env: 'test',
       endpoint: 'https://testsecureacceptance.cybersource.com/pay'
+    },
+    expect: { configOk: true, fieldsOk: true, pathOk: true }
+  },
+  {
+    name: 'valid config WITH override_custom_receipt/cancel_page => must NOT reject as unsigned',
+    input: {
+      ...sharedCreds,
+      env: 'test',
+      endpoint: 'https://testsecureacceptance.cybersource.com/pay',
+      overrideCustomReceiptPage: 'https://peekaboojor.com/api/payments/capital-bank/return',
+      overrideCustomCancelPage: 'https://peekaboojor.com/payment/cancel'
     },
     expect: { configOk: true, fieldsOk: true, pathOk: true }
   }
