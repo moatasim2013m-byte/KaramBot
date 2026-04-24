@@ -47,8 +47,8 @@ const buildStaticSystemPrompt = () => [
   'واي فاي وكاميرا: واي فاي، نت، انترنت، كاميرا، شاشات، بتراقبوا، بشوفهم',
   'توصيل ومجموعات: توصيل، ديليفري، مدارس، رحلة مدرسية، مجموعة، جروب، مجموعات',
   'تعابير استفسار عامة أردنية: ينفع، بينفع، مناسب، مناسبة، ممكن، لو سمحت، لو سمحتوا، بتقدروا، هل في، في عندكم، عندكم، مش عارف، ما عارف، بدي اعرف، ابي اعرف، سألني، قلت، حكيت، شو رأيك، شو رأيكم',
-  'إذا الرسالة فيها تحية + سؤال: جاوب على السؤال مباشرة مع تحية قصيرة.',
-  'إذا الرسالة تحية فقط: topic="greeting_social", in_scope=true.',
+  'إذا الرسالة فيها تحية + سؤال عملي (أسعار، دوام، حجز، موقع، داي كير، أعمار، ...): topic يكون موضوع السؤال (play_sessions، location_hours، etc.) وليس greeting_social. أجب على السؤال مع تحية قصيرة. إذا وصل topic="greeting_social" مع وجود سؤال عملي: الكود سيعالجه تلقائياً بمطابقة الكلمات المفتاحية.',
+  'إذا الرسالة تحية بحتة أو حوار اجتماعي فقط بدون أي سؤال عملي: topic="greeting_social", in_scope=true.',
   `المواضيع المسموحة: ${ALLOWED_TOPICS.join(', ')}`,
   'خارج النطاق فقط: أسئلة ما لها علاقة ببيكابو نهائياً (سياسة، رياضة، طبخ، برمجة...).',
   '',
@@ -192,6 +192,14 @@ const buildStaticSystemPrompt = () => [
   'قاعدة صارمة: الخميس والجمعة الإغلاق منتصف الليل — ليس 11م.',
   'قبل 10 صباحاً → "حالياً مسكرين 💛 بنفتح الساعة 10 الصبح."',
   'فاتحين → "أيوا فاتحين 💛 بنضل لحد [وقت الإغلاق الصحيح لليوم]."',
+  'بكره / الغد → استخدم tomorrow_schedule من البيانات الحية للإجابة. مثال: "بكره فاتحين؟" → جاوب بدوام الغد.',
+  'اليوم / هاليوم → استخدم today_schedule. الليلة / هاللليلة → استخدم today_schedule.',
+  '',
+
+  // ═══ PAYMENT ══════════════════════════════════════════════════════════
+  '=== طريقة الدفع ===',
+  'الدفع: كاش عند الوصول 💛 أو ببطاقة ائتمان (فيزا/ماستر) أو كليك.',
+  'إذا سألوا عن فيزا/ماستر/كليك/بطاقة/دفع أونلاين/تحويل: "الدفع عندنا: كاش 💛 أو ببطاقة ائتمان (فيزا/ماستر) أو كليك."',
   '',
 
   // ═══ MEDIA ════════════════════════════════════════════════════════════
@@ -612,10 +620,18 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
     const isOpenNow = jordanNowParts.minutesNow >= time24ToMinutes(facts.openingTime) &&
       jordanNowParts.minutesNow < time24ToMinutes(todayClosingTime);
 
+    const WEEKDAY_TOMORROW = {
+      sunday: 'monday', monday: 'tuesday', tuesday: 'wednesday', wednesday: 'thursday',
+      thursday: 'friday', friday: 'saturday', saturday: 'sunday'
+    };
+    const tomorrowWeekday = WEEKDAY_TOMORROW[jordanNowParts.weekday] || '';
+    const tomorrowClosingTime = SPECIAL_CLOSING_BY_DAY[tomorrowWeekday] || facts.regularClosingTime;
+
     const dynamicContext = [
       `الوقت الحالي: ${jordanNow} (${String(jordanNowParts.hour).padStart(2, '0')}:${String(jordanNowParts.minute).padStart(2, '0')}، ${jordanNowParts.weekday})`,
       `business_hours_source_of_truth: {"timezone":"${JORDAN_TIME_ZONE}","schedule":{"sunday_to_wednesday_saturday":{"open":"10:00","close":"23:00"},"thursday_friday":{"open":"10:00","close":"24:00 (midnight)"}}}`,
       `today_schedule: {"day":"${jordanNowParts.weekday}","opening_time":"${facts.openingTime}","closing_time":"${todayClosingTime}","closing_time_ar":"${formatTimeArabic(todayClosingTime)}"}`,
+      `tomorrow_schedule: {"day":"${tomorrowWeekday}","opening_time":"${facts.openingTime}","closing_time":"${tomorrowClosingTime}","closing_time_ar":"${formatTimeArabic(tomorrowClosingTime)}"}`,
       `open_now_state: {"is_open_now":${isOpenNow},"evaluated_at_time":"${String(jordanNowParts.hour).padStart(2, '0')}:${String(jordanNowParts.minute).padStart(2, '0')}","timezone":"${JORDAN_TIME_ZONE}"}`,
       `hours: ${facts.hours || 'unknown'}`,
       `location: ${facts.location || 'unknown'}`,
@@ -937,7 +953,7 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
 - استخدم find_child لإيجاد الطفل المسجل
 - استخدم confirm_booking فقط لما الزبون يأكد بشكل صريح
 - "بكرا" = التاريخ اللي بعد اليوم، "اليوم" = تاريخ اليوم
-- الدفع كاش عند الوصول — اذكر هاد دائماً
+- الدفع: كاش أو ببطاقة ائتمان (فيزا/ماستر) أو كليك — اذكر هاد دائماً
 - لا تؤكد الحجز بدون موافقة صريحة من الزبون (نعم، تمام، أكد، etc.)
 - إذا الزبون ما ذكر الوقت، اسأله عن الوقت المفضل
 - إذا عنده أكثر من طفل، اسأله أي طفل بده يحجزله`;
@@ -1028,7 +1044,7 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
           bookingState.bookingCode = toolResult.bookingCode;
 
           // DETERMINISTIC confirmation — never let Gemini free-write this
-          const confirmReply = `تم الحجز بنجاح ✅\nرقم الحجز: ${toolResult.bookingCode}\nالتاريخ: ${toolResult.slotDate}\nالوقت: ${toolResult.slotTime}\nالمدة: ${toolResult.durationHours} ساعة\nالمبلغ: ${toolResult.amount} دنانير\nالدفع عند الوصول كاش 💛\nبنشوفكم!`;
+          const confirmReply = `تم الحجز بنجاح ✅\nرقم الحجز: ${toolResult.bookingCode}\nالتاريخ: ${toolResult.slotDate}\nالوقت: ${toolResult.slotTime}\nالمدة: ${toolResult.durationHours} ساعة\nالمبلغ: ${toolResult.amount} دنانير\nالدفع: كاش أو بطاقة أو كليك 💛\nبنشوفكم!`;
           return {
             in_scope: true,
             topic: 'booking_help',
