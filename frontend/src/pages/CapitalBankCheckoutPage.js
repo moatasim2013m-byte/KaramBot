@@ -126,6 +126,7 @@ const MICROFORM_FIELD_STYLES = {
   input: {
     'font-size': '16px',
     'font-family': 'inherit',
+    'line-height': '1.25rem',
     color: '#0f172a'
   },
   ':focus': {
@@ -430,6 +431,14 @@ export default function CapitalBankCheckoutPage() {
           min-height: 2.75rem;
           background: #ffffff;
           transition: border-color 0.2s ease;
+          display: flex;
+          align-items: center;
+        }
+        .flex-microform-container iframe {
+          display: block;
+          width: 100%;
+          height: 1.5rem;
+          border: 0;
         }
         .flex-microform-container:focus-within {
           border-color: #db2777;
