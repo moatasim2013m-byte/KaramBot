@@ -10,7 +10,7 @@ import sys
 import time
 
 # Configuration
-BACKEND_URL = "https://typing-before-reply.preview.emergentagent.com"
+BACKEND_URL = "https://transient-token-auth.preview.emergentagent.com"
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 

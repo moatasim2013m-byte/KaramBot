@@ -29,11 +29,11 @@
 
 ### 3. EXACT PREVIEW URL
 
-**Base URL:** `https://typing-before-reply.preview.emergentagent.com`
+**Base URL:** `https://transient-token-auth.preview.emergentagent.com`
 
-**Direct Admin Panel URL:** `https://typing-before-reply.preview.emergentagent.com/admin`
+**Direct Admin Panel URL:** `https://transient-token-auth.preview.emergentagent.com/admin`
 
-**Backend API URL:** `https://typing-before-reply.preview.emergentagent.com/api`
+**Backend API URL:** `https://transient-token-auth.preview.emergentagent.com/api`
 
 ---
 
@@ -45,7 +45,7 @@
 3. Or use Private Browsing mode
 
 ### Step 2: Login as Admin
-1. Go to: `https://typing-before-reply.preview.emergentagent.com/login`
+1. Go to: `https://transient-token-auth.preview.emergentagent.com/login`
 2. Enter:
    - Email: `admin@peekaboo.com`
    - Password: `admin123`
@@ -71,7 +71,7 @@ DEBUG: admin@peekaboo.com | role: admin
 ### Step 4: Test 403 Page (Optional)
 1. Logout
 2. Register/login as a regular parent user
-3. Try to access: `https://typing-before-reply.preview.emergentagent.com/admin`
+3. Try to access: `https://transient-token-auth.preview.emergentagent.com/admin`
 4. **Expected:** See 403 page with your email and role displayed
 
 ---

@@ -32,6 +32,10 @@ const {
   validateSecureAcceptanceFields,
   verifySecureAcceptanceSignature
 } = require('../utils/cybersourceRest');
+const {
+  createCaptureContext: cybersourceCreateCaptureContext,
+  authorizePayment: cybersourceAuthorizePayment
+} = require('../utils/cybersourceUnifiedCheckout');
 const router = express.Router();
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const PAYMENT_PROVIDERS = {
@@ -1318,6 +1322,301 @@ const processCapitalBankReturn = async (req, res) => {
 
 router.post('/capital-bank/return', capitalBankCallbackParser, ensureHttpsForCapitalBank, processCapitalBankReturn);
 router.get('/capital-bank/return', ensureHttpsForCapitalBank, processCapitalBankReturn);
+
+// -----------------------------------------------------------------------------
+// CyberSource Unified Checkout (Microform v2 + Payments v2) — embedded SDK flow
+// -----------------------------------------------------------------------------
+// These routes run IN PARALLEL with the existing Secure Acceptance flow above.
+// They do NOT replace or modify any existing Secure Acceptance behaviour.
+// -----------------------------------------------------------------------------
+
+// Route A: create a Unified Checkout capture context (Sessions API) for the
+// current pending checkout session. Frontend loads the CyberSource JS SDK with
+// the returned JWT so the card fields render on our page.
+router.post('/capital-bank/unified-checkout/session', authMiddleware, ensureHttpsForCapitalBank, async (req, res) => {
+  try {
+    const { orderId } = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'orderId is required' });
+    }
+
+    const transaction = await resolveOrderTransaction(orderId, req.userId);
+    if (!transaction) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
+
+    if (transaction.status && transaction.status !== 'pending') {
+      return res.status(409).json({
+        success: false,
+        error: 'Transaction is not pending',
+        status: transaction.status
+      });
+    }
+
+    const amount = Number(transaction.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid transaction amount' });
+    }
+
+    const targetOrigin = resolveFrontendOrigin(req.body?.originUrl, req);
+    const locale = String(req.body?.locale || 'ar-xn');
+    const currency = String(transaction.currency || 'JOD').toUpperCase();
+
+    console.info('[CyberSource Unified Checkout] Creating capture context', {
+      order_id: transaction.session_id,
+      amount: amount.toFixed(2),
+      currency,
+      locale,
+      target_origin: targetOrigin || null
+    });
+
+    const result = await cybersourceCreateCaptureContext({
+      amount,
+      currency,
+      locale,
+      targetOrigin
+    });
+
+    if (!result.ok) {
+      console.error('[CyberSource Unified Checkout] createCaptureContext failed', {
+        order_id: transaction.session_id,
+        status: result.status,
+        error: result.error,
+        details: result.details
+      });
+      return res.status(502).json({
+        success: false,
+        error: 'تعذر بدء عملية الدفع. Failed to create Unified Checkout capture context.',
+        code: 'UNIFIED_CHECKOUT_SESSION_FAILED',
+        details: {
+          status: result.status,
+          message: result.error
+        }
+      });
+    }
+
+    // Persist a marker on the transaction for traceability (no schema change).
+    try {
+      await PaymentTransaction.findByIdAndUpdate(transaction._id, {
+        $set: {
+          provider: DB_PROVIDER_CAPITAL_BANK,
+          'metadata.unified_checkout.session_created_at': new Date().toISOString(),
+          'metadata.unified_checkout.target_origin': targetOrigin || null,
+          'metadata.unified_checkout.locale': locale,
+          updated_at: new Date()
+        }
+      });
+    } catch (persistError) {
+      console.warn('[CyberSource Unified Checkout] Failed to persist session metadata (non-fatal):', persistError?.message);
+    }
+
+    return res.status(200).json({
+      success: true,
+      orderId: transaction.session_id,
+      captureContext: result.captureContext
+    });
+  } catch (error) {
+    console.error('[CyberSource Unified Checkout] /session error:', error?.message, {
+      stack_preview: String(error?.stack || '').split('\n').slice(0, 3).join('\n')
+    });
+    return res.status(500).json({
+      success: false,
+      error: 'Unexpected error creating Unified Checkout session',
+      code: 'UNIFIED_CHECKOUT_SESSION_ERROR',
+      details: { message: error?.message || 'unknown_error' }
+    });
+  }
+});
+
+// Route B: authorize (+ capture) a payment using the transient token JWT
+// returned by the CyberSource JS SDK on the frontend.
+router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHttpsForCapitalBank, async (req, res) => {
+  try {
+    const { orderId, transientToken } = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'orderId is required' });
+    }
+    if (!transientToken || typeof transientToken !== 'string') {
+      return res.status(400).json({ success: false, error: 'transientToken is required' });
+    }
+
+    const transaction = await resolveOrderTransaction(orderId, req.userId);
+    if (!transaction) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
+
+    const amount = Number(transaction.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid transaction amount' });
+    }
+
+    const currency = String(transaction.currency || 'JOD').toUpperCase();
+
+    console.info('[CyberSource Unified Checkout] Authorizing payment', {
+      order_id: transaction.session_id,
+      amount: amount.toFixed(2),
+      currency
+    });
+
+    const result = await cybersourceAuthorizePayment({
+      transientToken,
+      amount,
+      currency,
+      referenceNumber: transaction.session_id
+    });
+
+    const providerData = (result && typeof result.data === 'object' && result.data) ? result.data : {};
+    const providerStatus = String(providerData?.status || '').toUpperCase();
+    const providerPaymentId = String(
+      providerData?.id
+      || providerData?.processorInformation?.transactionId
+      || ''
+    ).trim();
+    const reasonCode = String(
+      providerData?.processorInformation?.responseCode
+      || providerData?.errorInformation?.reason
+      || providerData?.reason
+      || ''
+    ).trim();
+    const providerMessage = String(
+      providerData?.processorInformation?.responseCodeSource
+      || providerData?.errorInformation?.message
+      || providerData?.message
+      || ''
+    ).trim();
+
+    const isApproved = Boolean(result.ok)
+      && (providerStatus === 'AUTHORIZED'
+        || providerStatus === 'AUTHORIZED_PENDING_REVIEW'
+        || providerStatus === 'PARTIAL_AUTHORIZED'
+        || providerStatus === 'PENDING'
+        || providerStatus === 'TRANSMITTED');
+
+    const isPending = Boolean(result.ok)
+      && (providerStatus === 'PENDING_AUTHENTICATION'
+        || providerStatus === 'PENDING_REVIEW');
+
+    let newStatus;
+    let newPaymentStatus;
+    if (isApproved) {
+      newStatus = 'paid';
+      newPaymentStatus = 'paid';
+    } else if (isPending) {
+      newStatus = 'pending';
+      newPaymentStatus = 'pending';
+    } else {
+      newStatus = 'failed';
+      newPaymentStatus = 'failed';
+    }
+
+    // Do not demote an already-paid transaction (mirror processCapitalBankReturn logic).
+    const shouldKeepPaidState = transaction.status === 'paid' && newStatus !== 'paid';
+
+    const updatePayload = {
+      $set: {
+        status: shouldKeepPaidState ? 'paid' : newStatus,
+        payment_status: shouldKeepPaidState ? 'paid' : newPaymentStatus,
+        updated_at: new Date(),
+        provider: DB_PROVIDER_CAPITAL_BANK,
+        'metadata.gateway_callback': {
+          source: 'unified_checkout_authorize',
+          decision: providerStatus || (result.ok ? 'UNKNOWN' : 'ERROR'),
+          reason_code: reasonCode,
+          message: providerMessage,
+          req_reference_number: transaction.session_id,
+          reference_number: transaction.session_id,
+          transaction_id: providerPaymentId,
+          req_transaction_uuid: providerPaymentId,
+          received_at: new Date().toISOString()
+        },
+        'metadata.unified_checkout.authorize_status': providerStatus,
+        'metadata.unified_checkout.authorize_http_status': result.status || null,
+        'metadata.unified_checkout.authorized_at': new Date().toISOString(),
+        ...(providerPaymentId ? { payment_id: providerPaymentId } : {})
+      }
+    };
+
+    if (providerPaymentId) {
+      updatePayload.$addToSet = { 'metadata.processed_transaction_ids': providerPaymentId };
+    }
+
+    const updated = await PaymentTransaction.findOneAndUpdate(
+      { _id: transaction._id },
+      updatePayload,
+      { new: true }
+    );
+
+    if (!result.ok) {
+      console.error('[CyberSource Unified Checkout] Authorize failed', {
+        order_id: transaction.session_id,
+        status: result.status,
+        error: result.error,
+        provider_status: providerStatus,
+        reason_code: reasonCode
+      });
+      return res.status(402).json({
+        success: false,
+        orderId: transaction.session_id,
+        status: updated?.status || newStatus,
+        error: providerMessage || result.error || 'Payment authorization failed',
+        code: 'UNIFIED_CHECKOUT_AUTHORIZE_FAILED',
+        provider: {
+          status: providerStatus || null,
+          reasonCode: reasonCode || null
+        }
+      });
+    }
+
+    // On success, mirror the existing callback post-processing.
+    if (updated && updated.status === 'paid' && updated.type === 'product') {
+      try {
+        await maybeAwardProductLoyaltyPoints(updated);
+      } catch (loyaltyError) {
+        console.error('[CyberSource Unified Checkout] Loyalty award failed (non-fatal):', loyaltyError?.message);
+      }
+    }
+
+    if (updated && updated.status === 'paid' && ['hourly', 'birthday', 'subscription'].includes(updated.type)) {
+      try {
+        await finalizeTransactionIfPaid(updated);
+      } catch (finalizeError) {
+        console.error('[CyberSource Unified Checkout] Finalization failed (non-fatal):', {
+          sessionId: updated.session_id,
+          type: updated.type,
+          error: finalizeError?.message
+        });
+      }
+    }
+
+    console.info('[CyberSource Unified Checkout] Authorize completed', {
+      order_id: transaction.session_id,
+      provider_status: providerStatus,
+      final_status: updated?.status || newStatus,
+      payment_id: providerPaymentId || null
+    });
+
+    return res.status(200).json({
+      success: isApproved,
+      orderId: transaction.session_id,
+      status: updated?.status || newStatus,
+      provider: {
+        status: providerStatus || null,
+        paymentId: providerPaymentId || null,
+        reasonCode: reasonCode || null
+      }
+    });
+  } catch (error) {
+    console.error('[CyberSource Unified Checkout] /authorize error:', error?.message, {
+      stack_preview: String(error?.stack || '').split('\n').slice(0, 3).join('\n')
+    });
+    return res.status(500).json({
+      success: false,
+      error: 'Unexpected error authorizing Unified Checkout payment',
+      code: 'UNIFIED_CHECKOUT_AUTHORIZE_ERROR',
+      details: { message: error?.message || 'unknown_error' }
+    });
+  }
+});
 
 router.get('/provider', (_req, res) => {
   const effectiveProvider = getEffectiveProvider();
