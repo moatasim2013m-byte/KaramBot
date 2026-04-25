@@ -12,6 +12,32 @@ const TemplateDefinition = require('../models/TemplateDefinition');
 const router = express.Router();
 const META_GRAPH_API_VERSION = 'v22.0';
 
+// Wait briefly for the Mongoose connection to be ready (readyState === 1).
+// Cloud Run cold starts can fire this webhook within milliseconds of container
+// boot, before mongoose.connect() has resolved. Without this grace window the
+// inbound message is silently dropped and the AI never replies. Caps at
+// timeoutMs to avoid the 10s mongoose buffering hang on unresponsive DBs.
+const waitForDbReady = (timeoutMs = 5000) => new Promise((resolve) => {
+  if (mongoose?.connection?.readyState === 1) return resolve(true);
+  let settled = false;
+  const finish = (ready) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    resolve(ready);
+  };
+  const onConnected = () => finish(true);
+  const cleanup = () => {
+    try {
+      mongoose.connection.off('connected', onConnected);
+      mongoose.connection.off('open', onConnected);
+    } catch (_e) { /* noop */ }
+  };
+  mongoose.connection.once('connected', onConnected);
+  mongoose.connection.once('open', onConnected);
+  setTimeout(() => finish(mongoose?.connection?.readyState === 1), timeoutMs);
+});
+
 const getTrimmedEnv = (name) => String(process.env[name] || '').trim();
 
 const isSignatureValidationEnabled = () => {
@@ -210,7 +236,11 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
     
     // Try to link to existing user (non-blocking: do not fail inbound flow if lookup is unavailable)
     let linkedUserId = null;
-    const isDbReadyForLookup = mongoose?.connection?.readyState === 1;
+    let isDbReadyForLookup = mongoose?.connection?.readyState === 1;
+    if (!isDbReadyForLookup) {
+      // Cold-start race: wait briefly for the connection to come up.
+      isDbReadyForLookup = await waitForDbReady(5000);
+    }
     if (isDbReadyForLookup) {
       try {
         const phoneFormats = normalizePhoneForLookup(senderWaId);
@@ -275,6 +305,10 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
     // auto-reply (which also issues DB operations) from hanging on the same
     // disconnected connection. Meta will not retry on our side; the inbound
     // message is skipped with a clear log so ops can correlate.
+    if (mongoose?.connection?.readyState !== 1) {
+      // Wait once more in case the lookup-stage wait was racing with reconnect.
+      await waitForDbReady(5000);
+    }
     if (mongoose?.connection?.readyState !== 1) {
       console.warn('WHATSAPP_MESSAGE_PERSIST_DB_NOT_READY', {
         dbReadyState: mongoose?.connection?.readyState,
