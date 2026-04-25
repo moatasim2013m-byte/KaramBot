@@ -459,9 +459,54 @@ const mongoConfig = resolveMongoUrl();
 const mongoUrl = mongoConfig.url;
 const configuredDb = resolveConfiguredDbName(mongoUrl);
 
-if (!mongoUrl) {
-  console.error('❌ Mongo URL is missing. Set MONGO_URL (or MONGODB_URI / MONGO_URI / DATABASE_URL). App will run but DB features will NOT work.');
-} else {
+// Reconnect handlers — Mongoose 6+ retries the underlying driver topology on
+// most failures, but we still surface state changes so Cloud Run logs make it
+// obvious when/if the connection drops mid-runtime (e.g. Atlas idle timeout
+// or instance pause/resume). When `disconnected` fires we attempt an explicit
+// `connect()` again with a small backoff so any pending requests resume
+// correctly without waiting for the next driver heartbeat.
+let isReconnecting = false;
+const attachConnectionListeners = () => {
+  mongoose.connection.on('disconnected', () => {
+    console.warn('DB_DISCONNECTED', { ts: new Date().toISOString() });
+    if (!mongoUrl || isReconnecting) return;
+    isReconnecting = true;
+    setTimeout(() => {
+      const options = { serverSelectionTimeoutMS: 10000 };
+      if (configuredDb.name) options.dbName = configuredDb.name;
+      mongoose.connect(mongoUrl, options)
+        .then(() => {
+          isReconnecting = false;
+          console.log('DB_RECONNECTED', { name: mongoose.connection.name });
+        })
+        .catch((err) => {
+          isReconnecting = false;
+          console.error('DB_RECONNECT_FAILED', err?.message || err);
+        });
+    }, 1000);
+  });
+  mongoose.connection.on('reconnected', () => {
+    console.log('DB_RECONNECTED_EVENT', { ts: new Date().toISOString() });
+  });
+  mongoose.connection.on('error', (err) => {
+    console.error('DB_CONNECTION_ERROR', err?.message || err);
+  });
+};
+
+const startServer = () => {
+  const PORT = process.env.PORT || 8080;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log('LISTENING', PORT);
+  });
+};
+
+(async () => {
+  if (!mongoUrl) {
+    console.error('❌ Mongo URL is missing. Set MONGO_URL (or MONGODB_URI / MONGO_URI / DATABASE_URL). App will run but DB features will NOT work.');
+    startServer();
+    return;
+  }
+
   console.log('⏳ Attempting to connect to MongoDB...');
   console.log(`DB_URL source=${mongoConfig.source}`);
   if (configuredDb.name) {
@@ -470,34 +515,35 @@ if (!mongoUrl) {
     console.warn('WARN: No database name configured via DB_NAME/MONGO_DB_NAME/MONGODB_DB/MONGO_DATABASE or MONGO_URL path.');
     console.warn('WARN: MongoDB driver default database may be used (often "test"), which can cause missing users/data.');
   }
-  
+
   const options = { serverSelectionTimeoutMS: 10000 };
   if (configuredDb.name) {
     options.dbName = configuredDb.name;
   }
-  
-  mongoose
-    .connect(mongoUrl, options)
-    .then(async () => {
-      console.log('✅ Connected to MongoDB:', mongoose.connection.name);
-      console.log('DB_CONNECTED name=' + mongoose.connection.name + ' host=' + mongoose.connection.host);
-      logger.info({
-        event: 'db_connected',
-        db_host: mongoose.connection.host,
-        db_name: mongoose.connection.name
-      }, 'Database connected');
 
-      try {
-        await bootstrapAdminUser();
-      } catch (bootstrapError) {
-        console.error('ADMIN_BOOTSTRAP_ERROR', bootstrapError?.message || bootstrapError);
-      }
-    })
-    .catch((err) => console.error('❌ MongoDB connection error:', err));
-}
+  attachConnectionListeners();
 
-// ==================== START SERVER ====================
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log('LISTENING', PORT);
-});
+  try {
+    await mongoose.connect(mongoUrl, options);
+    console.log('✅ Connected to MongoDB:', mongoose.connection.name);
+    console.log('DB_CONNECTED name=' + mongoose.connection.name + ' host=' + mongoose.connection.host);
+    logger.info({
+      event: 'db_connected',
+      db_host: mongoose.connection.host,
+      db_name: mongoose.connection.name
+    }, 'Database connected');
+
+    try {
+      await bootstrapAdminUser();
+    } catch (bootstrapError) {
+      console.error('ADMIN_BOOTSTRAP_ERROR', bootstrapError?.message || bootstrapError);
+    }
+  } catch (err) {
+    // Do not crash the container — Cloud Run health checks would loop forever.
+    // Listen anyway so /health responds; the reconnect listener will keep
+    // retrying in the background.
+    console.error('❌ MongoDB connection error (will retry in background):', err?.message || err);
+  }
+
+  startServer();
+})();

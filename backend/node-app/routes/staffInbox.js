@@ -57,8 +57,11 @@ const uploadAudioMemory = multer({
 });
 
 const router = express.Router();
-// Exclude both the per-message processing markers and the per-sender burst-lock
-// documents that the bot writes to MongoDB as outbound/unsupported records.
+// Exclude internal sentinel/lock documents from the staff inbox view:
+//   - `auto_trigger_*` written by maybeAutoReply to claim per-message locks
+//   - `burst_lock_*`  written by acquireBurstLock for sender-level burst windows
+// Without this, those documents leak into the staff chat view and render as
+// confusing "(غير مدعوم)" outbound bubbles.
 const INTERNAL_AUTO_REPLY_MARKER_REGEX = /^(auto_trigger_|burst_lock_)/;
 
 const withVisibleInboxMessages = (query = {}) => ({

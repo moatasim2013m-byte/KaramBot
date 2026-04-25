@@ -209,6 +209,10 @@ const validateSecureAcceptanceFields = (fields = {}) => {
   ];
   const missingFields = requiredFields.filter((fieldName) => !String(fields[fieldName] || '').trim());
   const signedFieldNames = String(fields.signed_field_names || '').split(',').map((name) => name.trim()).filter(Boolean);
+  const declaredUnsignedFieldNames = String(fields.unsigned_field_names || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
   const missingSignedFields = REQUIRED_SIGNED_FIELDS.filter((fieldName) => !signedFieldNames.includes(fieldName));
   const expectedRequiredOrder = REQUIRED_SIGNED_FIELDS.join(',');
   const actualRequiredOrder = signedFieldNames
@@ -216,7 +220,16 @@ const validateSecureAcceptanceFields = (fields = {}) => {
     .join(',');
   const hasRequiredOrderMismatch = actualRequiredOrder !== expectedRequiredOrder;
   const payloadFields = Object.keys(fields).filter((fieldName) => fieldName !== 'signature');
-  const unsignedPayloadFields = payloadFields.filter((fieldName) => !signedFieldNames.includes(fieldName));
+  // Fields declared via `unsigned_field_names` (e.g. override_custom_receipt_page,
+  // override_custom_cancel_page) are legitimately unsigned per CyberSource Secure
+  // Acceptance spec. Also allow `unsigned_field_names` itself, which must be signed
+  // but is authored as a pointer to the unsigned set.
+  const allowedUnsignedSet = new Set([
+    ...signedFieldNames,
+    ...declaredUnsignedFieldNames,
+    'unsigned_field_names'
+  ]);
+  const unsignedPayloadFields = payloadFields.filter((fieldName) => !allowedUnsignedSet.has(fieldName));
   const details = {
     missing_fields: missingFields,
     missing_signed_fields: missingSignedFields,
