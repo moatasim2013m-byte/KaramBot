@@ -1287,27 +1287,10 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     }
 
     const resolvedTriggerMessageId = burstResolution.triggerMessageId || messageId;
-    if (resolvedTriggerMessageId !== messageId) {
-      const resolvedAlreadyHandled = await WhatsAppMessage.findOne({
-        message_id: `auto_trigger_${resolvedTriggerMessageId}`
-      }).lean();
-      if (resolvedAlreadyHandled) {
-        logAutoReply('AUTO_REPLY_SKIPPED', {
-          messageId,
-          senderWaId: normalizedWaId,
-          reason: 'duplicate_trigger',
-          resolvedTriggerMessageId
-        });
-        logRoutingBlock({
-          messageId,
-          senderWaId: normalizedWaId,
-          route: 'skip',
-          reason: 'duplicate_trigger',
-          resolvedTriggerMessageId
-        });
-        return { skipped: true, reason: 'duplicate_trigger' };
-      }
-    }
+    // Note: the previous duplicate_trigger check here was removed because it caused
+    // a deadlock — the burst lock holder (Message 1) would find Message 2's claim
+    // and exit without replying, while Message 2 had already exited due to burst_lock_held.
+    // The burst lock itself is sufficient to prevent double-processing.
 
     const _perfStart = Date.now();
     let effectiveTextBody = burstResolution.burstText || textBody;
