@@ -77,6 +77,9 @@ const canBookBirthdayDate = (slotDate) => {
 
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 
+const MAX_GUEST_CHILD_COUNT = 20;
+const MAX_GUEST_CHILD_NAME_LENGTH = 100;
+
 const normalizeGuestCount = (value, { min = 5, max = 100, fallback = 10 } = {}) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -263,7 +266,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
   let reservedCount = 0;
 
   try {
-    const { slot_id, child_ids, child_id, payment_id, duration_hours, custom_notes, lineItems, coupon_code } = req.body;
+    const { slot_id, child_ids, child_id, payment_id, duration_hours, custom_notes, lineItems, coupon_code, child_count, guest_child_name } = req.body;
     // NOTE: req.body.amount is intentionally IGNORED for security - price computed server-side
     
     if (!isValidObjectId(slot_id)) {
@@ -272,10 +275,12 @@ router.post('/hourly', authMiddleware, async (req, res) => {
 
     // Support both child_ids array and legacy child_id
     const { childIds: childIdList, allValid } = normalizeChildIds(child_ids, child_id);
-    if (childIdList.length === 0) {
-      return res.status(400).json({ error: 'يجب اختيار طفل واحد على الأقل' });
-    }
-    if (!allValid) {
+    const useGuestBooking = childIdList.length === 0;
+    const effectiveCount = useGuestBooking
+      ? Math.max(1, Math.min(MAX_GUEST_CHILD_COUNT, parseInt(child_count) || 1))
+      : childIdList.length;
+
+    if (!useGuestBooking && !allValid) {
       return res.status(400).json({ error: 'معرّف طفل غير صالح' });
     }
     
@@ -284,9 +289,9 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       { 
         _id: slot_id, 
         slot_type: 'hourly',
-        $expr: { $lte: [{ $add: ['$booked_count', childIdList.length] }, '$capacity'] }
+        $expr: { $lte: [{ $add: ['$booked_count', effectiveCount] }, '$capacity'] }
       },
-      { $inc: { booked_count: childIdList.length } },
+      { $inc: { booked_count: effectiveCount } },
       { new: true }
     );
     
@@ -297,26 +302,28 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       }
       const available = existingSlot.capacity - existingSlot.booked_count;
       return res.status(400).json({ 
-        error: `عذراً، المتاح ${available} مكان فقط. اخترت ${childIdList.length} أطفال.`
+        error: `عذراً، المتاح ${available} مكان فقط. اخترت ${effectiveCount} أطفال.`
       });
     }
 
     reservedSlotId = slot_id;
-    reservedCount = childIdList.length;
+    reservedCount = effectiveCount;
 
-    // Validate all children belong to user
-    const validChildren = await Child.find({ _id: { $in: childIdList }, parent_id: req.userId });
-    if (validChildren.length !== childIdList.length) {
-      // Rollback capacity
-      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -childIdList.length } });
-      return res.status(400).json({ error: 'طفل غير صالح' });
+    // Validate all children belong to user (only when child IDs provided)
+    let validChildren = [];
+    if (!useGuestBooking) {
+      validChildren = await Child.find({ _id: { $in: childIdList }, parent_id: req.userId });
+      if (validChildren.length !== childIdList.length) {
+        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
+        return res.status(400).json({ error: 'طفل غير صالح' });
+      }
     }
 
     // SECURITY: Compute price server-side using slot start_time for Happy Hour pricing
     const hours = normalizeDurationHours(duration_hours);
     const basePrice = await getHourlyPrice(hours, slot.start_time);
     const { normalizedLineItems, productsTotal } = await buildLineItems(lineItems);
-    const subtotalAmount = (basePrice * childIdList.length) + productsTotal;
+    const subtotalAmount = (basePrice * effectiveCount) + productsTotal;
     let discountAmount = 0;
     let normalizedCouponCode = '';
 
@@ -327,7 +334,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
         type: 'hourly'
       });
       if (!couponValidation.valid) {
-        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -childIdList.length } });
+        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
         return res.status(400).json({ error: couponValidation.message });
       }
       discountAmount = couponValidation.discountAmount;
@@ -337,22 +344,22 @@ router.post('/hourly', authMiddleware, async (req, res) => {
     
     // Safety check: computed amount must be valid
     if (!totalAmount || isNaN(totalAmount) || totalAmount <= 0) {
-      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -childIdList.length } });
+      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
       return res.status(400).json({ error: 'خطأ في حساب السعر' });
     }
     
-    const pricePerChild = totalAmount / childIdList.length;
-
-    // Create a booking for each child
+    const pricePerUnit = totalAmount / effectiveCount;
     const bookings = [];
-    
-    for (const cid of childIdList) {
+
+    if (useGuestBooking) {
+      // Single booking without a registered child
       const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
       const qr_code = await generateQRCode(booking_code);
-
       const booking = new HourlyBooking({
         user_id: req.userId,
-        child_id: cid,
+        child_id: null,
+        guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
+        child_count: effectiveCount,
         slot_id,
         duration_hours: hours,
         custom_notes: custom_notes || '',
@@ -360,15 +367,39 @@ router.post('/hourly', authMiddleware, async (req, res) => {
         booking_code,
         status: 'confirmed',
         payment_id,
-        amount: pricePerChild,
-        subtotal_amount: subtotalAmount / childIdList.length,
-        discount_amount: discountAmount / childIdList.length,
+        amount: totalAmount,
+        subtotal_amount: subtotalAmount,
+        discount_amount: discountAmount,
         coupon_code: normalizedCouponCode,
         lineItems: normalizedLineItems
       });
-
       await booking.save();
       bookings.push(booking);
+    } else {
+      // Create a booking for each registered child
+      for (const cid of childIdList) {
+        const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+        const qr_code = await generateQRCode(booking_code);
+        const booking = new HourlyBooking({
+          user_id: req.userId,
+          child_id: cid,
+          child_count: 1,
+          slot_id,
+          duration_hours: hours,
+          custom_notes: custom_notes || '',
+          qr_code,
+          booking_code,
+          status: 'confirmed',
+          payment_id,
+          amount: pricePerUnit,
+          subtotal_amount: subtotalAmount / childIdList.length,
+          discount_amount: discountAmount / childIdList.length,
+          coupon_code: normalizedCouponCode,
+          lineItems: normalizedLineItems
+        });
+        await booking.save();
+        bookings.push(booking);
+      }
     }
 
     await awardLoyaltyPoints(req.userId, payment_id || bookings[0]?._id, 'hourly');
@@ -379,7 +410,9 @@ router.post('/hourly', authMiddleware, async (req, res) => {
 
     // Send confirmation email (non-blocking)
     const user = await User.findById(req.userId);
-    const childNames = validChildren.map(c => c.name).join(', ');
+    const childNames = validChildren.length > 0
+      ? validChildren.map(c => c.name).join(', ')
+      : ((guest_child_name || '').trim() || `${effectiveCount} أطفال`);
     const template = emailTemplates.bookingConfirmation(bookings[0], slot, { name: childNames });
     try {
       await sendEmail(user.email, template.subject, template.html);
@@ -392,7 +425,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       customerName: user?.name,
       date: slot?.date,
       time: slot?.start_time,
-      childCount: childIdList.length,
+      childCount: effectiveCount,
       durationHours: bookings[0]?.duration_hours,
       bookingReference: bookings[0]?.booking_code,
       bookingId: bookings[0]?._id?.toString()
@@ -427,7 +460,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
   let reservedCount = 0;
 
   try {
-    const { slot_id, child_ids, child_id, duration_hours, custom_notes, payment_method, lineItems, coupon_code } = req.body;
+    const { slot_id, child_ids, child_id, duration_hours, custom_notes, payment_method, lineItems, coupon_code, child_count, guest_child_name } = req.body;
     
     // Validate payment method
     if (!['cash', 'cliq'].includes(payment_method)) {
@@ -440,10 +473,12 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
 
     // Support both child_ids array and legacy child_id
     const { childIds: childIdList, allValid } = normalizeChildIds(child_ids, child_id);
-    if (childIdList.length === 0) {
-      return res.status(400).json({ error: 'يجب اختيار طفل واحد على الأقل' });
-    }
-    if (!allValid) {
+    const useGuestBooking = childIdList.length === 0;
+    const effectiveCount = useGuestBooking
+      ? Math.max(1, Math.min(MAX_GUEST_CHILD_COUNT, parseInt(child_count) || 1))
+      : childIdList.length;
+
+    if (!useGuestBooking && !allValid) {
       return res.status(400).json({ error: 'معرّف طفل غير صالح' });
     }
     
@@ -452,9 +487,9 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       { 
         _id: slot_id, 
         slot_type: 'hourly',
-        $expr: { $lte: [{ $add: ['$booked_count', childIdList.length] }, '$capacity'] }
+        $expr: { $lte: [{ $add: ['$booked_count', effectiveCount] }, '$capacity'] }
       },
-      { $inc: { booked_count: childIdList.length } },
+      { $inc: { booked_count: effectiveCount } },
       { new: true }
     );
     
@@ -465,26 +500,28 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       }
       const available = existingSlot.capacity - existingSlot.booked_count;
       return res.status(400).json({ 
-        error: `عذراً، المتاح ${available} مكان فقط. اخترت ${childIdList.length} أطفال.`
+        error: `عذراً، المتاح ${available} مكان فقط. اخترت ${effectiveCount} أطفال.`
       });
     }
 
     reservedSlotId = slot_id;
-    reservedCount = childIdList.length;
+    reservedCount = effectiveCount;
 
-    // Validate all children belong to user
-    const validChildren = await Child.find({ _id: { $in: childIdList }, parent_id: req.userId });
-    if (validChildren.length !== childIdList.length) {
-      // Rollback capacity
-      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -childIdList.length } });
-      return res.status(400).json({ error: 'طفل غير صالح' });
+    // Validate all children belong to user (only when child IDs provided)
+    let validChildren = [];
+    if (!useGuestBooking) {
+      validChildren = await Child.find({ _id: { $in: childIdList }, parent_id: req.userId });
+      if (validChildren.length !== childIdList.length) {
+        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
+        return res.status(400).json({ error: 'طفل غير صالح' });
+      }
     }
 
     // Calculate price on server side with Happy Hour logic
     const hours = parseInt(duration_hours) || 2;
     const basePrice = await getHourlyPrice(hours, slot.start_time);
     const { normalizedLineItems, productsTotal } = await buildLineItems(lineItems);
-    const subtotalAmount = (basePrice * childIdList.length) + productsTotal;
+    const subtotalAmount = (basePrice * effectiveCount) + productsTotal;
     let discountAmount = 0;
     let normalizedCouponCode = '';
 
@@ -495,7 +532,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
         type: 'hourly'
       });
       if (!couponValidation.valid) {
-        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -childIdList.length } });
+        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
         return res.status(400).json({ error: couponValidation.message });
       }
       discountAmount = couponValidation.discountAmount;
@@ -506,23 +543,23 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
     
     // Safety check: computed amount must be valid
     if (!totalAmount || isNaN(totalAmount) || totalAmount <= 0) {
-      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -childIdList.length } });
+      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
       return res.status(400).json({ error: 'خطأ في حساب السعر' });
     }
     
-    const pricePerChild = totalAmount / childIdList.length;
-
-    // Create a booking for each child
+    const pricePerUnit = totalAmount / effectiveCount;
     const bookings = [];
     const paymentStatus = payment_method === 'cash' ? 'pending_cash' : 'pending_cliq';
-    
-    for (const cid of childIdList) {
+
+    if (useGuestBooking) {
+      // Single booking without a registered child
       const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
       const qr_code = await generateQRCode(booking_code);
-
       const booking = new HourlyBooking({
         user_id: req.userId,
-        child_id: cid,
+        child_id: null,
+        guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
+        child_count: effectiveCount,
         slot_id,
         duration_hours: hours,
         custom_notes: custom_notes || '',
@@ -531,15 +568,40 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
         status: 'confirmed',
         payment_method,
         payment_status: paymentStatus,
-        amount: pricePerChild,
-        subtotal_amount: subtotalAmount / childIdList.length,
-        discount_amount: discountAmount / childIdList.length,
+        amount: totalAmount,
+        subtotal_amount: subtotalAmount,
+        discount_amount: discountAmount,
         coupon_code: normalizedCouponCode,
         lineItems: normalizedLineItems
       });
-
       await booking.save();
       bookings.push(booking);
+    } else {
+      // Create a booking for each registered child
+      for (const cid of childIdList) {
+        const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+        const qr_code = await generateQRCode(booking_code);
+        const booking = new HourlyBooking({
+          user_id: req.userId,
+          child_id: cid,
+          child_count: 1,
+          slot_id,
+          duration_hours: hours,
+          custom_notes: custom_notes || '',
+          qr_code,
+          booking_code,
+          status: 'confirmed',
+          payment_method,
+          payment_status: paymentStatus,
+          amount: pricePerUnit,
+          subtotal_amount: subtotalAmount / childIdList.length,
+          discount_amount: discountAmount / childIdList.length,
+          coupon_code: normalizedCouponCode,
+          lineItems: normalizedLineItems
+        });
+        await booking.save();
+        bookings.push(booking);
+      }
     }
 
     await awardLoyaltyPoints(req.userId, bookings[0]?._id, 'hourly');
@@ -550,7 +612,9 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
 
     // Send confirmation email (non-blocking)
     const user = await User.findById(req.userId);
-    const childNames = validChildren.map(c => c.name).join(', ');
+    const childNames = validChildren.length > 0
+      ? validChildren.map(c => c.name).join(', ')
+      : ((guest_child_name || '').trim() || `${effectiveCount} أطفال`);
     const template = emailTemplates.paymentPending({
       userName: user?.name,
       serviceName: `Hourly Play (${childNames})`,
@@ -569,7 +633,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       customerName: user?.name,
       date: slot?.date,
       time: slot?.start_time,
-      childCount: childIdList.length,
+      childCount: effectiveCount,
       durationHours: bookings[0]?.duration_hours,
       bookingReference: bookings[0]?.booking_code,
       bookingId: bookings[0]?._id?.toString(),

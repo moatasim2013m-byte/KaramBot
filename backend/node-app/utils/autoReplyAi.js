@@ -1026,6 +1026,7 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
 - إذا الزبون طلب وقت صباحي، قله إنه غير متاح عبر واتساب واقترح أوقات بعد الساعة 2 الظهر.
 - لا تذكر أبداً أي سعر مخفض أو عرض صباحي أو Happy Hour. السعر دائماً: ساعة = 7 دنانير، ساعتين = 10 دنانير.
 - استخدم find_child لإيجاد الطفل المسجل
+- إذا find_child رجع found: false (الطفل غير مسجل أو الرقم غير موجود)، اسأل الزبون: "ما اسم طفلك؟" ثم استخدم confirm_booking مع guest_child_name بدون child_id — الحجز يكمل بدون تسجيل
 - استخدم confirm_booking فقط لما الزبون يأكد بشكل صريح
 - "بكرا" = التاريخ اللي بعد اليوم، "اليوم" = تاريخ اليوم
 - الدفع: كاش أو ببطاقة ائتمان (فيزا/ماستر) أو كليك — اذكر هاد دائماً
@@ -1121,6 +1122,9 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
         bookingState.childId = toolResult.childId;
         bookingState.childName = toolResult.childName;
         bookingState.step = 'child_found';
+      }
+      if (name === 'find_child' && !toolResult.found) {
+        bookingState.step = 'child_not_found';
       }
       if (name === 'confirm_booking') {
         if (toolResult.success) {

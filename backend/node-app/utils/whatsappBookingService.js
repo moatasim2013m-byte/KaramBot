@@ -13,6 +13,8 @@ const Child = require('../models/Child');
 const User = require('../models/User');
 const Settings = require('../models/Settings');
 
+const MAX_GUEST_CHILD_NAME_LENGTH = 100;
+
 // --- Slot generation (copied from slots.js — not exported) ---
 const HOURLY_CONFIG = {
   startHour: 10,
