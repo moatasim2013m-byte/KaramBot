@@ -1,6 +1,11 @@
+import React from 'react';
+
 /**
  * Bottom tab bar visible only on mobile (<md). Mirrors the nav items from
  * the desktop <Sidebar /> so both screens share the same tab model.
+ *
+ * iOS safe-area: padding-bottom respects env(safe-area-inset-bottom) so the
+ * home-indicator on iPhone X+ doesn't overlap buttons.
  *
  * Props:
  *  - navItems: Array<{ id, label, icon, badge?, badgeVariant? }>
@@ -12,7 +17,8 @@ export function MobileNav({ navItems = [], activeTab, onTabChange }) {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-border shadow-lg flex justify-around py-2 z-50"
+      className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-border shadow-lg flex justify-around pt-2 z-50"
+      style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
       aria-label="Primary mobile"
       data-testid="mobile-bottom-nav"
     >
@@ -26,7 +32,7 @@ export function MobileNav({ navItems = [], activeTab, onTabChange }) {
             key={item.id}
             type="button"
             onClick={() => onTabChange(item.id)}
-            className={`relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 min-w-[52px] text-[10px] font-medium transition-colors ${
+            className={`relative flex flex-col items-center justify-center gap-0.5 px-2 py-1 min-w-[52px] flex-1 text-[10px] font-medium transition-colors ${
               isActive ? 'text-primary' : 'text-muted-foreground'
             }`}
             aria-label={item.label}
@@ -34,7 +40,7 @@ export function MobileNav({ navItems = [], activeTab, onTabChange }) {
             data-testid={`mobile-nav-${item.id}`}
           >
             {item.icon}
-            <span className="truncate max-w-[64px] leading-tight">
+            <span className="truncate max-w-[72px] leading-tight">
               {item.label}
             </span>
             {hasBadge ? (

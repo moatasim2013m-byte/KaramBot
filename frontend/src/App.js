@@ -24,7 +24,10 @@ const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
 const PaymentFailedPage = lazy(() => import("./pages/PaymentFailedPage"));
 const PaymentPendingPage = lazy(() => import("./pages/PaymentPendingPage"));
 const CapitalBankCheckoutPage = lazy(() => import("./pages/CapitalBankCheckoutPage"));
-const AdminPage = lazy(() => import("./pages/AdminPage"));
+// NOTE: pages/AdminPage.js was the legacy 3271-LOC monolith. It is no longer
+// rendered by any <Route> (NewAdminLayout from pages/admin/AdminLayout.js
+// took over). The file has been moved to pages/_legacy/AdminPage.js for
+// reference and will be deleted in a follow-up commit.
 const NewAdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ReceptionPage = lazy(() => import("./pages/ReceptionPage"));

@@ -313,6 +313,30 @@ frontend:
           agent: "main"
           comment: "Added minimal bulk-send card in existing campaigns tab. Template selection (dropdown from approved templates or text input), language code, JSON components textarea, phone numbers textarea (one per line), send button with confirmation dialog, results summary with per-recipient status display."
 
+  - task: "Dashboard shell refactor (d → a → b → c)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/admin/*, /app/frontend/src/pages/admin/AdminLayout.js, /app/frontend/src/pages/StaffPage.js, /app/frontend/src/pages/admin/tabs/OverviewTab.js, /app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Pure UI shell refactor. Zero backend/business-logic changes. (d) Moved /pages/AdminPage.js to /pages/_legacy/AdminPage.js and removed its lazy import from App.js — was dead code, /admin already routed to NewAdminLayout. (a) Refactored /pages/admin/AdminLayout.js to use shared <DashboardLayout> from /components/admin/DashboardLayout.js — deleted ~110 LOC of duplicated <aside>+bottom <nav>, file went 1573→1518 LOC. RTL preserved (dir='rtl'), all 8 admin nav items rendered (overview, bookings, visitors, themes, content, staff, settings, whatsapp-inbox), WhatsApp inbox handled via 'whatsapp-inbox' sentinel id that navigates to /staff?tab=inbox instead of switching tab. (b) Added iOS safe-area-inset to MobileNav (paddingBottom: max(8px, env(safe-area-inset-bottom))) and DashboardLayout main pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-8. Added hamburger drawer (shadcn Sheet) to Header — appears only on mobile (md:hidden), opens drawer on RTL-aware side, contains full nav list + logout. Added mobileNavItems prop to slim mobile bottom nav: AdminLayout passes [overview, bookings, whatsapp-inbox]; StaffPage derives 3-item perm-aware [home, bookings, inbox] via useMemo. (c) Created /components/admin/QuickStats.js — pure presentational, accepts items=[{label, value, hint, icon, accent, onClick}], 1/2/3/4 col responsive grid, RTL-aware. Wired into OverviewTab.js with 4 KPIs ALL from live stats: revenue_today (Today's Revenue), pending_custom_parties (Pending Bookings), active_sessions_now (Active Sessions), active_subscriptions (Active Subs). NO hardcoded numbers. Replaces 4 inline TremorCards. Verified visually: shell renders with 8 sidebar items, QuickStats strip renders with 4 colored cards, hamburger=1 + bottom_btns=3 in mobile DOM."
+
+  - task: "Admin user bootstrap"
+    implemented: true
+    working: true
+    file: "/app/memory/test_credentials.md"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "DB started empty — bootstrapped admin@peekaboo.com / admin123 directly into MongoDB users collection (bcrypt hash, role=admin, email_verified=true) so existing test_credentials.md remains valid. Login verified via /api/auth/login (200 + JWT token). No backend code changes."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
@@ -340,3 +364,5 @@ agent_communication:
       message: "COMPLIANCE PATCH: Added 2 fixes to staffCampaigns.js. (1) Template category: bulk-send and execute reject templates where category !== 'marketing'. (2) Consent: bulk-send checks User.whatsapp_marketing_consent per recipient phone, skips with skipped_no_consent. buildAudience() now requires linked_user_id + whatsapp_marketing_consent:true. TESTING: Admin login admin@peekaboo.com/admin123. Existing test_bulk_template is approved+marketing. Create utility template for category test: POST /api/templates {meta_template_id:'test_util_001',name:'test_utility_template',category:'utility',body_text:'Utility',status:'approved'}. For consent test: create parent user via POST /api/auth/register with phone matching test number AND then update whatsapp_marketing_consent:true via DB or consent endpoint. Sends fail with whatsapp_not_configured (expected)."
     - agent: "testing"
       message: "✅ COMPLIANCE TESTING COMPLETED: All 8 compliance scenarios tested successfully. Key findings: (1) Template category enforcement working - utility and authentication templates properly rejected with clear error messages. (2) Marketing templates accepted as expected. (3) Consent enforcement working - users without consent skipped with skipped_no_consent status. (4) Users with consent processed (failed due to whatsapp_not_configured as expected). (5) Mixed recipients handled correctly. (6) Campaign execute properly rejects non-marketing templates. (7) buildAudience() correctly filters for consent. (8) Existing opt-out functionality preserved. (9) No new DB collections created. (10) Fixed FRONTEND_URL env var issue for user registration. All compliance fixes verified and working correctly."
+    - agent: "main"
+      message: "DASHBOARD SHELL REFACTOR (d→a→b→c) COMPLETE — UI WRAPPER ONLY, NO BUSINESS LOGIC TOUCHED. All 4 phases applied with strict safety overrides (no useState/useEffect/axios/EventSource changes, tabs system preserved, no hardcoded stats). Files changed: App.js (legacy import removed), pages/admin/AdminLayout.js (-55 LOC, now uses <DashboardLayout>), components/admin/{DashboardLayout,Header,MobileNav,QuickStats}.js, pages/admin/tabs/OverviewTab.js (replaced 4 TremorCards with <QuickStats> wired to live stats), pages/StaffPage.js (added mobileNavItems prop only). Files moved: pages/AdminPage.js → pages/_legacy/AdminPage.js (was dead code, never rendered). Visual checks passed: admin shell renders with 8 sidebar nav items + RTL + active state, QuickStats strip renders 4 colored cards (Today's Revenue/Pending Bookings/Active Sessions/Active Subs) all from live stats object, mobile DOM exposes hamburger trigger + 3-item slim bottom nav. Backend not modified — no backend retest required. Frontend-only retest is OPTIONAL — recommend regression on: (1) /admin loads with new shell, all 7 admin tabs clickable + load their respective tab content; (2) WhatsApp inbox sidebar item navigates to /staff?tab=inbox; (3) /staff loads with new shell, permission-based nav items still respected; (4) Mobile viewport (≤md): hamburger opens drawer with full nav, bottom bar shows 3 items, safe-area visible on iOS. NOTE: DB started empty in this env — admin bootstrapped manually as admin@peekaboo.com / admin123 (already in test_credentials.md)."

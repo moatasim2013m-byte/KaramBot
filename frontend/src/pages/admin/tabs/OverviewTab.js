@@ -1,33 +1,54 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
 import { DollarSign, Clock, Check, Star, Users, Cake } from 'lucide-react';
-import { Card as TremorCard, Metric, Text, BadgeDelta } from '@tremor/react';
+import { QuickStats } from '../../../components/admin/QuickStats';
 
 export default function OverviewTab({ stats, handleDashboardCardClick, formatCurrency }) {
+  // ⚠️ All values below come from the live `stats` object the parent page
+  // already fetches via /admin/dashboard. NO hardcoded numbers.
+  const quickStatsItems = [
+    {
+      id: 'today-revenue',
+      label: 'إيرادات اليوم',
+      value: formatCurrency(stats.revenue_today),
+      hint: 'Today\'s Revenue',
+      icon: <DollarSign className="h-5 w-5" />,
+      accent: 'emerald',
+      onClick: () => handleDashboardCardClick('hourly', 'today'),
+    },
+    {
+      id: 'pending-bookings',
+      label: 'حجوزات معلقة',
+      value: stats.pending_custom_parties || 0,
+      hint: 'Pending Bookings',
+      icon: <Clock className="h-5 w-5" />,
+      accent: 'orange',
+      onClick: () => handleDashboardCardClick('birthday', 'custom_pending'),
+    },
+    {
+      id: 'active-sessions',
+      label: 'الجلسات النشطة',
+      value: stats.active_sessions_now || 0,
+      hint: 'Active Sessions',
+      icon: <Users className="h-5 w-5" />,
+      accent: 'blue',
+    },
+    {
+      id: 'active-subs',
+      label: 'الاشتراكات النشطة',
+      value: stats.active_subscriptions || 0,
+      hint: 'Active Subs',
+      icon: <Star className="h-5 w-5" />,
+      accent: 'yellow',
+      onClick: () => handleDashboardCardClick('subscriptions', 'active'),
+    },
+  ];
+
   return (
     <div>
-      {/* Tremor KPI Cards */}
-      <div className="admin-kpi-grid mb-6">
-        <TremorCard>
-          <Text>إيرادات اليوم</Text>
-          <Metric>{formatCurrency(stats.revenue_today)}</Metric>
-          <BadgeDelta deltaType="increase">اليوم</BadgeDelta>
-        </TremorCard>
-        <TremorCard>
-          <Text>الجلسات النشطة</Text>
-          <Metric>{stats.active_sessions_now || 0}</Metric>
-          <BadgeDelta deltaType="unchanged">الآن</BadgeDelta>
-        </TremorCard>
-        <TremorCard>
-          <Text>حجوزات اليوم</Text>
-          <Metric>{stats.total_checkins_today || 0}</Metric>
-          <BadgeDelta deltaType="increase">Check-ins</BadgeDelta>
-        </TremorCard>
-        <TremorCard>
-          <Text>الاشتراكات النشطة</Text>
-          <Metric>{stats.active_subscriptions || 0}</Metric>
-          <BadgeDelta deltaType="unchanged">نشط</BadgeDelta>
-        </TremorCard>
+      {/* Spec Dashboard landing — QuickStats strip wired to live stats */}
+      <div className="mb-6">
+        <QuickStats items={quickStatsItems} dir="rtl" />
       </div>
 
       {/* Original dashboard grid */}
