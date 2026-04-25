@@ -897,6 +897,10 @@ const shouldEscalateFallback = (textBody, { useAiFallback = false } = {}) => {
 const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
   const cutoff = new Date(Date.now() - cooldownMinutes * 60 * 1000);
 
+  // Find the last auto-reply within the cooldown window. Sort by DB persist
+  // order (createdAt, then _id) instead of the external WhatsApp event
+  // `timestamp` so webhook clock skew or out-of-order WA event timestamps
+  // cannot mis-rank which record is actually newer.
   const lastAutoReply = await WhatsAppMessage.findOne({
     sender_wa_id: senderWaId,
     direction: 'outbound',
@@ -905,21 +909,64 @@ const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
     'raw_payload.auto_reply': true,
     timestamp: { $gte: cutoff }
   })
-    .sort({ timestamp: -1 })
+    .sort({ createdAt: -1, _id: -1 })
     .lean();
 
   if (!lastAutoReply) return false;
 
+  // Find the last inbound customer message using the same DB persist
+  // ordering so we compare apples-to-apples with the auto-reply record.
   const lastCustomerMessage = await WhatsAppMessage.findOne({
     sender_wa_id: senderWaId,
     direction: 'inbound',
     platform: 'whatsapp'
   })
-    .sort({ timestamp: -1 })
+    .sort({ createdAt: -1, _id: -1 })
     .lean();
 
   if (!lastCustomerMessage) return true;
 
+  // Prefer DB persist ordering (createdAt, then _id) over the WhatsApp
+  // event `timestamp`. WA event timestamps have second-level resolution
+  // and can arrive out-of-order due to webhook delivery delays — this
+  // previously caused a newer customer inbound message to appear "older"
+  // than our last auto-reply and falsely block the bot.
+  //
+  // Cooldown semantics preserved:
+  //   - if no inbound persisted strictly after the last auto-reply → block
+  //   - if a newer inbound was persisted after the last auto-reply → allow
+  const lastReplyCreatedAt = lastAutoReply.createdAt
+    ? new Date(lastAutoReply.createdAt).getTime()
+    : null;
+  const lastCustomerCreatedAt = lastCustomerMessage.createdAt
+    ? new Date(lastCustomerMessage.createdAt).getTime()
+    : null;
+
+  if (lastReplyCreatedAt !== null && lastCustomerCreatedAt !== null) {
+    if (lastCustomerCreatedAt > lastReplyCreatedAt) return false;
+    if (lastCustomerCreatedAt < lastReplyCreatedAt) return true;
+    // Tie at millisecond level → fall through to ObjectId ordering.
+  }
+
+  // Fallback 1: compare ObjectId insertion times (monotonic per process,
+  // and still reflect actual DB persist order rather than WA event time).
+  const getOidTime = (doc) => {
+    try {
+      if (doc && doc._id && typeof doc._id.getTimestamp === 'function') {
+        return doc._id.getTimestamp().getTime();
+      }
+    } catch (_) { /* ignore */ }
+    return null;
+  };
+  const lastReplyOidTime = getOidTime(lastAutoReply);
+  const lastCustomerOidTime = getOidTime(lastCustomerMessage);
+
+  if (lastReplyOidTime !== null && lastCustomerOidTime !== null) {
+    if (lastCustomerOidTime > lastReplyOidTime) return false;
+    if (lastCustomerOidTime < lastReplyOidTime) return true;
+  }
+
+  // Fallback 2 (last resort): original WhatsApp event timestamp comparison.
   // Customer sent a new message after our last reply → allow reply
   // Our reply is newer than their last message → still in cooldown
   return lastCustomerMessage.timestamp <= lastAutoReply.timestamp;

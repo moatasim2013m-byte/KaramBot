@@ -10,7 +10,7 @@ import sys
 import time
 
 # Configuration
-BACKEND_URL = "https://peekaboo-dashboard.preview.emergentagent.com"
+BACKEND_URL = "https://false-positive-block.preview.emergentagent.com"
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 
