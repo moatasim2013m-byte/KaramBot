@@ -58,9 +58,14 @@ export function DashboardLayout({
           subtitle={subtitle}
           logoSrc={logoSrc}
           headerActions={headerActions}
+          navItems={navItems}
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          onLogout={onLogout}
+          dir={dir}
         />
         <main
-          className={`flex-1 px-4 py-6 sm:px-6 lg:px-8 pb-28 md:pb-8 ${contentClassName}`}
+          className={`flex-1 px-4 py-6 sm:px-6 lg:px-8 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-8 ${contentClassName}`}
           data-testid="dashboard-content"
         >
           {children}

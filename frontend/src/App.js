@@ -24,7 +24,6 @@ const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
 const PaymentFailedPage = lazy(() => import("./pages/PaymentFailedPage"));
 const PaymentPendingPage = lazy(() => import("./pages/PaymentPendingPage"));
 const CapitalBankCheckoutPage = lazy(() => import("./pages/CapitalBankCheckoutPage"));
-const AdminPage = lazy(() => import("./pages/AdminPage"));
 const NewAdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const StaffPage = lazy(() => import("./pages/StaffPage"));
 const ReceptionPage = lazy(() => import("./pages/ReceptionPage"));

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { DashboardLayout } from '../../components/admin/DashboardLayout';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -1365,6 +1366,55 @@ export default function AdminLayout() {
     );
   }
 
+  // ⚠️ Layout-only refactor: this section adapts the existing tab system
+  // to the shared <DashboardLayout> shell. No business logic was moved.
+  // navItems map 1:1 to the inline buttons that previously lived in the
+  // hand-rolled <aside> + bottom <nav>. The 'whatsapp-inbox' id is a
+  // special sentinel: instead of switching tabs it navigates to /staff.
+  //
+  // Cleanup Phase 3 — taxonomy reconciliation with the brand spec:
+  //   overview  → "لوحة التحكم"  (Dashboard)        relabel only, id unchanged
+  //   visitors  → "العملاء"      (Customers)        relabel only, id unchanged
+  // Tab ids, data-testids, click handlers, and tab content rendering are all
+  // preserved — only the user-visible Arabic labels changed.
+  const adminNavItems = [
+    { id: 'overview',  label: 'لوحة التحكم', icon: <LayoutDashboard className="h-4 w-4" /> },
+    { id: 'bookings',  label: 'الحجوزات',    icon: <CalendarDays className="h-4 w-4" /> },
+    { id: 'visitors',  label: 'العملاء',     icon: <Users className="h-4 w-4" /> },
+    { id: 'themes',    label: 'الثيمات',     icon: <Palette className="h-4 w-4" /> },
+    { id: 'content',   label: 'المحتوى',     icon: <Image className="h-4 w-4" /> },
+    { id: 'staff',     label: 'الموظفون',    icon: <UserCog className="h-4 w-4" /> },
+    { id: 'settings',  label: 'الإعدادات',   icon: <Settings className="h-4 w-4" /> },
+    {
+      id: 'whatsapp-inbox',
+      label: 'صندوق واتساب',
+      icon: <MessageSquare className="h-4 w-4" />,
+      badge: unreadInboxCount,
+      badgeVariant: 'danger',
+    },
+  ];
+
+  // Slim 3-item mobile bottom nav (spec: Home / Bookings / Inbox).
+  // The full 8-item menu is reachable via the hamburger drawer in <Header />.
+  const adminMobileNavItems = [
+    adminNavItems[0], // overview  → Home
+    adminNavItems[1], // bookings  → Bookings
+    adminNavItems[7], // whatsapp-inbox → Inbox
+  ];
+
+  const handleNavChange = (tabId) => {
+    if (tabId === 'whatsapp-inbox') {
+      navigate('/staff?tab=inbox');
+      return;
+    }
+    handleSidebarTabChange(tabId);
+  };
+
+  const handleAdminLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
   const allProps = {
     // State
     loading, activeTab, activeFilter, stats, users, hourlyBookings, birthdayBookings,
@@ -1423,75 +1473,18 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen flex" dir="rtl">
-      {/* Desktop Sidebar (RTL: on the right) */}
-      <aside
-        className="hidden md:flex flex-col w-60 flex-shrink-0 bg-white border-l border-border"
-        style={{ boxShadow: '-4px 0 24px rgba(0,0,0,0.04)', position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}
+    <>
+      <DashboardLayout
+        title="Admin Panel"
+        logoSrc={logoImg}
+        navItems={adminNavItems}
+        mobileNavItems={adminMobileNavItems}
+        activeTab={currentTab}
+        onTabChange={handleNavChange}
+        onLogout={handleAdminLogout}
+        dir="rtl"
       >
-        {/* Logo */}
-        <div className="p-5 border-b border-border flex items-center gap-3">
-          <img src={logoImg} alt="Peekaboo" className="h-10 w-auto" />
-        </div>
-
-        {/* Nav Items */}
-        <nav className="flex-1 p-3 space-y-1">
-          {[
-            { id: 'overview', label: 'نظرة عامة', icon: <LayoutDashboard className="h-4 w-4" /> },
-            { id: 'bookings', label: 'الحجوزات', icon: <CalendarDays className="h-4 w-4" /> },
-            { id: 'visitors', label: 'الزوار', icon: <Users className="h-4 w-4" /> },
-            { id: 'themes', label: 'الثيمات', icon: <Palette className="h-4 w-4" /> },
-            { id: 'content', label: 'المحتوى', icon: <Image className="h-4 w-4" /> },
-            { id: 'staff', label: 'الموظفون', icon: <UserCog className="h-4 w-4" /> },
-            { id: 'settings', label: 'الإعدادات', icon: <Settings className="h-4 w-4" /> },
-          ].map(item => (
-            <button
-              key={item.id}
-              onClick={() => handleSidebarTabChange(item.id)}
-              className={`admin-sidebar-nav-item w-full text-right ${currentTab === item.id ? 'active' : ''}`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
-          ))}
-          <button
-            onClick={() => navigate('/staff?tab=inbox')}
-            className="admin-sidebar-nav-item w-full text-right"
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span>صندوق واتساب</span>
-            {unreadInboxCount > 0 && (
-              <Badge className="mr-auto bg-red-500 text-white min-w-6 h-6 rounded-full px-1.5">
-                {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
-              </Badge>
-            )}
-          </button>
-        </nav>
-
-        {/* Bottom: Logout */}
-        <div className="p-3 border-t border-border">
-          <button
-            onClick={() => { logout(); navigate('/login'); }}
-            className="admin-sidebar-nav-item w-full text-right text-red-500 hover:bg-red-50"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>تسجيل الخروج</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main
-        className="flex-1 overflow-y-auto"
-        style={{ background: 'hsl(var(--muted) / 0.3)', padding: '32px', minHeight: '100vh' }}
-      >
-        {/* Mobile header */}
-        <div className="md:hidden flex items-center justify-between mb-6">
-          <img src={logoImg} alt="Peekaboo" className="h-8 w-auto" />
-          <h1 className="font-bold text-lg">Admin Panel</h1>
-        </div>
-
-        {/* Tab content */}
+        {/* Tab content — unchanged */}
         {currentTab === 'overview' && <OverviewTab {...allProps} />}
         {currentTab === 'bookings' && <BookingsTab {...allProps} />}
         {currentTab === 'visitors' && <VisitorsTab {...allProps} />}
@@ -1499,42 +1492,10 @@ export default function AdminLayout() {
         {currentTab === 'content' && <ContentTab {...allProps} />}
         {currentTab === 'staff' && <StaffTab {...allProps} />}
         {currentTab === 'settings' && <SettingsTab {...allProps} />}
-      </main>
+      </DashboardLayout>
 
-      {/* Mobile Bottom Tab Bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-border shadow-lg flex justify-around py-2 z-50">
-        {[
-          { id: 'overview', icon: <LayoutDashboard className="h-5 w-5" /> },
-          { id: 'bookings', icon: <CalendarDays className="h-5 w-5" /> },
-          { id: 'visitors', icon: <Users className="h-5 w-5" /> },
-          { id: 'themes', icon: <Palette className="h-5 w-5" /> },
-          { id: 'content', icon: <Image className="h-5 w-5" /> },
-          { id: 'staff', icon: <UserCog className="h-5 w-5" /> },
-          { id: 'settings', icon: <Settings className="h-5 w-5" /> },
-        ].map(item => (
-          <button
-            key={item.id}
-            onClick={() => handleSidebarTabChange(item.id)}
-            className={`p-2 ${currentTab === item.id ? 'text-primary' : 'text-muted-foreground'}`}
-          >
-            {item.icon}
-          </button>
-        ))}
-        <button
-          onClick={() => navigate('/staff?tab=inbox')}
-          className="p-2 text-muted-foreground relative"
-          aria-label="فتح صندوق واتساب"
-        >
-          <MessageSquare className="h-5 w-5" />
-          {unreadInboxCount > 0 && (
-            <span className="absolute -top-1 -left-1 min-w-5 h-5 px-1 rounded-full bg-red-500 text-white text-[10px] leading-5 text-center font-bold">
-              {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
-            </span>
-          )}
-        </button>
-      </nav>
-
-      {/* Adjust Points Dialog (global) */}
+      {/* Adjust Points Dialog (global) — kept outside the shell because it
+          portals via Radix and must stay accessible from any tab. */}
       <Dialog open={adjustPointsDialogOpen} onOpenChange={setAdjustPointsDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1567,6 +1528,6 @@ export default function AdminLayout() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

@@ -224,6 +224,22 @@ export default function StaffPage() {
     inboxStats?.unread_messages,
   ]);
 
+  // Slim 3-item mobile bottom nav (spec: Home / Bookings / Inbox).
+  // The full menu remains reachable via the hamburger drawer in <Header />.
+  // This is permission-aware: items only appear if the user has access.
+  const mobileNavItems = useMemo(() => {
+    const byId = (id) => navItems.find((n) => n.id === id);
+    const slim = [];
+    const home =
+      byId('scanner') || byId('sessions') || byId('inbox') || navItems[0];
+    if (home) slim.push(home);
+    const bookings = byId('birthdays') || byId('subscriptions');
+    if (bookings && bookings.id !== home?.id) slim.push(bookings);
+    const inbox = byId('inbox');
+    if (inbox && inbox.id !== home?.id && inbox.id !== bookings?.id) slim.push(inbox);
+    return slim;
+  }, [navItems]);
+
   const handleLogout = useCallback(() => {
     logout();
     navigate('/staff/login');
@@ -1030,6 +1046,7 @@ export default function StaffPage() {
       title="Staff Panel"
       logoSrc={logoImg}
       navItems={navItems}
+      mobileNavItems={mobileNavItems}
       activeTab={activeTab}
       onTabChange={setActiveTab}
       onLogout={handleLogout}
