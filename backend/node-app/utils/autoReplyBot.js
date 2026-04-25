@@ -678,11 +678,29 @@ const keywordMap = [
 
 const loadAutoReplyConfig = async () => {
   const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
-  const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
+  const hasConfigDocument = Boolean(setting);
+  const hasObjectValue = Boolean(setting?.value && typeof setting.value === 'object');
+  const value = hasObjectValue ? setting.value : {};
 
   // whatsapp_auto_reply_config.enabled is the single source of truth.
   // Legacy whatsapp_auto_reply_enabled key is ignored — admin panel controls the new config.
-  const enabled = typeof value?.enabled === 'boolean' ? value.enabled : false;
+  // Safety rule: preserve explicit manual disable (enabled=false), but if a config object
+  // exists and `enabled` is missing/malformed, fail open to avoid silent production skips.
+  let enabled = DEFAULT_CONFIG.enabled;
+  let enabledSource = 'default';
+  let enabledReason = 'no_valid_enabled_value';
+  if (typeof value?.enabled === 'boolean') {
+    enabled = value.enabled;
+    enabledSource = 'config.enabled';
+    enabledReason = value.enabled ? 'explicit_true' : 'explicit_false';
+  } else if (hasObjectValue && Object.keys(value).length > 0) {
+    enabled = true;
+    enabledSource = 'config_object_fallback';
+    enabledReason = 'missing_or_malformed_enabled_with_non_empty_config';
+  } else if (hasConfigDocument && !hasObjectValue) {
+    enabledSource = 'config_value_invalid';
+    enabledReason = 'config_document_value_not_object';
+  }
 
   return {
     ...DEFAULT_CONFIG,
@@ -694,7 +712,13 @@ const loadAutoReplyConfig = async () => {
       1,
       Math.max(0, Number(value?.aiConfidenceThreshold ?? DEFAULT_CONFIG.aiConfidenceThreshold))
     ),
-    aiMaxReplyChars: Math.max(50, Number(value?.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars))
+    aiMaxReplyChars: Math.max(50, Number(value?.aiMaxReplyChars || DEFAULT_CONFIG.aiMaxReplyChars)),
+    _configDiagnostics: {
+      hasConfigDocument,
+      hasObjectValue,
+      enabledSource,
+      enabledReason
+    }
   };
 };
 
@@ -1182,14 +1206,20 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     logAutoReply('AUTO_REPLY_CONFIG_LOADED', {
       messageId,
       enabled: config.enabled,
-      cooldownMinutes: config.cooldownMinutes
+      cooldownMinutes: config.cooldownMinutes,
+      configDiagnostics: config._configDiagnostics
     });
     if (!config.enabled) {
-      logAutoReply('AUTO_REPLY_SKIPPED', { messageId, reason: 'disabled' });
+      logAutoReply('AUTO_REPLY_SKIPPED', {
+        messageId,
+        reason: 'disabled',
+        configDiagnostics: config._configDiagnostics
+      });
       logRoutingBlock({
         messageId,
         route: 'skip',
-        reason: 'disabled'
+        reason: 'disabled',
+        configDiagnostics: config._configDiagnostics
       });
       return { skipped: true, reason: 'disabled' };
     }
