@@ -1371,10 +1371,16 @@ export default function AdminLayout() {
   // navItems map 1:1 to the inline buttons that previously lived in the
   // hand-rolled <aside> + bottom <nav>. The 'whatsapp-inbox' id is a
   // special sentinel: instead of switching tabs it navigates to /staff.
+  //
+  // Cleanup Phase 3 — taxonomy reconciliation with the brand spec:
+  //   overview  → "لوحة التحكم"  (Dashboard)        relabel only, id unchanged
+  //   visitors  → "العملاء"      (Customers)        relabel only, id unchanged
+  // Tab ids, data-testids, click handlers, and tab content rendering are all
+  // preserved — only the user-visible Arabic labels changed.
   const adminNavItems = [
-    { id: 'overview',  label: 'نظرة عامة',   icon: <LayoutDashboard className="h-4 w-4" /> },
+    { id: 'overview',  label: 'لوحة التحكم', icon: <LayoutDashboard className="h-4 w-4" /> },
     { id: 'bookings',  label: 'الحجوزات',    icon: <CalendarDays className="h-4 w-4" /> },
-    { id: 'visitors',  label: 'الزوار',      icon: <Users className="h-4 w-4" /> },
+    { id: 'visitors',  label: 'العملاء',     icon: <Users className="h-4 w-4" /> },
     { id: 'themes',    label: 'الثيمات',     icon: <Palette className="h-4 w-4" /> },
     { id: 'content',   label: 'المحتوى',     icon: <Image className="h-4 w-4" /> },
     { id: 'staff',     label: 'الموظفون',    icon: <UserCog className="h-4 w-4" /> },
