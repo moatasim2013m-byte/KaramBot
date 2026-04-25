@@ -2,7 +2,12 @@ const mongoose = require('mongoose');
 
 const hourlyBookingSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  child_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', required: true },
+  // child_id is now optional — WhatsApp walk-in bookings may not have a registered child.
+  // When null, `guest_child_name` carries the name the customer gave over chat.
+  child_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', default: null },
+  guest_child_name: { type: String, default: '' },
+  child_count: { type: Number, default: 1, min: 1, max: 20 },
+  booking_source: { type: String, enum: ['website', 'whatsapp'], default: 'website', index: true },
   slot_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlot', required: true },
   duration_hours: { type: Number, required: true, default: 2 },
   custom_notes: { type: String, default: '' },
@@ -35,7 +40,8 @@ hourlyBookingSchema.set('toJSON', {
   transform: (doc, ret) => {
     ret.id = ret._id.toString();
     ret.user_id = ret.user_id.toString();
-    ret.child_id = ret.child_id.toString();
+    // child_id is optional — guard against null guest bookings.
+    ret.child_id = ret.child_id ? ret.child_id.toString() : null;
     ret.slot_id = ret.slot_id.toString();
     delete ret._id;
     delete ret.__v;

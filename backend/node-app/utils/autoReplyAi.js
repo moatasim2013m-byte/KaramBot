@@ -844,6 +844,51 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
 };
 
 const { checkAvailability, findOrMatchChild, createWhatsAppBooking } = require('./whatsappBookingService');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+
+// Resolve or create a User record for a WhatsApp sender so we can attach
+// a booking. When the phone number isn't in our User collection, we upsert
+// a minimal "guest" account so the FK on HourlyBooking.user_id is satisfied
+// without requiring the parent to register on the website.
+//
+// The guest account uses a synthetic email (`wa-<phone>@guest.peekaboo.local`)
+// and a random unusable password hash. It carries no website-login powers
+// (the password hash is generated from a strong random string the parent
+// will never know). The admin can later merge it with a real account if the
+// parent registers properly.
+const ensureUserForSender = async (senderWaId, displayName) => {
+  const cleanPhone = String(senderWaId || '').replace(/[^\d+]/g, '');
+  if (!cleanPhone) return null;
+
+  const phoneFormats = [cleanPhone, cleanPhone.startsWith('+') ? cleanPhone : `+${cleanPhone}`];
+  const existing = await User.findOne({ phone: { $in: phoneFormats } });
+  if (existing) return existing;
+
+  const safeName = String(displayName || '').trim().slice(0, 80) || 'WhatsApp Guest';
+  const guestEmail = `wa-${cleanPhone}@guest.peekaboo.local`;
+  const randomSecret = `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
+  const hash = await bcrypt.hash(randomSecret, 10);
+
+  try {
+    const user = await User.create({
+      email: guestEmail,
+      password_hash: hash,
+      name: safeName,
+      phone: cleanPhone.startsWith('+') ? cleanPhone : `+${cleanPhone}`,
+      role: 'parent'
+    });
+    console.log('WA_GUEST_USER_CREATED', { userId: String(user._id), phone: cleanPhone });
+    return user;
+  } catch (err) {
+    // Race: another concurrent webhook just created it — fetch and return.
+    if (err?.code === 11000) {
+      return User.findOne({ phone: { $in: phoneFormats } });
+    }
+    console.error('WA_GUEST_USER_CREATE_ERROR', err.message);
+    return null;
+  }
+};
 
 // Strong keywords trigger the booking flow even when there is no active booking state.
 // Weak keywords are contextual follow-up words that only count when a booking
@@ -896,15 +941,17 @@ const BOOKING_TOOLS = [
       },
       {
         name: 'confirm_booking',
-        description: 'Confirm and create a play session booking. Only call this when customer explicitly agrees to book.',
+        description: 'Confirm and create a play session booking. Only call this when customer explicitly agrees to book. Pass child_id when the parent has a registered child; otherwise omit child_id and pass guest_child_name (the name the customer told you).',
         parameters: {
           type: 'OBJECT',
           properties: {
             slot_id: { type: 'STRING', description: 'The slot ID returned from check_availability' },
-            child_id: { type: 'STRING', description: 'The child ID returned from find_child' },
+            child_id: { type: 'STRING', description: 'The child ID returned from find_child. Omit for guest bookings (no registered child).' },
+            guest_child_name: { type: 'STRING', description: 'Name of the child for guest bookings when child_id is not available. In Arabic if the customer wrote in Arabic.' },
+            child_count: { type: 'NUMBER', description: 'Number of children attending. Defaults to 1.' },
             duration_hours: { type: 'NUMBER', description: 'Duration in hours (1 or 2)' }
           },
-          required: ['slot_id', 'child_id', 'duration_hours']
+          required: ['slot_id', 'duration_hours']
         }
       }
     ]
@@ -918,10 +965,38 @@ const executeTool = async (functionName, args, senderWaId) => {
     case 'find_child':
       return await findOrMatchChild(senderWaId, args.child_name);
     case 'confirm_booking': {
-      // Need userId from find_child — look it up
+      const childId = args.child_id ? String(args.child_id).trim() : null;
+      const guestChildName = String(args.guest_child_name || '').trim();
+      const childCount = Math.max(1, Math.min(20, Number(args.child_count) || 1));
+      const durationHours = args.duration_hours || 1;
+
+      // Try to resolve userId from existing registered account first.
       const childResult = await findOrMatchChild(senderWaId, '');
-      if (!childResult.userId) return { success: false, error: 'user_not_found' };
-      return await createWhatsAppBooking(childResult.userId, args.child_id, args.slot_id, args.duration_hours || 1);
+      let userId = childResult?.userId || null;
+
+      // Guest path — no registered account: upsert a minimal guest User.
+      if (!userId) {
+        const guestUser = await ensureUserForSender(senderWaId, guestChildName ? `Parent of ${guestChildName}` : '');
+        if (!guestUser?._id) {
+          return { success: false, error: 'user_not_found' };
+        }
+        userId = String(guestUser._id);
+      }
+
+      // If the bot supplied a registered child_id, use it; otherwise it's a
+      // guest-child booking — guest_child_name is required so admin sees the name.
+      if (!childId && !guestChildName) {
+        return { success: false, error: 'guest_child_name_required' };
+      }
+
+      return await createWhatsAppBooking(
+        userId,
+        childId,
+        args.slot_id,
+        durationHours,
+        childCount,
+        guestChildName
+      );
     }
     default:
       return { error: 'unknown_function' };
@@ -956,7 +1031,16 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
 - الدفع: كاش أو ببطاقة ائتمان (فيزا/ماستر) أو كليك — اذكر هاد دائماً
 - لا تؤكد الحجز بدون موافقة صريحة من الزبون (نعم، تمام، أكد، etc.)
 - إذا الزبون ما ذكر الوقت، اسأله عن الوقت المفضل
-- إذا عنده أكثر من طفل، اسأله أي طفل بده يحجزله`;
+- إذا عنده أكثر من طفل، اسأله أي طفل بده يحجزله
+
+— مسار الزبون غير المسجل —
+- إذا find_child رجّع found: false مع error: "user_not_found" أو "no_children_registered" أو "multiple_children_no_match" بدون اسم متطابق:
+  • لا توقف الحجز ولا تطلب من الزبون يسجل في الموقع
+  • اسأله: "ممكن اسم طفلك من فضلك؟" (إذا لسا ما عرفته)
+  • وبعدين استدعِ confirm_booking مع slot_id, duration_hours, guest_child_name (الاسم اللي قاله الزبون)، بدون child_id
+  • إذا ذكر أكثر من طفل بنفس الحجز، مرّر child_count مع العدد الصحيح
+- لا تبتكر أسماء أطفال — استخدم فقط الاسم اللي الزبون كتبه فعلاً
+- بعد ما يتم confirm_booking بنجاح، أرسل رسالة تأكيد فيها booking code والوقت والمبلغ ووسيلة الدفع`;
 
   const controller = new AbortController();
   const timeoutHandle = setTimeout(() => controller.abort(), 15000);

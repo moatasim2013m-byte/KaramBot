@@ -199,11 +199,20 @@ const findOrMatchChild = async (senderWaId, childNameHint) => {
 
 // =====================================================
 // FUNCTION 3: Create WhatsApp booking (atomic)
+//
+// Supports two cases:
+//   1) Registered child  → pass childId (string)
+//   2) Guest / unregistered child → pass childId=null and guestChildName='Tia'
+//
+// Both write `booking_source: 'whatsapp'` so the admin BookingsTab can flag
+// these as walk-ins. `childCount` lets a parent book for multiple kids on a
+// single WhatsApp guest booking (price scales linearly).
 // =====================================================
-const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1, childCount = 1) => {
+const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1, childCount = 1, guestChildName = '') => {
   try {
     const hours = Math.max(1, Math.min(3, Math.round(durationHours)));
-    const count = Math.max(1, childCount);
+    const count = Math.max(1, Math.min(20, Math.round(childCount)));
+    const safeGuestChildName = String(guestChildName || '').trim().slice(0, 100);
 
     // ATOMIC capacity check + increment (same pattern as bookings.js line 451)
     const slot = await TimeSlot.findOneAndUpdate(
@@ -224,26 +233,43 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
     }
 
     const price = await getHourlyPrice(hours);
+    const totalAmount = Number((price * count).toFixed(2));
     const bookingCode = `WA-H-${randomUUID().substring(0, 8).toUpperCase()}`;
     const qrCode = await QRCode.toDataURL(bookingCode, { width: 300, margin: 2 });
 
+    const isGuestBooking = !childId;
     const booking = new HourlyBooking({
       user_id: userId,
-      child_id: childId,
+      child_id: childId || null,
+      guest_child_name: isGuestBooking ? safeGuestChildName : '',
+      child_count: count,
+      booking_source: 'whatsapp',
       slot_id: slotId,
       duration_hours: hours,
-      custom_notes: 'WhatsApp booking via Shroomi',
+      custom_notes: isGuestBooking
+        ? 'WhatsApp booking via Shroomi (guest child)'
+        : 'WhatsApp booking via Shroomi',
       qr_code: qrCode,
       booking_code: bookingCode,
       status: 'confirmed',
       payment_method: 'cash',
       payment_status: 'pending_cash',
-      amount: price
+      amount: totalAmount
     });
 
     await booking.save();
 
-    console.log('WA_BOOKING_CREATED', { bookingCode, slotDate: slot.date, slotTime: slot.start_time, amount: price, userId, childId });
+    console.log('WA_BOOKING_CREATED', {
+      bookingCode,
+      slotDate: slot.date,
+      slotTime: slot.start_time,
+      amount: totalAmount,
+      userId,
+      childId: childId || null,
+      guestChildName: isGuestBooking ? safeGuestChildName : null,
+      childCount: count,
+      isGuestBooking
+    });
 
     return {
       success: true,
@@ -251,13 +277,17 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
       slotDate: slot.date,
       slotTime: slot.start_time,
       durationHours: hours,
-      amount: price
+      amount: totalAmount,
+      isGuestBooking,
+      guestChildName: isGuestBooking ? safeGuestChildName : null,
+      childCount: count
     };
   } catch (err) {
     console.error('WA_BOOKING_CREATE_ERROR', err.message);
     // Rollback capacity on error
     try {
-      await TimeSlot.findByIdAndUpdate(slotId, { $inc: { booked_count: -1 } });
+      const rollbackCount = Math.max(1, Math.min(20, Math.round(childCount)));
+      await TimeSlot.findByIdAndUpdate(slotId, { $inc: { booked_count: -rollbackCount } });
     } catch (_) { /* best effort */ }
     return { success: false, error: err.message };
   }

@@ -70,9 +70,14 @@ export default function BookingsTab(props) {
               {getFilteredHourlyBookings().map((booking) => (
                 <div key={booking.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/50">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">{booking.booking_code}</span>
                       <Badge className={getStatusBadge(booking.status)}>{booking.status}</Badge>
+                      {booking.booking_source === 'whatsapp' && (
+                        <Badge className="bg-emerald-600 text-white" data-testid="booking-source-whatsapp-badge">
+                          واتساب
+                        </Badge>
+                      )}
                       {booking.status === 'checked_in' && (
                         <Badge className="bg-blue-600 text-white">
                           Running: {formatSessionTimer(booking.session_end_time) || '--:--'}
@@ -86,7 +91,16 @@ export default function BookingsTab(props) {
                       <span className="font-medium">الوالد:</span> {booking.user?.name || '-'} &nbsp;|&nbsp; {booking.user?.email}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      <span className="font-medium">الطفل:</span> {booking.child?.name || '-'}
+                      <span className="font-medium">الطفل:</span>{' '}
+                      {booking.child?.name
+                        ? booking.child.name
+                        : (booking.guest_child_name || '-')}
+                      {!booking.child?.name && booking.guest_child_name && (
+                        <span className="text-xs text-emerald-700 mr-1">(زبون عبر واتساب)</span>
+                      )}
+                      {(booking.child_count || 1) > 1 && (
+                        <span className="text-xs text-slate-500 mr-1">({booking.child_count} أطفال)</span>
+                      )}
                       {booking.child?.birthday && (
                         <> &nbsp;(🎂 {format(new Date(booking.child.birthday), 'yyyy-MM-dd')})</>
                       )}
