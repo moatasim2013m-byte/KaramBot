@@ -901,6 +901,7 @@ const hasRecentAutoReply = async (senderWaId, cooldownMinutes) => {
     sender_wa_id: senderWaId,
     direction: 'outbound',
     platform: 'whatsapp',
+    message_type: 'text',
     'raw_payload.auto_reply': true,
     timestamp: { $gte: cutoff }
   })
