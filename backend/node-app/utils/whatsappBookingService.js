@@ -13,6 +13,8 @@ const Child = require('../models/Child');
 const User = require('../models/User');
 const Settings = require('../models/Settings');
 
+const MAX_GUEST_CHILD_NAME_LENGTH = 100;
+
 // --- Slot generation (copied from slots.js — not exported) ---
 const HOURLY_CONFIG = {
   startHour: 10,
@@ -200,7 +202,7 @@ const findOrMatchChild = async (senderWaId, childNameHint) => {
 // =====================================================
 // FUNCTION 3: Create WhatsApp booking (atomic)
 // =====================================================
-const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1, childCount = 1) => {
+const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1, childCount = 1, guestChildName = '') => {
   try {
     const hours = Math.max(1, Math.min(3, Math.round(durationHours)));
     const count = Math.max(1, childCount);
@@ -229,7 +231,10 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
 
     const booking = new HourlyBooking({
       user_id: userId,
-      child_id: childId,
+      child_id: childId || null,
+      guest_child_name: childId ? '' : (guestChildName || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
+      child_count: count,
+      booking_source: 'whatsapp',
       slot_id: slotId,
       duration_hours: hours,
       custom_notes: 'WhatsApp booking via Shroomi',
@@ -238,12 +243,12 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
       status: 'confirmed',
       payment_method: 'cash',
       payment_status: 'pending_cash',
-      amount: price
+      amount: price * (childId ? 1 : count)
     });
 
     await booking.save();
 
-    console.log('WA_BOOKING_CREATED', { bookingCode, slotDate: slot.date, slotTime: slot.start_time, amount: price, userId, childId });
+    console.log('WA_BOOKING_CREATED', { bookingCode, slotDate: slot.date, slotTime: slot.start_time, amount: booking.amount, userId, childId });
 
     return {
       success: true,
@@ -251,7 +256,7 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
       slotDate: slot.date,
       slotTime: slot.start_time,
       durationHours: hours,
-      amount: price
+      amount: booking.amount
     };
   } catch (err) {
     console.error('WA_BOOKING_CREATE_ERROR', err.message);

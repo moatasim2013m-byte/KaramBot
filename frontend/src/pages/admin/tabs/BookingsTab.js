@@ -73,6 +73,9 @@ export default function BookingsTab(props) {
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{booking.booking_code}</span>
                       <Badge className={getStatusBadge(booking.status)}>{booking.status}</Badge>
+                      {booking.booking_source === 'whatsapp' && (
+                        <Badge className="bg-green-600 text-white text-xs">واتساب</Badge>
+                      )}
                       {booking.status === 'checked_in' && (
                         <Badge className="bg-blue-600 text-white">
                           Running: {formatSessionTimer(booking.session_end_time) || '--:--'}
@@ -86,7 +89,11 @@ export default function BookingsTab(props) {
                       <span className="font-medium">الوالد:</span> {booking.user?.name || '-'} &nbsp;|&nbsp; {booking.user?.email}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      <span className="font-medium">الطفل:</span> {booking.child?.name || '-'}
+                      <span className="font-medium">الطفل:</span>{' '}
+                      {booking.child?.name || booking.guest_child_name || '-'}
+                      {!booking.child?.name && booking.child_count > 1 && (
+                        <span className="text-muted-foreground"> ({booking.child_count} أطفال)</span>
+                      )}
                       {booking.child?.birthday && (
                         <> &nbsp;(🎂 {format(new Date(booking.child.birthday), 'yyyy-MM-dd')})</>
                       )}

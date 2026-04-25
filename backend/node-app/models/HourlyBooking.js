@@ -2,7 +2,10 @@ const mongoose = require('mongoose');
 
 const hourlyBookingSchema = new mongoose.Schema({
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  child_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', required: true },
+  child_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', required: false, default: null },
+  guest_child_name: { type: String, default: '' },
+  child_count: { type: Number, default: 1 },
+  booking_source: { type: String, enum: ['website', 'whatsapp'], default: 'website' },
   slot_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlot', required: true },
   duration_hours: { type: Number, required: true, default: 2 },
   custom_notes: { type: String, default: '' },
@@ -35,7 +38,7 @@ hourlyBookingSchema.set('toJSON', {
   transform: (doc, ret) => {
     ret.id = ret._id.toString();
     ret.user_id = ret.user_id.toString();
-    ret.child_id = ret.child_id.toString();
+    ret.child_id = ret.child_id ? ret.child_id.toString() : null;
     ret.slot_id = ret.slot_id.toString();
     delete ret._id;
     delete ret.__v;

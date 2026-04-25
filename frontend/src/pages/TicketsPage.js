@@ -105,6 +105,8 @@ export default function TicketsPage() {
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [guestChildCount, setGuestChildCount] = useState(1);
+  const [guestChildName, setGuestChildName] = useState('');
 
   // Set page title
   useEffect(() => {
@@ -340,14 +342,14 @@ export default function TicketsPage() {
       return;
     }
 
-    if (!selectedSlot || selectedChildren.length === 0 || !selectedDuration) {
-      toast.error('الرجاء اختيار الوقت والطفل والمدة');
+    if (!selectedSlot || !selectedDuration) {
+      toast.error('الرجاء اختيار الوقت والمدة');
       return;
     }
 
     // Check if enough capacity for all children
-    if (selectedSlot.available_spots < selectedChildren.length) {
-      toast.error(`عذراً، المتاح ${selectedSlot.available_spots} مكان فقط. اخترت ${selectedChildren.length} أطفال.`);
+    if (selectedSlot.available_spots < getEffectiveChildCount()) {
+      toast.error(`عذراً، المتاح ${selectedSlot.available_spots} مكان فقط.`);
       return;
     }
 
@@ -363,7 +365,9 @@ export default function TicketsPage() {
         const response = await api.post('/payments/create-checkout', {
           type: 'hourly',
           reference_id: selectedSlot.id,
-          child_ids: selectedChildren,
+          child_ids: selectedChildren.length > 0 ? selectedChildren : undefined,
+          child_count: selectedChildren.length === 0 ? guestChildCount : undefined,
+          guest_child_name: selectedChildren.length === 0 ? guestChildName.trim() : undefined,
           duration_hours: selectedDuration,
           slot_start_time: selectedSlot.start_time, // Pass slot time for Happy Hour calculation
           custom_notes: customNotes.trim(),
@@ -390,7 +394,9 @@ export default function TicketsPage() {
         // Cash or CliQ - create booking directly
         const response = await api.post('/bookings/hourly/offline', {
           slot_id: selectedSlot.id,
-          child_ids: selectedChildren,
+          child_ids: selectedChildren.length > 0 ? selectedChildren : undefined,
+          child_count: selectedChildren.length === 0 ? guestChildCount : undefined,
+          guest_child_name: selectedChildren.length === 0 ? guestChildName.trim() : undefined,
           duration_hours: selectedDuration,
           slot_start_time: selectedSlot.start_time, // Pass slot time for Happy Hour calculation
           custom_notes: customNotes.trim(),
@@ -400,10 +406,12 @@ export default function TicketsPage() {
         });
         
         // Get child name(s) for confirmation
-        const selectedChildNames = children
-          .filter(c => selectedChildren.includes(c.id))
-          .map(c => c.name)
-          .join('، ');
+        const selectedChildNames = selectedChildren.length > 0
+          ? children
+              .filter(c => selectedChildren.includes(c.id))
+              .map(c => c.name)
+              .join('، ')
+          : (guestChildName.trim() || `${guestChildCount} أطفال`);
         
         // Navigate to confirmation page with booking details
         const confirmationData = {
@@ -430,11 +438,14 @@ export default function TicketsPage() {
     }
   };
 
+  const getEffectiveChildCount = () =>
+    selectedChildren.length > 0 ? selectedChildren.length : guestChildCount;
+
   const getSelectedPrice = () => {
     if (!selectedDuration) return 0;
     const selected = pricing.find(p => p.hours === selectedDuration);
     const basePrice = selected ? selected.price : 0;
-    return basePrice * Math.max(1, selectedChildren.length);
+    return basePrice * getEffectiveChildCount();
   };
 
   // Helper function for Happy Hour pricing (10:00-14:00)
@@ -459,7 +470,7 @@ export default function TicketsPage() {
 
   const getBaseBookingTotal = () => {
     if (selectedSlot) {
-      return parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * Math.max(1, selectedChildren.length);
+      return parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * getEffectiveChildCount();
     }
     return getSelectedPrice();
   };
@@ -761,10 +772,27 @@ export default function TicketsPage() {
                   <div>
                     <Label className="block text-sm font-medium mb-2">اختر الأطفال</Label>
                     {children.length === 0 ? (
-                      <div className="text-muted-foreground">
-                        <p className="mb-2 text-sm">لم يتم إضافة أطفال بعد</p>
-                        <Button variant="outline" size="sm" onClick={() => navigate('/profile')} className="rounded-full">
-                          إضافة طفل
+                      <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">لا يوجد أطفال مسجلون — يمكنك الحجز مباشرة</p>
+                        <div className="flex items-center gap-3">
+                          <Label className="text-sm shrink-0">عدد الأطفال:</Label>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.max(1, c - 1))}>-</Button>
+                            <span className="min-w-8 text-center font-bold text-lg">{guestChildCount}</span>
+                            <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.min(20, c + 1))}>+</Button>
+                          </div>
+                        </div>
+                        <Input
+                          value={guestChildName}
+                          onChange={(e) => setGuestChildName(e.target.value)}
+                          placeholder="اسم الطفل (اختياري)"
+                          className="rounded-xl"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          تسجيل الطفل اختياري — يتيح لك رؤية تاريخ زياراته
+                        </p>
+                        <Button variant="outline" size="sm" onClick={() => navigate('/profile')} className="rounded-full text-xs">
+                          سجّل طفلك للمزيد من المزايا ←
                         </Button>
                       </div>
                     ) : (
@@ -785,6 +813,11 @@ export default function TicketsPage() {
                             <span className="font-medium">{child.name}</span>
                           </label>
                         ))}
+                        {selectedChildren.length === 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            يمكنك المتابعة بدون اختيار طفل (سيُسجَّل حجز لطفل واحد)
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -873,8 +906,8 @@ export default function TicketsPage() {
                     <p className="text-sm text-muted-foreground mb-1">ملخص الحجز</p>
                     <p className="font-bold">
                       {selectedSlot 
-                        ? `${selectedDuration} ساعة × ${selectedChildren.length || 1} طفل = ${(parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * Math.max(1, selectedChildren.length)).toFixed(1)} دينار`
-                        : `${selectedDuration} ساعة × ${selectedChildren.length || 1} طفل = ${getSelectedPrice()} دينار`
+                        ? `${selectedDuration} ساعة × ${getEffectiveChildCount()} طفل = ${(parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * getEffectiveChildCount()).toFixed(1)} دينار`
+                        : `${selectedDuration} ساعة × ${getEffectiveChildCount()} طفل = ${getSelectedPrice()} دينار`
                       }
                     </p>
                     <p className="text-sm text-muted-foreground">إضافات: {getProductsTotal().toFixed(1)} دينار</p>
@@ -896,7 +929,7 @@ export default function TicketsPage() {
                   <div className="booking-sticky-summary">
                     <Button
                       onClick={handleBooking}
-                      disabled={!selectedSlot || selectedChildren.length === 0 || loading}
+                      disabled={!selectedSlot || loading}
                       className={`w-full px-8 rounded-full h-12 text-base ${timeMode === 'morning' ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : 'btn-playful'}`}
                     >
                       {loading ? (
