@@ -1187,9 +1187,28 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     // A non-atomic findOne+insert sequence has a race window where two concurrent
     // webhook deliveries for the same message both read "not found" and both send a reply.
     // Using upsert with $setOnInsert ensures only one caller wins the lock.
+    //
+    // All required WhatsAppMessage fields are populated on insert so the lock document
+    // is schema-valid even if persistAutoTriggerMarker is never reached on this path
+    // (mongoose `updateOne` skips validators by default, so missing required fields
+    // would otherwise persist as malformed documents).
     const claimResult = await WhatsAppMessage.updateOne(
       { message_id: `auto_trigger_${messageId}` },
-      { $setOnInsert: { message_id: `auto_trigger_${messageId}`, created_at: new Date() } },
+      {
+        $setOnInsert: {
+          message_id: `auto_trigger_${messageId}`,
+          sender_wa_id: normalizedWaId,
+          message_type: 'unsupported',
+          text_body: '',
+          direction: 'outbound',
+          platform: 'whatsapp',
+          status: 'sent',
+          timestamp: new Date(),
+          is_read_by_staff: true,
+          is_replied: false,
+          raw_payload: { auto_reply: true, claim_only: true }
+        }
+      },
       { upsert: true }
     );
     if (claimResult.upsertedCount === 0) {
