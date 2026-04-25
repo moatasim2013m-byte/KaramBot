@@ -1531,15 +1531,30 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
 router.put('/whatsapp-auto-reply', async (req, res) => {
   try {
     const payload = req.body || {};
+    const defaults = {
+      enabled: false,
+      cooldownMinutes: 30,
+      footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
+      fallbackReply:
+        'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
+      useAiFallback: true,
+      aiConfidenceThreshold: 0.7,
+      aiMaxReplyChars: 500
+    };
+    const existingSetting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
+    const existingValue = existingSetting?.value && typeof existingSetting.value === 'object'
+      ? existingSetting.value
+      : {};
+    const baseConfig = { ...defaults, ...existingValue };
 
     const nextConfig = {
-      enabled: normalizeBoolean(payload.enabled, false),
-      cooldownMinutes: Math.max(1, Number(payload.cooldownMinutes || 30)),
-      footer: String(payload.footer || '').trim(),
-      fallbackReply: String(payload.fallbackReply || '').trim(),
-      useAiFallback: normalizeBoolean(payload.useAiFallback, true),
-      aiConfidenceThreshold: Math.min(1, Math.max(0, Number(payload.aiConfidenceThreshold ?? 0.7))),
-      aiMaxReplyChars: Math.max(50, Number(payload.aiMaxReplyChars || 500))
+      enabled: normalizeBoolean(payload.enabled, baseConfig.enabled),
+      cooldownMinutes: Math.max(1, Number(payload.cooldownMinutes ?? baseConfig.cooldownMinutes)),
+      footer: String(payload.footer ?? baseConfig.footer).trim(),
+      fallbackReply: String(payload.fallbackReply ?? baseConfig.fallbackReply).trim(),
+      useAiFallback: normalizeBoolean(payload.useAiFallback, baseConfig.useAiFallback),
+      aiConfidenceThreshold: Math.min(1, Math.max(0, Number(payload.aiConfidenceThreshold ?? baseConfig.aiConfidenceThreshold))),
+      aiMaxReplyChars: Math.max(50, Number(payload.aiMaxReplyChars ?? baseConfig.aiMaxReplyChars))
     };
 
     if (!nextConfig.fallbackReply) {
