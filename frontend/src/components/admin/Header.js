@@ -101,8 +101,8 @@ export function Header({
                       item.badge != null && Number(item.badge) > 0;
                     const badgeColor =
                       item.badgeVariant === 'danger'
-                        ? 'bg-red-500'
-                        : 'bg-primary';
+                        ? 'bg-red-500 text-white'
+                        : 'bg-yellow-400 text-slate-900';
                     return (
                       <SheetClose asChild key={item.id}>
                         <button
@@ -112,7 +112,7 @@ export function Header({
                             isRtl ? 'text-right' : 'text-left'
                           } px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                             isActive
-                              ? 'bg-primary/10 text-primary'
+                              ? 'bg-orange-50 text-orange-700'
                               : 'text-slate-700 hover:bg-slate-100'
                           }`}
                           aria-current={isActive ? 'page' : undefined}
@@ -122,7 +122,7 @@ export function Header({
                           <span className="flex-1 truncate">{item.label}</span>
                           {hasBadge ? (
                             <span
-                              className={`min-w-[20px] h-5 px-1.5 rounded-full ${badgeColor} text-white text-[10px] leading-5 text-center font-bold`}
+                              className={`min-w-[20px] h-5 px-1.5 rounded-full ${badgeColor} text-[10px] leading-5 text-center font-bold`}
                             >
                               {Number(item.badge) > 99 ? '99+' : item.badge}
                             </span>

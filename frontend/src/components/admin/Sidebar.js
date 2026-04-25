@@ -23,14 +23,13 @@ import { Badge } from '../ui/badge';
  */
 
 // Equivalent of the former global `.admin-sidebar-nav-item` rule.
-// Translated 1:1 from /app/frontend/src/index.css to preserve appearance:
-//   gap:12px → gap-3 ; padding:10px 16px → py-2.5 px-4 ;
-//   border-radius:10px → rounded-[10px] ; font-size:14px → text-sm ;
-//   font-weight:500 → font-medium ; transition:all .15s → transition-all duration-150
+// Translated 1:1 from /app/frontend/src/index.css, then locked to the
+// Peekaboo brand accents (orange-500 + yellow-400) instead of `--primary`
+// so the shell stays on-brand even if the theme token drifts.
 const NAV_ITEM_BASE =
   'flex items-center gap-3 py-2.5 px-4 rounded-[10px] text-sm font-medium cursor-pointer transition-all duration-150';
 const NAV_ITEM_ACTIVE =
-  'bg-primary text-primary-foreground shadow-[0_4px_12px_hsl(var(--primary)/0.3)]';
+  'bg-orange-500 text-white shadow-[0_4px_12px_rgba(249,115,22,0.3)]';
 const NAV_ITEM_INACTIVE =
   'text-muted-foreground hover:bg-muted hover:text-foreground';
 
@@ -77,7 +76,7 @@ export function Sidebar({
           const badgeColor =
             item.badgeVariant === 'danger'
               ? 'bg-red-500 text-white'
-              : 'bg-primary text-primary-foreground';
+              : 'bg-yellow-400 text-slate-900';
           return (
             <button
               key={item.id}
