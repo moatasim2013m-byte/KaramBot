@@ -3,8 +3,8 @@ import { Badge } from '../ui/badge';
 
 /**
  * Desktop sidebar shell for admin/staff dashboards.
- * Hidden on mobile (<md). Uses the existing .admin-sidebar-nav-item
- * styles from /app/frontend/src/index.css so visuals stay consistent.
+ * Hidden on mobile (<md). Visual styling for nav items is fully self-contained
+ * via the NAV_ITEM_* class constants below — no global CSS dependency.
  *
  * Props:
  *  - logoSrc?: string            Image shown at the top (logo)
@@ -21,6 +21,19 @@ import { Badge } from '../ui/badge';
  *  - onLogout?: () => void       Shows a logout button at the bottom
  *  - dir?: 'ltr' | 'rtl'         Controls which side the sidebar border sits on
  */
+
+// Equivalent of the former global `.admin-sidebar-nav-item` rule.
+// Translated 1:1 from /app/frontend/src/index.css to preserve appearance:
+//   gap:12px → gap-3 ; padding:10px 16px → py-2.5 px-4 ;
+//   border-radius:10px → rounded-[10px] ; font-size:14px → text-sm ;
+//   font-weight:500 → font-medium ; transition:all .15s → transition-all duration-150
+const NAV_ITEM_BASE =
+  'flex items-center gap-3 py-2.5 px-4 rounded-[10px] text-sm font-medium cursor-pointer transition-all duration-150';
+const NAV_ITEM_ACTIVE =
+  'bg-primary text-primary-foreground shadow-[0_4px_12px_hsl(var(--primary)/0.3)]';
+const NAV_ITEM_INACTIVE =
+  'text-muted-foreground hover:bg-muted hover:text-foreground';
+
 export function Sidebar({
   logoSrc,
   title,
@@ -70,7 +83,9 @@ export function Sidebar({
               key={item.id}
               type="button"
               onClick={() => onTabChange(item.id)}
-              className={`admin-sidebar-nav-item w-full ${isActive ? 'active' : ''}`}
+              className={`${NAV_ITEM_BASE} w-full ${
+                isActive ? NAV_ITEM_ACTIVE : NAV_ITEM_INACTIVE
+              }`}
               data-testid={`sidebar-nav-${item.id}`}
               aria-current={isActive ? 'page' : undefined}
             >
@@ -93,7 +108,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onLogout}
-            className="admin-sidebar-nav-item w-full text-red-500 hover:bg-red-50"
+            className={`${NAV_ITEM_BASE} w-full text-red-500 hover:bg-red-50`}
             data-testid="sidebar-logout-btn"
           >
             <LogOut className="h-4 w-4" />

@@ -5306,27 +5306,8 @@ body {
 }
 
 /* Admin Panel Modern Overrides */
-.admin-sidebar-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  color: hsl(var(--muted-foreground));
-}
-.admin-sidebar-nav-item.active {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
-}
-.admin-sidebar-nav-item:not(.active):hover {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
+/* `.admin-sidebar-nav-item` rule removed — Sidebar.js is now self-contained
+   and styles its nav items via inline Tailwind utility classes. */
 .admin-kpi-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
