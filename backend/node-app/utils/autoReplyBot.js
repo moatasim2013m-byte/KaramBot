@@ -58,6 +58,62 @@ const setBookingState = (senderWaId, state) => {
   });
 };
 
+// ─── Booking duration follow-up detection (strict patch) ──────────────────
+// The booking-question/answer pair below can be produced via two different
+// Gemini paths (`ai_booking` tool path, OR plain `ai_primary` text path) so
+// the existing revival heuristic that only inspects `matchedKey` misses the
+// `ai_primary` case and lets numeric duration replies (`3 ساعات`, `ساعتين`,
+// `4`, `ثلاث ساعات`, …) leak into the regular Gemini route, which then
+// returns a generic hours/location/info reply.
+//
+// These helpers are scoped, defensive and used ONLY for the revival decision
+// in the routing pipeline — they do NOT change booking-flow behaviour.
+
+// Did the last bot reply ask the customer to choose a booking duration?
+// Matches the standard "كم ساعة …" / "ساعة ولا ساعتين" wordings used by
+// both `ai_booking` and `ai_primary` Gemini paths.
+const BOOKING_DURATION_QUESTION_PATTERNS = [
+  'كم ساعه',           // normalized form of "كم ساعة"
+  'كم ساعه بتحبوا',
+  'كم ساعه بدك',
+  'كم ساعه بدكم',
+  'كم ساعه تحبوا',
+  'كم ساعه تحبي',
+  'ساعه ولا ساعتين',
+  'كم الوقت',
+  'كم مده',
+  'مده الجلسه',
+  'مده الحجز',
+  'ساعه او ساعتين'
+];
+
+const lastBotReplyAskedBookingDuration = (lastBotReplyText) => {
+  if (!lastBotReplyText) return false;
+  const normalized = normalizeText(lastBotReplyText);
+  if (!normalized) return false;
+  return BOOKING_DURATION_QUESTION_PATTERNS.some((p) => normalized.includes(normalizeText(p)));
+};
+
+// Does the customer's reply look like a booking-duration choice?
+// Accepts: ساعة / ساعه / ساعتين / N ساعات / ثلاث ساعات / اربع ساعات /
+// 1 / 2 / 3 / 4 / 5 / ١ / ٢ / ٣ / ٤ / ٥ (digit-only short replies).
+const NUMERIC_WORD_DURATIONS = ['واحد', 'وحده', 'ساعه', 'ساعتين', 'ثلاث', 'ثلاثه', 'اربع', 'اربعه', 'خمس', 'خمسه'];
+const isBookingDurationFollowUp = (textBody) => {
+  const normalized = normalizeText(textBody);
+  if (!normalized) return false;
+  // Bare "ساعه" / "ساعتين" — singular/dual hours
+  if (/\bساعه\b/.test(normalized) || /\bساعتين\b/.test(normalized)) return true;
+  // "<digit> ساعات" or "<digit> ساعه"
+  if (/\b[0-9\u0660-\u0669]+\s*ساع(ه|ات)\b/.test(normalized)) return true;
+  // "ثلاث/اربع/خمس ساعات"
+  if (/\b(ثلاث|اربع|خمس|ست)(ه)?\s*ساع(ه|ات)\b/.test(normalized)) return true;
+  // Pure short digit reply (1–5) — only meaningful when bot just asked duration
+  const tokens = normalized.split(' ').filter(Boolean);
+  if (tokens.length <= 2 && tokens.some((t) => /^[0-9\u0660-\u0669]{1,2}$/.test(t))) return true;
+  if (tokens.length <= 2 && tokens.some((t) => NUMERIC_WORD_DURATIONS.includes(t))) return true;
+  return false;
+};
+
 const DEFAULT_CONFIG = {
   enabled: false,
   cooldownMinutes: 1,
@@ -1643,6 +1699,16 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         }).sort({ timestamp: -1 }).lean();
         const lastMatchedKey = lastBotReply?.raw_payload?.matched_key || '';
         const lastWasBookingQuestion = lastMatchedKey.includes('booking') || lastMatchedKey === 'ai_booking';
+        // Strict-patch addition: the duration question may have been emitted
+        // via `ai_primary` (regular Gemini) instead of `ai_booking` (tool
+        // path). In that case `lastMatchedKey` does NOT include "booking",
+        // so we fall back to inspecting the actual previous bot reply text
+        // for booking-duration question wording, AND require the user's
+        // current reply to look like a duration answer. Only when BOTH
+        // hold do we revive booking state — this prevents accidental
+        // booking revival on unrelated short numeric messages.
+        const lastAskedDuration = lastBotReplyAskedBookingDuration(lastBotReply?.text_body);
+        const userRepliedDuration = isBookingDurationFollowUp(aiUserText);
         const birthdayChildCount = extractChildCount(aiUserText);
         const isBirthdayCountFollowUp =
           messageType === 'text' &&
@@ -1655,6 +1721,21 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
           console.log('BOOKING_FOLLOWUP_FORCED', {
             messageId,
             senderWaId: normalizedWaId,
+            lastMatchedKey,
+            aiUserText: aiUserText.slice(0, 50)
+          });
+        } else if (lastAskedDuration && userRepliedDuration && !bookingState.step) {
+          // Strict-patch revival: bot asked the standard "كم ساعة …" booking
+          // duration question via the regular `ai_primary` Gemini path
+          // (matchedKey was NOT "ai_booking") and the user just replied with
+          // a duration choice ("3 ساعات", "ساعتين", "4", …). Force this turn
+          // back into the booking branch so the answer is not misrouted to
+          // the generic hours/location reply.
+          bookingState.step = 'duration_choice';
+          console.log('BOOKING_FOLLOWUP_FORCED', {
+            messageId,
+            senderWaId: normalizedWaId,
+            reason: 'duration_followup_via_ai_primary',
             lastMatchedKey,
             aiUserText: aiUserText.slice(0, 50)
           });

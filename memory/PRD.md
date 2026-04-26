@@ -30,6 +30,7 @@
    - OUT_OF_SCOPE token-match: `OUT_OF_SCOPE_KEYWORDS` checks (lines 934, 1582 of `autoReplyBot.js`) now use `includesAnyExactToken` instead of `includesAnyKeyword` — fixes "بدي احجز بكره" being falsely escalated because "بكره" contained the substring "كرة".
    - Handoff de-dup: `escalation_handoff` added to `DUPLICATE_INTENT_SUPPRESSION_KEYS` so the safety/complaint handoff message is suppressed for 15 min after first send.
    - Diagnostic log `[ROUTE_FINAL]` added immediately before `postWhatsAppText` (logs `inboundText`, `matchedKey`, `replyPreview`) to identify the route producing the play_pricing reply for "لعب بالساعة". No behavioural change.
+   - Booking-duration revival (Feb 2026, strict-patch): added `lastBotReplyAskedBookingDuration` + `isBookingDurationFollowUp` helpers in `autoReplyBot.js` (~line 75–110) and a second clause to the booking-state revival block (~line 1715) so a reply like "3 ساعات" / "ساعتين" / "4" stays inside the booking flow even when the previous booking-duration question was emitted via `ai_primary` (regular Gemini) instead of `ai_booking` (tool path). All 25 unit cases pass; no DB / dependency / UI / booking-flow redesign.
 
 ## Backlog
 - [ ] Apply the same `DashboardLayout` shell to `AdminPage.js` (legacy, still uses Tabs + Navbar). New admin at `/app/frontend/src/pages/admin/AdminLayout.js` already uses a sidebar layout.
