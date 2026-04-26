@@ -64,7 +64,7 @@ const DEFAULT_CONFIG = {
   footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/tickets',
   fallbackReply:
     'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
-  useAiFallback: false,
+  useAiFallback: true,
   aiConfidenceThreshold: 0.7,
   aiMaxReplyChars: 500
 };
@@ -1514,14 +1514,11 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
     let replyText;
     let matchedKey;
 
-    // ─── STEP 1: Greeting-only → instant intro reply ──────────────────────
-    if (greetingOnly && greetingOpening) {
-      replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
-      matchedKey = 'intro';
-
-      // ─── STEP 2: Hard blocks — complaints, sensitive, out-of-scope ────────
-      // These MUST be caught before AI to prevent inappropriate responses.
-    } else if (includesAnyKeyword(effectiveTextBody, COMPLAINT_OR_SENSITIVE_KEYWORDS)) {
+    // ─── STEP 1: Hard safety blocks — complaints, sensitive, long, out-of-scope ──
+    // These MUST be caught before AI to preserve human-handoff safety guarantees.
+    // Greetings are intentionally NOT short-circuited here anymore — Gemini answers
+    // them like a human as part of the unified Gemini-first routing path.
+    if (includesAnyKeyword(effectiveTextBody, COMPLAINT_OR_SENSITIVE_KEYWORDS)) {
       replyText = [greetingOpening, COMPLAINT_HANDOFF_REPLY].filter(Boolean).join('\n');
       matchedKey = 'escalation_handoff';
       logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'complaint_sensitive' });
@@ -1536,12 +1533,17 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       matchedKey = 'escalation_handoff';
       logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'out_of_scope' });
 
-      // ─── STEP 3: GEMINI-FIRST (AI primary — like Voiceflow) ───────────────
-      // Every non-blocked message goes to Gemini with knowledge base context.
+      // ─── STEP 2: GEMINI-FIRST (unconditional primary responder) ───────────
+      // Every non-blocked message goes to Gemini — including greetings —
+      // so customers get a human-like answer instead of a hardcoded bot reply.
       // Gemini has: live DB facts (hours, prices, plans, birthday packages),
       // FAQ memory (AIFaqMemory collection), and conversation history.
-      // Gemini decides if it can answer (in_scope + confidence) or declines.
-    } else if (config.useAiFallback) {
+      // The legacy keyword map is retained ONLY as a hidden safety net,
+      // reachable from the catch block / AI-declined-with-domain-keyword branch
+      // / the `ai_failed_keyword_rescue` branch below.
+      // The `config.useAiFallback` admin toggle is preserved in config for
+      // backward compatibility but no longer gates customer-facing routing.
+    } else {
       try {
         const recentMessages = await WhatsAppMessage.find({
           sender_wa_id: normalizedWaId,
@@ -1684,47 +1686,19 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         );
 
         if (aiReplyAllowed) {
-          // Voice note or text that Gemini classified as greeting → use Shroomi intro
-          if (aiResult.topic === 'greeting_social' && greetingOnly) {
-            replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
-            matchedKey = 'intro';
-            logRoutingDecision({
-              messageId,
-              senderWaId: normalizedWaId,
-              route: 'ai_greeting_intercepted',
-              aiTopic: 'greeting_social'
-            });
-          } else if (aiResult.topic === 'greeting_social' && !greetingOnly) {
-            // Burst contained greeting + substantive question — serve the question
-            const matched = selectActionKeywordMatch(effectiveTextBody);
-            if (matched) {
-              const kwReply = matched.buildReply
-                ? await matched.buildReply({ footer: config.footer })
-                : [matched.reply, config.footer].filter(Boolean).join('\n');
-              replyText = greetingOpening ? [greetingOpening, kwReply].join('\n') : kwReply;
-              matchedKey = matched.key;
-            } else {
-              replyText = buildGreetingOnlyIntroReply({ opening: greetingOpening, footer: config.footer });
-              matchedKey = 'intro';
-            }
-            logRoutingDecision({
-              messageId,
-              senderWaId: normalizedWaId,
-              route: 'greeting_with_question',
-              aiTopic: 'greeting_social',
-              matchedKey
-            });
-          } else {
-            replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
-            matchedKey = 'ai_primary';
-            logRoutingDecision({
-              messageId,
-              senderWaId: normalizedWaId,
-              route: 'ai_primary_used',
-              aiTopic: aiResult.topic || 'unknown',
-              aiConfidence: aiResult.confidence
-            });
-          }
+          // Gemini answers all in-scope messages directly, including greetings.
+          // The previous `greeting_social` overrides that injected the hardcoded
+          // Shroomi intro / keyword-map answer have been removed so customers
+          // get a human-like Gemini reply instead of a bot template.
+          replyText = [greetingOpening, boundedAiReply].filter(Boolean).join('\n');
+          matchedKey = 'ai_primary';
+          logRoutingDecision({
+            messageId,
+            senderWaId: normalizedWaId,
+            route: 'ai_primary_used',
+            aiTopic: aiResult.topic || 'unknown',
+            aiConfidence: aiResult.confidence
+          });
         } else {
           // Audio and image messages are always in-domain — force use Gemini reply if available
           const isMediaMessage = messageType === 'audio' || messageType === 'image' || messageType === 'video';
@@ -1799,39 +1773,45 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
         } // close if (!replyText) — booking path may have already set replyText
       } catch (aiError) {
         console.error('AI_PRIMARY_ROUTE_ERROR', aiError.message);
-        replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
-        matchedKey = 'fallback';
-      }
-
-      // ─── STEP 4: AI disabled → legacy keyword matching ────────────────────
-      // Only runs when useAiFallback is false in config (backward compatibility).
-    } else {
-      const keywordMatches = detectKeywordMatches(effectiveTextBody);
-      let matched = keywordMatches[0]?.entry || null;
-      // If a greeting+question burst arrives and the top match is intro, prefer the question
-      if (matched?.key === 'intro' && !greetingOnly) {
-        const actionMatch = selectActionKeywordMatch(effectiveTextBody);
-        if (actionMatch) matched = actionMatch;
-      }
-      if (matched) {
-        if (matched.buildReply) {
-          replyText = await matched.buildReply({ footer: config.footer });
-        } else {
-          replyText = [matched.reply, config.footer].filter(Boolean).join('\n');
+        // Hidden safety fallback: when Gemini errors/times out, fall back to
+        // the legacy keyword map first so an in-domain question still gets an
+        // accurate answer; only if no keyword matches do we use the generic
+        // config.fallbackReply.
+        try {
+          const keywordMatches = detectKeywordMatches(effectiveTextBody);
+          let matched = keywordMatches[0]?.entry || null;
+          if (matched?.key === 'intro' && !greetingOnly) {
+            const actionMatch = selectActionKeywordMatch(effectiveTextBody);
+            if (actionMatch) matched = actionMatch;
+          }
+          if (matched) {
+            replyText = matched.buildReply
+              ? await matched.buildReply({ footer: config.footer })
+              : [matched.reply, config.footer].filter(Boolean).join('\n');
+            if (greetingOpening && matched.key !== 'intro') {
+              replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
+            }
+            matchedKey = matched.key;
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_error_keyword_rescue',
+              keywordMatchedKey: matchedKey
+            });
+          } else {
+            replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
+            matchedKey = 'fallback';
+            logRoutingDecision({
+              messageId,
+              senderWaId: normalizedWaId,
+              route: 'ai_error_generic_fallback'
+            });
+          }
+        } catch (fallbackError) {
+          console.error('AI_FALLBACK_KEYWORD_ERROR', fallbackError.message);
+          replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
+          matchedKey = 'fallback';
         }
-        if (greetingOpening && matched.key !== 'intro') {
-          replyText = [greetingOpening, replyText].filter(Boolean).join('\n');
-        }
-        matchedKey = matched.key;
-        logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'keyword_legacy', keywordMatchedKey: matchedKey });
-      } else if (hasLowDomainConfidence(effectiveTextBody)) {
-        replyText = [greetingOpening, SAFE_HANDOFF_REPLY].filter(Boolean).join('\n');
-        matchedKey = 'escalation_handoff';
-        logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'legacy_low_confidence_handoff' });
-      } else {
-        replyText = [greetingOpening, config.fallbackReply].filter(Boolean).join('\n');
-        matchedKey = 'fallback';
-        logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'legacy_fallback' });
       }
     }
 
