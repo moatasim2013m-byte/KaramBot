@@ -848,6 +848,28 @@ const includesAnyKeyword = (textBody, keywords) => {
   return keywords.some((keyword) => normalized.includes(normalizeText(keyword)));
 };
 
+// Whole-token match. Prevents short single-word keywords (e.g. "كرة" → "كره")
+// from spuriously matching unrelated words that merely contain those letters
+// as a substring (e.g. "بكره" / "tomorrow" wrongly matching "كرة" / "ball").
+// Only used for OUT_OF_SCOPE_KEYWORDS where every entry is a single word —
+// COMPLAINT_OR_SENSITIVE_KEYWORDS still uses substring match because it
+// contains multi-word phrases like "فشل الحجز".
+const includesAnyExactToken = (textBody, keywords) => {
+  const tokens = new Set(
+    normalizeText(textBody).split(' ').filter(Boolean)
+  );
+  if (tokens.size === 0) return false;
+  return keywords.some((keyword) => {
+    const normalizedKeyword = normalizeText(keyword);
+    if (!normalizedKeyword) return false;
+    // Multi-word keywords still need substring-style scan over the original.
+    if (normalizedKeyword.includes(' ')) {
+      return normalizeText(textBody).includes(normalizedKeyword);
+    }
+    return tokens.has(normalizedKeyword);
+  });
+};
+
 const isShortLikelyInDomainQuestion = (textBody) => {
   const normalized = normalizeText(textBody);
   if (!normalized) return false;
