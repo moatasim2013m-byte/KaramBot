@@ -1494,7 +1494,10 @@ const normalizeBoolean = (value, fallback) => {
 
 router.get('/whatsapp-auto-reply', async (req, res) => {
   try {
-    const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' });
+    // Use .lean() so admin GET sees the exact same plain JS object the runtime
+    // sees in autoReplyBot.loadAutoReplyConfig() — eliminates any Mongoose
+    // hydration discrepancy as a cause of admin/runtime mismatch.
+    const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
     const defaults = {
       enabled: false,
       cooldownMinutes: 30,
@@ -1508,20 +1511,29 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
 
     const value = setting?.value && typeof setting.value === 'object' ? setting.value : {};
 
-    res.json({
-      config: {
-        ...defaults,
-        ...value,
-        enabled: normalizeBoolean(value.enabled, defaults.enabled),
-        cooldownMinutes: Math.max(1, Number(value.cooldownMinutes ?? defaults.cooldownMinutes)),
-        useAiFallback: normalizeBoolean(value.useAiFallback, defaults.useAiFallback),
-        aiConfidenceThreshold: Math.min(
-          1,
-          Math.max(0, Number(value.aiConfidenceThreshold ?? defaults.aiConfidenceThreshold))
-        ),
-        aiMaxReplyChars: Math.max(50, Number(value.aiMaxReplyChars || defaults.aiMaxReplyChars))
-      }
-    });
+    const config = {
+      ...defaults,
+      ...value,
+      enabled: normalizeBoolean(value.enabled, defaults.enabled),
+      cooldownMinutes: Math.max(1, Number(value.cooldownMinutes ?? defaults.cooldownMinutes)),
+      useAiFallback: normalizeBoolean(value.useAiFallback, defaults.useAiFallback),
+      aiConfidenceThreshold: Math.min(
+        1,
+        Math.max(0, Number(value.aiConfidenceThreshold ?? defaults.aiConfidenceThreshold))
+      ),
+      aiMaxReplyChars: Math.max(50, Number(value.aiMaxReplyChars || defaults.aiMaxReplyChars))
+    };
+
+    // Diagnostic: what the admin panel will receive vs. what the doc stored.
+    console.log('[WHATSAPP_AUTO_REPLY_CONFIG_GET]', JSON.stringify({
+      hasDoc: Boolean(setting),
+      rawEnabled: value.enabled,
+      rawCooldownMinutes: value.cooldownMinutes,
+      returnedEnabled: config.enabled,
+      returnedCooldownMinutes: config.cooldownMinutes
+    }));
+
+    res.json({ config });
   } catch (error) {
     console.error('Get WhatsApp auto-reply config error:', error);
     res.status(500).json({ error: 'Failed to get WhatsApp auto-reply config' });
@@ -1561,15 +1573,36 @@ router.put('/whatsapp-auto-reply', async (req, res) => {
       return res.status(400).json({ error: 'fallbackReply is required' });
     }
 
-    await Settings.findOneAndUpdate(
+    // Diagnostic: incoming payload vs. what we will persist.
+    console.log('[WHATSAPP_AUTO_REPLY_CONFIG_PUT_INCOMING]', JSON.stringify({
+      payloadEnabled: payload.enabled,
+      payloadEnabledType: typeof payload.enabled,
+      payloadCooldownMinutes: payload.cooldownMinutes,
+      payloadCooldownType: typeof payload.cooldownMinutes,
+      hasExistingDoc: Boolean(existingSetting)
+    }));
+
+    // Use an explicit `$set` operator so Mongoose treats the Mixed `value`
+    // field as a fully replaced object on every save. Without `$set`, an
+    // implicit replacement document on a pre-existing record can in some
+    // Mongoose versions silently merge sub-paths and produce stale fields.
+    const savedDoc = await Settings.findOneAndUpdate(
       { key: 'whatsapp_auto_reply_config' },
       {
-        key: 'whatsapp_auto_reply_config',
-        value: nextConfig,
-        updated_at: new Date()
+        $set: {
+          key: 'whatsapp_auto_reply_config',
+          value: nextConfig,
+          updated_at: new Date()
+        }
       },
-      { upsert: true }
-    );
+      { upsert: true, new: true }
+    ).lean();
+
+    console.log('[WHATSAPP_AUTO_REPLY_CONFIG_PUT_SAVED]', JSON.stringify({
+      savedEnabled: savedDoc?.value?.enabled,
+      savedCooldownMinutes: savedDoc?.value?.cooldownMinutes,
+      docId: savedDoc?._id?.toString?.() || null
+    }));
 
     res.json({ message: 'WhatsApp auto-reply config updated', config: nextConfig });
   } catch (error) {

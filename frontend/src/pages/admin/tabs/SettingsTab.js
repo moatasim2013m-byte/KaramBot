@@ -527,7 +527,14 @@ export default function SettingsTab(props) {
               <p className="text-xs text-green-700">يتم الرد على رسائل العملاء تلقائيًا بواسطة Gemini كمساعد بشري. الردود الجاهزة تظهر فقط كحماية احتياطية إذا تعذّر Gemini أو في حالات السلامة (شكاوى، إيقاف الاشتراك، تحويل لموظف).</p>
 
               <div className="flex items-center justify-between gap-3">
-                <Label className="text-sm">تفعيل الرد الذكي</Label>
+                <div className="flex flex-col">
+                  <Label className="text-sm">تفعيل الرد الذكي</Label>
+                  <span className="text-[11px] text-green-700/80 mt-0.5">
+                    الحالة المحفوظة حاليًا: <strong>{autoReplyConfig.enabled === true ? 'مفعل' : 'غير مفعل'}</strong>
+                    {' · '}
+                    التهدئة: <strong>{Number.isFinite(Number(autoReplyConfig.cooldownMinutes)) ? Number(autoReplyConfig.cooldownMinutes) : '—'} د</strong>
+                  </span>
+                </div>
                 <Button
                   size="sm"
                   variant={autoReplyConfig.enabled ? 'default' : 'outline'}

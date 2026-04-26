@@ -420,7 +420,23 @@ export default function AdminLayout() {
   const fetchWhatsAppAutoReplyConfig = async () => {
     try {
       const response = await api.get('/admin/whatsapp-auto-reply');
-      setAutoReplyConfig(response.data.config || autoReplyConfig);
+      const fetched = response.data?.config;
+      // Diagnostic: prove what the admin UI received from the API and what it
+      // will bind into the form. The classic "UI shows 30 after reload" bug
+      // happens when fetched is falsy and the previous handler kept the React
+      // default state of `cooldownMinutes: 30`. With this guard we only fall
+      // back to the existing state if the API genuinely returned no config.
+      if (fetched && typeof fetched === 'object') {
+        // eslint-disable-next-line no-console
+        console.log('[autoReplyConfig:GET]', {
+          enabled: fetched.enabled,
+          cooldownMinutes: fetched.cooldownMinutes
+        });
+        setAutoReplyConfig((prev) => ({ ...prev, ...fetched }));
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn('[autoReplyConfig:GET] empty/invalid config in response', response.data);
+      }
     } catch (error) {
       console.error('Failed to fetch WhatsApp auto-reply config:', error);
       toast.error('فشل تحميل إعدادات الرد الذكي');
@@ -438,6 +454,9 @@ export default function AdminLayout() {
         : Number(rawCooldown);
       const payload = {
         ...autoReplyConfig,
+        // Force `enabled` into a real boolean so the backend never receives
+        // a stray string/number that would skip normalizeBoolean's fast paths.
+        enabled: autoReplyConfig.enabled === true,
         cooldownMinutes: Number.isFinite(parsedCooldown) && parsedCooldown >= 1
           ? Math.floor(parsedCooldown)
           : 30,
@@ -445,8 +464,22 @@ export default function AdminLayout() {
         aiConfidenceThreshold: Number(autoReplyConfig.aiConfidenceThreshold ?? 0.7),
         aiMaxReplyChars: Number(autoReplyConfig.aiMaxReplyChars || 500)
       };
+      // eslint-disable-next-line no-console
+      console.log('[autoReplyConfig:PUT request]', {
+        enabled: payload.enabled,
+        cooldownMinutes: payload.cooldownMinutes
+      });
       const response = await api.put('/admin/whatsapp-auto-reply', payload);
-      setAutoReplyConfig(response.data.config || payload);
+      const saved = response.data?.config;
+      // eslint-disable-next-line no-console
+      console.log('[autoReplyConfig:PUT response]', {
+        enabled: saved?.enabled,
+        cooldownMinutes: saved?.cooldownMinutes
+      });
+      // Merge over previous state so we never lose admin-side fields the
+      // backend may not echo, and we always pick up the saved truth for the
+      // fields it does echo.
+      setAutoReplyConfig((prev) => ({ ...prev, ...(saved || payload) }));
       toast.success('تم حفظ إعدادات الرد الذكي');
     } catch (error) {
       console.error('Failed to save WhatsApp auto-reply config:', error);
