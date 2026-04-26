@@ -523,8 +523,8 @@ export default function SettingsTab(props) {
             </div>
 
             <div className="p-4 rounded-xl bg-green-50 border border-green-200 space-y-3">
-              <p className="text-sm font-semibold text-green-800 mb-1">الرد الذكي التلقائي</p>
-              <p className="text-xs text-green-700">يرد تلقائيًا على رسائل العملاء حسب الكلمات المفتاحية مثل الأسعار، الموقع، الحجز، والاشتراكات.</p>
+              <p className="text-sm font-semibold text-green-800 mb-1">الرد الذكي التلقائي (Gemini)</p>
+              <p className="text-xs text-green-700">يتم الرد على رسائل العملاء تلقائيًا بواسطة Gemini كمساعد بشري. الردود الجاهزة تظهر فقط كحماية احتياطية إذا تعذّر Gemini أو في حالات السلامة (شكاوى، إيقاف الاشتراك، تحويل لموظف).</p>
 
               <div className="flex items-center justify-between gap-3">
                 <Label className="text-sm">تفعيل الرد الذكي</Label>
@@ -547,63 +547,47 @@ export default function SettingsTab(props) {
                   onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, cooldownMinutes: e.target.value }))}
                   className="rounded-xl mt-1 bg-white"
                 />
+                <p className="text-[11px] text-green-700/80 mt-1">تطبّق فقط بين ردّين متتاليين لنفس العميل. إذا أرسل رسالة جديدة بعد ردّنا، سيتم الرد عليها مباشرة دون انتظار.</p>
               </div>
 
               <div>
-                <Label className="text-sm">نص تذييل الرد</Label>
-                <Input
-                  value={autoReplyConfig.footer || ''}
-                  onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, footer: e.target.value }))}
-                  className="rounded-xl mt-1 bg-white"
-                  placeholder="مثال: للحجز عبر الموقع ..."
-                />
-              </div>
-
-              <div>
-                <Label className="text-sm">الرد الافتراضي (عند عدم مطابقة كلمات)</Label>
+                <Label className="text-sm">نص بديل (يُستخدم فقط إذا فشل Gemini)</Label>
                 <Textarea
                   value={autoReplyConfig.fallbackReply || ''}
                   onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, fallbackReply: e.target.value }))}
                   className="rounded-xl mt-1 bg-white"
                   rows={3}
                 />
+                <p className="text-[11px] text-green-700/80 mt-1">لن يراه العميل في الحالات الطبيعية — Gemini هو المرسل الأساسي.</p>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                <Label className="text-sm">تفعيل الرد بالذكاء الاصطناعي عند عدم التطابق</Label>
-                <Button
-                  size="sm"
-                  variant={autoReplyConfig.useAiFallback ? 'default' : 'outline'}
-                  onClick={() => setAutoReplyConfig(prev => ({ ...prev, useAiFallback: !prev.useAiFallback }))}
-                  className="rounded-full"
-                >
-                  {autoReplyConfig.useAiFallback ? 'مفعل' : 'غير مفعل'}
-                </Button>
-              </div>
-
-              <div>
-                <Label className="text-sm">حد ثقة الذكاء الاصطناعي (0 إلى 1)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={autoReplyConfig.aiConfidenceThreshold ?? 0.7}
-                  onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, aiConfidenceThreshold: e.target.value }))}
-                  className="rounded-xl mt-1 bg-white"
-                />
-              </div>
-
-              <div>
-                <Label className="text-sm">الحد الأقصى لحروف رد الذكاء الاصطناعي</Label>
-                <Input
-                  type="number"
-                  min={50}
-                  value={autoReplyConfig.aiMaxReplyChars ?? 500}
-                  onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, aiMaxReplyChars: e.target.value }))}
-                  className="rounded-xl mt-1 bg-white"
-                />
-              </div>
+              <details className="rounded-xl bg-white/60 border border-green-100 p-3">
+                <summary className="text-xs text-green-800 cursor-pointer select-none">إعدادات Gemini المتقدمة</summary>
+                <div className="space-y-3 mt-3">
+                  <div>
+                    <Label className="text-sm">حد ثقة Gemini (0 إلى 1)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={autoReplyConfig.aiConfidenceThreshold ?? 0.7}
+                      onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, aiConfidenceThreshold: e.target.value }))}
+                      className="rounded-xl mt-1 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">الحد الأقصى لحروف رد Gemini</Label>
+                    <Input
+                      type="number"
+                      min={50}
+                      value={autoReplyConfig.aiMaxReplyChars ?? 500}
+                      onChange={(e) => setAutoReplyConfig(prev => ({ ...prev, aiMaxReplyChars: e.target.value }))}
+                      className="rounded-xl mt-1 bg-white"
+                    />
+                  </div>
+                </div>
+              </details>
 
               <Button
                 size="sm"

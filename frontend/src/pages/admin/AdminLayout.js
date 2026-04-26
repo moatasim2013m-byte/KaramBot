@@ -430,9 +430,17 @@ export default function AdminLayout() {
   const saveWhatsAppAutoReplyConfig = async () => {
     setSavingAutoReply(true);
     try {
+      // Use nullish-coalescing instead of `||` so a numeric 0/empty-string
+      // doesn't silently fall back to 30. Backend will still clamp to ≥ 1.
+      const rawCooldown = autoReplyConfig.cooldownMinutes;
+      const parsedCooldown = rawCooldown === '' || rawCooldown === null || rawCooldown === undefined
+        ? NaN
+        : Number(rawCooldown);
       const payload = {
         ...autoReplyConfig,
-        cooldownMinutes: Number(autoReplyConfig.cooldownMinutes || 30),
+        cooldownMinutes: Number.isFinite(parsedCooldown) && parsedCooldown >= 1
+          ? Math.floor(parsedCooldown)
+          : 30,
         useAiFallback: Boolean(autoReplyConfig.useAiFallback),
         aiConfidenceThreshold: Number(autoReplyConfig.aiConfidenceThreshold ?? 0.7),
         aiMaxReplyChars: Number(autoReplyConfig.aiMaxReplyChars || 500)

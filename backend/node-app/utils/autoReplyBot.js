@@ -702,11 +702,37 @@ const loadAutoReplyConfig = async () => {
     enabledReason = 'config_document_value_not_object';
   }
 
+  // Resolve cooldownMinutes from the saved admin value, NOT from defaults,
+  // unless the saved value is genuinely missing (null/undefined). Use
+  // nullish-coalescing — a numeric 0 or stray empty-string would previously
+  // be treated as falsy by `||` and silently fall back to DEFAULT_CONFIG (30),
+  // which produced "I set it to 1 but runtime acts like 30" reports.
+  const rawCooldown = value?.cooldownMinutes;
+  const parsedCooldown = rawCooldown !== undefined && rawCooldown !== null && rawCooldown !== ''
+    ? Number(rawCooldown)
+    : NaN;
+  const cooldownSource = Number.isFinite(parsedCooldown) && parsedCooldown >= 1
+    ? 'admin_setting'
+    : 'default_fallback';
+  const resolvedCooldown = cooldownSource === 'admin_setting'
+    ? Math.max(1, Math.floor(parsedCooldown))
+    : DEFAULT_CONFIG.cooldownMinutes;
+
+  // One clear diagnostic line so support can verify what the runtime actually
+  // sees vs. what the admin panel shows.
+  console.log('[AUTO_REPLY_COOLDOWN_RESOLVED]', JSON.stringify({
+    rawCooldown,
+    parsedCooldown: Number.isFinite(parsedCooldown) ? parsedCooldown : null,
+    resolvedCooldown,
+    source: cooldownSource,
+    defaultCooldown: DEFAULT_CONFIG.cooldownMinutes
+  }));
+
   return {
     ...DEFAULT_CONFIG,
     ...value,
     enabled,
-    cooldownMinutes: Math.max(1, Number(value?.cooldownMinutes || DEFAULT_CONFIG.cooldownMinutes)),
+    cooldownMinutes: resolvedCooldown,
     useAiFallback: normalizeBoolean(value?.useAiFallback, DEFAULT_CONFIG.useAiFallback),
     aiConfidenceThreshold: Math.min(
       1,
@@ -717,7 +743,9 @@ const loadAutoReplyConfig = async () => {
       hasConfigDocument,
       hasObjectValue,
       enabledSource,
-      enabledReason
+      enabledReason,
+      cooldownSource,
+      cooldownResolved: resolvedCooldown
     }
   };
 };

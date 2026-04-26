@@ -1513,7 +1513,7 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
         ...defaults,
         ...value,
         enabled: normalizeBoolean(value.enabled, defaults.enabled),
-        cooldownMinutes: Math.max(1, Number(value.cooldownMinutes || defaults.cooldownMinutes)),
+        cooldownMinutes: Math.max(1, Number(value.cooldownMinutes ?? defaults.cooldownMinutes)),
         useAiFallback: normalizeBoolean(value.useAiFallback, defaults.useAiFallback),
         aiConfidenceThreshold: Math.min(
           1,
