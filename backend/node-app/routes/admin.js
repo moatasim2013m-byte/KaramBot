@@ -1500,7 +1500,7 @@ router.get('/whatsapp-auto-reply', async (req, res) => {
     const setting = await Settings.findOne({ key: 'whatsapp_auto_reply_config' }).lean();
     const defaults = {
       enabled: false,
-      cooldownMinutes: 30,
+      cooldownMinutes: 1,
       footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
       fallbackReply:
         'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
@@ -1545,7 +1545,7 @@ router.put('/whatsapp-auto-reply', async (req, res) => {
     const payload = req.body || {};
     const defaults = {
       enabled: false,
-      cooldownMinutes: 30,
+      cooldownMinutes: 1,
       footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
       fallbackReply:
         'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',

@@ -93,7 +93,7 @@ export default function AdminLayout() {
   });
   const [autoReplyConfig, setAutoReplyConfig] = useState({
     enabled: false,
-    cooldownMinutes: 30,
+    cooldownMinutes: 1,
     footer: 'للحجز المباشر تفضلي عبر الموقع: https://peekaboojor.com/book',
     fallbackReply:
       'أهلاً وسهلاً 🌷 وصلتنا رسالتك، وفريقنا سيرد عليك بأسرع وقت. إذا حابة، ارسلي (أسعار / موقع / ساعات العمل / عيد ميلاد / اشتراك).',
@@ -424,7 +424,7 @@ export default function AdminLayout() {
       // Diagnostic: prove what the admin UI received from the API and what it
       // will bind into the form. The classic "UI shows 30 after reload" bug
       // happens when fetched is falsy and the previous handler kept the React
-      // default state of `cooldownMinutes: 30`. With this guard we only fall
+      // default state of `cooldownMinutes`. With this guard we only fall
       // back to the existing state if the API genuinely returned no config.
       if (fetched && typeof fetched === 'object') {
         // eslint-disable-next-line no-console
@@ -447,7 +447,7 @@ export default function AdminLayout() {
     setSavingAutoReply(true);
     try {
       // Use nullish-coalescing instead of `||` so a numeric 0/empty-string
-      // doesn't silently fall back to 30. Backend will still clamp to ≥ 1.
+      // doesn't silently fall back to a default. Backend will still clamp to ≥ 1.
       const rawCooldown = autoReplyConfig.cooldownMinutes;
       const parsedCooldown = rawCooldown === '' || rawCooldown === null || rawCooldown === undefined
         ? NaN
@@ -459,7 +459,7 @@ export default function AdminLayout() {
         enabled: autoReplyConfig.enabled === true,
         cooldownMinutes: Number.isFinite(parsedCooldown) && parsedCooldown >= 1
           ? Math.floor(parsedCooldown)
-          : 30,
+          : 1,
         useAiFallback: Boolean(autoReplyConfig.useAiFallback),
         aiConfidenceThreshold: Number(autoReplyConfig.aiConfidenceThreshold ?? 0.7),
         aiMaxReplyChars: Number(autoReplyConfig.aiMaxReplyChars || 500)
