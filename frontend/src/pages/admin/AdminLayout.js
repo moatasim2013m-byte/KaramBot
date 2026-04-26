@@ -228,6 +228,21 @@ export default function AdminLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
+  // Load WhatsApp auto-reply config on mount (not only on tab click).
+  // Without this, a hard refresh leaves the form bound to React's initial
+  // useState defaults until the user happens to click through
+  // handleTabChange('whatsapp_settings'), and any code path that mounts the
+  // settings pane without going through handleTabChange (deep-link,
+  // restored sidebar state, etc.) shows the defaults forever — which is
+  // the "saved values don't persist after refresh" symptom. Mark the
+  // lazy-load flag so handleTabChange does not double-fetch.
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetchWhatsAppAutoReplyConfig();
+    setLoadedDataByTab((prev) => ({ ...prev, whatsapp_settings: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
   useEffect(() => {
     if (isAdmin) {
       setCanPollInboxStats(true);
