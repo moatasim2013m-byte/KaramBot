@@ -103,7 +103,8 @@ const DUPLICATE_INTENT_SUPPRESSION_KEYS = new Set([
   'pricing',
   'daycare',
   'hours',
-  'subscription'
+  'subscription',
+  'escalation_handoff'
 ]);
 const MAX_TEXT_LENGTH_FOR_AUTO_REPLY = 450;
 const MAX_TOKENS_FOR_AUTO_REPLY = 90;
@@ -930,7 +931,7 @@ const shouldEscalateFallback = (textBody, { useAiFallback = false } = {}) => {
     return { escalate: true, reason: 'long_or_ambiguous', reply: SAFE_HANDOFF_REPLY };
   }
 
-  if (includesAnyKeyword(textBody, OUT_OF_SCOPE_KEYWORDS)) {
+  if (includesAnyExactToken(textBody, OUT_OF_SCOPE_KEYWORDS)) {
     return { escalate: true, reason: 'out_of_scope', reply: SAFE_HANDOFF_REPLY };
   }
 
@@ -1578,7 +1579,7 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       matchedKey = 'escalation_handoff';
       logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'long_or_ambiguous' });
 
-    } else if (includesAnyKeyword(effectiveTextBody, OUT_OF_SCOPE_KEYWORDS)) {
+    } else if (includesAnyExactToken(effectiveTextBody, OUT_OF_SCOPE_KEYWORDS)) {
       replyText = [greetingOpening, SAFE_HANDOFF_REPLY].filter(Boolean).join('\n');
       matchedKey = 'escalation_handoff';
       logRoutingDecision({ messageId, senderWaId: normalizedWaId, route: 'escalation_handoff', reason: 'out_of_scope' });
@@ -1896,6 +1897,18 @@ const maybeAutoReply = async ({ messageId, senderWaId, messageType, textBody, me
       });
       return { skipped: true, reason: 'duplicate_intent_recent', matchedKey };
     }
+
+    // [DIAG_PLAY_PRICING] Inbound→outbound trace so we can identify the exact
+    // route that produced the reply for messages like "لعب بالساعة" without
+    // changing any behaviour. Logs incoming text, final matchedKey, and a
+    // truncated reply preview so it can be correlated with the route logs above.
+    console.log('[ROUTE_FINAL]', JSON.stringify({
+      messageId,
+      senderWaId: normalizedWaId,
+      inboundText: String(effectiveTextBody || '').slice(0, 120),
+      matchedKey: matchedKey || 'fallback',
+      replyPreview: String(replyText || '').slice(0, 120)
+    }));
 
     const sendResult = await postWhatsAppText({
       to: normalizedWaId,
