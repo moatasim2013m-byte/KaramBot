@@ -200,6 +200,20 @@ export default function ProfilePage() {
     return colors[status] || 'bg-yellow-100 text-yellow-700';
   };
 
+  // Phase 2 — Arabic label for QR lifecycle status shown alongside booking cards.
+  const getQrStatusLabel = (booking) => {
+    if (!booking) return null;
+    if (booking.status === 'cancelled') return { text: 'ملغي', cls: 'bg-red-100 text-red-700 border-red-200' };
+    if (booking.qr_status === 'checked_in' || booking.status === 'checked_in' || booking.status === 'completed') {
+      return { text: 'تم استخدامه', cls: 'bg-gray-200 text-gray-700 border-gray-300' };
+    }
+    if (booking.qr_status === 'expired') return { text: 'منتهي', cls: 'bg-red-100 text-red-700 border-red-200' };
+    if (booking.status === 'confirmed' && (!booking.qr_status || booking.qr_status === 'unused') && booking.qr_code) {
+      return { text: 'صالح للاستخدام', cls: 'bg-green-100 text-green-700 border-green-200' };
+    }
+    return null;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -403,11 +417,22 @@ export default function ProfilePage() {
                                 </div>
                               )}
                               <div>
-                                <div className="flex items-center gap-2 mb-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <span className="font-semibold">{booking.booking_code}</span>
                                   <Badge className={getStatusBadge(booking.status)}>
-                                    {booking.status === 'confirmed' ? 'مؤكد' : booking.status === 'checked_in' ? 'مسجل الدخول' : booking.status === 'completed' ? 'مكتمل' : booking.status}
+                                    {booking.status === 'confirmed' ? 'مؤكد' : booking.status === 'checked_in' ? 'مسجل الدخول' : booking.status === 'completed' ? 'مكتمل' : booking.status === 'cancelled' ? 'ملغي' : booking.status}
                                   </Badge>
+                                  {(() => {
+                                    const qrLabel = getQrStatusLabel(booking);
+                                    return qrLabel ? (
+                                      <span
+                                        className={`text-xs font-bold px-2 py-0.5 rounded-full border ${qrLabel.cls}`}
+                                        data-testid="qr-status-label"
+                                      >
+                                        {qrLabel.text}
+                                      </span>
+                                    ) : null;
+                                  })()}
                                 </div>
                                 <p className="text-sm text-muted-foreground">
                                   {booking.slot_id?.date} الساعة {booking.slot_id?.start_time}

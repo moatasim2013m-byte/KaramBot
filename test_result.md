@@ -102,10 +102,107 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "PHASE 1 — QR activation foundation for hourly bookings. Generate a secure scanner-only token per hourly booking, plus QR validate / QR check-in endpoints with idempotent re-scan protection. Preserve existing manual booking_code flow and existing active-sessions/pending-checkins behavior."
+user_problem_statement: "PHASE 2 — QR display for parents + QR scanner UI for staff/admin. Use Phase 1 backend foundation: parents see QR on confirmation page and in profile/upcoming bookings; staff/admin scan QR (camera or manual) → /qr/validate → see booking details → /qr/checkin to activate. Active sessions / pending check-ins continue to work."
 
 backend:
-  - task: "HourlyBooking schema: qr_token, qr_status, qr_checked_in_at, qr_checked_in_by"
+  - task: "(Phase 1) HourlyBooking schema + QR endpoints"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staff.js, /app/backend/node-app/models/HourlyBooking.js, /app/backend/node-app/utils/bookingQr.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Phase 1 backend already validated (18/18 scenarios). No backend changes in Phase 2."
+
+frontend:
+  - task: "BookingConfirmationPage — QR card for hourly bookings"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/BookingConfirmationPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added a dedicated QR card shown only for bookingType='hourly' AND qrCode present AND qrStatus='unused'. Shows the QR PNG (data URL from confirmation.qrCode), Arabic instruction 'يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة', the booking_code, and an extra note for cash/cliq pending payments. Falls back to a non-misleading 'سيتم إصدار رمز QR للحجز فور تأكيد الدفع' card when qr is not yet available for an hourly booking. Non-hourly bookings see no QR block."
+
+  - task: "TicketsPage — propagate qr_code/qr_token/qr_status into confirmation state"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/TicketsPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "After successful POST /api/bookings/hourly the response.data.bookings[0] now includes qr_code, qr_token, qr_status (Phase 1). Confirmation state forwarded to /booking-confirmation now contains qrCode, qrToken, qrStatus."
+
+  - task: "PaymentSuccessPage — propagate qr_code/qr_token/qr_status into confirmation state"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/PaymentSuccessPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "buildConfirmationData() now also reads qr_code/qr_token/qr_status from result.bookings[0] (or result.booking) and forwards them as qrCode/qrToken/qrStatus."
+
+  - task: "ProfilePage — qr_status label on hourly booking cards"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/ProfilePage.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added Arabic QR status label next to each hourly booking: صالح للاستخدام (confirmed + qr_status=unused) / تم استخدامه (qr_status=checked_in OR booking.status in [checked_in, completed]) / ملغي / منتهي. The existing QR thumbnail and dialog (with instruction 'اعرض هذا الرمز في الاستقبال لتسجيل الدخول') is unchanged and only displayed for confirmed bookings as before."
+
+  - task: "QrScanner component — camera (BarcodeDetector) + manual fallback"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/staff/QrScanner.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "New component. Uses native window.BarcodeDetector + getUserMedia for camera scan (Chrome/Edge/Safari iOS 15+). Falls back to manual input mode automatically when unsupported. Manual input is always available via toggle. Debounces duplicate scans within 1.5s. Stops camera tracks on unmount and on mode-change. No new npm dependencies."
+
+  - task: "StaffPage scanner tab — validate-then-checkin via /qr/validate + /qr/checkin"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Replaced the legacy English Check-in form with the QrScanner component + a two-step flow. handleQrScan posts to /api/staff/qr/validate with the scanned string (works for both qr_token and booking_code thanks to backend fallback). UI shows booking summary in Arabic (booking code, child, parent, date+slot, duration, payment status, qr status). If can_checkin=true, shows 'تفعيل الجلسة' button which posts to /api/staff/qr/checkin. On success, refreshes /staff/active-sessions and /staff/pending-checkins. Disabled while busy to prevent double-submit. 'مسح رمز آخر' resets the panel. All toasts/messages in Arabic. Active sessions card translated to Arabic. Legacy /staff/checkin endpoint untouched (still works for any external API consumers); the legacy form removed from UI."
+
+test_plan:
+  current_focus:
+    - "BookingConfirmationPage — QR card for hourly bookings"
+    - "TicketsPage — propagate qr_code/qr_token/qr_status into confirmation state"
+    - "ProfilePage — qr_status label on hourly booking cards"
+    - "QrScanner component — camera (BarcodeDetector) + manual fallback"
+    - "StaffPage scanner tab — validate-then-checkin via /qr/validate + /qr/checkin"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+  # ===== Phase 1 history (kept for reference) =====
+  - task: "(Phase 1) HourlyBooking schema: qr_token, qr_status, qr_checked_in_at, qr_checked_in_by"
     implemented: true
     working: true
     file: "/app/backend/node-app/models/HourlyBooking.js"
@@ -452,19 +549,6 @@ metadata:
   test_sequence: 0
   run_ui: false
 
-test_plan:
-  current_focus:
-    - "HourlyBooking schema: qr_token, qr_status, qr_checked_in_at, qr_checked_in_by"
-    - "QR token generated for new hourly bookings (all 6 creation sites)"
-    - "POST /api/staff/qr/validate"
-    - "POST /api/staff/qr/checkin"
-    - "POST /api/staff/qr/backfill (admin-only)"
-    - "Legacy POST /api/staff/checkin still works (manual booking_code) and now flips qr_status"
-    - "active-sessions and pending-checkins regression"
-  stuck_tasks: []
-  test_all: false
-  test_priority: "high_first"
-
 agent_communication:
     - agent: "main"
       message: "Implemented DB-neutral bulk WhatsApp template send. Backend: Added POST /api/staff/campaigns/bulk-send to existing staffCampaigns.js. Reuses existing postWhatsAppTemplate(), normalizePhoneForWhatsApp(), isWhatsAppOptedOut(). Added timeout exemption in index.js and server.py proxy. Frontend: Added minimal bulk-send card in campaigns tab of StaffPage.js. No new models, no campaign state, no queue/cron/scheduler. TESTING NOTES: (1) Admin login with admin@peekaboo.com/admin123. (2) Test validation: empty recipients, >1000 recipients, missing template, unapproved template. (3) Test phone normalization: invalid phones should be skipped_invalid. (4) The send will fail with 'whatsapp_not_configured' since WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID are not set in dev env - this is EXPECTED and correct behavior. (5) To test opted-out skip, create a user with whatsapp_opted_out_at set and include their phone."
@@ -547,3 +631,109 @@ agent_communication:
             in dev — that's EXPECTED and not a test failure.
     - agent: "testing"
       message: "🎉 PHASE 1 QR ACTIVATION FOUNDATION — COMPREHENSIVE TESTING COMPLETE — ALL TESTS PASSED! Executed 18 test scenarios covering all requirements from review request. KEY FINDINGS: (1) ✅ Admin authentication working (admin@peekaboo.com/admin123). (2) ✅ QR token generation: All bookings receive proper 64-hex qr_token via generateBookingQrPayload(). (3) ✅ POST /api/staff/qr/validate: Perfect validation with Arabic messages, all reason codes working (ok, cancelled, already_used, not_active_yet, not_found), booking_code fallback functional. (4) ✅ POST /api/staff/qr/checkin: Atomic check-in working, idempotent re-scan returns 409 with Arabic error, session_end_time set correctly, booking_code fallback works. (5) ✅ Legacy /api/staff/checkin: Preserved functionality + now sets qr_status='checked_in' for QR integration. (6) ✅ GET /api/staff/active-sessions: Shows all checked-in bookings (QR + legacy) with remaining_minutes. (7) ✅ POST /api/staff/qr/backfill: Admin-only, generates qr_token for legacy bookings, idempotent. (8) ✅ Input validation: Empty body and unknown tokens properly rejected with Arabic errors. (9) ✅ WhatsApp notifications fire (fail with 'whatsapp_not_configured' as expected in dev). (10) ✅ Backend logs show all operations working correctly. NO CRITICAL ISSUES FOUND. All Arabic error messages verified. All atomic operations and race condition protections working. Ready for production deployment."
+    - agent: "main"
+      message: |
+        PHASE 2 — QR DISPLAY (PARENT) + QR SCANNER UI (STAFF/ADMIN) — IMPLEMENTATION COMPLETE.
+
+        Backend: NO changes — Phase 1 endpoints reused exactly.
+
+        Frontend files changed:
+          - src/pages/BookingConfirmationPage.js
+              Added a dedicated QR card for hourly bookings showing qrCode (data
+              URL), Arabic instruction "يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة",
+              booking_code, and a cash/cliq-pending note. Falls back gracefully
+              if qrCode not available. Non-hourly bookings: no QR block.
+          - src/pages/TicketsPage.js
+              After POST /api/bookings/hourly success, response.data.bookings[0]
+              now contains qr_code/qr_token/qr_status (Phase 1). These are
+              forwarded into the confirmation state as qrCode/qrToken/qrStatus.
+          - src/pages/PaymentSuccessPage.js
+              buildConfirmationData() now reads qr_code/qr_token/qr_status from
+              the finalize result and forwards them.
+          - src/pages/ProfilePage.js
+              Hourly tab: each booking card now shows an extra Arabic QR-status
+              label next to the existing status badge:
+                * صالح للاستخدام  (confirmed + qr_status=unused + qr_code present)
+                * تم استخدامه     (qr_status=checked_in or status in [checked_in, completed])
+                * ملغي            (status=cancelled)
+                * منتهي           (qr_status=expired)
+              Existing QR thumbnail + dialog (with the existing instruction text)
+              are unchanged and still only render for confirmed bookings.
+          - src/components/staff/QrScanner.js  (NEW)
+              Native scanner component using window.BarcodeDetector +
+              navigator.mediaDevices.getUserMedia (works on Chrome/Edge/Safari
+              iOS 15+). Falls back automatically to manual input mode when
+              unsupported. Manual input always available via toggle. Debounces
+              duplicate scans within 1.5s. Stops camera tracks on unmount.
+              No new npm dependencies.
+          - src/pages/StaffPage.js
+              Replaced legacy English booking-code form in the scanner tab with
+              the QR-validate-then-checkin flow:
+                1. handleQrScan posts to /api/staff/qr/validate (works for both
+                   qr_token and booking_code thanks to backend fallback).
+                2. UI shows full booking summary in Arabic (booking_code, child,
+                   parent, date+slot, duration, payment_status, qr_status).
+                3. If can_checkin=true → green "تفعيل الجلسة" button posts to
+                   /api/staff/qr/checkin. On success refreshes active-sessions
+                   and pending-checkins. Disabled while busy → no double-submit.
+                4. "مسح رمز آخر" resets the panel for the next scan.
+              All toasts/messages in Arabic. Active-sessions card translated to
+              Arabic. Legacy POST /api/staff/checkin endpoint untouched (still
+              callable for any external API consumer).
+
+        Edge cases handled:
+          - QR card hidden for cancelled / non-hourly / missing-qr bookings.
+          - Camera unavailability → automatic manual fallback.
+          - getUserMedia permission denied → clear Arabic error + manual still works.
+          - Camera tracks stopped on mode-change and unmount (no leaked streams).
+          - Duplicate camera scans of same QR within 1.5s ignored.
+          - Activation button disabled while /qr/checkin is in flight.
+          - Backend-driven Arabic message used for all error states (cancelled,
+            already_used, not_active_yet, unpaid, not_found).
+
+        TESTING NOTES FOR FRONTEND TESTING AGENT:
+          - Admin login: admin@peekaboo.com / admin123
+            (See /app/memory/test_credentials.md for the admin bootstrap script
+             if /api/auth/login returns 'Invalid credentials' on a fresh DB.)
+          - Direct mongo seed for test bookings (Phase 2 tests):
+              cd /app/backend/node-app && MONGO_URL=mongodb://localhost:27017/peekaboo node -e "..."
+            (See Phase 1 main agent communication block above for the exact
+             snippet to create confirmed/cancelled/checked-in bookings with
+             qr_token; reuse that for Phase 2 staff-scanner tests.)
+
+        TEST SCENARIOS (from prompt):
+          PARENT:
+            1. After creating a confirmed/paid hourly booking, the booking
+               confirmation page (/booking-confirmation) shows the QR card with
+               the QR PNG, booking_code, and Arabic instruction.
+            2. /profile → hourly tab shows the same booking with QR thumbnail,
+               'صالح للاستخدام' label, and the dialog opens with full QR.
+            3. After check-in (status=checked_in), the same card on /profile
+               shows 'تم استخدامه' label and NO active QR thumbnail.
+            4. A cancelled booking shows 'ملغي' label and NO active QR.
+            5. A non-hourly booking (e.g. birthday) shows no QR block on
+               confirmation page.
+
+          STAFF/ADMIN (logged in as admin):
+            6. /staff?tab=scanner — scanner UI loads with camera + manual toggle.
+            7. Manual mode: paste a valid qr_token (or booking_code) → click
+               "تحقق من الرمز" → booking summary appears with green "تفعيل
+               الجلسة" button. Click → success message 'تم تفعيل الجلسة بنجاح'.
+            8. Re-scan same qr_token → red message 'تم استخدام رمز QR مسبقًا',
+               no activate button.
+            9. Paste a non-existent token → red 'رمز الحجز غير صالح'.
+           10. Paste a cancelled booking's qr_token → red 'هذا الحجز ملغي'.
+           11. After activation, /staff?tab=sessions shows the new active session
+               with remaining_minutes.
+           12. Pending check-ins list updates (the activated booking disappears).
+           13. Manual entry of a booking_code (legacy QR fallback) works the
+               same way through the new flow.
+
+          NEGATIVE / EDGE:
+           14. Empty manual input — submit button disabled.
+           15. Camera-mode in a browser without BarcodeDetector — UI auto-flips
+               to manual; "مسح بالكاميرا" toggle disabled with hint message.
+
+        IMPORTANT: Backend was not changed in Phase 2 — DO NOT re-run Phase 1
+        backend tests. Only the front-end pages above need verification.
+

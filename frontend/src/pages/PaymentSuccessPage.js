@@ -50,6 +50,19 @@ const buildConfirmationData = (result) => {
       firstHourlyBooking?.final_amount,
       result.booking?.final_amount,
       result.subscription?.final_amount
+    ),
+    qrCode: pickFirst(
+      firstHourlyBooking?.qr_code,
+      result.booking?.qr_code
+    ),
+    qrToken: pickFirst(
+      firstHourlyBooking?.qr_token,
+      result.booking?.qr_token
+    ),
+    qrStatus: pickFirst(
+      firstHourlyBooking?.qr_status,
+      result.booking?.qr_status,
+      bookingType === 'hourly' ? 'unused' : undefined
     )
   };
 };

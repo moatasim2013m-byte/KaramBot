@@ -414,16 +414,20 @@ export default function TicketsPage() {
           : (guestChildName.trim() || `${guestChildCount} أطفال`);
         
         // Navigate to confirmation page with booking details
+        const firstBooking = response.data.bookings?.[0];
         const confirmationData = {
-          bookingId: response.data.bookings?.[0]?.id,
-          bookingCode: response.data.bookings?.[0]?.booking_code,
+          bookingId: firstBooking?.id,
+          bookingCode: firstBooking?.booking_code,
           bookingType: 'hourly',
           childName: selectedChildNames,
           date: selectedSlot.date,
           time: selectedSlot.start_time,
           duration: selectedDuration,
           amount,
-          paymentMethod
+          paymentMethod,
+          qrCode: firstBooking?.qr_code,
+          qrToken: firstBooking?.qr_token,
+          qrStatus: firstBooking?.qr_status || 'unused'
         };
         
         // Store in localStorage for refresh persistence

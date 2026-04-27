@@ -3,7 +3,7 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock, Calendar, Banknote, Baby, Tag } from 'lucide-react';
+import { CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock, Calendar, Banknote, Baby, Tag, QrCode } from 'lucide-react';
 
 const STORAGE_KEY = 'pk_last_confirmation';
 
@@ -167,6 +167,12 @@ export default function BookingConfirmationPage() {
 
   const isCash = confirmation.paymentMethod === 'cash';
   const isCliq = confirmation.paymentMethod === 'cliq';
+  const isHourly = confirmation.bookingType === 'hourly';
+  // QR is only meaningful while the booking is active and unused.
+  // Backend marks paid bookings as status='confirmed' + qr_status='unused'.
+  const qrStatus = confirmation.qrStatus || 'unused';
+  const showActiveQr = isHourly && confirmation.qrCode && qrStatus === 'unused';
+  const qrAwaitingConfirmation = isHourly && !confirmation.qrCode;
 
   return (
     <div className="min-h-screen bg-hero-gradient py-8 md:py-12" dir="rtl">
@@ -277,6 +283,45 @@ export default function BookingConfirmationPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* QR Code Block — hourly bookings only */}
+        {showActiveQr && (
+          <Card className="rounded-3xl shadow-xl border-2 border-[var(--pk-blue)]/20 bg-white overflow-hidden mb-6" data-testid="confirmation-qr-card">
+            <CardContent className="p-6 text-center">
+              <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-[var(--pk-blue)]/10 text-[var(--pk-blue)] text-sm font-bold">
+                <QrCode className="h-4 w-4" />
+                رمز QR للجلسة
+              </div>
+              <div className="bg-white p-3 rounded-2xl inline-block border-2 border-gray-100 shadow-sm">
+                <img
+                  src={confirmation.qrCode}
+                  alt="رمز QR للحجز"
+                  className="w-56 h-56 object-contain"
+                  data-testid="confirmation-qr-image"
+                />
+              </div>
+              <p className="mt-4 text-base font-bold text-foreground">
+                يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                رمز الحجز: <span className="font-mono font-bold tracking-wider">{getReferenceCode()}</span>
+              </p>
+              {(isCash || isCliq) && (
+                <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  سيتم تفعيل الجلسة بعد إتمام الدفع عند الوصول
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {qrAwaitingConfirmation && !showActiveQr && (
+          <Card className="rounded-3xl shadow border border-dashed border-gray-300 bg-gray-50 overflow-hidden mb-6">
+            <CardContent className="p-5 text-center text-sm text-muted-foreground">
+              سيتم إصدار رمز QR للحجز فور تأكيد الدفع.
+            </CardContent>
+          </Card>
+        )}
 
         {/* CliQ Transfer Details */}
         {isCliq && (
