@@ -12,6 +12,7 @@ const HourlyBooking = require('../models/HourlyBooking');
 const Child = require('../models/Child');
 const User = require('../models/User');
 const Settings = require('../models/Settings');
+const { generateBookingQrPayload } = require('./bookingQr');
 
 const MAX_GUEST_CHILD_NAME_LENGTH = 100;
 
@@ -237,7 +238,7 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
     const price = await getHourlyPrice(hours);
     const totalAmount = Number((price * count).toFixed(2));
     const bookingCode = `WA-H-${randomUUID().substring(0, 8).toUpperCase()}`;
-    const qrCode = await QRCode.toDataURL(bookingCode, { width: 300, margin: 2 });
+    const { qr_token, qr_code: qrCode } = await generateBookingQrPayload();
 
     const isGuestBooking = !childId;
     const booking = new HourlyBooking({
@@ -252,6 +253,8 @@ const createWhatsAppBooking = async (userId, childId, slotId, durationHours = 1,
         ? 'WhatsApp booking via Shroomi (guest child)'
         : 'WhatsApp booking via Shroomi',
       qr_code: qrCode,
+      qr_token,
+      qr_status: 'unused',
       booking_code: bookingCode,
       status: 'confirmed',
       payment_method: 'cash',

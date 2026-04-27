@@ -13,6 +13,12 @@ const hourlyBookingSchema = new mongoose.Schema({
   custom_notes: { type: String, default: '' },
   qr_code: { type: String, required: true },
   booking_code: { type: String, required: true, unique: true },
+  // Secure scanner token — separate from human booking_code. 32 random bytes hex.
+  // Sparse + unique so legacy bookings without qr_token don't collide.
+  qr_token: { type: String, unique: true, sparse: true, index: true },
+  qr_status: { type: String, enum: ['unused', 'checked_in', 'expired', 'cancelled'], default: 'unused', index: true },
+  qr_checked_in_at: { type: Date },
+  qr_checked_in_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   status: { type: String, enum: ['pending', 'confirmed', 'checked_in', 'completed', 'cancelled'], default: 'pending' },
   check_in_time: { type: Date },
   session_end_time: { type: Date },

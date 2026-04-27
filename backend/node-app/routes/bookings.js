@@ -21,6 +21,7 @@ const {
   sendBirthdayBookingWhatsAppConfirmation
 } = require('../utils/whatsappBookingConfirmation');
 const { notifyAdminsOfOrder } = require('../utils/adminOrderNotifications');
+const { generateBookingQrPayload } = require('../utils/bookingQr');
 const { addMinutes, isBefore, isAfter } = require('date-fns');
 
 const router = express.Router();
@@ -354,7 +355,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
     if (useGuestBooking) {
       // Single booking without a registered child
       const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
-      const qr_code = await generateQRCode(booking_code);
+      const { qr_token, qr_code } = await generateBookingQrPayload();
       const booking = new HourlyBooking({
         user_id: req.userId,
         child_id: null,
@@ -364,6 +365,8 @@ router.post('/hourly', authMiddleware, async (req, res) => {
         duration_hours: hours,
         custom_notes: custom_notes || '',
         qr_code,
+        qr_token,
+        qr_status: 'unused',
         booking_code,
         status: 'confirmed',
         payment_id,
@@ -379,7 +382,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       // Create a booking for each registered child
       for (const cid of childIdList) {
         const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
-        const qr_code = await generateQRCode(booking_code);
+        const { qr_token, qr_code } = await generateBookingQrPayload();
         const booking = new HourlyBooking({
           user_id: req.userId,
           child_id: cid,
@@ -388,6 +391,8 @@ router.post('/hourly', authMiddleware, async (req, res) => {
           duration_hours: hours,
           custom_notes: custom_notes || '',
           qr_code,
+          qr_token,
+          qr_status: 'unused',
           booking_code,
           status: 'confirmed',
           payment_id,
@@ -554,7 +559,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
     if (useGuestBooking) {
       // Single booking without a registered child
       const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
-      const qr_code = await generateQRCode(booking_code);
+      const { qr_token, qr_code } = await generateBookingQrPayload();
       const booking = new HourlyBooking({
         user_id: req.userId,
         child_id: null,
@@ -564,6 +569,8 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
         duration_hours: hours,
         custom_notes: custom_notes || '',
         qr_code,
+        qr_token,
+        qr_status: 'unused',
         booking_code,
         status: 'confirmed',
         payment_method,
@@ -580,7 +587,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       // Create a booking for each registered child
       for (const cid of childIdList) {
         const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
-        const qr_code = await generateQRCode(booking_code);
+        const { qr_token, qr_code } = await generateBookingQrPayload();
         const booking = new HourlyBooking({
           user_id: req.userId,
           child_id: cid,
@@ -589,6 +596,8 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
           duration_hours: hours,
           custom_notes: custom_notes || '',
           qr_code,
+          qr_token,
+          qr_status: 'unused',
           booking_code,
           status: 'confirmed',
           payment_method,

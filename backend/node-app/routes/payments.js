@@ -23,6 +23,7 @@ const {
   sendBirthdayBookingWhatsAppConfirmation
 } = require('../utils/whatsappBookingConfirmation');
 const { notifyAdminsOfOrder } = require('../utils/adminOrderNotifications');
+const { generateBookingQrPayload } = require('../utils/bookingQr');
 const {
   buildSecureAcceptanceFields,
   getCapitalBankEnv,
@@ -340,13 +341,16 @@ const finalizePaidTransaction = async (transaction) => {
       const bookings = [];
       for (const childId of childIds) {
         const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+        const { qr_token, qr_code } = await generateBookingQrPayload();
         const booking = await HourlyBooking.create({
           user_id: transaction.user_id,
           child_id: childId,
           slot_id: slotId,
           duration_hours: hours,
           custom_notes: metadata.custom_notes || '',
-          qr_code: await generateQRCode(booking_code),
+          qr_code,
+          qr_token,
+          qr_status: 'unused',
           booking_code,
           status: 'confirmed',
           payment_id: paymentId,
