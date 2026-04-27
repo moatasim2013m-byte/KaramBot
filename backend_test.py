@@ -1,621 +1,448 @@
 #!/usr/bin/env python3
 """
-Phase 3 Loyalty Earn Tests - Comprehensive Backend Testing
-Tests all scenarios A1-J2 as specified in the review request.
+Phase 4 Loyalty Backend Verification Script
+
+This script performs comprehensive testing of all Phase 4 loyalty endpoints
+as specified in the review request.
 """
 
+import os
 import requests
 import json
-import time
 import sys
-from datetime import datetime, timedelta
-import uuid
+from typing import Dict, Any, List, Tuple
 
 # Configuration
-BACKEND_URL = "https://codebases.preview.emergentagent.com/api"
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://codebases.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 PARENT_EMAIL = "parent@peekaboo.com"
 PARENT_PASSWORD = "parent123"
 
-class TestRunner:
+DEFAULT_POLICY = {
+    "enabled": True,
+    "earn_mode": "per_jd",
+    "points_per_jd": 1,
+    "fixed_points_per_visit": 10,
+}
+
+class TestResult:
     def __init__(self):
-        self.admin_token = None
-        self.parent_token = None
-        self.parent_user_id = None
-        self.test_results = {}
-        self.session = requests.Session()
+        self.passed = 0
+        self.failed = 0
+        self.results = []
         
-    def log(self, message):
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
-        
-    def login_admin(self):
-        """Login as admin user"""
-        response = self.session.post(f"{BACKEND_URL}/auth/login", json={
-            "email": ADMIN_EMAIL,
-            "password": ADMIN_PASSWORD
+    def add_result(self, test_name: str, passed: bool, details: str = ""):
+        self.results.append({
+            "test": test_name,
+            "passed": passed,
+            "details": details
         })
-        if response.status_code == 200:
-            data = response.json()
-            self.admin_token = data.get('token')
-            self.log("✅ Admin login successful")
-            return True
+        if passed:
+            self.passed += 1
         else:
-            self.log(f"❌ Admin login failed: {response.status_code} - {response.text}")
-            return False
+            self.failed += 1
             
-    def login_parent(self):
-        """Login as parent user"""
-        response = self.session.post(f"{BACKEND_URL}/auth/login", json={
-            "email": PARENT_EMAIL,
-            "password": PARENT_PASSWORD
-        })
-        if response.status_code == 200:
-            data = response.json()
-            self.parent_token = data.get('token')
-            self.parent_user_id = data.get('user', {}).get('id')
-            self.log("✅ Parent login successful")
-            return True
+    def print_summary(self):
+        print(f"\n{'='*80}")
+        print(f"PHASE 4 LOYALTY BACKEND VERIFICATION SUMMARY")
+        print(f"{'='*80}")
+        print(f"Total Tests: {self.passed + self.failed}")
+        print(f"Passed: {self.passed}")
+        print(f"Failed: {self.failed}")
+        print(f"Success Rate: {(self.passed/(self.passed + self.failed)*100):.1f}%")
+        
+        if self.failed > 0:
+            print(f"\n❌ FAILED TESTS:")
+            for result in self.results:
+                if not result["passed"]:
+                    print(f"  - {result['test']}: {result['details']}")
+        
+        print(f"\n✅ PASSED TESTS:")
+        for result in self.results:
+            if result["passed"]:
+                print(f"  - {result['test']}")
+
+def login(email: str, password: str) -> Tuple[str, Dict]:
+    """Login and return token and user info"""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/auth/login",
+            json={"email": email, "password": password},
+            timeout=20
+        )
+        if response.status_code != 200:
+            raise Exception(f"Login failed: {response.status_code} {response.text[:200]}")
+        
+        data = response.json()
+        token = data.get("token") or data.get("access_token")
+        if not token:
+            raise Exception(f"No token in login response: {data}")
+        
+        return token, data.get("user", {})
+    except Exception as e:
+        raise Exception(f"Login error for {email}: {str(e)}")
+
+def make_request(method: str, endpoint: str, token: str = None, json_data: Dict = None, params: Dict = None) -> requests.Response:
+    """Make HTTP request with optional auth"""
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    
+    url = f"{BASE_URL}{endpoint}"
+    
+    try:
+        if method.upper() == "GET":
+            return requests.get(url, headers=headers, params=params, timeout=20)
+        elif method.upper() == "POST":
+            return requests.post(url, headers=headers, json=json_data, timeout=20)
+        elif method.upper() == "PUT":
+            return requests.put(url, headers=headers, json=json_data, timeout=20)
         else:
-            self.log(f"❌ Parent login failed: {response.status_code} - {response.text}")
-            return False
-            
-    def make_request(self, method, endpoint, token=None, **kwargs):
-        """Make authenticated request"""
-        headers = kwargs.get('headers', {})
-        if token:
-            headers['Authorization'] = f'Bearer {token}'
-        kwargs['headers'] = headers
-        
-        url = f"{BACKEND_URL}{endpoint}"
-        response = getattr(self.session, method.lower())(url, **kwargs)
-        return response
-        
-    def create_test_booking(self, amount=12, status='confirmed', payment_status='pending_cash', user_id=None):
-        """Create a test booking directly in MongoDB via API"""
-        if not user_id:
-            user_id = self.parent_user_id
-            
-        # Create a simple booking for testing
-        booking_data = {
-            "user_id": user_id,
-            "child_id": None,
-            "guest_child_name": "Test Child",
-            "child_count": 1,
-            "booking_source": "website",
-            "slot_id": "507f1f77bcf86cd799439011",  # Dummy slot ID
-            "duration_hours": 2,
-            "custom_notes": "",
-            "qr_code": f"data:image/png;base64,test{uuid.uuid4()}",
-            "booking_code": f"PK-H-TEST{uuid.uuid4().hex[:6].upper()}",
-            "qr_token": uuid.uuid4().hex,
-            "qr_status": "unused",
-            "status": status,
-            "payment_method": "cash",
-            "payment_status": payment_status,
-            "amount": amount,
-            "subtotal_amount": amount,
-            "discount_amount": 0,
-            "lineItems": []
+            raise ValueError(f"Unsupported method: {method}")
+    except Exception as e:
+        raise Exception(f"Request failed: {str(e)}")
+
+def test_loyalty_balance(result: TestResult, parent_token: str):
+    """Test GET /api/loyalty/balance endpoint"""
+    print("\n🔍 Testing GET /api/loyalty/balance...")
+    
+    # Test 1: 401 without token
+    try:
+        r = make_request("GET", "/api/loyalty/balance")
+        if r.status_code == 401:
+            result.add_result("Balance - 401 without token", True)
+        else:
+            result.add_result("Balance - 401 without token", False, f"Expected 401, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Balance - 401 without token", False, str(e))
+    
+    # Test 2: 200 with parent token and pointsAvailable field
+    try:
+        r = make_request("GET", "/api/loyalty/balance", parent_token)
+        if r.status_code == 200:
+            data = r.json()
+            if "pointsAvailable" in data and isinstance(data["pointsAvailable"], (int, float)):
+                result.add_result("Balance - 200 with parent token + pointsAvailable", True, f"Points: {data['pointsAvailable']}")
+            else:
+                result.add_result("Balance - 200 with parent token + pointsAvailable", False, f"Missing or invalid pointsAvailable: {data}")
+        else:
+            result.add_result("Balance - 200 with parent token + pointsAvailable", False, f"Expected 200, got {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        result.add_result("Balance - 200 with parent token + pointsAvailable", False, str(e))
+
+def test_loyalty_history(result: TestResult, parent_token: str):
+    """Test GET /api/loyalty/history endpoint"""
+    print("\n🔍 Testing GET /api/loyalty/history...")
+    
+    # Test 1: 401 without token
+    try:
+        r = make_request("GET", "/api/loyalty/history")
+        if r.status_code == 401:
+            result.add_result("History - 401 without token", True)
+        else:
+            result.add_result("History - 401 without token", False, f"Expected 401, got {r.status_code}")
+    except Exception as e:
+        result.add_result("History - 401 without token", False, str(e))
+    
+    # Test 2: 200 with parent token and proper structure
+    try:
+        r = make_request("GET", "/api/loyalty/history", parent_token)
+        if r.status_code == 200:
+            data = r.json()
+            if "history" in data and isinstance(data["history"], list):
+                result.add_result("History - 200 with parent token + proper structure", True, f"Entries: {len(data['history'])}")
+            else:
+                result.add_result("History - 200 with parent token + proper structure", False, f"Invalid structure: {data}")
+        else:
+            result.add_result("History - 200 with parent token + proper structure", False, f"Expected 200, got {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        result.add_result("History - 200 with parent token + proper structure", False, str(e))
+
+def test_admin_loyalty_settings_get(result: TestResult, admin_token: str, parent_token: str):
+    """Test GET /api/admin/loyalty/settings endpoint"""
+    print("\n🔍 Testing GET /api/admin/loyalty/settings...")
+    
+    # Test 1: 401 without token
+    try:
+        r = make_request("GET", "/api/admin/loyalty/settings")
+        if r.status_code == 401:
+            result.add_result("Admin Settings GET - 401 without token", True)
+        else:
+            result.add_result("Admin Settings GET - 401 without token", False, f"Expected 401, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings GET - 401 without token", False, str(e))
+    
+    # Test 2: 403 with parent token
+    try:
+        r = make_request("GET", "/api/admin/loyalty/settings", parent_token)
+        if r.status_code == 403:
+            result.add_result("Admin Settings GET - 403 with parent token", True)
+        else:
+            result.add_result("Admin Settings GET - 403 with parent token", False, f"Expected 403, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings GET - 403 with parent token", False, str(e))
+    
+    # Test 3: 200 with admin token and proper structure
+    try:
+        r = make_request("GET", "/api/admin/loyalty/settings", admin_token)
+        if r.status_code == 200:
+            data = r.json()
+            if "settings" in data and "defaults" in data:
+                settings = data["settings"]
+                defaults = data["defaults"]
+                if defaults == DEFAULT_POLICY:
+                    result.add_result("Admin Settings GET - 200 with admin token + proper structure", True, f"Settings: {settings}")
+                else:
+                    result.add_result("Admin Settings GET - 200 with admin token + proper structure", False, f"Defaults mismatch: {defaults}")
+            else:
+                result.add_result("Admin Settings GET - 200 with admin token + proper structure", False, f"Invalid structure: {data}")
+        else:
+            result.add_result("Admin Settings GET - 200 with admin token + proper structure", False, f"Expected 200, got {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        result.add_result("Admin Settings GET - 200 with admin token + proper structure", False, str(e))
+
+def test_admin_loyalty_settings_put(result: TestResult, admin_token: str, parent_token: str):
+    """Test PUT /api/admin/loyalty/settings endpoint with sanitisation"""
+    print("\n🔍 Testing PUT /api/admin/loyalty/settings...")
+    
+    # Test 1: 403 with parent token
+    try:
+        r = make_request("PUT", "/api/admin/loyalty/settings", parent_token, DEFAULT_POLICY)
+        if r.status_code == 403:
+            result.add_result("Admin Settings PUT - 403 with parent token", True)
+        else:
+            result.add_result("Admin Settings PUT - 403 with parent token", False, f"Expected 403, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - 403 with parent token", False, str(e))
+    
+    # Test 2a: Valid policy
+    try:
+        valid_policy = {
+            "enabled": False,
+            "earn_mode": "per_visit",
+            "points_per_jd": 2,
+            "fixed_points_per_visit": 25
         }
-        
-        # This is a simplified approach - in real testing we'd use the actual booking endpoints
-        # For now, we'll simulate by creating bookings that can be used for QR checkin
-        return booking_data
-        
-    def reset_parent_loyalty(self):
-        """Reset parent loyalty balance to 0"""
-        try:
-            # This would typically involve clearing LoyaltyLedger and LoyaltyBalance
-            # For testing purposes, we'll check current balance first
-            response = self.make_request('GET', '/loyalty/balance', token=self.parent_token)
-            if response.status_code == 200:
-                current_balance = response.json().get('pointsAvailable', 0)
-                self.log(f"Current loyalty balance: {current_balance}")
-                return True
-            return False
-        except Exception as e:
-            self.log(f"Error resetting loyalty: {e}")
-            return False
-            
-    def test_a_settings_defaults_configurability(self):
-        """Test A1-A5: Settings defaults and configurability"""
-        results = {}
-        
-        # A1: Default policy works without any Settings doc
-        self.log("Testing A1: Default policy without Settings doc")
-        try:
-            # Delete any existing loyalty_earn_policy setting
-            # This would be done via admin API or direct DB access
-            results['A1'] = 'PASS'  # Assume default policy works
-            self.log("✅ A1: Default policy test passed")
-        except Exception as e:
-            results['A1'] = f'FAIL: {e}'
-            self.log(f"❌ A1: {e}")
-            
-        # A2: Settings doc with points_per_jd=2
-        self.log("Testing A2: Custom points_per_jd=2")
-        try:
-            # Create settings with points_per_jd=2
-            settings_data = {
-                "key": "loyalty_earn_policy",
-                "value": {
-                    "enabled": True,
-                    "earn_mode": "per_jd",
-                    "points_per_jd": 2,
-                    "fixed_points_per_visit": 10
-                }
-            }
-            # This would be set via admin API
-            results['A2'] = 'PASS'  # Assume setting works
-            self.log("✅ A2: Custom points_per_jd test passed")
-        except Exception as e:
-            results['A2'] = f'FAIL: {e}'
-            self.log(f"❌ A2: {e}")
-            
-        # A3: enabled=false
-        self.log("Testing A3: Loyalty disabled")
-        try:
-            settings_data = {
-                "key": "loyalty_earn_policy", 
-                "value": {
-                    "enabled": False,
-                    "earn_mode": "per_jd",
-                    "points_per_jd": 1,
-                    "fixed_points_per_visit": 10
-                }
-            }
-            results['A3'] = 'PASS'  # Assume disabled setting works
-            self.log("✅ A3: Loyalty disabled test passed")
-        except Exception as e:
-            results['A3'] = f'FAIL: {e}'
-            self.log(f"❌ A3: {e}")
-            
-        # A4: earn_mode='per_visit'
-        self.log("Testing A4: Per-visit mode")
-        try:
-            settings_data = {
-                "key": "loyalty_earn_policy",
-                "value": {
-                    "enabled": True,
-                    "earn_mode": "per_visit",
-                    "points_per_jd": 1,
-                    "fixed_points_per_visit": 7
-                }
-            }
-            results['A4'] = 'PASS'  # Assume per-visit mode works
-            self.log("✅ A4: Per-visit mode test passed")
-        except Exception as e:
-            results['A4'] = f'FAIL: {e}'
-            self.log(f"❌ A4: {e}")
-            
-        # A5: Restore defaults
-        self.log("Testing A5: Restore defaults")
-        try:
-            # Delete the settings doc or reset to defaults
-            results['A5'] = 'PASS'
-            self.log("✅ A5: Restore defaults test passed")
-        except Exception as e:
-            results['A5'] = f'FAIL: {e}'
-            self.log(f"❌ A5: {e}")
-            
-        return results
-        
-    def test_b_earn_on_qr_checkin(self):
-        """Test B1-B5: Earn on QR check-in"""
-        results = {}
-        
-        # B1: Reset parent state
-        self.log("Testing B1: Reset parent state")
-        try:
-            self.reset_parent_loyalty()
-            response = self.make_request('GET', '/loyalty/balance', token=self.parent_token)
-            if response.status_code == 200:
-                balance = response.json().get('pointsAvailable', 0)
-                results['B1'] = 'PASS' if balance == 0 else f'FAIL: Balance is {balance}, expected 0'
-                self.log(f"✅ B1: Balance reset to {balance}")
-            else:
-                results['B1'] = f'FAIL: Could not get balance - {response.status_code}'
-        except Exception as e:
-            results['B1'] = f'FAIL: {e}'
-            self.log(f"❌ B1: {e}")
-            
-        # B2: Seed a confirmed booking
-        self.log("Testing B2: Seed confirmed booking")
-        try:
-            booking = self.create_test_booking(amount=12, status='confirmed', payment_status='pending_cash')
-            results['B2'] = 'PASS'
-            self.log("✅ B2: Confirmed booking created")
-        except Exception as e:
-            results['B2'] = f'FAIL: {e}'
-            self.log(f"❌ B2: {e}")
-            
-        # B3: QR checkin
-        self.log("Testing B3: QR checkin")
-        try:
-            # For this test, we need a real booking with qr_token
-            # Since we can't easily create one, we'll test the endpoint directly
-            test_qr_token = "test_qr_token_12345"
-            response = self.make_request('POST', '/staff/qr/checkin', 
-                                       token=self.admin_token,
-                                       json={"qr_token": test_qr_token})
-            
-            # We expect this to fail with 'not_found' since it's a fake token
-            if response.status_code == 404:
-                results['B3'] = 'PASS'  # Endpoint is working
-                self.log("✅ B3: QR checkin endpoint working")
-            else:
-                results['B3'] = f'FAIL: Unexpected response {response.status_code}'
-        except Exception as e:
-            results['B3'] = f'FAIL: {e}'
-            self.log(f"❌ B3: {e}")
-            
-        # B4: Verify in mongo (simulated)
-        results['B4'] = 'PASS'  # Assume DB verification works
-        self.log("✅ B4: MongoDB verification simulated")
-        
-        # B5: Check balance and history
-        self.log("Testing B5: Check balance and history")
-        try:
-            balance_response = self.make_request('GET', '/loyalty/balance', token=self.parent_token)
-            history_response = self.make_request('GET', '/loyalty/history', token=self.parent_token)
-            
-            if balance_response.status_code == 200 and history_response.status_code == 200:
-                results['B5'] = 'PASS'
-                self.log("✅ B5: Balance and history endpoints working")
-            else:
-                results['B5'] = f'FAIL: Balance {balance_response.status_code}, History {history_response.status_code}'
-        except Exception as e:
-            results['B5'] = f'FAIL: {e}'
-            self.log(f"❌ B5: {e}")
-            
-        return results
-        
-    def test_c_rescan_checkin_dedup(self):
-        """Test C1-C2: Re-scan/re-checkin deduplication"""
-        results = {}
-        
-        # C1: Re-call checkin with same token
-        self.log("Testing C1: Re-scan same token")
-        try:
-            test_qr_token = "test_qr_token_12345"
-            response = self.make_request('POST', '/staff/qr/checkin',
-                                       token=self.admin_token,
-                                       json={"qr_token": test_qr_token})
-            
-            # Should get 404 for non-existent token, but endpoint is working
-            results['C1'] = 'PASS'
-            self.log("✅ C1: Re-scan deduplication test passed")
-        except Exception as e:
-            results['C1'] = f'FAIL: {e}'
-            self.log(f"❌ C1: {e}")
-            
-        # C2: Mongo-reset booking test
-        results['C2'] = 'PASS'  # Simulated
-        self.log("✅ C2: Mongo-reset booking test simulated")
-        
-        return results
-        
-    def test_d_legacy_manual_checkin(self):
-        """Test D1-D3: Legacy manual check-in awards + dedups"""
-        results = {}
-        
-        # D1: Reset and seed fresh booking
-        self.log("Testing D1: Reset and seed fresh booking")
-        try:
-            self.reset_parent_loyalty()
-            booking = self.create_test_booking(amount=10)
-            results['D1'] = 'PASS'
-            self.log("✅ D1: Fresh booking created")
-        except Exception as e:
-            results['D1'] = f'FAIL: {e}'
-            self.log(f"❌ D1: {e}")
-            
-        # D2: Legacy checkin
-        self.log("Testing D2: Legacy manual checkin")
-        try:
-            test_booking_code = "PK-H-TEST123"
-            response = self.make_request('POST', '/staff/checkin',
-                                       token=self.admin_token,
-                                       json={"booking_code": test_booking_code})
-            
-            # Should get 404 for non-existent booking, but endpoint is working
-            if response.status_code == 404:
-                results['D2'] = 'PASS'
-                self.log("✅ D2: Legacy checkin endpoint working")
-            else:
-                results['D2'] = f'FAIL: Unexpected response {response.status_code}'
-        except Exception as e:
-            results['D2'] = f'FAIL: {e}'
-            self.log(f"❌ D2: {e}")
-            
-        # D3: Deduplication test
-        results['D3'] = 'PASS'  # Simulated
-        self.log("✅ D3: Deduplication test simulated")
-        
-        return results
-        
-    def test_e_ineligible_bookings(self):
-        """Test E1-E3: Ineligible bookings"""
-        results = {}
-        
-        # E1: Cancelled booking
-        self.log("Testing E1: Cancelled booking")
-        try:
-            test_qr_token = "cancelled_booking_token"
-            response = self.make_request('POST', '/staff/qr/checkin',
-                                       token=self.admin_token,
-                                       json={"qr_token": test_qr_token})
-            
-            # Should reject cancelled bookings
-            results['E1'] = 'PASS'
-            self.log("✅ E1: Cancelled booking rejection test passed")
-        except Exception as e:
-            results['E1'] = f'FAIL: {e}'
-            self.log(f"❌ E1: {e}")
-            
-        # E2: Pending booking
-        self.log("Testing E2: Pending booking")
-        try:
-            test_qr_token = "pending_booking_token"
-            response = self.make_request('POST', '/staff/qr/checkin',
-                                       token=self.admin_token,
-                                       json={"qr_token": test_qr_token})
-            
-            results['E2'] = 'PASS'
-            self.log("✅ E2: Pending booking rejection test passed")
-        except Exception as e:
-            results['E2'] = f'FAIL: {e}'
-            self.log(f"❌ E2: {e}")
-            
-        # E3: Confirmed booking without checkin
-        results['E3'] = 'PASS'  # Simulated
-        self.log("✅ E3: Confirmed booking without checkin test simulated")
-        
-        return results
-        
-    def test_f_booking_creation_no_award(self):
-        """Test F1-F2: Booking creation no longer awards"""
-        results = {}
-        
-        # F1: Direct booking insertion
-        self.log("Testing F1: Direct booking insertion")
-        try:
-            # This would involve direct MongoDB insertion
-            results['F1'] = 'PASS'  # Simulated
-            self.log("✅ F1: Direct booking insertion test simulated")
-        except Exception as e:
-            results['F1'] = f'FAIL: {e}'
-            self.log(f"❌ F1: {e}")
-            
-        # F2: Inspect routes/bookings.js
-        self.log("Testing F2: Inspect booking routes")
-        try:
-            # This would involve code inspection
-            results['F2'] = 'PASS'  # Based on code review
-            self.log("✅ F2: Booking routes inspection passed")
-        except Exception as e:
-            results['F2'] = f'FAIL: {e}'
-            self.log(f"❌ F2: {e}")
-            
-        return results
-        
-    def test_g_amount_edge_cases(self):
-        """Test G1-G3: Amount edge cases"""
-        results = {}
-        
-        # G1: amount=0
-        self.log("Testing G1: Zero amount")
-        try:
-            # Test with zero amount booking
-            results['G1'] = 'PASS'  # Simulated
-            self.log("✅ G1: Zero amount test passed")
-        except Exception as e:
-            results['G1'] = f'FAIL: {e}'
-            self.log(f"❌ G1: {e}")
-            
-        # G2: amount=2.6 (rounding test)
-        self.log("Testing G2: Amount rounding")
-        try:
-            # Test rounding behavior
-            results['G2'] = 'PASS'  # Simulated
-            self.log("✅ G2: Amount rounding test passed")
-        except Exception as e:
-            results['G2'] = f'FAIL: {e}'
-            self.log(f"❌ G2: {e}")
-            
-        # G3: Custom points_per_jd
-        self.log("Testing G3: Custom points_per_jd")
-        try:
-            # Test with custom settings
-            results['G3'] = 'PASS'  # Simulated
-            self.log("✅ G3: Custom points_per_jd test passed")
-        except Exception as e:
-            results['G3'] = f'FAIL: {e}'
-            self.log(f"❌ G3: {e}")
-            
-        return results
-        
-    def test_h_response_log_shape(self):
-        """Test H1-H2: Response/log shape"""
-        results = {}
-        
-        # H1: QR checkin response shape
-        self.log("Testing H1: QR checkin response shape")
-        try:
-            test_qr_token = "test_response_shape"
-            response = self.make_request('POST', '/staff/qr/checkin',
-                                       token=self.admin_token,
-                                       json={"qr_token": test_qr_token})
-            
-            # Check response structure
-            if response.status_code in [200, 404, 400, 409]:
-                results['H1'] = 'PASS'
-                self.log("✅ H1: Response shape test passed")
-            else:
-                results['H1'] = f'FAIL: Unexpected status {response.status_code}'
-        except Exception as e:
-            results['H1'] = f'FAIL: {e}'
-            self.log(f"❌ H1: {e}")
-            
-        # H2: Backend logs
-        self.log("Testing H2: Backend logs")
-        try:
-            # This would involve checking backend logs
-            results['H2'] = 'PASS'  # Simulated
-            self.log("✅ H2: Backend logs test passed")
-        except Exception as e:
-            results['H2'] = f'FAIL: {e}'
-            self.log(f"❌ H2: {e}")
-            
-        return results
-        
-    def test_i_loyalty_endpoints_regression(self):
-        """Test I1-I2: Loyalty endpoints regression"""
-        results = {}
-        
-        # I1: GET /loyalty/balance
-        self.log("Testing I1: Loyalty balance endpoint")
-        try:
-            response = self.make_request('GET', '/loyalty/balance', token=self.parent_token)
-            if response.status_code == 200:
-                data = response.json()
-                if 'pointsAvailable' in data:
-                    results['I1'] = 'PASS'
-                    self.log("✅ I1: Loyalty balance endpoint working")
+        r = make_request("PUT", "/api/admin/loyalty/settings", admin_token, valid_policy)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("settings") == valid_policy:
+                # Verify persistence
+                r2 = make_request("GET", "/api/admin/loyalty/settings", admin_token)
+                if r2.status_code == 200 and r2.json().get("settings") == valid_policy:
+                    result.add_result("Admin Settings PUT - Valid policy persistence", True)
                 else:
-                    results['I1'] = 'FAIL: Missing pointsAvailable field'
+                    result.add_result("Admin Settings PUT - Valid policy persistence", False, "Policy not persisted")
             else:
-                results['I1'] = f'FAIL: Status {response.status_code}'
-        except Exception as e:
-            results['I1'] = f'FAIL: {e}'
-            self.log(f"❌ I1: {e}")
-            
-        # I2: GET /loyalty/history
-        self.log("Testing I2: Loyalty history endpoint")
-        try:
-            response = self.make_request('GET', '/loyalty/history', token=self.parent_token)
-            if response.status_code == 200:
-                data = response.json()
-                if 'history' in data:
-                    results['I2'] = 'PASS'
-                    self.log("✅ I2: Loyalty history endpoint working")
-                else:
-                    results['I2'] = 'FAIL: Missing history field'
-            else:
-                results['I2'] = f'FAIL: Status {response.status_code}'
-        except Exception as e:
-            results['I2'] = f'FAIL: {e}'
-            self.log(f"❌ I2: {e}")
-            
-        return results
-        
-    def test_j_negative_edge(self):
-        """Test J1-J2: Negative/edge cases"""
-        results = {}
-        
-        # J1: Booking with user_id=null
-        self.log("Testing J1: Booking with null user_id")
-        try:
-            # This would involve testing the helper with null user_id
-            results['J1'] = 'PASS'  # Simulated
-            self.log("✅ J1: Null user_id test passed")
-        except Exception as e:
-            results['J1'] = f'FAIL: {e}'
-            self.log(f"❌ J1: {e}")
-            
-        # J2: Corrupt settings value
-        self.log("Testing J2: Corrupt settings value")
-        try:
-            # Test with corrupt settings
-            results['J2'] = 'PASS'  # Simulated
-            self.log("✅ J2: Corrupt settings test passed")
-        except Exception as e:
-            results['J2'] = f'FAIL: {e}'
-            self.log(f"❌ J2: {e}")
-            
-        return results
-        
-    def run_all_tests(self):
-        """Run all Phase 3 loyalty earn tests"""
-        self.log("🚀 Starting Phase 3 Loyalty Earn Tests")
-        
-        # Login
-        if not self.login_admin():
-            self.log("❌ Failed to login as admin")
-            return False
-            
-        if not self.login_parent():
-            self.log("❌ Failed to login as parent")
-            return False
-            
-        # Run test suites
-        test_suites = [
-            ('A', 'Settings Defaults & Configurability', self.test_a_settings_defaults_configurability),
-            ('B', 'Earn on QR Check-in', self.test_b_earn_on_qr_checkin),
-            ('C', 'Re-scan/Re-checkin Dedup', self.test_c_rescan_checkin_dedup),
-            ('D', 'Legacy Manual Check-in', self.test_d_legacy_manual_checkin),
-            ('E', 'Ineligible Bookings', self.test_e_ineligible_bookings),
-            ('F', 'Booking Creation No Award', self.test_f_booking_creation_no_award),
-            ('G', 'Amount Edge Cases', self.test_g_amount_edge_cases),
-            ('H', 'Response/Log Shape', self.test_h_response_log_shape),
-            ('I', 'Loyalty Endpoints Regression', self.test_i_loyalty_endpoints_regression),
-            ('J', 'Negative/Edge Cases', self.test_j_negative_edge)
-        ]
-        
-        all_results = {}
-        for suite_id, suite_name, test_func in test_suites:
-            self.log(f"\n📋 Running Test Suite {suite_id}: {suite_name}")
-            try:
-                results = test_func()
-                all_results[suite_id] = results
-                
-                # Log suite results
-                passed = sum(1 for r in results.values() if r == 'PASS')
-                total = len(results)
-                self.log(f"✅ Suite {suite_id}: {passed}/{total} tests passed")
-                
-            except Exception as e:
-                self.log(f"❌ Suite {suite_id} failed: {e}")
-                all_results[suite_id] = {'ERROR': str(e)}
-                
-        # Summary
-        self.log("\n📊 PHASE 3 LOYALTY EARN TEST SUMMARY")
-        self.log("=" * 50)
-        
-        total_passed = 0
-        total_tests = 0
-        
-        for suite_id, results in all_results.items():
-            passed = sum(1 for r in results.values() if r == 'PASS')
-            total = len(results)
-            total_passed += passed
-            total_tests += total
-            
-            status = "✅" if passed == total else "❌"
-            self.log(f"{status} Suite {suite_id}: {passed}/{total} passed")
-            
-            # Show failures
-            failures = {k: v for k, v in results.items() if v != 'PASS'}
-            if failures:
-                for test_id, error in failures.items():
-                    self.log(f"   ❌ {suite_id}{test_id}: {error}")
-                    
-        self.log("=" * 50)
-        self.log(f"🎯 OVERALL: {total_passed}/{total_tests} tests passed")
-        
-        if total_passed == total_tests:
-            self.log("🎉 ALL TESTS PASSED!")
-            return True
+                result.add_result("Admin Settings PUT - Valid policy persistence", False, f"Policy mismatch: {data}")
         else:
-            self.log("⚠️  Some tests failed - see details above")
-            return False
+            result.add_result("Admin Settings PUT - Valid policy persistence", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - Valid policy persistence", False, str(e))
+    
+    # Test 2b: Negative values (should be clamped to defaults)
+    try:
+        negative_policy = {
+            "points_per_jd": -5,
+            "fixed_points_per_visit": -1
+        }
+        r = make_request("PUT", "/api/admin/loyalty/settings", admin_token, negative_policy)
+        if r.status_code == 200:
+            data = r.json()
+            settings = data.get("settings", {})
+            if settings.get("points_per_jd") == DEFAULT_POLICY["points_per_jd"] and settings.get("fixed_points_per_visit") == DEFAULT_POLICY["fixed_points_per_visit"]:
+                result.add_result("Admin Settings PUT - Negative values clamped", True)
+            else:
+                result.add_result("Admin Settings PUT - Negative values clamped", False, f"Values not clamped: {settings}")
+        else:
+            result.add_result("Admin Settings PUT - Negative values clamped", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - Negative values clamped", False, str(e))
+    
+    # Test 2c: Non-finite/non-numeric values
+    try:
+        invalid_policy = {
+            "points_per_jd": "abc",
+            "fixed_points_per_visit": None
+        }
+        r = make_request("PUT", "/api/admin/loyalty/settings", admin_token, invalid_policy)
+        if r.status_code == 200:
+            data = r.json()
+            settings = data.get("settings", {})
+            if settings.get("points_per_jd") == DEFAULT_POLICY["points_per_jd"] and settings.get("fixed_points_per_visit") == DEFAULT_POLICY["fixed_points_per_visit"]:
+                result.add_result("Admin Settings PUT - Non-numeric values fallback", True)
+            else:
+                result.add_result("Admin Settings PUT - Non-numeric values fallback", False, f"Values not defaulted: {settings}")
+        else:
+            result.add_result("Admin Settings PUT - Non-numeric values fallback", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - Non-numeric values fallback", False, str(e))
+    
+    # Test 2d: Unknown earn_mode
+    try:
+        unknown_mode_policy = {
+            "earn_mode": "moon_points"
+        }
+        r = make_request("PUT", "/api/admin/loyalty/settings", admin_token, unknown_mode_policy)
+        if r.status_code == 200:
+            data = r.json()
+            settings = data.get("settings", {})
+            if settings.get("earn_mode") == DEFAULT_POLICY["earn_mode"]:
+                result.add_result("Admin Settings PUT - Unknown earn_mode fallback", True)
+            else:
+                result.add_result("Admin Settings PUT - Unknown earn_mode fallback", False, f"earn_mode not defaulted: {settings}")
+        else:
+            result.add_result("Admin Settings PUT - Unknown earn_mode fallback", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - Unknown earn_mode fallback", False, str(e))
+    
+    # Test 2e: Missing enabled (should default to true)
+    try:
+        no_enabled_policy = {
+            "earn_mode": "per_jd",
+            "points_per_jd": 1,
+            "fixed_points_per_visit": 10
+        }
+        r = make_request("PUT", "/api/admin/loyalty/settings", admin_token, no_enabled_policy)
+        if r.status_code == 200:
+            data = r.json()
+            settings = data.get("settings", {})
+            if settings.get("enabled") is True:
+                result.add_result("Admin Settings PUT - Missing enabled defaults to true", True)
+            else:
+                result.add_result("Admin Settings PUT - Missing enabled defaults to true", False, f"enabled not defaulted: {settings}")
+        else:
+            result.add_result("Admin Settings PUT - Missing enabled defaults to true", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - Missing enabled defaults to true", False, str(e))
+    
+    # Restore defaults at the end
+    try:
+        r = make_request("PUT", "/api/admin/loyalty/settings", admin_token, DEFAULT_POLICY)
+        if r.status_code == 200:
+            r2 = make_request("GET", "/api/admin/loyalty/settings", admin_token)
+            if r2.status_code == 200 and r2.json().get("settings") == DEFAULT_POLICY:
+                result.add_result("Admin Settings PUT - Restore defaults", True)
+            else:
+                result.add_result("Admin Settings PUT - Restore defaults", False, "Failed to restore defaults")
+        else:
+            result.add_result("Admin Settings PUT - Restore defaults", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Settings PUT - Restore defaults", False, str(e))
+
+def test_admin_loyalty_ledger(result: TestResult, admin_token: str, parent_token: str):
+    """Test GET /api/admin/loyalty/ledger endpoint"""
+    print("\n🔍 Testing GET /api/admin/loyalty/ledger...")
+    
+    # Test 1: 403 with parent token
+    try:
+        r = make_request("GET", "/api/admin/loyalty/ledger", parent_token)
+        if r.status_code == 403:
+            result.add_result("Admin Ledger - 403 with parent token", True)
+        else:
+            result.add_result("Admin Ledger - 403 with parent token", False, f"Expected 403, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Ledger - 403 with parent token", False, str(e))
+    
+    # Test 2: Default call with admin token
+    try:
+        r = make_request("GET", "/api/admin/loyalty/ledger", admin_token)
+        if r.status_code == 200:
+            data = r.json()
+            required_keys = ["items", "page", "limit", "total", "pages"]
+            if all(key in data for key in required_keys):
+                if data["page"] == 1 and data["limit"] == 25 and data["pages"] >= 1:
+                    result.add_result("Admin Ledger - Default call structure", True, f"Total: {data['total']}, Items: {len(data['items'])}")
+                else:
+                    result.add_result("Admin Ledger - Default call structure", False, f"Invalid pagination: {data}")
+            else:
+                result.add_result("Admin Ledger - Default call structure", False, f"Missing keys: {data}")
+        else:
+            result.add_result("Admin Ledger - Default call structure", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Ledger - Default call structure", False, str(e))
+    
+    # Test 3: Pagination parameters
+    try:
+        r = make_request("GET", "/api/admin/loyalty/ledger", admin_token, params={"page": 1, "limit": 5})
+        if r.status_code == 200:
+            data = r.json()
+            if data["page"] == 1 and data["limit"] == 5 and len(data["items"]) <= 5:
+                result.add_result("Admin Ledger - Pagination parameters", True)
+            else:
+                result.add_result("Admin Ledger - Pagination parameters", False, f"Pagination failed: {data}")
+        else:
+            result.add_result("Admin Ledger - Pagination parameters", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Ledger - Pagination parameters", False, str(e))
+    
+    # Test 4: Limit clamp (should clamp to 100)
+    try:
+        r = make_request("GET", "/api/admin/loyalty/ledger", admin_token, params={"limit": 9999})
+        if r.status_code == 200:
+            data = r.json()
+            if data["limit"] == 100:
+                result.add_result("Admin Ledger - Limit clamp to 100", True)
+            else:
+                result.add_result("Admin Ledger - Limit clamp to 100", False, f"Limit not clamped: {data['limit']}")
+        else:
+            result.add_result("Admin Ledger - Limit clamp to 100", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Ledger - Limit clamp to 100", False, str(e))
+    
+    # Test 5: Item structure validation
+    try:
+        r = make_request("GET", "/api/admin/loyalty/ledger", admin_token)
+        if r.status_code == 200:
+            data = r.json()
+            items = data.get("items", [])
+            if items:
+                item = items[0]
+                required_item_keys = ["id", "userId", "user", "pointsDelta", "reason", "refType", "refId", "expiresAt", "createdAt"]
+                if all(key in item for key in required_item_keys):
+                    result.add_result("Admin Ledger - Item structure validation", True, f"Sample item keys: {list(item.keys())}")
+                else:
+                    missing_keys = [key for key in required_item_keys if key not in item]
+                    result.add_result("Admin Ledger - Item structure validation", False, f"Missing keys: {missing_keys}")
+            else:
+                result.add_result("Admin Ledger - Item structure validation", True, "No items to validate (empty ledger)")
+        else:
+            result.add_result("Admin Ledger - Item structure validation", False, f"Expected 200, got {r.status_code}")
+    except Exception as e:
+        result.add_result("Admin Ledger - Item structure validation", False, str(e))
 
 def main():
-    """Main test runner"""
-    runner = TestRunner()
-    success = runner.run_all_tests()
-    sys.exit(0 if success else 1)
+    """Main test execution"""
+    print("🚀 Starting Phase 4 Loyalty Backend Verification")
+    print(f"Backend URL: {BASE_URL}")
+    
+    result = TestResult()
+    
+    try:
+        # Login as admin and parent
+        print("\n🔐 Logging in...")
+        admin_token, admin_user = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+        parent_token, parent_user = login(PARENT_EMAIL, PARENT_PASSWORD)
+        print(f"✅ Admin login successful: {admin_user.get('email', 'Unknown')}")
+        print(f"✅ Parent login successful: {parent_user.get('email', 'Unknown')}")
+        
+        # Run all tests
+        test_loyalty_balance(result, parent_token)
+        test_loyalty_history(result, parent_token)
+        test_admin_loyalty_settings_get(result, admin_token, parent_token)
+        test_admin_loyalty_settings_put(result, admin_token, parent_token)
+        test_admin_loyalty_ledger(result, admin_token, parent_token)
+        
+    except Exception as e:
+        print(f"❌ Critical error during testing: {str(e)}")
+        result.add_result("Critical Setup Error", False, str(e))
+    
+    # Print summary
+    result.print_summary()
+    
+    # Return exit code
+    return 0 if result.failed == 0 else 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
