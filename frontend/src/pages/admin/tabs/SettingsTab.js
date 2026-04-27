@@ -80,9 +80,97 @@ export default function SettingsTab(props) {
   const navigate = useNavigate();
   const [subTab, setSubTab] = useState('pricing');
 
+  // Loyalty (Phase 4) — admin-only loyalty earn policy + ledger view.
+  // Local to this tab; does not piggy-back on AdminLayout state because
+  // it's a settings sub-tab and stays self-contained.
+  const [loyaltySettings, setLoyaltySettings] = useState({
+    enabled: true,
+    earn_mode: 'per_jd',
+    points_per_jd: 1,
+    fixed_points_per_visit: 10
+  });
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [savingLoyalty, setSavingLoyalty] = useState(false);
+  const [loyaltyLedger, setLoyaltyLedger] = useState([]);
+  const [loyaltyLedgerMeta, setLoyaltyLedgerMeta] = useState({ page: 1, limit: 25, total: 0, pages: 1 });
+  const [loyaltyLedgerLoading, setLoyaltyLedgerLoading] = useState(false);
+  const [loyaltyLoadedOnce, setLoyaltyLoadedOnce] = useState(false);
+
+  const fetchLoyaltySettings = async () => {
+    setLoyaltyLoading(true);
+    try {
+      const res = await api.get('/admin/loyalty/settings');
+      if (res.data?.settings) setLoyaltySettings(res.data.settings);
+    } catch (error) {
+      toast.error('فشل تحميل إعدادات الولاء');
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  };
+
+  const fetchLoyaltyLedger = async (page = 1) => {
+    setLoyaltyLedgerLoading(true);
+    try {
+      const res = await api.get('/admin/loyalty/ledger', { params: { page, limit: 25 } });
+      setLoyaltyLedger(res.data?.items || []);
+      setLoyaltyLedgerMeta({
+        page: res.data?.page || 1,
+        limit: res.data?.limit || 25,
+        total: res.data?.total || 0,
+        pages: res.data?.pages || 1
+      });
+    } catch (error) {
+      toast.error('فشل تحميل سجل الولاء');
+    } finally {
+      setLoyaltyLedgerLoading(false);
+    }
+  };
+
+  const handleSaveLoyaltySettings = async (e) => {
+    e?.preventDefault?.();
+    setSavingLoyalty(true);
+    try {
+      const payload = {
+        enabled: !!loyaltySettings.enabled,
+        earn_mode: loyaltySettings.earn_mode === 'per_visit' ? 'per_visit' : 'per_jd',
+        points_per_jd: Math.max(0, Number(loyaltySettings.points_per_jd) || 0),
+        fixed_points_per_visit: Math.max(0, Number(loyaltySettings.fixed_points_per_visit) || 0)
+      };
+      const res = await api.put('/admin/loyalty/settings', payload);
+      if (res.data?.settings) setLoyaltySettings(res.data.settings);
+      toast.success('تم حفظ إعدادات الولاء');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل حفظ إعدادات الولاء');
+    } finally {
+      setSavingLoyalty(false);
+    }
+  };
+
+  const handleOpenLoyaltyTab = (key) => {
+    setSubTab(key);
+    if (key === 'loyalty' && !loyaltyLoadedOnce) {
+      setLoyaltyLoadedOnce(true);
+      fetchLoyaltySettings();
+      fetchLoyaltyLedger(1);
+    }
+  };
+
+  const formatLedgerDate = (value) => {
+    if (!value) return '—';
+    try {
+      return new Date(value).toLocaleString('en-GB', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    } catch {
+      return '—';
+    }
+  };
+
   const subTabs = [
     { key: 'pricing', label: 'الأسعار' },
     { key: 'settings', label: 'الإعدادات' },
+    { key: 'loyalty', label: 'الولاء' },
     { key: 'templates', label: 'القوالب' },
     { key: 'quick_replies', label: 'الردود السريعة' },
     { key: 'whatsapp', label: 'واتساب' },
@@ -96,8 +184,9 @@ export default function SettingsTab(props) {
         {subTabs.map(({ key, label }) => (
           <button
             key={key}
+            data-testid={`settings-subtab-${key}`}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${subTab === key ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/70'}`}
-            onClick={() => setSubTab(key)}
+            onClick={() => handleOpenLoyaltyTab(key)}
           >
             {label}
           </button>
@@ -227,6 +316,198 @@ export default function SettingsTab(props) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Loyalty (Phase 4) — earn policy + ledger view */}
+      {subTab === 'loyalty' && (
+        <div className="space-y-6" data-testid="loyalty-settings-pane">
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-secondary" /> إعدادات نقاط الولاء
+              </CardTitle>
+              <CardDescription>
+                طريقة احتساب النقاط لكل عملية تسجيل دخول مدفوعة. الاسترداد ليس مفعلاً بعد.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loyaltyLoading ? (
+                <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> جاري التحميل...</div>
+              ) : (
+                <form onSubmit={handleSaveLoyaltySettings} className="space-y-5">
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/40">
+                    <div>
+                      <Label className="text-sm">تفعيل احتساب النقاط</Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        عند الإيقاف، لن تُمنح نقاط جديدة عند تسجيل الدخول.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={loyaltySettings.enabled ? 'default' : 'outline'}
+                      onClick={() => setLoyaltySettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+                      className="rounded-full"
+                      data-testid="loyalty-enabled-toggle"
+                    >
+                      {loyaltySettings.enabled ? 'مفعل' : 'غير مفعل'}
+                    </Button>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm">طريقة الاحتساب</Label>
+                    <Select
+                      value={loyaltySettings.earn_mode}
+                      onValueChange={(v) => setLoyaltySettings(prev => ({ ...prev, earn_mode: v }))}
+                    >
+                      <SelectTrigger className="rounded-xl mt-2" data-testid="loyalty-earn-mode-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="per_jd">نقاط لكل دينار (per JD)</SelectItem>
+                        <SelectItem value="per_visit">نقاط ثابتة لكل زيارة (per visit)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm">نقاط لكل دينار</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={loyaltySettings.points_per_jd}
+                        onChange={(e) => setLoyaltySettings(prev => ({ ...prev, points_per_jd: e.target.value }))}
+                        className="rounded-xl mt-1"
+                        disabled={loyaltySettings.earn_mode !== 'per_jd'}
+                        data-testid="loyalty-points-per-jd"
+                      />
+                      <p className="text-[11px] text-muted-foreground mt-1">يُستخدم فقط في وضع "نقاط لكل دينار".</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm">نقاط ثابتة لكل زيارة</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={loyaltySettings.fixed_points_per_visit}
+                        onChange={(e) => setLoyaltySettings(prev => ({ ...prev, fixed_points_per_visit: e.target.value }))}
+                        className="rounded-xl mt-1"
+                        disabled={loyaltySettings.earn_mode !== 'per_visit'}
+                        data-testid="loyalty-fixed-points"
+                      />
+                      <p className="text-[11px] text-muted-foreground mt-1">يُستخدم فقط في وضع "نقاط ثابتة لكل زيارة".</p>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={savingLoyalty}
+                    className="rounded-full gap-2"
+                    data-testid="loyalty-save-settings-btn"
+                  >
+                    {savingLoyalty ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    حفظ إعدادات الولاء
+                  </Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl" data-testid="loyalty-ledger-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" /> سجل نقاط الولاء
+              </CardTitle>
+              <CardDescription>
+                آخر الحركات على نقاط جميع العملاء (مرتبة من الأحدث للأقدم).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm text-muted-foreground">
+                  الإجمالي: <strong>{loyaltyLedgerMeta.total}</strong> · صفحة {loyaltyLedgerMeta.page} من {loyaltyLedgerMeta.pages}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full gap-1"
+                  onClick={() => fetchLoyaltyLedger(loyaltyLedgerMeta.page)}
+                  disabled={loyaltyLedgerLoading}
+                  data-testid="loyalty-ledger-refresh"
+                >
+                  {loyaltyLedgerLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  تحديث
+                </Button>
+              </div>
+
+              <div className="border rounded-2xl overflow-hidden">
+                <div className="grid grid-cols-12 bg-muted/40 px-4 py-2 text-xs font-medium">
+                  <span className="col-span-3">العميل</span>
+                  <span className="col-span-2 text-center">النقاط</span>
+                  <span className="col-span-2">النوع</span>
+                  <span className="col-span-3">السبب</span>
+                  <span className="col-span-2 text-right">التاريخ</span>
+                </div>
+                <div className="max-h-[480px] overflow-y-auto divide-y">
+                  {loyaltyLedgerLoading ? (
+                    <div className="px-4 py-6 text-sm text-muted-foreground">جاري التحميل...</div>
+                  ) : loyaltyLedger.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-muted-foreground">لا توجد حركات بعد.</div>
+                  ) : loyaltyLedger.map((entry) => (
+                    <div
+                      key={entry.id}
+                      data-testid={`loyalty-ledger-row-${entry.id}`}
+                      className="grid grid-cols-12 items-center px-4 py-3 text-xs"
+                    >
+                      <div className="col-span-3 min-w-0">
+                        <p className="font-medium truncate">{entry.user?.name || '—'}</p>
+                        <p className="text-muted-foreground truncate">{entry.user?.email || ''}</p>
+                      </div>
+                      <span className={`col-span-2 text-center font-bold ${(entry.pointsDelta ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {(entry.pointsDelta ?? 0) >= 0 ? '+' : ''}{entry.pointsDelta}
+                      </span>
+                      <span className="col-span-2">
+                        <Badge variant="secondary" className="rounded-full text-[10px]">{entry.refType}</Badge>
+                      </span>
+                      <span className="col-span-3 truncate" title={entry.reason}>{entry.reason}</span>
+                      <span className="col-span-2 text-right text-muted-foreground">{formatLedgerDate(entry.createdAt)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {loyaltyLedgerMeta.pages > 1 && (
+                <div className="flex items-center justify-end gap-2 mt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    disabled={loyaltyLedgerLoading || loyaltyLedgerMeta.page <= 1}
+                    onClick={() => fetchLoyaltyLedger(loyaltyLedgerMeta.page - 1)}
+                    data-testid="loyalty-ledger-prev"
+                  >
+                    السابق
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    disabled={loyaltyLedgerLoading || loyaltyLedgerMeta.page >= loyaltyLedgerMeta.pages}
+                    onClick={() => fetchLoyaltyLedger(loyaltyLedgerMeta.page + 1)}
+                    data-testid="loyalty-ledger-next"
+                  >
+                    التالي
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* General Settings */}

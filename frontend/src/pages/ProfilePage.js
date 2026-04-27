@@ -634,7 +634,7 @@ export default function ProfilePage() {
                     <div className="text-center py-8 text-muted-foreground">
                       <Gift className="h-10 w-10 mx-auto mb-3 opacity-50" />
                       <p>لا يوجد سجل نقاط بعد</p>
-                      <p className="text-sm mt-2">اكسب 10 نقاط مع كل عملية شراء!</p>
+                      <p className="text-sm mt-2">اكسب نقاط الولاء عند تسجيل الدخول للحجوزات!</p>
                     </div>
                   ) : (
                     <div className="space-y-3">

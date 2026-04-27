@@ -1,0 +1,30 @@
+{
+  "summary": "Phase 4 loyalty (parent visibility + admin settings/ledger UI) tested end-to-end. Backend: 17/17 pytest tests passed. Frontend: parent /profile loyalty tab renders balance (12 نقطة, 0.12 JD) and Phase-3 seed history (PK-H-SMOKE-88767). Admin /admin Settings → الولاء subtab loads with all expected testids (toggle, earn-mode, points_per_jd, fixed_points, save, ledger card, refresh, row, prev/next). Staff /staff page contains zero admin loyalty UI — strict role separation honoured. Earn-flow regression verified at policy roundtrip level (PUT points_per_jd=2 then GET returns 2). Defaults restored at end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_loyalty_phase4.py",
+    "/app/test_reports/pytest/loyalty_phase4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Earn-flow regression was tested at the policy-persistence layer (PUT /api/admin/loyalty/settings echoes + GET roundtrip). A live staff QR check-in earn (e.g. amount=10, points_per_jd=2 → +20 points) was not exercised because creating a fresh paid hourly booking + valid QR was outside the scope of these endpoints. Recommend a follow-up integration test that walks bookings → payment → /api/staff/qr/checkin → balance delta if a regression slips in.",
+    "loyalty.js still uses Mongo transactions on the WRITE paths (awardPoints / redeemPoints). On standalone Mongo this would 500. Reads were fixed for Phase 4, but the next phase that calls awardPoints again on a standalone replica-less Mongo will fail. Consider a transaction-aware fallback or `supportsTransactions()` guard before startTransaction(). The util already imports `supportsTransactions` but never uses it."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_loyalty_phase4.py"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100%"},
+  "test_credentials": "admin@peekaboo.com / admin123, parent@peekaboo.com / parent123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created and deleted a TEST_staff_<uuid>@peekaboo.com staff user via POST/DELETE /api/admin/staff to verify staff role is also blocked from admin loyalty endpoints. No persistent test data left behind. Loyalty policy left at defaults {enabled:true, earn_mode:'per_jd', points_per_jd:1, fixed_points_per_visit:10}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Phase 4 (visibility + admin settings/ledger) ships clean. Frontend AuthContext key is `peekaboo_token` (not `token`) — use that for localStorage seeding in Playwright. Admin loyalty UI lives at /admin → الإعدادات sidebar → الولاء subtab. Parent loyalty UI is the `tab-loyalty` Tab in /profile. Phase-3 seed entry visible: parent has 12 points from PK-H-SMOKE-88767. Redemption is explicitly NOT implemented yet — future testing should not expect redeem endpoints/UI."
+}

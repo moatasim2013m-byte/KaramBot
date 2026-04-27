@@ -153,35 +153,13 @@ async function redeemPoints(userId, pointsToRedeem, refType, refId) {
   }
 }
 
+// Read-only — Phase 4: never opens a Mongo session/transaction.
+// The cached LoyaltyBalance row is a write-side optimisation; reads compute
+// the truth straight from the ledger so this endpoint stays available on
+// standalone Mongo (no replica set) without any fallback machinery.
 router.get('/balance', authMiddleware, async (req, res) => {
   try {
-    let pointsAvailable = 0;
-
-    const txnAvailable = await supportsTransactions();
-    if (txnAvailable) {
-      const session = await mongoose.startSession();
-      try {
-        session.startTransaction();
-        pointsAvailable = await getNonExpiredPoints(req.userId, session);
-        await upsertBalance(req.userId, pointsAvailable, session);
-        await session.commitTransaction();
-      } catch (error) {
-        await session.abortTransaction().catch(() => {});
-        if (isTransactionUnsupportedError(error)) {
-          // Topology changed mid-flight — fall back below.
-          pointsAvailable = await getNonExpiredPoints(req.userId, null);
-          await upsertBalance(req.userId, pointsAvailable, null);
-        } else {
-          throw error;
-        }
-      } finally {
-        await session.endSession().catch(() => {});
-      }
-    } else {
-      pointsAvailable = await getNonExpiredPoints(req.userId, null);
-      await upsertBalance(req.userId, pointsAvailable, null);
-    }
-
+    const pointsAvailable = await getNonExpiredPoints(req.userId, null);
     res.json({
       pointsAvailable,
       jdValue: pointsAvailable / 100
