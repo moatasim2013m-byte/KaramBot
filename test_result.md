@@ -129,6 +129,9 @@ frontend:
         - working: "NA"
           agent: "main"
           comment: "Added a dedicated QR card shown only for bookingType='hourly' AND qrCode present AND qrStatus='unused'. Shows the QR PNG (data URL from confirmation.qrCode), Arabic instruction 'يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة', the booking_code, and an extra note for cash/cliq pending payments. Falls back to a non-misleading 'سيتم إصدار رمز QR للحجز فور تأكيد الدفع' card when qr is not yet available for an hourly booking. Non-hourly bookings see no QR block."
+        - working: "NA"
+          agent: "testing"
+          comment: "PARTIALLY TESTED: Code review confirms implementation is correct with proper testids (confirmation-qr-card, confirmation-qr-image) and Arabic text. Unable to fully test via UI due to admin user redirect to /admin instead of /profile. The booking confirmation page requires location.state from booking flow which is complex to inject in tests. Code structure verified - QR card renders conditionally for hourly bookings with qrCode present and qrStatus='unused'."
 
   - task: "TicketsPage — propagate qr_code/qr_token/qr_status into confirmation state"
     implemented: true
@@ -165,30 +168,39 @@ frontend:
         - working: "NA"
           agent: "main"
           comment: "Added Arabic QR status label next to each hourly booking: صالح للاستخدام (confirmed + qr_status=unused) / تم استخدامه (qr_status=checked_in OR booking.status in [checked_in, completed]) / ملغي / منتهي. The existing QR thumbnail and dialog (with instruction 'اعرض هذا الرمز في الاستقبال لتسجيل الدخول') is unchanged and only displayed for confirmed bookings as before."
+        - working: "NA"
+          agent: "testing"
+          comment: "PARTIALLY TESTED: Code review confirms implementation with proper testid='qr-status-label' and getQrStatusLabel() function returning correct Arabic labels. Unable to test via UI because admin user (admin@peekaboo.com) redirects to /admin instead of /profile due to isAdmin check in ProfilePage (lines 50-54). The profile page explicitly redirects admin users away. Test bookings were created in DB but cannot be viewed through parent profile UI with admin account."
 
   - task: "QrScanner component — camera (BarcodeDetector) + manual fallback"
     implemented: true
-    working: "NA"
+    working: false
     file: "/app/frontend/src/components/staff/QrScanner.js"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "New component. Uses native window.BarcodeDetector + getUserMedia for camera scan (Chrome/Edge/Safari iOS 15+). Falls back to manual input mode automatically when unsupported. Manual input is always available via toggle. Debounces duplicate scans within 1.5s. Stops camera tracks on unmount and on mode-change. No new npm dependencies."
+        - working: false
+          agent: "testing"
+          comment: "❌ CRITICAL ISSUE: QrScanner component NOT RENDERING on /staff?tab=scanner page. Test data-testids (scanner-mode-camera, scanner-mode-manual, scanner-manual-input, scanner-manual-submit) are NOT found in DOM. Page redirects to signup/login page instead of showing staff panel. Authentication issue prevents access to staff pages. The /staff route requires staff/admin role but session is not persisting after login. Backend is running (confirmed via logs) but frontend cannot access protected staff routes."
 
   - task: "StaffPage scanner tab — validate-then-checkin via /qr/validate + /qr/checkin"
     implemented: true
-    working: "NA"
+    working: false
     file: "/app/frontend/src/pages/StaffPage.js"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
         - working: "NA"
           agent: "main"
           comment: "Replaced the legacy English Check-in form with the QrScanner component + a two-step flow. handleQrScan posts to /api/staff/qr/validate with the scanned string (works for both qr_token and booking_code thanks to backend fallback). UI shows booking summary in Arabic (booking code, child, parent, date+slot, duration, payment status, qr status). If can_checkin=true, shows 'تفعيل الجلسة' button which posts to /api/staff/qr/checkin. On success, refreshes /staff/active-sessions and /staff/pending-checkins. Disabled while busy to prevent double-submit. 'مسح رمز آخر' resets the panel. All toasts/messages in Arabic. Active sessions card translated to Arabic. Legacy /staff/checkin endpoint untouched (still works for any external API consumers); the legacy form removed from UI."
+        - working: false
+          agent: "testing"
+          comment: "❌ CRITICAL ISSUE: Cannot access /staff?tab=scanner page to test the QR scanner flow. Page redirects to signup/login instead of showing staff panel. Authentication/session management issue prevents testing of Phase 2 staff scanner UI. The QrScanner component integration cannot be verified. Backend Phase 1 endpoints (/api/staff/qr/validate, /api/staff/qr/checkin) were already validated and working in Phase 1 testing. The issue is purely frontend authentication - staff routes are not accessible even after login with admin@peekaboo.com."
 
 test_plan:
   current_focus:
@@ -736,4 +748,5 @@ agent_communication:
 
         IMPORTANT: Backend was not changed in Phase 2 — DO NOT re-run Phase 1
         backend tests. Only the front-end pages above need verification.
-
+    - agent: "testing"
+      message: "❌ PHASE 2 FRONTEND TESTING BLOCKED: Critical authentication/session issue prevents testing of Phase 2 staff scanner UI. FINDINGS: (1) ❌ Cannot access /staff?tab=scanner - page redirects to signup/login instead of staff panel. (2) ❌ Cannot access /profile as admin - ProfilePage explicitly redirects admin users to /admin (lines 50-54). (3) ✅ Test bookings created successfully in DB (valid, cancelled, pending with qr_tokens). (4) ✅ Backend Phase 1 endpoints working (confirmed in Phase 1 testing). (5) ✅ Code review confirms all Phase 2 components implemented with proper testids and Arabic text. (6) ❌ QrScanner component NOT rendering - data-testids not found in DOM. (7) ✅ RTL layout verified on accessible pages (dir='rtl'). ROOT CAUSE: Frontend authentication/session management issue - staff routes not accessible after login. The admin user (admin@peekaboo.com) can login but session doesn't persist for protected routes. RECOMMENDATION: Main agent must fix authentication flow before Phase 2 UI can be tested. Backend is working correctly - this is purely a frontend auth/routing issue."
