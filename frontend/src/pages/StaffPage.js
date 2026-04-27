@@ -13,7 +13,7 @@ import {
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
   PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
-  Image as ImageIcon, Bot, User
+  Image as ImageIcon, Bot, User, Gift
 } from 'lucide-react';
 import { DashboardLayout } from '../components/admin/DashboardLayout';
 import QrScanner from '../components/staff/QrScanner';
@@ -417,6 +417,7 @@ export default function StaffPage() {
         reasonCode: 'completed',
         message: payload.message || 'تم تفعيل الجلسة بنجاح',
         booking: payload.booking,
+        loyalty: payload.loyalty || null,
         activated: true
       });
       toast.success(payload.message || 'تم تفعيل الجلسة بنجاح');
@@ -435,6 +436,28 @@ export default function StaffPage() {
       toast.error(data.error || 'فشل تفعيل الجلسة');
     } finally {
       setQrCheckingIn(false);
+    }
+  };
+
+  // Phase 5 — map backend loyalty skip reasons to Arabic for staff.
+  const getLoyaltyReasonText = (reason) => {
+    switch (reason) {
+      case 'already_awarded':
+      case 'already_awarded_marker':
+        return 'تم احتساب نقاط هذا الحجز مسبقاً';
+      case 'loyalty_disabled':
+        return 'نظام نقاط الولاء غير مفعّل حالياً';
+      case 'no_user':
+        return 'لا يمكن منح النقاط لحجز بدون حساب';
+      case 'zero_points':
+      case 'not_checked_in':
+      case 'missing_reference':
+      case 'award_failed':
+      case 'not_attempted':
+      case 'no_booking':
+        return 'الحجز غير مؤهل لنقاط الولاء';
+      default:
+        return '';
     }
   };
 
@@ -1247,6 +1270,41 @@ export default function StaffPage() {
                           )}
                         </div>
                       </div>
+
+                      {/* Phase 5 — loyalty award result (only after a successful activation) */}
+                      {qrValidation.activated && qrValidation.loyalty && (
+                        <div
+                          className={`mt-3 rounded-xl border p-3 flex items-start gap-3 ${
+                            qrValidation.loyalty.awarded
+                              ? 'bg-amber-50 border-amber-300'
+                              : 'bg-slate-50 border-slate-200'
+                          }`}
+                          data-testid="qr-loyalty-result"
+                        >
+                          <Gift
+                            className={`h-6 w-6 flex-shrink-0 ${
+                              qrValidation.loyalty.awarded ? 'text-amber-600' : 'text-slate-500'
+                            }`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`font-bold text-sm ${
+                                qrValidation.loyalty.awarded ? 'text-amber-700' : 'text-slate-700'
+                              }`}
+                              data-testid="qr-loyalty-message"
+                            >
+                              {qrValidation.loyalty.awarded
+                                ? `تمت إضافة ${qrValidation.loyalty.points} نقاط ولاء`
+                                : 'لم يتم إضافة نقاط ولاء'}
+                            </p>
+                            {!qrValidation.loyalty.awarded && getLoyaltyReasonText(qrValidation.loyalty.reason) && (
+                              <p className="text-xs text-slate-600 mt-0.5" data-testid="qr-loyalty-reason">
+                                {getLoyaltyReasonText(qrValidation.loyalty.reason)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex gap-2 mt-4">
                         {qrValidation.canCheckin && !qrValidation.activated && (
