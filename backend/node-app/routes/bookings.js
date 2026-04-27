@@ -215,48 +215,13 @@ const generateQRCode = async (data) => {
 };
 
 // Award loyalty points (idempotent by reference id)
-const awardLoyaltyPoints = async (userId, referenceId, source) => {
-  const refId = String(referenceId || '').trim();
-  if (!refId) return false;
-
-  // Keep legacy history/user points in sync for older admin screens
-  const existing = await LoyaltyHistory.findOne({ reference: refId, type: 'earned' });
-  if (existing) {
-    await awardPoints({
-      userId,
-      refType: source,
-      refId,
-      type: source,
-      points: LOYALTY_POINTS_PER_ORDER,
-      description: `Earned ${LOYALTY_POINTS_PER_ORDER} points from ${source} booking`
-    });
-    return true;
-  }
-
-  // Legacy entry
-  const loyaltyEntry = new LoyaltyHistory({
-    user_id: userId,
-    points: LOYALTY_POINTS_PER_ORDER,
-    type: 'earned',
-    reference: refId,
-    source,
-    description: `Earned ${LOYALTY_POINTS_PER_ORDER} points from ${source} booking`
-  });
-  await loyaltyEntry.save();
-
-  // Update user's total points
-  await User.findByIdAndUpdate(userId, { $inc: { loyalty_points: LOYALTY_POINTS_PER_ORDER } });
-
-  await awardPoints({
-    userId,
-    refType: source,
-    refId,
-    type: source,
-    points: LOYALTY_POINTS_PER_ORDER,
-    description: `Earned ${LOYALTY_POINTS_PER_ORDER} points from ${source} booking`
-  });
-  
-  return true;
+// Phase 3 — Loyalty earn moved to check-in time (see utils/loyaltyAward.js
+// + routes/staff.js). Booking-creation no longer awards loyalty points;
+// this stub stays in place so any forgotten caller gracefully no-ops
+// instead of duplicating awards. The legacy LoyaltyHistory + User.loyalty_points
+// fields are intentionally NOT touched on booking creation anymore.
+const awardLoyaltyPoints = async (_userId, _referenceId, _source) => {
+  return { awarded: false, reason: 'phase3_award_on_checkin' };
 };
 
 // ==================== HOURLY BOOKINGS ====================

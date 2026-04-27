@@ -102,23 +102,95 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "PHASE 2 — QR display for parents + QR scanner UI for staff/admin. Use Phase 1 backend foundation: parents see QR on confirmation page and in profile/upcoming bookings; staff/admin scan QR (camera or manual) → /qr/validate → see booking details → /qr/checkin to activate. Active sessions / pending check-ins continue to work."
+user_problem_statement: "PHASE 3 — Loyalty earn foundation. Award points exactly once on successful hourly QR check-in. Reuse existing LoyaltyBalance / LoyaltyLedger / awardPoints helper. Move earn moment from booking-creation to check-in. Configurable Settings policy: enabled/earn_mode/points_per_jd/fixed_points_per_visit. Default: enabled=true, earn_mode='per_jd', points_per_jd=1."
 
 backend:
-  - task: "(Phase 1) HourlyBooking schema + QR endpoints"
+  - task: "(Phase 3) Loyalty earn policy settings reader with safe defaults"
     implemented: true
-    working: true
-    file: "/app/backend/node-app/routes/staff.js, /app/backend/node-app/models/HourlyBooking.js, /app/backend/node-app/utils/bookingQr.js"
+    working: "NA"
+    file: "/app/backend/node-app/utils/loyaltySettings.js"
     stuck_count: 0
     priority: "high"
-    needs_retesting: false
+    needs_retesting: true
     status_history:
-        - working: true
-          agent: "testing"
-          comment: "Phase 1 backend already validated (18/18 scenarios). No backend changes in Phase 2."
+        - working: "NA"
+          agent: "main"
+          comment: "NEW. Reads Settings.findOne({key:'loyalty_earn_policy'}). Defaults if missing or unparsable: {enabled:true, earn_mode:'per_jd', points_per_jd:1, fixed_points_per_visit:10}. Sanitises stored values (clamps negatives, rejects unknown earn_mode, falls back to default per field). computePointsForAmount(policy, amountJd) returns Math.round of amount*points_per_jd OR fixed_points_per_visit. Never throws — settings read errors fall back to defaults to keep check-in non-fatal."
+
+  - task: "(Phase 3) HourlyBooking schema: loyalty_awarded_at, loyalty_points_awarded, loyalty_award_skipped_reason"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/models/HourlyBooking.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added booking-level marker fields: loyalty_awarded_at (Date, indexed, default null) — flips ONCE on successful award, never overwritten; loyalty_points_awarded (Number, min:0, default 0); loyalty_award_skipped_reason (String, default null) for diagnostics. The canonical duplicate guard remains the LoyaltyLedger unique compound index on (userId, refType, refId)."
+
+  - task: "(Phase 3) awardLoyaltyForHourlyCheckin helper"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/utils/loyaltyAward.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "NEW single source of truth for awarding points on hourly check-in. Eligibility chain: booking present → user_id present → status==='checked_in' → loyalty_awarded_at===null → policy.enabled → points>0. Calls existing utils/awardPoints.js (transactional, atomic via LoyaltyLedger unique index). On success stamps loyalty_awarded_at + loyalty_points_awarded via HourlyBooking.updateOne({_id, loyalty_awarded_at:null},...) so the marker flip is itself idempotent. On 'already_awarded' from awardPoints, also flips the marker so subsequent calls short-circuit on the booking-level check. Never throws — returns {awarded, reason, points, bookingId, ledgerId}."
+
+  - task: "(Phase 3) /api/staff/qr/checkin awards loyalty (idempotent, non-fatal)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/routes/staff.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "After the atomic check-in update succeeds, calls awardLoyaltyForHourlyCheckin(updated). Wraps in try/catch — failures log via existing pino logger and DO NOT change the 200 check-in response. The response now also exposes a small loyalty: { awarded, points, reason } block so the staff scanner UI can optionally surface the awarded points later (Phase 4). Re-scan returns 409 BEFORE this code runs (atomic guard), so no double-award is possible there."
+
+  - task: "(Phase 3) Legacy /api/staff/checkin awards loyalty (idempotent, non-fatal)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/routes/staff.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Same helper hooked into legacy manual booking_code check-in path. Both check-in paths (QR + manual) now share the SAME awardLoyaltyForHourlyCheckin helper, so duplicate-protection works across paths. If a legacy /checkin runs first and a /qr/checkin later (impossible because /qr/checkin's atomic guard prevents it after status='checked_in'), the booking-level marker AND the LoyaltyLedger unique index both prevent any second award."
+
+  - task: "(Phase 3) Booking-creation no longer awards loyalty (Phase 3 spec compliance)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/routes/bookings.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "The local awardLoyaltyPoints() helper in routes/bookings.js was a noisy legacy implementation that wrote to LoyaltyHistory + User.loyalty_points + LoyaltyLedger AT BOOKING CREATION time. Phase 3 moves the earn moment to check-in, so this helper is now a no-op stub returning {awarded:false, reason:'phase3_award_on_checkin'}. Both call sites (lines 375, 581) now safely no-op. This means: confirmed-but-not-checked-in bookings no longer earn points. Cancelled bookings (which can never reach checked_in) earn zero. Unpaid bookings that never check in earn zero. The /api/loyalty/balance and /api/loyalty/history endpoints (already exposed by routes/loyalty.js) remain the canonical read APIs."
+
+test_plan:
+  current_focus:
+    - "(Phase 3) Loyalty earn policy settings reader with safe defaults"
+    - "(Phase 3) HourlyBooking schema: loyalty_awarded_at, loyalty_points_awarded, loyalty_award_skipped_reason"
+    - "(Phase 3) awardLoyaltyForHourlyCheckin helper"
+    - "(Phase 3) /api/staff/qr/checkin awards loyalty (idempotent, non-fatal)"
+    - "(Phase 3) Legacy /api/staff/checkin awards loyalty (idempotent, non-fatal)"
+    - "(Phase 3) Booking-creation no longer awards loyalty (Phase 3 spec compliance)"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
 
 frontend:
-  - task: "BookingConfirmationPage — QR card for hourly bookings"
+  - task: "(Phase 2) Frontend QR — already validated"
     implemented: true
     working: true
     file: "/app/frontend/src/pages/BookingConfirmationPage.js"

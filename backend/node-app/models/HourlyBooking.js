@@ -19,6 +19,13 @@ const hourlyBookingSchema = new mongoose.Schema({
   qr_status: { type: String, enum: ['unused', 'checked_in', 'expired', 'cancelled'], default: 'unused', index: true },
   qr_checked_in_at: { type: Date },
   qr_checked_in_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  // Phase 3 — loyalty earn marker. Set ONCE when points are successfully
+  // awarded on check-in. The unique compound index in LoyaltyLedger
+  // (userId, refType, refId) is the canonical duplicate guard; this field
+  // is a fast booking-level marker for admin views and idempotent retries.
+  loyalty_awarded_at: { type: Date, default: null, index: true },
+  loyalty_points_awarded: { type: Number, default: 0, min: 0 },
+  loyalty_award_skipped_reason: { type: String, default: null },
   status: { type: String, enum: ['pending', 'confirmed', 'checked_in', 'completed', 'cancelled'], default: 'pending' },
   check_in_time: { type: Date },
   session_end_time: { type: Date },

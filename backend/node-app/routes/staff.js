@@ -10,6 +10,7 @@ const { addMinutes, format } = require('date-fns');
 const { sendCheckinConfirmation } = require('../utils/checkinNotifications');
 const { logger } = require('../utils/logger');
 const { generateBookingQrPayload } = require('../utils/bookingQr');
+const { awardLoyaltyForHourlyCheckin } = require('../utils/loyaltyAward');
 
 const router = express.Router();
 
@@ -135,6 +136,18 @@ router.post('/checkin', async (req, res) => {
     booking.qr_checked_in_at = now;
     booking.qr_checked_in_by = req.userId;
     await booking.save();
+
+    // Phase 3 — award loyalty points (idempotent, non-fatal).
+    try {
+      const loyaltyResult = await awardLoyaltyForHourlyCheckin(booking);
+      logger.info({ event: 'loyalty_award_legacy_checkin', booking_id: booking._id.toString(), ...loyaltyResult });
+    } catch (loyaltyError) {
+      logger.error({
+        event: 'loyalty_award_legacy_checkin_failed',
+        booking_id: booking._id.toString(),
+        error: loyaltyError?.message
+      });
+    }
 
     const parentPhone = booking.user_id?.phone;
     const parentName = booking.user_id?.name;
@@ -584,6 +597,19 @@ router.post('/qr/checkin', async (req, res) => {
       });
     }
 
+    // Phase 3 — award loyalty points (idempotent, non-fatal).
+    let loyaltyResult = { awarded: false, reason: 'not_attempted', points: 0 };
+    try {
+      loyaltyResult = await awardLoyaltyForHourlyCheckin(updated);
+      logger.info({ event: 'loyalty_award_qr_checkin', booking_id: updated._id.toString(), ...loyaltyResult });
+    } catch (loyaltyError) {
+      logger.error({
+        event: 'loyalty_award_qr_checkin_failed',
+        booking_id: updated._id.toString(),
+        error: loyaltyError?.message
+      });
+    }
+
     // Fire-and-forget parent notification (mirrors legacy /checkin behavior).
     const parentPhone = updated.user_id?.phone;
     const parentName = updated.user_id?.name;
@@ -611,7 +637,12 @@ router.post('/qr/checkin', async (req, res) => {
     return res.json({
       ok: true,
       message: ARABIC_MESSAGES.checkin_ok,
-      booking: summarizeBooking(updated)
+      booking: summarizeBooking(updated),
+      loyalty: {
+        awarded: !!loyaltyResult.awarded,
+        points: loyaltyResult.points || 0,
+        reason: loyaltyResult.reason || (loyaltyResult.awarded ? 'ok' : null)
+      }
     });
   } catch (error) {
     logger.error({ event: 'qr_checkin_failed', error: error.message, stack: error.stack });
