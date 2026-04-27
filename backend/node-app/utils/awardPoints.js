@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const LoyaltyLedger = require('../models/LoyaltyLedger');
 const LoyaltyBalance = require('../models/LoyaltyBalance');
+const { supportsTransactions, isTransactionUnsupportedError } = require('./mongoFeatures');
 
 const POINTS_PER_JD = 10;
 const DUPLICATE_KEY_CODE = 11000;
@@ -89,20 +90,45 @@ const awardPoints = async ({ userId, refType, refId, type, amount = 0, points, d
     return { awarded: false, reason: 'zero_points' };
   }
 
+  const ledgerDoc = {
+    userId,
+    pointsDelta: pointsToAward,
+    reason: description || `Earned ${pointsToAward} points from ${type || refType}`,
+    refType: normalizeRefType(refType, type),
+    refId,
+    expiresAt: addMonths(new Date(), 12)
+  };
+
+  // Non-transactional path — used on standalone mongo dev OR as fallback
+  // when a transactional attempt fails with the "replica set required"
+  // error. The unique compound index on LoyaltyLedger
+  // (userId, refType, refId) preserves duplicate-protection in EITHER mode.
+  const awardWithoutTransaction = async () => {
+    try {
+      const ledgerEntry = await LoyaltyLedger.create(ledgerDoc);
+      const currentPoints = await getNonExpiredPoints(userId, null);
+      await upsertBalance(userId, currentPoints, null);
+      return { awarded: true, points: pointsToAward, ledgerEntry };
+    } catch (error) {
+      if (error?.code === DUPLICATE_KEY_CODE) {
+        return { awarded: false, reason: 'already_awarded' };
+      }
+      throw error;
+    }
+  };
+
+  // Fast-path: skip the transaction attempt entirely if we already know the
+  // topology doesn't support transactions.
+  const txnAvailable = await supportsTransactions();
+  if (!txnAvailable) {
+    return awardWithoutTransaction();
+  }
+
   const session = await mongoose.startSession();
   try {
     session.startTransaction();
 
-    const [ledgerEntry] = await LoyaltyLedger.create([
-      {
-        userId,
-        pointsDelta: pointsToAward,
-        reason: description || `Earned ${pointsToAward} points from ${type || refType}`,
-        refType: normalizeRefType(refType, type),
-        refId,
-        expiresAt: addMonths(new Date(), 12)
-      }
-    ], { session });
+    const [ledgerEntry] = await LoyaltyLedger.create([ledgerDoc], { session });
 
     const currentPoints = await getNonExpiredPoints(userId, session);
     await upsertBalance(userId, currentPoints, session);
@@ -110,15 +136,21 @@ const awardPoints = async ({ userId, refType, refId, type, amount = 0, points, d
     await session.commitTransaction();
     return { awarded: true, points: pointsToAward, ledgerEntry };
   } catch (error) {
-    await session.abortTransaction();
+    await session.abortTransaction().catch(() => {});
 
     if (error?.code === DUPLICATE_KEY_CODE) {
       return { awarded: false, reason: 'already_awarded' };
     }
 
+    // Topology surprise — fall back to non-transactional once.
+    if (isTransactionUnsupportedError(error)) {
+      await session.endSession().catch(() => {});
+      return awardWithoutTransaction();
+    }
+
     throw error;
   } finally {
-    await session.endSession();
+    await session.endSession().catch(() => {});
   }
 };
 

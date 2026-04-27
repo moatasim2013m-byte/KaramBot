@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const LoyaltyLedger = require('../models/LoyaltyLedger');
 const LoyaltyBalance = require('../models/LoyaltyBalance');
 const { authMiddleware } = require('../middleware/auth');
+const { supportsTransactions, isTransactionUnsupportedError } = require('../utils/mongoFeatures');
 
 const router = express.Router();
 
@@ -154,19 +155,31 @@ async function redeemPoints(userId, pointsToRedeem, refType, refId) {
 
 router.get('/balance', authMiddleware, async (req, res) => {
   try {
-    const session = await mongoose.startSession();
     let pointsAvailable = 0;
 
-    try {
-      session.startTransaction();
-      pointsAvailable = await getNonExpiredPoints(req.userId, session);
-      await upsertBalance(req.userId, pointsAvailable, session);
-      await session.commitTransaction();
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      await session.endSession();
+    const txnAvailable = await supportsTransactions();
+    if (txnAvailable) {
+      const session = await mongoose.startSession();
+      try {
+        session.startTransaction();
+        pointsAvailable = await getNonExpiredPoints(req.userId, session);
+        await upsertBalance(req.userId, pointsAvailable, session);
+        await session.commitTransaction();
+      } catch (error) {
+        await session.abortTransaction().catch(() => {});
+        if (isTransactionUnsupportedError(error)) {
+          // Topology changed mid-flight — fall back below.
+          pointsAvailable = await getNonExpiredPoints(req.userId, null);
+          await upsertBalance(req.userId, pointsAvailable, null);
+        } else {
+          throw error;
+        }
+      } finally {
+        await session.endSession().catch(() => {});
+      }
+    } else {
+      pointsAvailable = await getNonExpiredPoints(req.userId, null);
+      await upsertBalance(req.userId, pointsAvailable, null);
     }
 
     res.json({
