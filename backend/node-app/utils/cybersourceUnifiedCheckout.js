@@ -317,7 +317,6 @@ const createCaptureContext = async ({ amount, currency = 'JOD', locale = 'en_US'
 
   const body = {
     targetOrigins: [normalizedOrigin],
-    clientVersion: '0.35',
     allowedCardNetworks: ['VISA', 'MASTERCARD'],
     allowedPaymentTypes: ['CLICKTOPAY', 'PANENTRY', 'GOOGLEPAY', 'APPLEPAY'],
     country: 'JO',
