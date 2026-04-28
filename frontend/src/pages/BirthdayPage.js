@@ -13,6 +13,7 @@ import { Label } from '../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import { format, addDays, startOfDay } from 'date-fns';
+import { Loader2 } from 'lucide-react';
 import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
 import Shroomi from '../components/Shroomi';
 import MascotVariant from '../components/theme/MascotVariant';
