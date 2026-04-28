@@ -400,6 +400,15 @@ const finalizePaidTransaction = async (transaction) => {
       // for paid card transactions (this path). Idempotent across retries.
       await maybeDeductLoyaltyForHourly(bookings);
 
+      // Re-hydrate bookings from DB so the response reflects the redemption
+      // markers (loyalty_redeemed_points / loyalty_redemption_jd /
+      // loyalty_redeemed_at) that maybeDeductLoyaltyForHourly stamped via
+      // a separate updateOne. The in-memory Mongoose docs above were
+      // serialised pre-stamp; the DB row is the truth.
+      const freshBookings = await HourlyBooking.find({
+        _id: { $in: bookings.map((b) => b._id) }
+      }).sort({ created_at: 1 });
+
       notifyAdminsOfOrder({
         orderType: 'Hourly Booking',
         orderId: bookings[0]?.booking_code || paymentId,
@@ -410,7 +419,7 @@ const finalizePaidTransaction = async (transaction) => {
         createdAt: bookings[0]?.created_at || new Date()
       }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
-      return { resourceType: 'hourly', bookings: bookings.map((b) => b.toJSON()) };
+      return { resourceType: 'hourly', bookings: (freshBookings.length ? freshBookings : bookings).map((b) => b.toJSON()) };
     } catch (error) {
       await TimeSlot.findByIdAndUpdate(slotId, { $inc: { booked_count: -childIds.length } });
       throw error;
