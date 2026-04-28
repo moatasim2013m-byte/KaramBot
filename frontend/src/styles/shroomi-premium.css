@@ -1,0 +1,476 @@
+/* ============================================================
+   Shroomi mascot + premium public-page polish
+   Used by HomePage.js and TicketsPage.js after the design refactor.
+   No business logic depends on these styles.
+   ============================================================ */
+
+/* --- Shroomi base --- */
+.shroomi-img {
+  display: inline-block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@keyframes shroomi-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50%      { transform: translateY(-8px) rotate(1deg); }
+}
+@keyframes shroomi-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+@keyframes shroomi-pop-in {
+  0%   { transform: scale(0.6) translateY(20px); opacity: 0; }
+  60%  { transform: scale(1.05) translateY(-2px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.shroomi-float   { animation: shroomi-float 5.5s ease-in-out infinite; }
+.shroomi-bob     { animation: shroomi-bob 3.2s ease-in-out infinite; }
+.shroomi-pop-in  { animation: shroomi-pop-in .55s cubic-bezier(.2,.8,.2,1.05) both; }
+@media (prefers-reduced-motion: reduce) {
+  .shroomi-float, .shroomi-bob, .shroomi-pop-in { animation: none; }
+}
+
+/* Pastel halo behind a Shroomi to make him feel like a stamped sticker. */
+.shroomi-halo {
+  position: relative;
+  display: inline-block;
+  isolation: isolate;
+}
+.shroomi-halo::before {
+  content: '';
+  position: absolute;
+  inset: 8% 8% 8% 8%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--halo, rgba(102,169,233,.22)), transparent 70%);
+  z-index: -1;
+  filter: blur(2px);
+}
+.shroomi-halo--yellow  { --halo: rgba(242,229,51,.32); }
+.shroomi-halo--blue    { --halo: rgba(102,169,233,.28); }
+.shroomi-halo--red     { --halo: rgba(217,35,46,.18); }
+.shroomi-halo--green   { --halo: rgba(151,198,74,.28); }
+.shroomi-halo--orange  { --halo: rgba(242,138,46,.26); }
+
+/* ------------------------------------------------------------
+   Premium HomePage hero
+   ------------------------------------------------------------ */
+.pk-premium-hero {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(1200px 500px at 80% -10%, rgba(102,169,233,.18), transparent 60%),
+    radial-gradient(900px 400px at -10% 30%, rgba(242,229,51,.18), transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+.pk-premium-hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(15,23,42,.08), transparent);
+}
+
+.pk-hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .35rem .85rem;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 700;
+  color: #1e3a8a;
+  background: rgba(102,169,233,.16);
+  border: 1px solid rgba(102,169,233,.35);
+  letter-spacing: .02em;
+}
+
+.pk-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+  max-width: 520px;
+}
+.pk-hero-stat {
+  background: rgba(255,255,255,.85);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(15,23,42,.06);
+  border-radius: 18px;
+  padding: 12px 14px;
+  text-align: center;
+  box-shadow: 0 6px 18px -10px rgba(15,23,42,.18);
+}
+.pk-hero-stat__num {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+.pk-hero-stat__label {
+  font-size: .75rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* Hero shroomi positioning anchor */
+.pk-hero-shroomi {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+}
+.pk-hero-shroomi--main {
+  right: -10px;
+  bottom: -10px;
+  width: 160px;
+  height: 160px;
+}
+@media (min-width: 768px) {
+  .pk-hero-shroomi--main { width: 220px; height: 220px; right: 4%; bottom: 6%; }
+}
+
+/* ------------------------------------------------------------
+   Premium section dividers + cards
+   ------------------------------------------------------------ */
+.pk-section {
+  position: relative;
+  padding: 56px 0;
+}
+@media (min-width: 768px) { .pk-section { padding: 80px 0; } }
+
+.pk-section-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.pk-section-eyebrow::before,
+.pk-section-eyebrow::after {
+  content: '';
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  background: currentColor;
+  opacity: .35;
+  border-radius: 2px;
+}
+.pk-section-eyebrow--yellow { color: #b45309; }
+.pk-section-eyebrow--blue   { color: #1d4ed8; }
+.pk-section-eyebrow--red    { color: var(--pk-red); }
+.pk-section-eyebrow--green  { color: #4d7c0f; }
+
+.pk-section-title {
+  font-weight: 800;
+  letter-spacing: -.01em;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+/* Premium card base used across home + tickets */
+.pk-pcard {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid rgba(15,23,42,.06);
+  border-radius: 22px;
+  box-shadow:
+    0 1px 0 rgba(15,23,42,.02),
+    0 12px 32px -16px rgba(15,23,42,.18);
+  overflow: hidden;
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+.pk-pcard:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 1px 0 rgba(15,23,42,.02),
+    0 24px 44px -18px rgba(15,23,42,.25);
+}
+.pk-pcard__topbar {
+  height: 4px;
+  width: 100%;
+}
+.pk-topbar--yellow { background: linear-gradient(90deg, #fde047, var(--pk-yellow)); }
+.pk-topbar--blue   { background: linear-gradient(90deg, #93c5fd, var(--pk-blue)); }
+.pk-topbar--pink   { background: linear-gradient(90deg, #fbcfe8, var(--pk-pink)); }
+.pk-topbar--green  { background: linear-gradient(90deg, #bbf7d0, var(--pk-green)); }
+.pk-topbar--orange { background: linear-gradient(90deg, #fdba74, var(--pk-orange)); }
+.pk-topbar--purple { background: linear-gradient(90deg, #c4b5fd, var(--pk-purple)); }
+
+/* Floating Shroomi corner accent (used inside cards) */
+.pk-card-mascot {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+.pk-card-mascot--tr { top: -10px; right: -10px; width: 56px; height: 56px; }
+.pk-card-mascot--tl { top: -10px; left: -10px; width: 56px; height: 56px; }
+.pk-card-mascot--br { bottom: -8px; right: -8px;  width: 64px; height: 64px; }
+
+/* ------------------------------------------------------------
+   Trust strip
+   ------------------------------------------------------------ */
+.pk-trust-strip {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  padding: 22px;
+  background: linear-gradient(135deg, #ffffff, #fafafa);
+  border-radius: 24px;
+  border: 1px solid rgba(15,23,42,.06);
+  box-shadow: 0 18px 40px -24px rgba(15,23,42,.18);
+}
+@media (min-width: 768px) {
+  .pk-trust-strip { grid-template-columns: repeat(5, 1fr); padding: 26px 28px; }
+}
+.pk-trust-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: right;
+}
+.pk-trust-item__dot {
+  flex: 0 0 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(102,169,233,.14);
+  color: var(--pk-blue);
+  font-weight: 800;
+}
+.pk-trust-item--yellow .pk-trust-item__dot { background: rgba(242,229,51,.22); color: #ca8a04; }
+.pk-trust-item--red    .pk-trust-item__dot { background: rgba(217,35,46,.12);  color: var(--pk-red); }
+.pk-trust-item--green  .pk-trust-item__dot { background: rgba(151,198,74,.22); color: #4d7c0f; }
+.pk-trust-item--orange .pk-trust-item__dot { background: rgba(242,138,46,.18); color: #c2410c; }
+.pk-trust-item__title { font-weight: 700; font-size: .92rem; color: #0f172a; line-height: 1.2; }
+.pk-trust-item__copy  { font-size: .8rem; color: #64748b; margin-top: 2px; line-height: 1.45; }
+
+/* ------------------------------------------------------------
+   TicketsPage premium polish
+   ------------------------------------------------------------ */
+.pk-booking-page {
+  background:
+    radial-gradient(900px 360px at 90% -10%, rgba(102,169,233,.16), transparent 65%),
+    radial-gradient(800px 360px at -10% 20%, rgba(242,229,51,.18), transparent 65%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  min-height: 100vh;
+}
+.pk-booking-hero {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid rgba(15,23,42,.06);
+  border-radius: 26px;
+  padding: 22px 22px;
+  box-shadow: 0 18px 40px -24px rgba(15,23,42,.2);
+  overflow: hidden;
+}
+@media (min-width: 768px) {
+  .pk-booking-hero { padding: 28px 32px; }
+}
+.pk-booking-hero__deco-yellow,
+.pk-booking-hero__deco-blue {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: .55;
+  pointer-events: none;
+}
+.pk-booking-hero__deco-yellow { width: 220px; height: 220px; right: -60px; top: -60px;  background: rgba(242,229,51,.55); }
+.pk-booking-hero__deco-blue   { width: 220px; height: 220px; left:  -60px; bottom: -60px;background: rgba(102,169,233,.5); }
+
+.pk-booking-hero__shroomi {
+  position: absolute;
+  right: 8px;
+  bottom: -12px;
+  width: 110px;
+  height: 110px;
+  z-index: 2;
+}
+@media (min-width: 768px) {
+  .pk-booking-hero__shroomi { width: 150px; height: 150px; right: 24px; bottom: -10px; }
+}
+
+/* Stepper */
+.pk-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.pk-stepper__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: .85rem;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid transparent;
+  transition: all .25s ease;
+}
+.pk-stepper__num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: .75rem;
+  border: 1px solid #e2e8f0;
+}
+.pk-stepper__item.is-active {
+  background: rgba(102,169,233,.14);
+  color: #0f3a72;
+  border-color: rgba(102,169,233,.35);
+}
+.pk-stepper__item.is-active .pk-stepper__num {
+  background: var(--pk-blue);
+  color: #fff;
+  border-color: var(--pk-blue);
+}
+.pk-stepper__item.is-complete {
+  background: rgba(151,198,74,.18);
+  color: #14532d;
+  border-color: rgba(151,198,74,.4);
+}
+.pk-stepper__item.is-complete .pk-stepper__num {
+  background: var(--pk-green);
+  color: #fff;
+  border-color: var(--pk-green);
+}
+
+/* Booking section header with mascot accent */
+.pk-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 14px;
+}
+.pk-section-head__num {
+  flex: 0 0 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, var(--pk-blue), #4f8fcf);
+  box-shadow: 0 8px 16px -8px rgba(102,169,233,.6);
+}
+.pk-section-head__num--done { background: linear-gradient(135deg, var(--pk-green), #6ea03a); box-shadow: 0 8px 16px -8px rgba(151,198,74,.6); }
+.pk-section-head__title { font-weight: 800; font-size: 1.05rem; color: #0f172a; }
+.pk-section-head__sub   { font-size: .82rem; color: #64748b; margin-top: 2px; }
+
+/* Loyalty redemption — premium reward feel */
+.pk-loyalty-card {
+  position: relative;
+  border-radius: 22px;
+  border: 1px solid rgba(242,229,51,.6);
+  background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 60%, #fff7ed 100%);
+  padding: 18px;
+  overflow: hidden;
+}
+.pk-loyalty-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(242,229,51,.45), rgba(242,138,46,.25));
+  z-index: 0;
+  opacity: .4;
+  pointer-events: none;
+}
+.pk-loyalty-card > * { position: relative; z-index: 1; }
+.pk-loyalty-card__shroomi {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  width: 80px;
+  height: 80px;
+  z-index: 2;
+}
+
+/* Sticky summary refinement (do not change layout, just polish) */
+.pk-summary-card {
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  border: 1px solid rgba(15,23,42,.06);
+  padding: 18px;
+  box-shadow: 0 18px 40px -24px rgba(15,23,42,.2);
+}
+.pk-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: .92rem;
+  color: #475569;
+}
+.pk-summary-row--final {
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 12px;
+  margin-top: 6px;
+  font-weight: 800;
+  color: #0f172a;
+  font-size: 1.05rem;
+}
+.pk-summary-row--green { color: #15803d; }
+
+/* Auth invite (when not logged in) */
+.pk-auth-invite {
+  position: relative;
+  padding: 26px 22px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #fffefa 0%, #f0f9ff 100%);
+  border: 1px solid rgba(102,169,233,.3);
+  text-align: center;
+  overflow: hidden;
+}
+.pk-auth-invite__shroomi {
+  width: 92px; height: 92px;
+  margin: 0 auto 8px;
+  display: block;
+}
+
+/* Final CTA on HomePage */
+.pk-cta-band {
+  position: relative;
+  border-radius: 28px;
+  padding: 40px 24px;
+  background:
+    radial-gradient(600px 240px at 90% 10%, rgba(217,35,46,.16), transparent 60%),
+    radial-gradient(500px 220px at 5% 90%, rgba(102,169,233,.18), transparent 60%),
+    linear-gradient(135deg, #ffffff, #f8fafc);
+  border: 1px solid rgba(15,23,42,.06);
+  box-shadow: 0 24px 60px -32px rgba(15,23,42,.25);
+  overflow: hidden;
+  text-align: center;
+}
+.pk-cta-band__shroomi {
+  position: absolute;
+  bottom: -8px;
+  left: 16px;
+  width: 110px;
+  height: 110px;
+  pointer-events: none;
+}
+.pk-cta-band__shroomi--right {
+  bottom: -8px;
+  right: 16px;
+  left: auto;
+  width: 96px;
+  height: 96px;
+}
+@media (min-width: 768px) {
+  .pk-cta-band { padding: 56px 40px; }
+  .pk-cta-band__shroomi { width: 150px; height: 150px; bottom: -12px; left: 28px; }
+  .pk-cta-band__shroomi--right { width: 130px; height: 130px; right: 28px; }
+}

@@ -1,6 +1,7 @@
 import { Users, Phone, MessageCircle, Calendar, Shield, Smile } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import PublicPageShell, { WonderSection, WonderSectionTitle, WonderCard } from '../components/PublicPageShell';
+import Shroomi from '../components/Shroomi';
 
 export default function GroupsPage() {
   const features = [
@@ -17,15 +18,24 @@ export default function GroupsPage() {
       iconBg="bg-[var(--pk-green)]"
       maxWidth="max-w-3xl"
     >
-      <WonderSection className="text-center">
-        <div className="inline-block px-4 py-2 rounded-full bg-[var(--pk-bg-light-green)] text-[var(--pk-green)] font-bold text-lg mb-4">
-          قريباً
+      <WonderSection className="text-center relative overflow-visible">
+        {/* Shroomi as a friendly schools/groups guide — clipboard pose
+            anchors the "we're prepping the program" message. Decorative
+            only; never blocks CTAs or contact info. */}
+        <div className="hidden sm:block absolute -top-12 -left-2 shroomi-halo shroomi-halo--green" aria-hidden="true">
+          <Shroomi pose="clipboard-write" size={96} className="shroomi-bob" />
         </div>
-        <p className="text-muted-foreground mb-6">
-          نعمل على تجهيز هذه الخدمة. تواصل معنا للحجز المسبق!
+
+        <span className="pk-section-eyebrow pk-section-eyebrow--green mb-3">قريباً</span>
+        <div className="inline-flex mt-3 mb-4 px-4 py-2 rounded-full bg-[var(--pk-bg-light-green)] text-[var(--pk-green)] font-bold text-base items-center gap-2">
+          <Shroomi pose="thumbs-up" size={28} aria-hidden="true" />
+          نعمل على تجهيز البرنامج
+        </div>
+        <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+          مجموعاتك الصغيرة تستحق تجربة آمنة وممتعة. اتركوا لنا التفاصيل وسنرتب الزيارة المثالية.
         </p>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md mx-auto">
           <a href="https://wa.me/962777775652" target="_blank" rel="noreferrer">
             <Button className="rounded-full w-full h-12 text-base bg-[#25D366] hover:bg-[#20BD5A]" data-testid="groups-whatsapp-btn">
               <MessageCircle className="h-5 w-5 ml-2" />
@@ -41,7 +51,11 @@ export default function GroupsPage() {
         </div>
       </WonderSection>
 
-      <WonderSection>
+      <WonderSection className="relative">
+        {/* Trust-themed Shroomi reinforces the safety/care pillars. */}
+        <div className="hidden md:block absolute -top-6 left-2 shroomi-halo shroomi-halo--blue" aria-hidden="true">
+          <Shroomi pose="heart-hold" size={68} className="shroomi-float" />
+        </div>
         <WonderSectionTitle icon={Users} iconColor="green">مميزات الخدمة</WonderSectionTitle>
         <div className="wonder-card-grid grid-3">
           {features.map((item, index) => (
