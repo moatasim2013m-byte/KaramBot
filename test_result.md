@@ -1088,6 +1088,16 @@ agent_communication:
             (See /app/memory/test_credentials.md for the admin bootstrap script
              if /api/auth/login returns 'Invalid credentials' on a fresh DB.)
           - Direct mongo seed for test bookings (Phase 2 tests):
+    - agent: "testing"
+      message: "🎉 PHASE 6 LOYALTY REDEMPTION BACKEND — ALL 7 TASKS PASS. Verified: (1) Admin roundtrip for redemption_enabled + points_per_jd_redeem with correct sanitisation (0/negative/non-numeric → default 10). (2) /api/loyalty/balance returns the new redemption block; legacy fields preserved. (3) /api/loyalty/redemption-preview enforces every eligibility rule (below_min_points, exceeds_limit, amount_zero, no auth → 401, amount_jd<=0 → 400). (4) Conversion math 10 pts = 1 JD verified. (5) POST /api/payments/create-checkout hourly accepts loyalty_points/use_max_loyalty, non-hourly rejected with Arabic error. (6) POST /api/bookings/hourly/offline rejects loyalty with reason='redemption_not_supported_for_offline'. Code review confirms finalizePaidTransaction deducts post-booking with idempotent ledger (refId='redeem:<bookingId>'). End-to-end payment success flow not runnable in this env (payment in manual mode), but every correctness assertion holds."
+    - agent: "main"
+      message: "Phase 6 frontend testing requested — focus on TicketsPage parent checkout UI + ineligible cases + admin settings persistence. Creds in /app/memory/test_credentials.md."
+    - agent: "testing"
+      message: "❌ PHASE 6 FE — CRITICAL BLOCKING BUG on /tickets. ReferenceError 'Cannot access getBaseBookingTotal before initialization' — the IIFE at TicketsPage.js:201 calls helper functions declared at 579. Admin settings UI (redemption_enabled toggle + points_per_jd_redeem input) WORKING correctly with persistence. Parent checkout UI tests A1-A14 and B1-B4 all BLOCKED. MAIN AGENT: fix the TDZ by moving the computation inside the useEffect or reordering declarations."
+    - agent: "main"
+      message: "Fixed the TDZ bug — the amount computation now lives inside the useEffect callback (closure-safe) with proper dependency array. Verified /tickets renders. Re-requested frontend testing for Scenarios A + B only."
+    - agent: "testing"
+      message: "🎉 PHASE 6 FRONTEND RE-TEST — ALL SCENARIOS PASS. Scenario A (11/11): loyalty card visible on /tickets with correct balance/conversion/min/max text; toggle flips; use-max preview green 'سيتم خصم X نقطة مقابل Y دينار'; discount summary + sticky total update; custom amount below min → red; valid 60 pts → green 6.00 JD; 999 pts → exceeds_limit red; use-max reset; payment method switch to cash/cliq hides/clears. Scenario B (2/2): hidden when balance < 50; hidden when redemption_enabled=false (admin PUT). Cleanup done. NO FIXES NEEDED."
               cd /app/backend/node-app && MONGO_URL=mongodb://localhost:27017/peekaboo node -e "..."
             (See Phase 1 main agent communication block above for the exact
              snippet to create confirmed/cancelled/checked-in bookings with
