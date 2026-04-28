@@ -55,6 +55,15 @@ const sanitisePayload = (raw) => {
   const redeem_min_points = nonNegativeNumber(value.redeem_min_points, DEFAULT_POLICY.redeem_min_points);
   const redeem_max_jd_per_booking = nonNegativeNumber(value.redeem_max_jd_per_booking, DEFAULT_POLICY.redeem_max_jd_per_booking);
 
+  // Phase 6 — redemption foundation (admin write path).
+  const redemption_enabled = value.redemption_enabled === undefined
+    ? DEFAULT_POLICY.redemption_enabled
+    : !!value.redemption_enabled;
+  const pointsPerJdRedeemNum = Number(value.points_per_jd_redeem);
+  const points_per_jd_redeem = Number.isFinite(pointsPerJdRedeemNum) && pointsPerJdRedeemNum > 0
+    ? pointsPerJdRedeemNum
+    : DEFAULT_POLICY.points_per_jd_redeem;
+
   return {
     enabled,
     earn_mode,
@@ -63,7 +72,9 @@ const sanitisePayload = (raw) => {
     max_points_per_award,
     max_points_per_day,
     redeem_min_points,
-    redeem_max_jd_per_booking
+    redeem_max_jd_per_booking,
+    redemption_enabled,
+    points_per_jd_redeem
   };
 };
 

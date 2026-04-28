@@ -108,6 +108,24 @@ export default function TicketsPage() {
   const [guestChildCount, setGuestChildCount] = useState(1);
   const [guestChildName, setGuestChildName] = useState('');
 
+  // Phase 6 — loyalty redemption state.
+  // loyaltyBalance: numeric points available for this user (null = not
+  // loaded yet). loyaltyPolicy: minimum policy fields returned with the
+  // balance — we use `enabled`, `redeem_min_points`,
+  // `redeem_max_jd_per_booking`, `points_per_jd_redeem`.
+  // useLoyalty: parent toggled "apply points" on. pointsToUse: the
+  // numeric amount the backend confirmed would be spent for this amount.
+  // discountJd: matching JD discount. These two values come directly
+  // from `/api/loyalty/redemption-preview`, which is the authoritative
+  // source — the UI never computes the conversion itself.
+  const [loyaltyBalance, setLoyaltyBalance] = useState(null);
+  const [loyaltyPolicy, setLoyaltyPolicy] = useState(null);
+  const [useLoyalty, setUseLoyalty] = useState(false);
+  const [loyaltyPointsInput, setLoyaltyPointsInput] = useState('');
+  const [loyaltyUseMax, setLoyaltyUseMax] = useState(true);
+  const [loyaltyPreview, setLoyaltyPreview] = useState(null); // { ok, pointsToUse, discountJd, reason, maxPointsAllowed }
+  const [loyaltyPreviewLoading, setLoyaltyPreviewLoading] = useState(false);
+
   // Set page title
   useEffect(() => {
     document.title = 'احجز وقت اللعب | بيكابو';
@@ -139,6 +157,7 @@ export default function TicketsPage() {
     fetchProducts();
     if (isAuthenticated) {
       fetchChildren();
+      fetchLoyaltyBalance();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
@@ -172,6 +191,64 @@ export default function TicketsPage() {
     fetchSlots(dateStr, cacheKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeMode, date, selectedDuration]);
+
+  // Phase 6 — loyalty redemption preview. Re-computes whenever the base
+  // (post-coupon) amount or the parent's redemption choice changes. The
+  // backend is the source of truth for `pointsToUse` / `discountJd`
+  // so we never trust a locally computed conversion. Debounced by 300ms
+  // to avoid spamming the endpoint while the input changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const amountAfterCouponForPreview = (() => {
+    if (!selectedSlot || !selectedDuration) return 0;
+    return Math.max(0, getBaseBookingTotal() + getProductsTotal() - Number(appliedCoupon?.discount_amount || 0));
+  })();
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!useLoyalty) {
+      setLoyaltyPreview(null);
+      return;
+    }
+    if (paymentMethod !== 'card') {
+      setLoyaltyPreview(null);
+      return;
+    }
+    if (!amountAfterCouponForPreview || amountAfterCouponForPreview <= 0) {
+      setLoyaltyPreview(null);
+      return;
+    }
+    const inputPoints = Math.max(0, parseInt(loyaltyPointsInput, 10) || 0);
+    const useMax = loyaltyUseMax || inputPoints <= 0;
+    setLoyaltyPreviewLoading(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await api.get('/loyalty/redemption-preview', {
+          params: {
+            amount_jd: amountAfterCouponForPreview,
+            points: useMax ? 0 : inputPoints,
+            use_max: useMax ? 'true' : 'false'
+          }
+        });
+        setLoyaltyPreview(res.data);
+      } catch (error) {
+        const data = error?.response?.data;
+        setLoyaltyPreview({ ok: false, reason: data?.reason || 'preview_failed' });
+      } finally {
+        setLoyaltyPreviewLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, useLoyalty, loyaltyUseMax, loyaltyPointsInput, amountAfterCouponForPreview, paymentMethod]);
+
+  // When the parent switches away from card, clear any active redemption
+  // so the sticky total doesn't show a discount that won't be honoured.
+  useEffect(() => {
+    if (paymentMethod !== 'card' && useLoyalty) {
+      setUseLoyalty(false);
+      setLoyaltyPreview(null);
+    }
+  }, [paymentMethod, useLoyalty]);
 
   // Reset selections when timeMode changes
   const handleTimeModeChange = (mode) => {
@@ -284,6 +361,21 @@ export default function TicketsPage() {
     }
   };
 
+  // Phase 6 — fetch the parent's loyalty balance + redemption policy.
+  // Silent on failure: redemption is an optional convenience; any
+  // network / permission error just means we don't show the UI.
+  const fetchLoyaltyBalance = async () => {
+    try {
+      const response = await api.get('/loyalty/balance');
+      const points = Number(response.data?.pointsAvailable || 0);
+      setLoyaltyBalance(Number.isFinite(points) ? points : 0);
+      setLoyaltyPolicy(response.data?.redemption || null);
+    } catch (error) {
+      setLoyaltyBalance(null);
+      setLoyaltyPolicy(null);
+    }
+  };
+
   const fetchSlots = async (dateStr, cacheKey) => {
     setSlotsLoading(true);
     setSlotsError(null);
@@ -361,6 +453,10 @@ export default function TicketsPage() {
       await trackSnapAddCart({ amount, lineItems });
       
       if (paymentMethod === 'card') {
+        // Build loyalty redemption payload. Only forward when the parent
+        // opted-in and a preview returned OK so the gateway amount is
+        // guaranteed to match the server's own recomputation.
+        const loyaltyRedeemEnabled = useLoyalty && loyaltyPreview?.ok;
         // Online card provider checkout flow
         const response = await api.post('/payments/create-checkout', {
           type: 'hourly',
@@ -374,7 +470,15 @@ export default function TicketsPage() {
           origin_url: window.location.origin,
           timeMode: timeMode, // Pass timeMode for server-side pricing
           lineItems,
-          coupon_code: appliedCoupon?.code
+          coupon_code: appliedCoupon?.code,
+          ...(loyaltyRedeemEnabled
+            ? {
+                use_max_loyalty: !!loyaltyUseMax,
+                loyalty_points: loyaltyUseMax
+                  ? (loyaltyPreview?.pointsToUse || 0)
+                  : Math.max(0, parseInt(loyaltyPointsInput, 10) || 0)
+              }
+            : {})
         });
 
         if (response.data?.payment_method === 'manual') {
@@ -481,7 +585,20 @@ export default function TicketsPage() {
 
   const getGrandTotal = () => getBaseBookingTotal() + getProductsTotal();
   const getDiscountAmount = () => Number(appliedCoupon?.discount_amount || 0);
-  const getFinalTotal = () => Math.max(0, getGrandTotal() - getDiscountAmount());
+  // Amount BEFORE loyalty redemption is applied. This is what we send to
+  // `/loyalty/redemption-preview` so the backend can validate the points
+  // spend against the actual payable.
+  const getAmountAfterCoupon = () => Math.max(0, getGrandTotal() - getDiscountAmount());
+  const getLoyaltyDiscount = () => {
+    // Only counted when the parent has explicitly toggled loyalty on,
+    // the card path is chosen (server refuses offline anyway), and the
+    // preview says it's valid.
+    if (!useLoyalty) return 0;
+    if (paymentMethod !== 'card') return 0;
+    if (!loyaltyPreview?.ok) return 0;
+    return Number(loyaltyPreview.discountJd || 0);
+  };
+  const getFinalTotal = () => Math.max(0, getAmountAfterCoupon() - getLoyaltyDiscount());
 
   const getSlotTotalPrice = (startTime) => {
     const pricePerHour = getSlotPrice(startTime);
@@ -905,6 +1022,113 @@ export default function TicketsPage() {
                   )}
                 </div>
 
+                {/* Phase 6 — loyalty redemption. Only shown when:
+                    * the parent is authenticated and has a balance loaded,
+                    * redemption is enabled by admin policy,
+                    * the parent has reached the minimum points threshold,
+                    * the selected payment method is card (offline methods
+                      block redemption on the server, so we don't tempt
+                      the UI into showing an unachievable discount). */}
+                {isAuthenticated
+                  && paymentMethod === 'card'
+                  && loyaltyPolicy?.enabled
+                  && Number(loyaltyBalance || 0) >= Number(loyaltyPolicy?.redeem_min_points || 0)
+                  && Number(loyaltyPolicy?.redeem_min_points || 0) > 0
+                  && (
+                  <div className="rounded-2xl border border-secondary/30 bg-secondary/5 p-4" data-testid="loyalty-redemption-card">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2">
+                        <Star className="h-4 w-4 text-secondary" />
+                        <span className="font-semibold text-sm">استخدام نقاط الولاء</span>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={useLoyalty ? 'default' : 'outline'}
+                        className="rounded-full"
+                        onClick={() => setUseLoyalty((prev) => !prev)}
+                        data-testid="loyalty-toggle-btn"
+                      >
+                        {useLoyalty ? 'مفعل' : 'استخدم'}
+                      </Button>
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>
+                        رصيدك الحالي: <span className="font-semibold text-foreground">{Number(loyaltyBalance || 0)} نقطة</span>
+                      </div>
+                      <div>
+                        معدل التحويل: كل {Number(loyaltyPolicy?.points_per_jd_redeem || 10)} نقطة = 1 دينار
+                      </div>
+                      <div>
+                        الحد الأدنى للاسترداد: {Number(loyaltyPolicy?.redeem_min_points || 0)} نقطة
+                      </div>
+                      <div>
+                        الحد الأقصى المسموح لهذا الحجز: {Number(loyaltyPolicy?.redeem_max_jd_per_booking || 0).toFixed(1)} دينار
+                      </div>
+                    </div>
+
+                    {useLoyalty && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={loyaltyUseMax ? 'default' : 'outline'}
+                            className="rounded-full"
+                            onClick={() => { setLoyaltyUseMax(true); setLoyaltyPointsInput(''); }}
+                            data-testid="loyalty-use-max-btn"
+                          >
+                            استخدم الحد الأقصى
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={!loyaltyUseMax ? 'default' : 'outline'}
+                            className="rounded-full"
+                            onClick={() => setLoyaltyUseMax(false)}
+                            data-testid="loyalty-custom-amount-btn"
+                          >
+                            مبلغ مخصص
+                          </Button>
+                        </div>
+                        {!loyaltyUseMax && (
+                          <Input
+                            type="number"
+                            min={0}
+                            step="1"
+                            value={loyaltyPointsInput}
+                            onChange={(e) => setLoyaltyPointsInput(e.target.value)}
+                            placeholder={`عدد النقاط (حد أدنى ${Number(loyaltyPolicy?.redeem_min_points || 0)})`}
+                            className="rounded-xl"
+                            data-testid="loyalty-points-input"
+                          />
+                        )}
+                        <div className="text-sm mt-1 min-h-[1.25rem]" data-testid="loyalty-preview-line">
+                          {loyaltyPreviewLoading ? (
+                            <span className="text-muted-foreground">جاري الاحتساب...</span>
+                          ) : loyaltyPreview?.ok ? (
+                            <span className="text-green-700">
+                              سيتم خصم {loyaltyPreview.pointsToUse} نقطة مقابل {Number(loyaltyPreview.discountJd || 0).toFixed(2)} دينار
+                            </span>
+                          ) : loyaltyPreview?.reason ? (
+                            <span className="text-red-600">
+                              {loyaltyPreview.reason === 'below_min_points' && 'أقل من الحد الأدنى للاسترداد'}
+                              {loyaltyPreview.reason === 'exceeds_limit' && `تتجاوز الحد الأقصى للحجز${loyaltyPreview.maxPointsAllowed ? ` (${loyaltyPreview.maxPointsAllowed} نقطة كحد أقصى)` : ''}`}
+                              {loyaltyPreview.reason === 'zero_requested' && 'أدخل عدد النقاط'}
+                              {loyaltyPreview.reason === 'amount_zero' && 'لا يوجد مبلغ لاحتساب الخصم عليه'}
+                              {loyaltyPreview.reason === 'no_headroom' && 'لا يوجد نقاط قابلة للاستخدام'}
+                              {loyaltyPreview.reason === 'redemption_disabled' && 'الاسترداد غير مفعل حالياً'}
+                              {loyaltyPreview.reason === 'loyalty_disabled' && 'نظام النقاط غير مفعل'}
+                              {loyaltyPreview.reason === 'rounds_to_zero' && 'عدد النقاط غير كافٍ لخصم مرئي'}
+                              {!['below_min_points','exceeds_limit','zero_requested','amount_zero','no_headroom','redemption_disabled','loyalty_disabled','rounds_to_zero'].includes(loyaltyPreview.reason) && 'تعذّر احتساب الخصم'}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {paymentMethod && (
                   <div className="booking-summary">
                     <p className="text-sm text-muted-foreground mb-1">ملخص الحجز</p>
@@ -916,6 +1140,11 @@ export default function TicketsPage() {
                     </p>
                     <p className="text-sm text-muted-foreground">إضافات: {getProductsTotal().toFixed(1)} دينار</p>
                     <p className="text-sm text-green-700">الخصم: -{getDiscountAmount().toFixed(1)} دينار</p>
+                    {getLoyaltyDiscount() > 0 && (
+                      <p className="text-sm text-green-700" data-testid="loyalty-discount-summary">
+                        خصم باستخدام النقاط: -{getLoyaltyDiscount().toFixed(2)} دينار
+                      </p>
+                    )}
                     <p className="font-semibold">الإجمالي: {getFinalTotal().toFixed(1)} دينار</p>
                   </div>
                 )}

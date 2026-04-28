@@ -92,7 +92,10 @@ export default function SettingsTab(props) {
     max_points_per_award: 100,
     max_points_per_day: 200,
     redeem_min_points: 50,
-    redeem_max_jd_per_booking: 10
+    redeem_max_jd_per_booking: 10,
+    // Phase 6 — redemption foundation
+    redemption_enabled: true,
+    points_per_jd_redeem: 10
   });
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [savingLoyalty, setSavingLoyalty] = useState(false);
@@ -143,7 +146,10 @@ export default function SettingsTab(props) {
         max_points_per_award: Math.max(0, Number(loyaltySettings.max_points_per_award) || 0),
         max_points_per_day: Math.max(0, Number(loyaltySettings.max_points_per_day) || 0),
         redeem_min_points: Math.max(0, Number(loyaltySettings.redeem_min_points) || 0),
-        redeem_max_jd_per_booking: Math.max(0, Number(loyaltySettings.redeem_max_jd_per_booking) || 0)
+        redeem_max_jd_per_booking: Math.max(0, Number(loyaltySettings.redeem_max_jd_per_booking) || 0),
+        // Phase 6 — redemption foundation.
+        redemption_enabled: !!loyaltySettings.redemption_enabled,
+        points_per_jd_redeem: Math.max(1, Number(loyaltySettings.points_per_jd_redeem) || 10)
       };
       const res = await api.put('/admin/loyalty/settings', payload);
       if (res.data?.settings) setLoyaltySettings(res.data.settings);
@@ -473,6 +479,43 @@ export default function SettingsTab(props) {
                         />
                         <p className="text-[11px] text-muted-foreground mt-1">افتراضي: 10 — أقصى خصم من رصيد الولاء لأي حجز.</p>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Phase 6 — redemption foundation. Keeps the earn side
+                      independent from redemption so the business can pause
+                      redemption without losing earn history. */}
+                  <div className="space-y-3 pt-3 border-t border-dashed">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-sm font-semibold">تفعيل استرداد النقاط عند الحجز</Label>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          عند الإيقاف، لن يُسمح للعميل باستخدام نقاطه للخصم في صفحة الحجز. سيستمر كسب النقاط.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={loyaltySettings.redemption_enabled ? 'default' : 'outline'}
+                        onClick={() => setLoyaltySettings(prev => ({ ...prev, redemption_enabled: !prev.redemption_enabled }))}
+                        className="rounded-full"
+                        data-testid="loyalty-redemption-enabled-toggle"
+                      >
+                        {loyaltySettings.redemption_enabled ? 'مفعل' : 'غير مفعل'}
+                      </Button>
+                    </div>
+                    <div>
+                      <Label className="text-sm">معدل التحويل للاسترداد (كم نقطة = 1 دينار)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step="1"
+                        value={loyaltySettings.points_per_jd_redeem}
+                        onChange={(e) => setLoyaltySettings(prev => ({ ...prev, points_per_jd_redeem: e.target.value }))}
+                        className="rounded-xl mt-1"
+                        data-testid="loyalty-points-per-jd-redeem"
+                      />
+                      <p className="text-[11px] text-muted-foreground mt-1">افتراضي: 10 — كل 10 نقاط تعطي 1 دينار خصم.</p>
                     </div>
                   </div>
 
