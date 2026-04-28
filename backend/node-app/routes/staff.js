@@ -443,6 +443,7 @@ router.post('/end-session', async (req, res) => {
 const ARABIC_MESSAGES = {
   not_found: 'رمز الحجز غير صالح',
   cancelled: 'هذا الحجز ملغي',
+  expired: 'انتهت صلاحية هذا الحجز ولم يعد قابلاً للتفعيل',
   unpaid: 'هذا الحجز غير مدفوع أو غير مؤكد',
   unpaid_cash: 'يرجى استلام الدفع النقدي قبل تفعيل الجلسة',
   unpaid_cliq: 'يرجى تأكيد استلام دفعة CliQ قبل تفعيل الجلسة',
@@ -514,6 +515,9 @@ const evaluateCheckinEligibility = (booking) => {
       return { can_checkin: false, reason_code: 'already_used', reason_ar: ARABIC_MESSAGES.already_used };
     }
     return { can_checkin: false, reason_code: 'not_active_yet', reason_ar: ARABIC_MESSAGES.not_active_yet };
+  }
+  if (booking.qr_status === 'expired') {
+    return { can_checkin: false, reason_code: 'expired', reason_ar: ARABIC_MESSAGES.expired };
   }
   if (booking.qr_status && booking.qr_status !== 'unused') {
     return { can_checkin: false, reason_code: 'already_used', reason_ar: ARABIC_MESSAGES.already_used };

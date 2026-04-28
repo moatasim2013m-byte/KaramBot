@@ -3,6 +3,7 @@ const User = require('../models/User');
 const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const { sendEmail, emailTemplates } = require('../utils/email');
+const { sweepHourlyBookingLifecycle } = require('../utils/bookingLifecycle');
 
 const router = express.Router();
 
@@ -263,6 +264,25 @@ router.post('/whatsapp-followup', async (req, res) => {
   } catch (error) {
     console.error('FOLLOWUP_CRON_ERROR', error.message);
     return res.status(500).json({ error: 'Failed to execute follow-up automation' });
+  }
+});
+
+// POST /booking-lifecycle — Phase 9.3 booking & session lifecycle sweep.
+// Resolves two stuck state transitions:
+//   - checked_in sessions whose session_end_time has passed → completed
+//   - confirmed + unused bookings on past-dated slots → qr_status = expired
+// Idempotent. Safe to run at any cadence (recommended: every 10-15 min).
+router.post('/booking-lifecycle', async (req, res) => {
+  if (!isCronAuthorized(req)) {
+    return res.status(401).json({ error: 'Unauthorized cron request' });
+  }
+  try {
+    const result = await sweepHourlyBookingLifecycle();
+    console.log('BOOKING_LIFECYCLE_CRON', result);
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('BOOKING_LIFECYCLE_CRON_ERROR', error.message);
+    return res.status(500).json({ error: 'Failed to run booking lifecycle sweep' });
   }
 });
 
