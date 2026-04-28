@@ -436,6 +436,23 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
     if (!['cash', 'cliq'].includes(payment_method)) {
       return res.status(400).json({ error: 'طريقة دفع غير صالحة' });
     }
+
+    // Phase 6 — loyalty redemption is NOT supported on cash/cliq bookings
+    // in this phase. Payment for these methods is pending until a staff
+    // member marks the booking paid later, and the current flow has no
+    // safe hook to deduct points exactly once at that moment. Reject any
+    // attempt to send loyalty_points on this path so the client cannot
+    // show a discount that won't be honoured.
+    const hasLoyaltyAttempt =
+      req.body.use_max_loyalty === true ||
+      req.body.use_max_loyalty === 'true' ||
+      (Number(req.body.loyalty_points) > 0);
+    if (hasLoyaltyAttempt) {
+      return res.status(400).json({
+        error: 'استخدام نقاط الولاء متاح حالياً فقط مع الدفع بالبطاقة',
+        reason: 'redemption_not_supported_for_offline'
+      });
+    }
     
     if (!isValidObjectId(slot_id)) {
       return res.status(400).json({ error: 'معرّف الموعد غير صالح' });

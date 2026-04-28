@@ -37,7 +37,14 @@ const DEFAULT_POLICY = Object.freeze({
   max_points_per_award: 100,
   max_points_per_day: 200,
   redeem_min_points: 50,
-  redeem_max_jd_per_booking: 10
+  redeem_max_jd_per_booking: 10,
+  // Phase 6 — redemption foundation.
+  // redemption_enabled is an independent switch from `enabled` (which governs
+  // earn). A business can keep earning on but temporarily pause redemption.
+  // points_per_jd_redeem: how many points the customer spends to get 1 JD of
+  // discount. Default 10 points = 1 JD. Kept as number so admin can tune it.
+  redemption_enabled: true,
+  points_per_jd_redeem: 10
 });
 
 const VALID_EARN_MODES = new Set(['per_jd', 'per_visit']);
@@ -66,6 +73,17 @@ const sanitisePolicy = (raw) => {
   const redeem_min_points = nonNegativeNumber(value.redeem_min_points, DEFAULT_POLICY.redeem_min_points);
   const redeem_max_jd_per_booking = nonNegativeNumber(value.redeem_max_jd_per_booking, DEFAULT_POLICY.redeem_max_jd_per_booking);
 
+  // Phase 6 — redemption foundation.
+  const redemption_enabled = value.redemption_enabled === undefined
+    ? DEFAULT_POLICY.redemption_enabled
+    : !!value.redemption_enabled;
+  // Never allow conversion = 0 (would imply "infinite JD per point"); fall
+  // back to default if admin provides 0 or anything non-positive.
+  const pointsPerJdRedeemNum = Number(value.points_per_jd_redeem);
+  const points_per_jd_redeem = Number.isFinite(pointsPerJdRedeemNum) && pointsPerJdRedeemNum > 0
+    ? pointsPerJdRedeemNum
+    : DEFAULT_POLICY.points_per_jd_redeem;
+
   return {
     enabled,
     earn_mode,
@@ -74,7 +92,9 @@ const sanitisePolicy = (raw) => {
     max_points_per_award,
     max_points_per_day,
     redeem_min_points,
-    redeem_max_jd_per_booking
+    redeem_max_jd_per_booking,
+    redemption_enabled,
+    points_per_jd_redeem
   };
 };
 

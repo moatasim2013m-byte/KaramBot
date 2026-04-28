@@ -26,6 +26,16 @@ const hourlyBookingSchema = new mongoose.Schema({
   loyalty_awarded_at: { type: Date, default: null, index: true },
   loyalty_points_awarded: { type: Number, default: 0, min: 0 },
   loyalty_award_skipped_reason: { type: String, default: null },
+  // Phase 6 — loyalty redemption marker. Set ONCE when a negative
+  // ledger entry is successfully posted for this booking. The
+  // LoyaltyLedger unique compound index on (userId, refType, refId)
+  // remains the canonical duplicate guard; these fields are fast
+  // booking-level markers for admin views and idempotent retries.
+  // refId used for redemption is `redeem:<bookingId>` so it never
+  // collides with the earn entry that uses `<bookingId>` directly.
+  loyalty_redeemed_points: { type: Number, default: 0, min: 0 },
+  loyalty_redemption_jd: { type: Number, default: 0, min: 0 },
+  loyalty_redeemed_at: { type: Date, default: null, index: true },
   status: { type: String, enum: ['pending', 'confirmed', 'checked_in', 'completed', 'cancelled'], default: 'pending' },
   check_in_time: { type: Date },
   session_end_time: { type: Date },

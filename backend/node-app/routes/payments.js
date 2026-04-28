@@ -18,6 +18,7 @@ const { authMiddleware } = require('../middleware/auth');
 const loyaltyRouter = require('./loyalty');
 const { awardPoints } = loyaltyRouter;
 const { validateCoupon } = require('../utils/coupons');
+const { previewRedemptionForUser, redeemForBooking } = require('../utils/loyaltyRedemption');
 const {
   sendHourlyBookingWhatsAppConfirmation,
   sendBirthdayBookingWhatsAppConfirmation
@@ -313,6 +314,34 @@ const finalizePaidTransaction = async (transaction) => {
   const metadata = transaction.metadata || {};
   const customer = await User.findById(transaction.user_id).select('name email').lean();
 
+  // Phase 6 — loyalty redemption is applied after the booking is persisted
+  // and the payment is confirmed paid. Wrapped here so both the "new
+  // bookings created" path and the "already finalized, return existing"
+  // path both call the idempotent deduction. Failure to deduct does NOT
+  // roll back the booking — the ledger is re-attempted on the next
+  // finalize retry (unique index makes this safe).
+  const maybeDeductLoyaltyForHourly = async (bookings) => {
+    const pointsUsed = Number(metadata.loyalty_points_used || 0);
+    const discountJd = Number(metadata.loyalty_discount_jd || 0);
+    if (!bookings || bookings.length === 0) return;
+    if (pointsUsed <= 0 || discountJd <= 0) return;
+    try {
+      await redeemForBooking({
+        userId: transaction.user_id,
+        bookingId: bookings[0]._id || bookings[0].id,
+        pointsToUse: pointsUsed,
+        discountJd
+      });
+    } catch (error) {
+      // Never surface to the caller — ledger is the source of truth and
+      // a future retry will post the entry. Logged for ops visibility.
+      console.error('LOYALTY_REDEEM_FINALIZE_FAILED', {
+        transactionId: transaction._id?.toString(),
+        message: error?.message || String(error)
+      });
+    }
+  };
+
   if (transaction.type === 'hourly') {
     const slotId = metadata.slot_id;
     const childIds = [...new Set(parseJsonArray(metadata.child_ids).map((id) => String(id).trim()).filter(Boolean))];
@@ -322,6 +351,7 @@ const finalizePaidTransaction = async (transaction) => {
 
     const existing = await HourlyBooking.find({ user_id: transaction.user_id, payment_id: paymentId }).sort({ created_at: 1 });
     if (existing.length > 0) {
+      await maybeDeductLoyaltyForHourly(existing);
       return { resourceType: 'hourly', bookings: existing.map((b) => b.toJSON()) };
     }
 
@@ -366,6 +396,19 @@ const finalizePaidTransaction = async (transaction) => {
         await Coupon.findOneAndUpdate({ code: metadata.coupon_code }, { $inc: { redeemed_count: 1 } });
       }
 
+      // Phase 6 — deduct loyalty AFTER bookings are persisted. Runs only
+      // for paid card transactions (this path). Idempotent across retries.
+      await maybeDeductLoyaltyForHourly(bookings);
+
+      // Re-hydrate bookings from DB so the response reflects the redemption
+      // markers (loyalty_redeemed_points / loyalty_redemption_jd /
+      // loyalty_redeemed_at) that maybeDeductLoyaltyForHourly stamped via
+      // a separate updateOne. The in-memory Mongoose docs above were
+      // serialised pre-stamp; the DB row is the truth.
+      const freshBookings = await HourlyBooking.find({
+        _id: { $in: bookings.map((b) => b._id) }
+      }).sort({ created_at: 1 });
+
       notifyAdminsOfOrder({
         orderType: 'Hourly Booking',
         orderId: bookings[0]?.booking_code || paymentId,
@@ -376,7 +419,7 @@ const finalizePaidTransaction = async (transaction) => {
         createdAt: bookings[0]?.created_at || new Date()
       }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
 
-      return { resourceType: 'hourly', bookings: bookings.map((b) => b.toJSON()) };
+      return { resourceType: 'hourly', bookings: (freshBookings.length ? freshBookings : bookings).map((b) => b.toJSON()) };
     } catch (error) {
       await TimeSlot.findByIdAndUpdate(slotId, { $inc: { booked_count: -childIds.length } });
       throw error;
@@ -758,6 +801,57 @@ router.post('/create-checkout', authMiddleware, async (req, res) => {
       metadata.coupon_code = normalizedCode;
       metadata.discount_amount = discountAmount;
     }
+
+    // Phase 6 — loyalty redemption. Applied AFTER coupon so the conversion
+    // rule is evaluated against the actual payable amount. Scope restriction:
+    // redemption is only applied to hourly checkouts in this phase. The
+    // cash / cliq path (routes/bookings.js /hourly/offline) explicitly
+    // rejects redemption because payment finalization there is not
+    // trustworthy enough for safe deduction.
+    //
+    // The amount sent to the payment gateway is the post-redemption amount.
+    // Points are NOT deducted here — only recorded in metadata. Deduction
+    // happens in finalizePaidTransaction() after the payment succeeds.
+    const rawLoyaltyPoints = req.body.loyalty_points;
+    const useMaxLoyalty = req.body.use_max_loyalty === true || req.body.use_max_loyalty === 'true';
+    const loyaltyPointsRequested = Number(rawLoyaltyPoints);
+    const wantsLoyalty = useMaxLoyalty || (Number.isFinite(loyaltyPointsRequested) && loyaltyPointsRequested > 0);
+
+    if (wantsLoyalty) {
+      if (type !== 'hourly') {
+        return res.status(400).json({ error: 'استرداد نقاط الولاء متاح فقط للحجز بالساعة حالياً' });
+      }
+      const preview = await previewRedemptionForUser({
+        userId: req.userId,
+        amountJd: amount,
+        pointsRequested: Number.isFinite(loyaltyPointsRequested) ? loyaltyPointsRequested : 0,
+        useMax: useMaxLoyalty
+      });
+      if (!preview.ok) {
+        const reasonMap = {
+          loyalty_disabled: 'نظام الولاء غير مفعل',
+          redemption_disabled: 'استرداد النقاط غير مفعل حالياً',
+          below_min_points: 'لم تصل إلى الحد الأدنى للاسترداد',
+          exceeds_limit: 'تتجاوز الحد الأقصى المسموح لهذا الحجز',
+          exceeds_amount: 'الخصم أكبر من قيمة الحجز',
+          zero_requested: 'أدخل عدد النقاط لاستخدامها',
+          amount_zero: 'قيمة الحجز غير صالحة',
+          no_headroom: 'لا يمكن الاسترداد على هذا الحجز',
+          rounds_to_zero: 'عدد النقاط غير كافٍ لخصم مرئي',
+          invalid_conversion: 'إعدادات الاسترداد غير صالحة'
+        };
+        return res.status(400).json({
+          error: reasonMap[preview.reason] || 'لا يمكن استخدام نقاط الولاء الآن',
+          reason: preview.reason,
+          maxPointsAllowed: preview.maxPointsAllowed
+        });
+      }
+      amount = Math.max(0, amount - preview.discountJd);
+      metadata.loyalty_points_used = preview.pointsToUse;
+      metadata.loyalty_discount_jd = preview.discountJd;
+      metadata.loyalty_conversion = preview.conversion;
+    }
+
     // Ensure amount is a valid float
     amount = parseFloat(amount);
     if (isNaN(amount) || amount <= 0) {
