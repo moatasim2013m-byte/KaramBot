@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from bson import ObjectId
 
 # Configuration
-BACKEND_URL = "https://credit-control-16.preview.emergentagent.com/api"
+BACKEND_URL = "https://api-gateway-fix-15.preview.emergentagent.com/api"
 ADMIN_CREDS = {"email": "admin@peekaboo.com", "password": "admin123"}
 PARENT_CREDS = {"email": "parent@peekaboo.com", "password": "parent123"}
 
