@@ -15,6 +15,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Settings = require('../models/Settings');
 const LoyaltyLedger = require('../models/LoyaltyLedger');
+const LoyaltyBalance = require('../models/LoyaltyBalance');
 const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 const {
@@ -22,12 +23,18 @@ const {
   DEFAULT_POLICY,
   getLoyaltyEarnPolicy
 } = require('../utils/loyaltySettings');
+const { reconcileAllUsers, reconcileUserBalance, computeAvailablePoints } = require('../utils/loyaltyBalance');
 
 const router = express.Router();
 
 router.use(authMiddleware, adminMiddleware);
 
 const VALID_EARN_MODES = new Set(['per_jd', 'per_visit']);
+
+const nonNegativeNumber = (raw, defaultValue) => {
+  const num = Number(raw);
+  return Number.isFinite(num) && num >= 0 ? num : defaultValue;
+};
 
 const sanitisePayload = (raw) => {
   const value = raw && typeof raw === 'object' ? raw : {};
@@ -38,17 +45,26 @@ const sanitisePayload = (raw) => {
     ? value.earn_mode
     : DEFAULT_POLICY.earn_mode;
 
-  const ppjRaw = Number(value.points_per_jd);
-  const points_per_jd = Number.isFinite(ppjRaw) && ppjRaw >= 0
-    ? ppjRaw
-    : DEFAULT_POLICY.points_per_jd;
+  const points_per_jd = nonNegativeNumber(value.points_per_jd, DEFAULT_POLICY.points_per_jd);
+  const fixed_points_per_visit = nonNegativeNumber(value.fixed_points_per_visit, DEFAULT_POLICY.fixed_points_per_visit);
 
-  const fppvRaw = Number(value.fixed_points_per_visit);
-  const fixed_points_per_visit = Number.isFinite(fppvRaw) && fppvRaw >= 0
-    ? fppvRaw
-    : DEFAULT_POLICY.fixed_points_per_visit;
+  // Phase 9.4 guardrails — sanitise alongside earn fields so admin PUT can
+  // update them in the same payload. Defaults applied on missing/invalid.
+  const max_points_per_award = nonNegativeNumber(value.max_points_per_award, DEFAULT_POLICY.max_points_per_award);
+  const max_points_per_day = nonNegativeNumber(value.max_points_per_day, DEFAULT_POLICY.max_points_per_day);
+  const redeem_min_points = nonNegativeNumber(value.redeem_min_points, DEFAULT_POLICY.redeem_min_points);
+  const redeem_max_jd_per_booking = nonNegativeNumber(value.redeem_max_jd_per_booking, DEFAULT_POLICY.redeem_max_jd_per_booking);
 
-  return { enabled, earn_mode, points_per_jd, fixed_points_per_visit };
+  return {
+    enabled,
+    earn_mode,
+    points_per_jd,
+    fixed_points_per_visit,
+    max_points_per_award,
+    max_points_per_day,
+    redeem_min_points,
+    redeem_max_jd_per_booking
+  };
 };
 
 // GET /api/admin/loyalty/settings — current earn policy.
@@ -139,6 +155,54 @@ router.get('/ledger', async (req, res) => {
   } catch (error) {
     console.error('Get loyalty ledger error:', error);
     res.status(500).json({ error: 'Failed to get loyalty ledger' });
+  }
+});
+
+// Phase 9.5 — POST /api/admin/loyalty/reconcile
+// Admin-triggered full reconcile. Recomputes LoyaltyBalance for every user
+// that has any ledger activity, from ledger truth. Idempotent. Reports any
+// detected drift (cached pointsAvailable differing from computed truth).
+router.post('/reconcile', async (req, res) => {
+  try {
+    const result = await reconcileAllUsers();
+    console.log('LOYALTY_RECONCILE_ADMIN', {
+      scanned: result.scanned,
+      corrected: result.corrected,
+      negative_ledger_users: result.negative_ledger_users
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('Loyalty reconcile failed:', error);
+    res.status(500).json({ error: 'Failed to reconcile loyalty balances' });
+  }
+});
+
+// Phase 9.5 — GET /api/admin/loyalty/user/:userId
+// Admin audit surface: shows cached balance side-by-side with ledger truth
+// for a single user. Useful to investigate disputed balances without
+// triggering a write.
+router.get('/user/:userId', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.userId)) {
+      return res.status(400).json({ error: 'Invalid userId' });
+    }
+    const userId = new mongoose.Types.ObjectId(req.params.userId);
+    const [cached, truth] = await Promise.all([
+      LoyaltyBalance.findOne({ userId }).lean(),
+      computeAvailablePoints(userId)
+    ]);
+    res.json({
+      userId: req.params.userId,
+      cached_points: cached?.pointsAvailable || 0,
+      cached_updated_at: cached?.updatedAt || null,
+      ledger_points: truth.points,
+      ledger_raw_sum: truth.raw,
+      drift: truth.points - (cached?.pointsAvailable || 0),
+      negative_ledger: truth.raw < 0
+    });
+  } catch (error) {
+    console.error('Loyalty user audit failed:', error);
+    res.status(500).json({ error: 'Failed to read user loyalty audit' });
   }
 });
 

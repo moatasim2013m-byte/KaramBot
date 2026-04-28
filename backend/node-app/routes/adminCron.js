@@ -4,6 +4,7 @@ const HourlyBooking = require('../models/HourlyBooking');
 const BirthdayBooking = require('../models/BirthdayBooking');
 const { sendEmail, emailTemplates } = require('../utils/email');
 const { sweepHourlyBookingLifecycle } = require('../utils/bookingLifecycle');
+const { reconcileAllUsers } = require('../utils/loyaltyBalance');
 
 const router = express.Router();
 
@@ -283,6 +284,29 @@ router.post('/booking-lifecycle', async (req, res) => {
   } catch (error) {
     console.error('BOOKING_LIFECYCLE_CRON_ERROR', error.message);
     return res.status(500).json({ error: 'Failed to run booking lifecycle sweep' });
+  }
+});
+
+// POST /loyalty-reconcile — Phase 9.5 full loyalty balance reconciliation.
+// Recomputes LoyaltyBalance.pointsAvailable from ledger truth for every
+// user with any ledger activity. Catches silent drift introduced by
+// expiry or any past cache write that lost sync with the ledger.
+// Idempotent. Recommended cadence: daily.
+router.post('/loyalty-reconcile', async (req, res) => {
+  if (!isCronAuthorized(req)) {
+    return res.status(401).json({ error: 'Unauthorized cron request' });
+  }
+  try {
+    const result = await reconcileAllUsers();
+    console.log('LOYALTY_RECONCILE_CRON', {
+      scanned: result.scanned,
+      corrected: result.corrected,
+      negative_ledger_users: result.negative_ledger_users
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('LOYALTY_RECONCILE_CRON_ERROR', error.message);
+    return res.status(500).json({ error: 'Failed to run loyalty reconcile' });
   }
 });
 

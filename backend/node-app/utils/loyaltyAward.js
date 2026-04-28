@@ -31,10 +31,39 @@
  */
 
 const HourlyBooking = require('../models/HourlyBooking');
+const LoyaltyLedger = require('../models/LoyaltyLedger');
+const mongoose = require('mongoose');
 const { awardPoints } = require('./awardPoints');
 const { getLoyaltyEarnPolicy, computePointsForAmount } = require('./loyaltySettings');
 
 const skip = (booking, reason) => ({ awarded: false, reason, points: 0, bookingId: booking?._id?.toString() });
+
+// Sum of POSITIVE earns posted for this user within the current UTC day.
+// Used to enforce policy.max_points_per_day. Ignores redemptions (negative
+// deltas) and expiry entries — only fresh positive awards count toward the
+// daily ceiling.
+const getEarnedTodayForUser = async (userId) => {
+  // Accept either a raw ObjectId/string or a populated mongoose doc.
+  const rawId = userId && userId._id ? userId._id : userId;
+  if (!rawId) return 0;
+  const oid = rawId instanceof mongoose.Types.ObjectId
+    ? rawId
+    : new mongoose.Types.ObjectId(String(rawId));
+  const now = new Date();
+  const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+  const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  const [summary] = await LoyaltyLedger.aggregate([
+    {
+      $match: {
+        userId: oid,
+        pointsDelta: { $gt: 0 },
+        createdAt: { $gte: startOfDay, $lte: endOfDay }
+      }
+    },
+    { $group: { _id: null, total: { $sum: '$pointsDelta' } } }
+  ]);
+  return Math.max(0, summary?.total || 0);
+};
 
 const awardLoyaltyForHourlyCheckin = async (booking) => {
   if (!booking || !booking._id) {
@@ -60,7 +89,36 @@ const awardLoyaltyForHourlyCheckin = async (booking) => {
     return skip(booking, 'loyalty_disabled');
   }
 
-  const points = computePointsForAmount(policy, booking.amount);
+  let points = computePointsForAmount(policy, booking.amount);
+  if (points <= 0) {
+    return skip(booking, 'zero_points');
+  }
+
+  // Phase 9.4 — per-award cap. Cap a single award to policy.max_points_per_award.
+  const maxPerAward = Number(policy.max_points_per_award) || 0;
+  let capReason = null;
+  if (maxPerAward > 0 && points > maxPerAward) {
+    points = maxPerAward;
+    capReason = 'capped_per_award';
+  }
+
+  // Phase 9.4 — daily cap. Clamp against remaining daily headroom.
+  const maxPerDay = Number(policy.max_points_per_day) || 0;
+  if (maxPerDay > 0) {
+    const earnedToday = await getEarnedTodayForUser(booking.user_id);
+    const remaining = Math.max(0, maxPerDay - earnedToday);
+    if (remaining <= 0) {
+      // User has already hit the daily ceiling. Do NOT flip the booking's
+      // loyalty marker — the booking is still eligible to earn on a future
+      // retroactive top-up if business rules change. For now, skip cleanly.
+      return skip(booking, 'daily_cap_reached');
+    }
+    if (points > remaining) {
+      points = remaining;
+      capReason = capReason ? 'capped_per_award_and_per_day' : 'capped_per_day';
+    }
+  }
+
   if (points <= 0) {
     return skip(booking, 'zero_points');
   }
@@ -98,12 +156,18 @@ const awardLoyaltyForHourlyCheckin = async (booking) => {
       $set: {
         loyalty_awarded_at: new Date(),
         loyalty_points_awarded: points,
-        loyalty_award_skipped_reason: null
+        loyalty_award_skipped_reason: capReason || null
       }
     }
   );
 
-  return { awarded: true, points, bookingId: refId, ledgerId: result.ledgerEntry?._id?.toString() || null };
+  return {
+    awarded: true,
+    points,
+    bookingId: refId,
+    ledgerId: result.ledgerEntry?._id?.toString() || null,
+    cap_applied: capReason || null
+  };
 };
 
 module.exports = {

@@ -4,6 +4,7 @@ const LoyaltyLedger = require('../models/LoyaltyLedger');
 const LoyaltyBalance = require('../models/LoyaltyBalance');
 const { authMiddleware } = require('../middleware/auth');
 const { supportsTransactions, isTransactionUnsupportedError } = require('../utils/mongoFeatures');
+const { computeAvailablePoints } = require('../utils/loyaltyBalance');
 
 const router = express.Router();
 
@@ -20,23 +21,11 @@ const toObjectId = (value) => {
   return new mongoose.Types.ObjectId(value);
 };
 
-const getNonExpiredPoints = async (userId, session) => {
-  const now = new Date();
-  const [summary] = await LoyaltyLedger.aggregate([
-    { $match: { userId: toObjectId(userId) } },
-    {
-      $match: {
-        $or: [
-          { pointsDelta: { $lt: 0 } },
-          { expiresAt: null },
-          { expiresAt: { $gt: now } }
-        ]
-      }
-    },
-    { $group: { _id: null, total: { $sum: '$pointsDelta' } } }
-  ]).session(session);
-
-  return Math.max(0, summary?.total || 0);
+// Legacy alias — kept so existing internal callers in this file keep working.
+// Phase 9.5: balance truth lives in utils/loyaltyBalance.computeAvailablePoints.
+const getNonExpiredPoints = async (userId /* , session */) => {
+  const { points } = await computeAvailablePoints(userId);
+  return points;
 };
 
 const upsertBalance = async (userId, pointsAvailable, session) => {

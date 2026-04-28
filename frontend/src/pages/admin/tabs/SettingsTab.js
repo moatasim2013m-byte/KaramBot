@@ -87,7 +87,12 @@ export default function SettingsTab(props) {
     enabled: true,
     earn_mode: 'per_jd',
     points_per_jd: 1,
-    fixed_points_per_visit: 10
+    fixed_points_per_visit: 10,
+    // Phase 9.4 guardrails — safe defaults until backend returns real values
+    max_points_per_award: 100,
+    max_points_per_day: 200,
+    redeem_min_points: 50,
+    redeem_max_jd_per_booking: 10
   });
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [savingLoyalty, setSavingLoyalty] = useState(false);
@@ -134,7 +139,11 @@ export default function SettingsTab(props) {
         enabled: !!loyaltySettings.enabled,
         earn_mode: loyaltySettings.earn_mode === 'per_visit' ? 'per_visit' : 'per_jd',
         points_per_jd: Math.max(0, Number(loyaltySettings.points_per_jd) || 0),
-        fixed_points_per_visit: Math.max(0, Number(loyaltySettings.fixed_points_per_visit) || 0)
+        fixed_points_per_visit: Math.max(0, Number(loyaltySettings.fixed_points_per_visit) || 0),
+        max_points_per_award: Math.max(0, Number(loyaltySettings.max_points_per_award) || 0),
+        max_points_per_day: Math.max(0, Number(loyaltySettings.max_points_per_day) || 0),
+        redeem_min_points: Math.max(0, Number(loyaltySettings.redeem_min_points) || 0),
+        redeem_max_jd_per_booking: Math.max(0, Number(loyaltySettings.redeem_max_jd_per_booking) || 0)
       };
       const res = await api.put('/admin/loyalty/settings', payload);
       if (res.data?.settings) setLoyaltySettings(res.data.settings);
@@ -398,6 +407,72 @@ export default function SettingsTab(props) {
                         data-testid="loyalty-fixed-points"
                       />
                       <p className="text-[11px] text-muted-foreground mt-1">يُستخدم فقط في وضع "نقاط ثابتة لكل زيارة".</p>
+                    </div>
+                  </div>
+
+                  {/* Phase 9.4 — financial guardrails. Minimum bounds before
+                      redemption. Each field defaults to a safe value and is
+                      stored alongside earn settings. */}
+                  <div className="space-y-3 pt-3 border-t border-dashed">
+                    <div>
+                      <Label className="text-sm font-semibold">ضوابط مالية قبل الاسترداد</Label>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        هذه الحدود تحمي الرصيد من الأخطاء. يتم تطبيقها على كل منح نقاط تلقائياً.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm">حد أقصى للنقاط في كل منحة</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={loyaltySettings.max_points_per_award}
+                          onChange={(e) => setLoyaltySettings(prev => ({ ...prev, max_points_per_award: e.target.value }))}
+                          className="rounded-xl mt-1"
+                          data-testid="loyalty-max-points-per-award"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">افتراضي: 100 — أي حجز لن يمنح أكثر من هذا الحد.</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm">حد أقصى للنقاط في اليوم (لكل عميل)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={loyaltySettings.max_points_per_day}
+                          onChange={(e) => setLoyaltySettings(prev => ({ ...prev, max_points_per_day: e.target.value }))}
+                          className="rounded-xl mt-1"
+                          data-testid="loyalty-max-points-per-day"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">افتراضي: 200 — إجمالي ما يمكن كسبه يومياً.</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm">الحد الأدنى للاسترداد (نقاط)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="1"
+                          value={loyaltySettings.redeem_min_points}
+                          onChange={(e) => setLoyaltySettings(prev => ({ ...prev, redeem_min_points: e.target.value }))}
+                          className="rounded-xl mt-1"
+                          data-testid="loyalty-redeem-min-points"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">افتراضي: 50 — لن يُسمح باسترداد أقل من هذا الحد.</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm">الحد الأقصى للاسترداد في الحجز (دينار)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          value={loyaltySettings.redeem_max_jd_per_booking}
+                          onChange={(e) => setLoyaltySettings(prev => ({ ...prev, redeem_max_jd_per_booking: e.target.value }))}
+                          className="rounded-xl mt-1"
+                          data-testid="loyalty-redeem-max-jd"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">افتراضي: 10 — أقصى خصم من رصيد الولاء لأي حجز.</p>
+                      </div>
                     </div>
                   </div>
 
