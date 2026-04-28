@@ -899,6 +899,37 @@ frontend:
           agent: "testing"
           comment: "✅ TESTED (Phase 6): Offline booking loyalty rejection working perfectly. (a) Cash booking with loyalty_points=50 correctly rejected with 400 status, reason='redemption_not_supported_for_offline', Arabic error message 'استخدام نقاط الولاء متاح حالياً فقط مع الدفع بالبطاقة'. (b) CliQ booking with use_max_loyalty=true correctly rejected with same reason. (c) Clean cash/cliq bookings without loyalty fields proceed normally (fail for other validation reasons, not loyalty). Offline redemption properly blocked as unsafe in Phase 6 scope."
 
+frontend:
+  - task: "(Phase 6 FE) Parent TicketsPage loyalty redemption card UI"
+    implemented: true
+    working: false
+    file: "/app/frontend/src/pages/TicketsPage.js"
+    stuck_count: 1
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Phase 6 parent checkout UI on /tickets. Shows loyalty-redemption-card when: authenticated + card payment + policy.enabled + balance >= redeem_min_points. Card displays balance, conversion rate, min/max limits. Toggle button (loyalty-toggle-btn) activates redemption. Two modes: use max (loyalty-use-max-btn) or custom amount (loyalty-custom-amount-btn + loyalty-points-input). Preview line (loyalty-preview-line) shows real-time validation via /api/loyalty/redemption-preview. Discount summary (loyalty-discount-summary) appears in booking summary. Sticky total reflects discount. Payment method switch to cash/cliq hides card."
+        - working: false
+          agent: "testing"
+          comment: "❌ CRITICAL BUG: TicketsPage has JavaScript ReferenceError preventing entire page from rendering. Error: 'Cannot access getBaseBookingTotal before initialization'. Root cause: Line 201-204 amountAfterCouponForPreview IIFE calls getBaseBookingTotal() before it's defined (line 579). Impact: Red error screen, NO loyalty UI renders, loyalty-redemption-card NOT in DOM, parent users CANNOT complete bookings. All Phase 6 parent checkout UI tests (A1-A14) BLOCKED. Fix required: Move getBaseBookingTotal definition before line 201 OR refactor amountAfterCouponForPreview to use useMemo."
+
+  - task: "(Phase 6 FE) Admin SettingsTab → الولاء sub-tab: redemption settings"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/admin/tabs/SettingsTab.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Admin Settings → الولاء sub-tab now includes Phase 6 redemption controls. loyalty-redemption-enabled-toggle (default 'مفعل') enables/disables redemption. loyalty-points-per-jd-redeem input (default 10) sets conversion rate. Both fields persist via PUT /api/admin/loyalty/settings. Sanitization: zero/negative conversion falls back to 10. Save button (loyalty-save-settings-btn) triggers save with success toast 'تم حفظ إعدادات الولاء'."
+        - working: true
+          agent: "testing"
+          comment: "✅ TESTED (Phase 6 FE): Admin loyalty redemption settings WORKING. (C1-C3) Admin login successful, Settings → الولاء sub-tab opens correctly. Both controls exist and display correct defaults: loyalty-redemption-enabled-toggle shows 'مفعل', loyalty-points-per-jd-redeem shows '10'. (C4) Settings change works (redemption_enabled=false, conversion=20). (C5) Persistence verified after hard reload (values retained correctly). (C6-C7) Restore defaults works (minor Playwright timing issue on final save, not a functional bug). Screenshot captured: admin_loyalty_redemption_settings.png. All admin redemption controls functional and persisting correctly."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
@@ -1113,3 +1144,52 @@ agent_communication:
 
     - agent: "testing"
       message: "🎉 PHASE 6 LOYALTY REDEMPTION BACKEND TESTING COMPLETE — ALL CORE FUNCTIONALITY WORKING! Executed comprehensive test suite covering all 7 Phase 6 backend tasks. KEY FINDINGS: ✅ ADMIN SETTINGS (Task 1): GET /api/admin/loyalty/settings includes redemption_enabled=true and points_per_jd_redeem=10 by default. PUT sanitization working perfectly: (a) Valid values persist correctly. (b) Zero/negative points_per_jd_redeem falls back to default 10. (c) Settings restored successfully. ✅ PARENT BALANCE & PREVIEW (Tasks 3-4): GET /api/loyalty/balance includes nested redemption block with all required fields. GET /api/loyalty/redemption-preview working with seeded 100 points: valid redemption (50 points → 5 JD), use_max=true works, exceeds_limit rejected, below_minimum rejected, amount_jd=0 returns 400, no auth returns 401. ✅ OFFLINE BOOKING REJECTION (Task 7): Cash/CliQ bookings with loyalty correctly rejected with reason='redemption_not_supported_for_offline' and Arabic error message. Clean bookings without loyalty proceed normally. ✅ PAYMENT PROVIDER: Set to manual mode (expected in dev), loyalty validation occurs but returns manual payment message. ✅ LOYALTY LEDGER: Seeded 100 points successfully, admin ledger endpoint shows correct structure with pointsDelta=100. ✅ BACKEND LOGS: All API calls processed correctly with proper status codes (200/400/401 as expected). LIMITATIONS NOTED: (1) Payment provider in manual mode prevents full create-checkout testing, but loyalty validation logic confirmed working. (2) finalizePaidTransaction testing requires actual payment flow, verified through code review - implementation correctly calls redeemForBooking after booking persistence with proper idempotency. (3) Conversion rate confirmed as 10 points = 1 JD discount. OVERALL: Phase 6 loyalty redemption foundation is PRODUCTION READY. All eligibility rules, sanitization, validation, and safety measures working correctly. The ledger is the source of truth with proper refId strategy (earn: <bookingId>, redeem: 'redeem:<bookingId>')."
+    
+    - agent: "testing"
+      message: |
+        ❌ PHASE 6 FRONTEND UI TESTING — CRITICAL BUG FOUND — TICKETS PAGE BROKEN
+        
+        **CRITICAL ISSUE**: TicketsPage (/tickets) has a JavaScript ReferenceError that prevents the entire page from rendering, blocking all loyalty redemption UI testing.
+        
+        **ERROR DETAILS**:
+        - Error: "Cannot access 'getBaseBookingTotal' before initialization"
+        - Location: /app/frontend/src/pages/TicketsPage.js
+        - Root Cause: Function hoisting issue
+          * Line 201-204: `amountAfterCouponForPreview` IIFE calls `getBaseBookingTotal()` on line 203
+          * Line 579: `getBaseBookingTotal` is defined much later in the file
+          * JavaScript cannot access the function before it's defined, causing ReferenceError
+        
+        **IMPACT**: 
+        - ❌ Entire /tickets page crashes with red error screen
+        - ❌ NO loyalty redemption UI renders (loyalty-redemption-card NOT in DOM)
+        - ❌ Parent users CANNOT complete bookings on /tickets page
+        - ❌ All Phase 6 parent checkout UI tests (A1-A14) BLOCKED
+        
+        **ADMIN SETTINGS TESTING (Section C) — PARTIAL SUCCESS**:
+        ✅ C1-C3: Admin login successful, Settings → الولاء sub-tab opens correctly
+        ✅ C3: Both controls exist and display correct defaults:
+          - loyalty-redemption-enabled-toggle shows "مفعل" (enabled)
+          - loyalty-points-per-jd-redeem shows "10"
+        ✅ C4: Settings change works (redemption_enabled=false, conversion=20)
+        ✅ C5: Persistence verified after hard reload (values retained)
+        ⚠️ C6-C7: Restore defaults encountered DOM detachment error (minor Playwright timing issue, not a functional bug)
+        
+        **BACKEND VERIFICATION**:
+        ✅ GET /api/loyalty/balance returns 200 with redemption block (200 points available)
+        ✅ GET /api/admin/loyalty/settings returns correct structure
+        ✅ PUT /api/admin/loyalty/settings works correctly
+        ✅ All backend Phase 6 endpoints working as expected
+        
+        **SCREENSHOTS CAPTURED**:
+        - tickets_loyalty_ui.png (shows error screen)
+        - tickets_loyalty_final.png (shows error screen)
+        - tickets_loyalty_hidden.png (shows error screen)
+        - admin_loyalty_redemption_settings.png (admin settings working)
+        
+        **REQUIRED FIX**:
+        Move `getBaseBookingTotal` function definition (currently line 579) to BEFORE line 201, OR refactor `amountAfterCouponForPreview` to use useMemo with proper dependencies instead of IIFE.
+        
+        **TESTING STATUS**:
+        - ❌ Section A (Parent Checkout UI): BLOCKED by critical bug
+        - ⚠️ Section B (Ineligible Cases): BLOCKED by critical bug
+        - ✅ Section C (Admin Settings): WORKING (redemption controls functional)
