@@ -108,11 +108,34 @@ router.get('/pending-checkins', async (req, res) => {
   }
 });
 
-// Check-in a booking (legacy manual booking_code flow — preserved for backward compatibility)
+// Check-in a booking (legacy manual booking_code flow).
+//
+// Phase 9.1 — legacy bypass closed at API layer.
+// QR-first activation policy: regular staff MUST go through /qr/validate +
+// /qr/checkin (camera scan or manual fallback typed into the QR-first
+// scanner UI, both of which validate before activating). The only
+// legitimate caller of this raw booking_code path is the admin override
+// button in /admin (AdminLayout → handleActivateHourlySession). Anyone
+// else hitting this endpoint with just a booking_code is bypassing the
+// QR-first guard, so we reject non-admin callers explicitly.
 router.post('/checkin', async (req, res) => {
   try {
+    const callerRole = String(req.user?.role || '').trim().toLowerCase();
+    if (callerRole !== 'admin') {
+      logger.info({
+        event: 'legacy_checkin_blocked',
+        reason: 'non_admin_caller',
+        staff_id: req.userId,
+        role: callerRole || null
+      });
+      return res.status(403).json({
+        error: 'هذا المسار متاح للإدارة فقط. الرجاء استخدام ماسح رمز QR لتفعيل الجلسة.',
+        error_code: 'legacy_checkin_disabled'
+      });
+    }
+
     const { booking_code } = req.body;
-    
+
     const booking = await HourlyBooking.findOne({ booking_code })
       .populate('slot_id')
       .populate('child_id')
@@ -136,6 +159,13 @@ router.post('/checkin', async (req, res) => {
     booking.qr_checked_in_at = now;
     booking.qr_checked_in_by = req.userId;
     await booking.save();
+
+    logger.info({
+      event: 'legacy_checkin_admin_override',
+      booking_id: booking._id.toString(),
+      booking_code: booking.booking_code,
+      admin_id: req.userId
+    });
 
     // Phase 3 — award loyalty points (idempotent, non-fatal).
     try {
