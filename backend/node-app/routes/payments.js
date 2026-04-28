@@ -1363,7 +1363,7 @@ router.post('/capital-bank/unified-checkout/session', authMiddleware, ensureHttp
     }
 
     const targetOrigin = resolveFrontendOrigin(req.body?.originUrl, req);
-    const locale = String(req.body?.locale || 'ar-xn');
+    const locale = String(req.body?.locale || 'en_US');
     const currency = String(transaction.currency || 'JOD').toUpperCase();
 
     console.info('[CyberSource Unified Checkout] Creating capture context', {
@@ -1625,6 +1625,96 @@ router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHt
       details: { message: error?.message || 'unknown_error' }
     });
   }
+});
+
+// Unified Checkout completion callback — CyberSource redirects/calls here after completeMandate finishes
+router.post('/capital-bank/unified-checkout/complete', async (req, res) => {
+  try {
+    const transactionId = req.body?.transactionId || req.body?.id || '';
+    const status = String(req.body?.status || req.body?.orderStatus || '').toUpperCase();
+    const orderId = req.body?.clientReferenceInformation?.code
+      || req.body?.req_reference_number
+      || req.body?.orderId
+      || '';
+
+    console.log('[CyberSource Unified Checkout] COMPLETE_CALLBACK', {
+      transactionId,
+      status,
+      orderId,
+      bodyKeys: Object.keys(req.body || {})
+    });
+
+    if (!orderId) {
+      return res.status(400).json({ error: 'Missing order reference' });
+    }
+
+    const transaction = await PaymentTransaction.findOne({
+      $or: [
+        { _id: orderId },
+        { session_id: orderId },
+        { 'metadata.session_id': orderId }
+      ]
+    });
+
+    if (!transaction) {
+      console.error('[CyberSource Unified Checkout] COMPLETE_CALLBACK_NO_TRANSACTION', { orderId });
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    const isPaid = status === 'AUTHORIZED' || status === 'CAPTURED' || status === 'COMPLETED';
+    const shouldKeepPaidState = ['paid', 'completed'].includes(transaction.status);
+    if (!shouldKeepPaidState) {
+      transaction.status = isPaid ? 'paid' : 'failed';
+      transaction.payment_status = isPaid ? 'paid' : 'failed';
+    }
+    transaction.provider = DB_PROVIDER_CAPITAL_BANK;
+    transaction.payment_id = transactionId || transaction.payment_id;
+    if (!transaction.metadata) transaction.metadata = {};
+    transaction.metadata.unified_checkout_complete = {
+      transactionId,
+      status,
+      receivedAt: new Date().toISOString(),
+      rawBody: req.body
+    };
+    await transaction.save();
+
+    console.log('[CyberSource Unified Checkout] COMPLETE_SAVED', {
+      orderId,
+      transactionId,
+      status: transaction.status,
+      isPaid
+    });
+
+    if (isPaid && transaction.type === 'product') {
+      try {
+        await maybeAwardProductLoyaltyPoints(transaction);
+      } catch (loyaltyErr) {
+        console.error('[CyberSource Unified Checkout] LOYALTY_ERROR', loyaltyErr?.message);
+      }
+    }
+    if (isPaid && ['hourly', 'birthday', 'subscription'].includes(transaction.type)) {
+      try {
+        await finalizeTransactionIfPaid(transaction);
+      } catch (finalizeErr) {
+        console.error('[CyberSource Unified Checkout] FINALIZE_ERROR', finalizeErr?.message);
+      }
+    }
+
+    const origin = req.headers.origin || req.headers.referer?.replace(/\/[^/]*$/, '') || 'https://peekaboojor.com';
+    if (isPaid) {
+      return res.redirect(`${origin}/payment/success?orderId=${encodeURIComponent(orderId)}`);
+    }
+    return res.redirect(`${origin}/payment/failed?orderId=${encodeURIComponent(orderId)}`);
+  } catch (error) {
+    console.error('[CyberSource Unified Checkout] COMPLETE_ERROR', error?.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/capital-bank/unified-checkout/complete', (req, res) => {
+  const orderId = req.query.orderId || req.query.ref || '';
+  const origin = 'https://peekaboojor.com';
+  return res.redirect(`${origin}/payment/success?orderId=${encodeURIComponent(orderId)}`);
 });
 
 router.get('/provider', (_req, res) => {
