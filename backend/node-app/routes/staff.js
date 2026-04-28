@@ -98,7 +98,9 @@ router.get('/pending-checkins', async (req, res) => {
       slot_time: booking.slot_id?.start_time || 'N/A',
       qr_code: booking.qr_code,
       qr_token: booking.qr_token || null,
-      qr_status: booking.qr_status || 'unused'
+      qr_status: booking.qr_status || 'unused',
+      payment_status: booking.payment_status || null,
+      payment_method: booking.payment_method || null
     }));
 
     res.json({ bookings });
@@ -442,6 +444,8 @@ const ARABIC_MESSAGES = {
   not_found: 'رمز الحجز غير صالح',
   cancelled: 'هذا الحجز ملغي',
   unpaid: 'هذا الحجز غير مدفوع أو غير مؤكد',
+  unpaid_cash: 'يرجى استلام الدفع النقدي قبل تفعيل الجلسة',
+  unpaid_cliq: 'يرجى تأكيد استلام دفعة CliQ قبل تفعيل الجلسة',
   already_used: 'تم استخدام رمز QR مسبقًا',
   not_active_yet: 'لا يمكن تفعيل هذا الحجز الآن',
   validate_ok: 'تم التحقق من رمز الحجز بنجاح',
@@ -492,6 +496,12 @@ const summarizeBooking = (booking) => ({
 
 // Determine whether a booking can currently be checked in.
 // Returns { can_checkin, reason_code, reason_ar }.
+//
+// Phase 9.2 — payment-first enforcement.
+// Unpaid bookings (payment_status = pending_cash | pending_cliq) are
+// explicitly rejected with a method-specific Arabic message so staff know
+// exactly what to collect before activation. Only payment_status === 'paid'
+// (or absent, for legacy rows) is eligible.
 const evaluateCheckinEligibility = (booking) => {
   if (!booking) {
     return { can_checkin: false, reason_code: 'not_found', reason_ar: ARABIC_MESSAGES.not_found };
@@ -499,7 +509,6 @@ const evaluateCheckinEligibility = (booking) => {
   if (booking.status === 'cancelled') {
     return { can_checkin: false, reason_code: 'cancelled', reason_ar: ARABIC_MESSAGES.cancelled };
   }
-  // Only confirmed (i.e. paid OR pending_cash/pending_cliq accepted by current flow) are eligible
   if (booking.status !== 'confirmed') {
     if (booking.status === 'checked_in' || booking.qr_status === 'checked_in') {
       return { can_checkin: false, reason_code: 'already_used', reason_ar: ARABIC_MESSAGES.already_used };
@@ -509,8 +518,16 @@ const evaluateCheckinEligibility = (booking) => {
   if (booking.qr_status && booking.qr_status !== 'unused') {
     return { can_checkin: false, reason_code: 'already_used', reason_ar: ARABIC_MESSAGES.already_used };
   }
-  // Reject if explicitly unpaid/unconfirmed payment-wise
-  if (booking.payment_status && !['paid', 'pending_cash', 'pending_cliq'].includes(booking.payment_status)) {
+  // Payment must be fully settled before activation. Absent payment_status is
+  // treated as 'paid' (legacy rows — the schema default is 'paid').
+  const ps = booking.payment_status;
+  if (ps === 'pending_cash') {
+    return { can_checkin: false, reason_code: 'unpaid_cash', reason_ar: ARABIC_MESSAGES.unpaid_cash };
+  }
+  if (ps === 'pending_cliq') {
+    return { can_checkin: false, reason_code: 'unpaid_cliq', reason_ar: ARABIC_MESSAGES.unpaid_cliq };
+  }
+  if (ps && ps !== 'paid') {
     return { can_checkin: false, reason_code: 'unpaid', reason_ar: ARABIC_MESSAGES.unpaid };
   }
   return { can_checkin: true, reason_code: 'ok', reason_ar: ARABIC_MESSAGES.validate_ok };

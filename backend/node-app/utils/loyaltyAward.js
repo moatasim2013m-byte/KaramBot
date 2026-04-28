@@ -19,11 +19,12 @@
  *   - booking.status === 'checked_in'
  *   - booking.qr_status === 'checked_in' OR booking.check_in_time present
  *   - booking.user_id is set (guest-only bookings without an owner cannot earn)
- *   - booking.payment_status indicates a real spend ('paid' OR confirmed cash)
- *     — we accept 'paid', 'pending_cash', 'pending_cliq' as a successful
- *       check-in implies cash was collected at the door / will be settled.
- *       Cancelled bookings cannot reach checked_in so they are excluded
- *       implicitly.
+ *   - booking.payment_status === 'paid' (absent → treated as 'paid' for
+ *     legacy rows whose schema default is 'paid'). Unpaid bookings
+ *     (pending_cash / pending_cliq) NEVER earn — enforced here as
+ *     defense-in-depth in addition to the staff.js eligibility gate, so
+ *     that any path that reaches checked_in (e.g. admin override via
+ *     /staff/checkin) still cannot mint points on an unpaid visit.
  *
  * Never throws — returns a structured result so callers can log without
  * breaking the check-in response.
@@ -44,6 +45,11 @@ const awardLoyaltyForHourlyCheckin = async (booking) => {
   }
   if (booking.status !== 'checked_in') {
     return skip(booking, 'not_checked_in');
+  }
+  // Phase 9.2 — payment-first enforcement. Unpaid bookings cannot earn.
+  // Absent payment_status is treated as 'paid' (schema default is 'paid').
+  if (booking.payment_status && booking.payment_status !== 'paid') {
+    return skip(booking, 'unpaid');
   }
   if (booking.loyalty_awarded_at) {
     return skip(booking, 'already_awarded_marker');
