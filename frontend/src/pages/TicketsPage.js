@@ -197,12 +197,12 @@ export default function TicketsPage() {
   // backend is the source of truth for `pointsToUse` / `discountJd`
   // so we never trust a locally computed conversion. Debounced by 300ms
   // to avoid spamming the endpoint while the input changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const amountAfterCouponForPreview = (() => {
-    if (!selectedSlot || !selectedDuration) return 0;
-    return Math.max(0, getBaseBookingTotal() + getProductsTotal() - Number(appliedCoupon?.discount_amount || 0));
-  })();
-
+  //
+  // NOTE: the amount is computed inside the effect (not hoisted above)
+  // because the helper functions getBaseBookingTotal / getProductsTotal
+  // are `const` arrow functions declared later in the component body.
+  // Closures make them available at effect-run time, so computing here
+  // is safe and avoids a TDZ error at render time.
   useEffect(() => {
     if (!isAuthenticated) return;
     if (!useLoyalty) {
@@ -213,7 +213,10 @@ export default function TicketsPage() {
       setLoyaltyPreview(null);
       return;
     }
-    if (!amountAfterCouponForPreview || amountAfterCouponForPreview <= 0) {
+    const amountAfterCoupon = (!selectedSlot || !selectedDuration)
+      ? 0
+      : Math.max(0, getBaseBookingTotal() + getProductsTotal() - Number(appliedCoupon?.discount_amount || 0));
+    if (!amountAfterCoupon || amountAfterCoupon <= 0) {
       setLoyaltyPreview(null);
       return;
     }
@@ -224,7 +227,7 @@ export default function TicketsPage() {
       try {
         const res = await api.get('/loyalty/redemption-preview', {
           params: {
-            amount_jd: amountAfterCouponForPreview,
+            amount_jd: amountAfterCoupon,
             points: useMax ? 0 : inputPoints,
             use_max: useMax ? 'true' : 'false'
           }
@@ -239,7 +242,7 @@ export default function TicketsPage() {
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, useLoyalty, loyaltyUseMax, loyaltyPointsInput, amountAfterCouponForPreview, paymentMethod]);
+  }, [isAuthenticated, useLoyalty, loyaltyUseMax, loyaltyPointsInput, paymentMethod, selectedSlot, selectedDuration, products, appliedCoupon, timeMode, date, selectedChildren, guestChildCount]);
 
   // When the parent switches away from card, clear any active redemption
   // so the sticky total doesn't show a discount that won't be honoured.
