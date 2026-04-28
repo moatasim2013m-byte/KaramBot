@@ -14,9 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import { format, addDays, startOfDay } from 'date-fns';
 import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
-import mascotImg from '../assets/mascot.png';
-import SkyBackground from '../components/theme/SkyBackground';
-import SmilingSun from '../components/theme/SmilingSun';
+import Shroomi from '../components/Shroomi';
 import MascotVariant from '../components/theme/MascotVariant';
 import partyCakeIcon from '../assets/cartoon-icons/party-cake.svg';
 import sparkleIcon from '../assets/cartoon-icons/sparkle.svg';
@@ -411,41 +409,31 @@ export default function BirthdayPage() {
   );
 
   return (
-    <div className="birthday-page birthday-playful min-h-screen py-8 md:py-12" dir="rtl">
-      <SkyBackground className="birthday-sky" />
-      <SmilingSun className="birthday-sun" />
+    <div className="birthday-page birthday-playful min-h-screen py-8 md:py-12 pk-booking-page" dir="rtl">
       <div className="page-shell max-w-6xl px-4 sm:px-6 lg:px-8">
-        <div className="birthday-page-decoration" aria-hidden="true">
-          <span className="birthday-confetti birthday-confetti--pink" />
-          <span className="birthday-confetti birthday-confetti--blue" />
-          <span className="birthday-confetti birthday-confetti--yellow" />
-          <span className="birthday-confetti birthday-confetti--green" />
-        </div>
 
-        {/* Page Header */}
-        <div className="birthday-hero text-center mb-8">
-          <div className="birthday-hero-decor" aria-hidden="true">
-            <span className="birthday-hero-cloud birthday-hero-cloud--one" />
-            <span className="birthday-hero-cloud birthday-hero-cloud--two" />
-            <img src={partyCakeIcon} className="birthday-hero-cake-icon" alt="" />
+        {/* Premium Birthday Hero — replaces the legacy "Plan Your Party!"
+            mega-mascot block. party-big Shroomi sets the celebration tone
+            without overwhelming the layout. */}
+        <div className="pk-booking-hero mb-8">
+          <div className="pk-booking-hero__deco-yellow" aria-hidden="true"></div>
+          <div className="pk-booking-hero__deco-blue" aria-hidden="true" style={{ background: 'rgba(245,107,156,.45)' }}></div>
+
+          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--red" aria-hidden="true">
+            <Shroomi pose="party-big" size={150} className="shroomi-float" />
           </div>
-          <h1 className="birthday-page-title font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mb-3" data-testid="birthday-title">
-            <img src={partyCakeIcon} className="inline-block h-9 w-9 ml-2" alt="" />
-            حفلات أعياد الميلاد
-          </h1>
-          <div className="shroomi-promo shroomi-promo--events">
-            <img src={mascotImg} alt="Shroomi with gift" className="shroomi-promo__img shroomi-promo__img--gift" />
-            <span className="shroomi-promo__text">Plan Your Party!</span>
-          </div>
-          <p className="birthday-page-subtitle text-base md:text-lg max-w-xl mx-auto">
-            أجواء احتفالية، بالونات مرحة، وتجربة لا تُنسى لطفلك!
-          </p>
-          <div className="birthday-hero-balloons" aria-hidden="true">
-            <span className="birthday-hero-balloon birthday-hero-balloon--one" />
-            <span className="birthday-hero-balloon birthday-hero-balloon--two" />
-            <span className="birthday-hero-confetti birthday-hero-confetti--one" />
-            <span className="birthday-hero-confetti birthday-hero-confetti--two" />
-            <span className="birthday-hero-confetti birthday-hero-confetti--three" />
+
+          <div className="relative z-10 max-w-2xl">
+            <span className="pk-hero-eyebrow" style={{ color: '#9d174d', background: 'rgba(245,107,156,.18)', borderColor: 'rgba(245,107,156,.4)' }}>
+              <img src={partyCakeIcon} className="h-3.5 w-3.5" alt="" />
+              احتفال لا يُنسى — كيك، بالونات، وفرحة
+            </span>
+            <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mt-3 mb-2" data-testid="birthday-title">
+              حفلات أعياد الميلاد
+            </h1>
+            <p className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
+              اختر التاريخ والثيم، وسنحضّر لطفلك تجربة احتفال متكاملة — بإشراف فريق بيكابو.
+            </p>
           </div>
         </div>
 
@@ -540,6 +528,9 @@ export default function BirthdayPage() {
               <h2 className="font-heading text-xl font-bold mb-4 flex items-center gap-2">
                 <span className={`step-badge ${selectedTheme ? 'step-badge-complete' : ''}`}>3</span>
                 اختر الثيم
+                <span className="ml-auto inline-flex items-center" aria-hidden="true">
+                  <Shroomi pose="jump-cheer" size={52} className="shroomi-bob" />
+                </span>
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                 {themes.map((theme, index) => (
@@ -679,7 +670,11 @@ export default function BirthdayPage() {
 
             {/* Booking Form */}
             {isAuthenticated && (
-              <Card className="booking-card birthday-summary-card">
+              <Card className="booking-card birthday-summary-card relative overflow-visible">
+                {/* Friendly thumbs-up Shroomi marks the "ready to book" zone. */}
+                <div className="hidden sm:block absolute -top-8 left-4 z-10 shroomi-halo shroomi-halo--green" aria-hidden="true">
+                  <Shroomi pose="thumbs-up-big" size={88} className="shroomi-bob" />
+                </div>
                 <CardHeader className="booking-card-header">
                   <CardTitle className="booking-card-title">أكمل حجزك</CardTitle>
                 </CardHeader>
@@ -857,8 +852,11 @@ export default function BirthdayPage() {
         </Tabs>
 
         {!isAuthenticated && (
-          <Card className="booking-card bg-accent/5 mt-6">
-            <CardContent className="py-8 text-center">
+          <Card className="booking-card pk-auth-invite border-0 shadow-none mt-6">
+            <CardContent className="py-6 text-center">
+              <div className="pk-auth-invite__shroomi" aria-hidden="true">
+                <Shroomi pose="balloons" size={92} className="shroomi-pop-in" />
+              </div>
               <p className="text-base mb-4">سجّل الدخول أو أنشئ حساب لحجز حفلة</p>
               <div className="flex gap-4 justify-center">
                 <Button onClick={() => navigate('/login')} variant="outline" className="rounded-full">تسجيل الدخول</Button>

@@ -8,9 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
-import mascotImg from '../assets/mascot.png';
-import SkyBackground from '../components/theme/SkyBackground';
-import SmilingSun from '../components/theme/SmilingSun';
+import Shroomi from '../components/Shroomi';
 import MascotVariant from '../components/theme/MascotVariant';
 import starIcon from '../assets/cartoon-icons/star.svg';
 import checkIcon from '../assets/cartoon-icons/check.svg';
@@ -163,46 +161,46 @@ export default function SubscriptionsPage() {
   };
 
   return (
-    <div className="subscriptions-page min-h-screen py-8 md:py-12" dir="rtl">
-      <SkyBackground className="subscriptions-sky" />
-      <SmilingSun className="subscriptions-sun" />
+    <div className="subscriptions-page min-h-screen py-8 md:py-12 pk-booking-page" dir="rtl">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Page Header */}
-        <div className="subscriptions-hero text-center mb-10">
-          <div className="subscriptions-hero-decor" aria-hidden="true">
-            <span className="subscriptions-hero-cloud subscriptions-hero-cloud--one" />
-            <span className="subscriptions-hero-cloud subscriptions-hero-cloud--two" />
-            <span className="subscriptions-hero-balloon subscriptions-hero-balloon--one" />
-            <span className="subscriptions-hero-balloon subscriptions-hero-balloon--two" />
+        {/* Premium Subscriptions Hero — replaces the legacy "Join Now!"
+            mega-mascot block. Eyebrow positions this as a smart-value
+            page; gift-magic Shroomi reinforces "premium reward" framing. */}
+        <div className="pk-booking-hero mb-10">
+          <div className="pk-booking-hero__deco-yellow" aria-hidden="true"></div>
+          <div className="pk-booking-hero__deco-blue" aria-hidden="true"></div>
+
+          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--yellow" aria-hidden="true">
+            <Shroomi pose="gift-magic" size={150} className="shroomi-float" />
           </div>
-          <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mb-3" data-testid="subscriptions-title">
-            <img src={starIcon} className="inline-block h-9 w-9 ml-2" alt="" />
-            باقات الاشتراك
-          </h1>
-          <div className="shroomi-promo shroomi-promo--subscriptions">
-            <img src={mascotImg} alt="Shroomi with calendar" className="shroomi-promo__img shroomi-promo__img--calendar" />
-            <span className="shroomi-promo__text">Join Now!</span>
-          </div>
-          <p className="text-muted-foreground text-base md:text-lg max-w-xl mx-auto">
-            وفّر أكثر مع باقات الزيارات. صالحة لمدة 30 يومًا.
-          </p>
-          <div className="mt-5 flex items-center justify-center gap-3 sm:gap-4">
-            {[
-              { icon: popperIcon, bg: 'bg-[var(--pk-orange)]/20' },
-              { icon: rocketIcon, bg: 'bg-[var(--pk-blue)]/20' },
-              { icon: sparkleIcon, bg: 'bg-[var(--pk-yellow)]/20' }
-            ].map((item, index) => {
-              const iconSrc = item.icon;
-              return (
+
+          <div className="relative z-10 max-w-2xl">
+            <span className="pk-hero-eyebrow" style={{ color: '#92400e', background: 'rgba(242,229,51,.22)', borderColor: 'rgba(242,138,46,.4)' }}>
+              <img src={starIcon} className="h-3.5 w-3.5" alt="" />
+              وفّر أكثر مع باقات الزيارات المتكررة
+            </span>
+            <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mt-3 mb-2" data-testid="subscriptions-title">
+              باقات الاشتراك
+            </h1>
+            <p className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
+              اختر الباقة الأنسب لطفلك — صلاحية 30 يومًا، دخول كامل للملعب، وقيمة مضاعفة لكل زيارة.
+            </p>
+
+            <div className="mt-5 flex items-center gap-3">
+              {[
+                { icon: popperIcon, bg: 'bg-[var(--pk-orange)]/15' },
+                { icon: rocketIcon, bg: 'bg-[var(--pk-blue)]/15' },
+                { icon: sparkleIcon, bg: 'bg-[var(--pk-yellow)]/20' }
+              ].map((item, index) => (
                 <span
                   key={index}
-                  className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-white shadow-sm ${item.bg}`}
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white shadow-sm ${item.bg}`}
                   aria-hidden="true"
                 >
-                  <img src={iconSrc} className="h-5 w-5" alt="" />
+                  <img src={item.icon} className="h-4 w-4" alt="" />
                 </span>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </div>
 
@@ -224,13 +222,30 @@ export default function SubscriptionsPage() {
                   <Card
                     key={plan.id}
                     onClick={() => setSelectedPlan(plan)}
-                    className={`pk-card theme-package-card subscription-plan-card cursor-pointer transition-all relative ${
+                    className={`pk-card theme-package-card subscription-plan-card cursor-pointer transition-all relative overflow-visible ${
                       selectedPlan?.id === plan.id ? 'is-selected ring-2 ring-[var(--pk-yellow)] shadow-lg' : 'hover:shadow-lg'
                     } ${isPopular ? 'md:-mt-4 md:mb-4' : ''}`}
                     data-testid={`plan-${plan.id}`}
                   >
                     <div className={`pk-card-accent ${isPopular ? 'accent-rainbow' : tier === 'basic' ? 'accent-green' : 'accent-orange'}`} />
                     {isPopular && <Badge className="absolute top-3 left-3 theme-saving-badge theme-saving-badge--subscriptions">الأكثر توفيراً</Badge>}
+                    {/* Premium plan-specific Shroomi accents — different
+                        pose per tier so he never feels copy-pasted. */}
+                    {tier === 'basic' && (
+                      <div className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--green" aria-hidden="true">
+                        <Shroomi pose="thumbs-up" size={56} />
+                      </div>
+                    )}
+                    {isPopular && (
+                      <div className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--yellow" aria-hidden="true">
+                        <Shroomi pose="tag-discount" size={64} className="shroomi-bob" />
+                      </div>
+                    )}
+                    {tier === 'premium' && (
+                      <div className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--orange" aria-hidden="true">
+                        <Shroomi pose="party-coins" size={56} />
+                      </div>
+                    )}
                     <CardHeader className={`text-center pb-3 ${isPopular ? 'pt-10' : 'pt-6'}`}>
                       <div className="mb-3 flex justify-center">
                         <span className={`inline-flex h-12 w-12 items-center justify-center rounded-full border-2 border-white shadow-sm ${tierIcon.bg}`}>
@@ -348,8 +363,11 @@ export default function SubscriptionsPage() {
                 </CardContent>
               </Card>
             ) : (
-              <Card className="booking-card max-w-xl mx-auto bg-secondary/5">
-                <CardContent className="py-8 text-center">
+              <Card className="booking-card max-w-xl mx-auto pk-auth-invite border-0 shadow-none">
+                <CardContent className="py-6 text-center">
+                  <div className="pk-auth-invite__shroomi" aria-hidden="true">
+                    <Shroomi pose="prayer" size={92} className="shroomi-pop-in" />
+                  </div>
                   <p className="text-base mb-4">سجّل الدخول أو أنشئ حساب لإتمام الشراء</p>
                   <div className="flex gap-4 justify-center">
                     <Button onClick={() => navigate('/login')} variant="outline" className="rounded-full">تسجيل الدخول</Button>
