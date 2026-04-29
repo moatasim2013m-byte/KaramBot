@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  font-family: 'Cairo', sans-serif;
+}
+
+body {
+  direction: rtl;
+  text-align: right;
+}
+
+/* WhatsApp message bubbles */
+.msg-inbound {
+  @apply bg-white text-gray-800 rounded-2xl rounded-tr-sm shadow-sm;
+}
+.msg-outbound {
+  @apply bg-green-500 text-white rounded-2xl rounded-tl-sm shadow-sm;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded; }
+
+/* Status badges */
+.badge-confirmed { @apply bg-green-100 text-green-700; }
+.badge-preparing { @apply bg-blue-100 text-blue-700; }
+.badge-ready { @apply bg-purple-100 text-purple-700; }
+.badge-out_for_delivery { @apply bg-orange-100 text-orange-700; }
+.badge-delivered { @apply bg-gray-100 text-gray-700; }
+.badge-cancelled { @apply bg-red-100 text-red-700; }
+.badge-draft { @apply bg-yellow-100 text-yellow-700; }
