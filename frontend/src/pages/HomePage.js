@@ -457,9 +457,9 @@ export default function HomePage() {
       {showDeferredSections && (
         <>
           {/* ================== 2. PEEKABOO JOURNEY ================== */}
-          <section className="relative py-16 md:py-24 bg-gradient-to-b from-[#F1FAEA] via-[#F6FBEF] to-[#FFF8F0]">
+          <section className="relative py-12 md:py-16 bg-gradient-to-b from-[#F1FAEA] via-[#F6FBEF] to-[#FFF8F0]">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="text-center max-w-2xl mx-auto mb-12">
+              <div className="text-center max-w-2xl mx-auto mb-8 md:mb-10">
                 <span className="inline-block px-4 py-1.5 rounded-full bg-[#7AC74F]/15 text-[#3F7A1E] text-sm font-bold mb-4">
                   رحلة بيكابو
                 </span>
@@ -481,15 +481,15 @@ export default function HomePage() {
                         key={step.title}
                         className="snap-start shrink-0 w-[78%] sm:w-[46%] md:w-[32%] lg:w-auto relative"
                       >
-                        <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-5 pt-7 flex flex-col items-center text-center`}>
+                        <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-4 pt-6 flex flex-col items-center text-center`}>
                           {/* Step number */}
                           <div className={`absolute -top-4 ${a.strip} text-white text-sm font-extrabold w-9 h-9 rounded-full flex items-center justify-center shadow-md ring-4 ring-[#FFF8F0]`}>
                             {idx + 1}
                           </div>
-                          <div className={`w-24 h-24 rounded-2xl ${a.soft} flex items-center justify-center mb-3`}>
-                            <Shroomi pose={step.pose} size={86} />
+                          <div className={`w-28 h-28 rounded-2xl ${a.soft} flex items-center justify-center mb-2.5`}>
+                            <Shroomi pose={step.pose} size={96} />
                           </div>
-                          <h3 className="font-bold text-base text-[#2D2D2D] mb-1.5">{step.title}</h3>
+                          <h3 className="font-bold text-base text-[#2D2D2D] mb-1">{step.title}</h3>
                           <p className="text-xs text-[#2D2D2D]/60 leading-relaxed">{step.desc}</p>
                         </div>
                         {/* Connector arrow (desktop, between cards) */}
@@ -535,17 +535,17 @@ export default function HomePage() {
                       {/* Color-coded top strip */}
                       <div className={`h-1.5 w-full ${a.strip}`} />
 
-                      <div className="p-7 flex flex-col h-full">
+                      <div className="p-6 flex flex-col h-full">
                         {feature.isCoreOffer && (
-                          <span className="absolute top-5 left-5 bg-[#E63946] text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-sm">
+                          <span className="absolute top-4 left-4 bg-[#E63946] text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-sm">
                             الأكثر طلباً
                           </span>
                         )}
-                        <div className={`w-16 h-16 rounded-2xl ${a.soft} flex items-center justify-center mb-5 ring-1 ring-inset ${a.border}`}>
-                          <img src={feature.icon} alt="" className="w-9 h-9" />
+                        <div className={`w-14 h-14 rounded-2xl ${a.soft} flex items-center justify-center mb-4 ring-1 ring-inset ${a.border}`}>
+                          <img src={feature.icon} alt="" className="w-8 h-8" />
                         </div>
-                        <h3 className="font-bold text-xl text-[#2D2D2D] mb-2.5">{feature.title}</h3>
-                        <p className="text-sm text-[#2D2D2D]/65 mb-6 flex-grow leading-relaxed">{feature.description}</p>
+                        <h3 className="font-bold text-lg text-[#2D2D2D] mb-2">{feature.title}</h3>
+                        <p className="text-sm text-[#2D2D2D]/65 mb-5 flex-grow leading-relaxed">{feature.description}</p>
 
                         <div className="mt-auto">
                           {feature.disabled ? (
@@ -621,7 +621,7 @@ export default function HomePage() {
           </section>
 
           {/* ================== 5. PARENT AREA ================== */}
-          <section className="relative py-16 md:py-20 bg-[#FFF8F0]">
+          <section className="relative py-10 md:py-14 bg-[#FFF8F0]">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="bg-white rounded-[2rem] border border-[#FFD166]/40 shadow-[0_10px_30px_rgba(45,45,45,0.06)] p-8 md:p-12">
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
@@ -664,9 +664,9 @@ export default function HomePage() {
           </section>
 
           {/* ================== 6. GALLERY ================== */}
-          <section className="relative py-16 md:py-24 bg-gradient-to-b from-[#FFF8F0] via-[#FFF3DE] to-[#FFF8F0]">
+          <section className="relative py-12 md:py-16 bg-gradient-to-b from-[#FFF8F0] via-[#FFF3DE] to-[#FFF8F0]">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="text-center max-w-2xl mx-auto mb-12">
+              <div className="text-center max-w-2xl mx-auto mb-8 md:mb-10">
                 <span className="inline-block px-4 py-1.5 rounded-full bg-[#E63946]/12 text-[#E63946] text-sm font-bold mb-4">
                   لقطات حقيقية
                 </span>
@@ -724,7 +724,7 @@ export default function HomePage() {
           </section>
 
           {/* ================== 7. LOCATION + HOURS (static brand info) ================== */}
-          <section className="relative py-14 md:py-20 bg-[#FFF8F0]">
+          <section className="relative py-10 md:py-14 bg-[#FFF8F0]">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div className="bg-white rounded-3xl p-6 border border-black/5 shadow-[0_8px_22px_rgba(45,45,45,0.05)] flex items-start gap-4">
@@ -766,7 +766,7 @@ export default function HomePage() {
           </section>
 
           {/* ================== 8. FINAL CTA ================== */}
-          <section className="relative py-16 md:py-24 px-4 sm:px-6 lg:px-8">
+          <section className="relative py-12 md:py-20 px-4 sm:px-6 lg:px-8">
             <div className="max-w-6xl mx-auto">
               <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-[#E63946] via-[#E8872E] to-[#FFD166] p-10 sm:p-14 md:p-20 shadow-[0_25px_60px_-20px_rgba(230,57,70,0.45)]">
                 {/* Decorative blobs */}
