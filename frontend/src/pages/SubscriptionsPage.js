@@ -3,21 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/useT';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Badge } from '../components/ui/badge';
+import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
 import Shroomi from '../components/Shroomi';
-import MascotVariant from '../components/theme/MascotVariant';
-import starIcon from '../assets/cartoon-icons/star.svg';
-import checkIcon from '../assets/cartoon-icons/check.svg';
-import popperIcon from '../assets/cartoon-icons/popper.svg';
-import sparkleIcon from '../assets/cartoon-icons/sparkle.svg';
-import crownIcon from '../assets/cartoon-icons/crown.svg';
-import giftIcon from '../assets/cartoon-icons/party-cake.svg';
-import rocketIcon from '../assets/cartoon-icons/rocket.svg';
-import subscriptionAccessory from '../assets/mascot-variants/subscription-crown.svg';
+import {
+  Loader2,
+  Sparkles,
+  Crown,
+  Gift,
+  Check,
+  Star,
+  CalendarDays,
+  ShieldCheck,
+} from 'lucide-react';
 
 const stripWeekdayRangeFromPlanName = (name = '') =>
   name
@@ -31,11 +31,11 @@ export default function SubscriptionsPage() {
   const { isAuthenticated, api } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  
+
   useEffect(() => {
     document.title = 'باقات الاشتراك | بيكابو';
   }, []);
-  
+
   const [plans, setPlans] = useState([]);
   const [children, setChildren] = useState([]);
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -87,7 +87,7 @@ export default function SubscriptionsPage() {
     setLoading(true);
     try {
       const amount = selectedPlan.price;
-      
+
       if (paymentMethod === 'card') {
         // Online card provider checkout flow
         const response = await api.post('/payments/create-checkout', {
@@ -116,10 +116,10 @@ export default function SubscriptionsPage() {
           child_id: selectedChild,
           payment_method: paymentMethod
         });
-        
+
         // Get child name for confirmation
         const childObj = children.find(c => c.id === selectedChild);
-        
+
         // Navigate to confirmation page with booking details
         const confirmationData = {
           bookingId: response.data.subscription?.id,
@@ -129,10 +129,10 @@ export default function SubscriptionsPage() {
           amount,
           paymentMethod
         };
-        
+
         // Store in localStorage for refresh persistence
         localStorage.setItem('pk_last_confirmation', JSON.stringify(confirmationData));
-        
+
         navigate('/booking-confirmation', { state: confirmationData });
         setLoading(false);
       }
@@ -154,52 +154,83 @@ export default function SubscriptionsPage() {
     return 'premium';
   };
 
-  const tierIconMap = {
-    basic: { icon: giftIcon, bg: 'bg-[var(--pk-orange)]/15' },
-    standard: { icon: sparkleIcon, bg: 'bg-[var(--pk-blue)]/15' },
-    premium: { icon: crownIcon, bg: 'bg-[var(--pk-yellow)]/20' }
+  // Unified per-tier visual config — single source of truth for the new
+  // premium card system (icon, topbar accent color, soft icon-bg color).
+  const tierConfig = {
+    basic: {
+      Icon: Gift,
+      topbar: 'pk-topbar--blue',
+      iconWrap: 'bg-blue-50 text-blue-600 border-blue-100',
+    },
+    standard: {
+      Icon: Sparkles,
+      topbar: 'pk-topbar--orange',
+      iconWrap: 'bg-amber-50 text-amber-600 border-amber-100',
+    },
+    premium: {
+      Icon: Crown,
+      topbar: 'pk-topbar--purple',
+      iconWrap: 'bg-violet-50 text-violet-600 border-violet-100',
+    },
   };
 
   return (
-    <div className="subscriptions-page min-h-screen py-8 md:py-12 pk-booking-page" dir="rtl">
+    <div className="pk-booking-page min-h-screen py-8 md:py-12" dir="rtl">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Premium Subscriptions Hero — replaces the legacy "Join Now!"
-            mega-mascot block. Eyebrow positions this as a smart-value
-            page; gift-magic Shroomi reinforces "premium reward" framing. */}
-        <div className="pk-booking-hero mb-10">
+
+        {/* ======================================================
+            HERO — single coherent premium hero.
+            Shroomi #1 of 3: gift-magic mascot anchored to the
+            LEFT in RTL (the empty side) so it never overlaps
+            the right-aligned heading.
+            ====================================================== */}
+        <div className="pk-booking-hero mb-8 md:mb-10">
           <div className="pk-booking-hero__deco-yellow" aria-hidden="true"></div>
           <div className="pk-booking-hero__deco-blue" aria-hidden="true"></div>
 
-          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--yellow" aria-hidden="true">
+          <div
+            className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--yellow hidden md:block"
+            aria-hidden="true"
+            style={{ right: 'auto', left: 24, bottom: -10 }}
+          >
             <Shroomi pose="gift-magic" size={150} className="shroomi-float" />
           </div>
 
           <div className="relative z-10 max-w-2xl">
-            <span className="pk-hero-eyebrow" style={{ color: '#92400e', background: 'rgba(242,229,51,.22)', borderColor: 'rgba(242,138,46,.4)' }}>
-              <img src={starIcon} className="h-3.5 w-3.5" alt="" />
+            <span
+              className="pk-hero-eyebrow"
+              style={{
+                color: '#92400e',
+                background: 'rgba(242,229,51,.22)',
+                borderColor: 'rgba(242,138,46,.4)',
+              }}
+            >
+              <Star className="h-3.5 w-3.5" aria-hidden="true" />
               وفّر أكثر مع باقات الزيارات المتكررة
             </span>
-            <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mt-3 mb-2" data-testid="subscriptions-title">
+            <h1
+              className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mt-3 mb-2 tracking-tight"
+              data-testid="subscriptions-title"
+            >
               باقات الاشتراك
             </h1>
-            <p className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
+            <p className="text-slate-600 text-sm md:text-base max-w-md leading-relaxed">
               اختر الباقة الأنسب لطفلك — صلاحية 30 يومًا، دخول كامل للملعب، وقيمة مضاعفة لكل زيارة.
             </p>
 
-            <div className="mt-5 flex items-center gap-3">
-              {[
-                { icon: popperIcon, bg: 'bg-[var(--pk-orange)]/15' },
-                { icon: rocketIcon, bg: 'bg-[var(--pk-blue)]/15' },
-                { icon: sparkleIcon, bg: 'bg-[var(--pk-yellow)]/20' }
-              ].map((item, index) => (
-                <span
-                  key={index}
-                  className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white shadow-sm ${item.bg}`}
-                  aria-hidden="true"
-                >
-                  <img src={item.icon} className="h-4 w-4" alt="" />
-                </span>
-              ))}
+            <div className="mt-5 flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1.5">
+                <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
+                30 يومًا
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-slate-500" />
+                الأحد – الخميس
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-slate-500" />
+                دخول كامل للملعب
+              </span>
             </div>
           </div>
         </div>
@@ -210,171 +241,277 @@ export default function SubscriptionsPage() {
           </div>
         ) : (
           <>
-            {/* Plans Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6 mb-10">
+            {/* ======================================================
+                PLANS GRID — premium comparison cards.
+                Shroomi #2 of 3: tag-discount corner accent on the
+                POPULAR plan only (single contextual mascot, hidden
+                on small screens). Keeps total mascot count at 3.
+                ====================================================== */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 lg:gap-6 mb-8 md:mb-10">
               {plans.map((plan, index) => {
                 const tier = getPlanTier(index);
                 const isPopular = index === 1;
-                const tierIcon = tierIconMap[tier] || tierIconMap.basic;
-                const tierIconSrc = tierIcon.icon;
-                
+                const isSelected = selectedPlan?.id === plan.id;
+                const cfg = tierConfig[tier] || tierConfig.basic;
+                const Icon = cfg.Icon;
+
                 return (
-                  <Card
+                  <button
                     key={plan.id}
+                    type="button"
                     onClick={() => setSelectedPlan(plan)}
-                    className={`pk-card theme-package-card subscription-plan-card cursor-pointer transition-all relative overflow-visible ${
-                      selectedPlan?.id === plan.id ? 'is-selected ring-2 ring-[var(--pk-yellow)] shadow-lg' : 'hover:shadow-lg'
-                    } ${isPopular ? 'md:-mt-4 md:mb-4' : ''}`}
+                    className={[
+                      'pk-pcard relative text-right flex flex-col cursor-pointer transition-all',
+                      isSelected
+                        ? 'ring-2 ring-slate-900 shadow-lg'
+                        : 'hover:shadow-md hover:-translate-y-0.5',
+                      isPopular ? 'md:-mt-4 md:mb-4' : '',
+                    ].join(' ')}
                     data-testid={`plan-${plan.id}`}
+                    aria-selected={isSelected}
                   >
-                    <div className={`pk-card-accent ${isPopular ? 'accent-rainbow' : tier === 'basic' ? 'accent-green' : 'accent-orange'}`} />
-                    {isPopular && <Badge className="absolute top-3 left-3 theme-saving-badge theme-saving-badge--subscriptions">الأكثر توفيراً</Badge>}
-                    {/* Premium plan-specific Shroomi accents — different
-                        pose per tier so he never feels copy-pasted. */}
-                    {tier === 'basic' && (
-                      <div className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--green" aria-hidden="true">
-                        <Shroomi pose="thumbs-up" size={56} />
-                      </div>
-                    )}
+                    <div className={`pk-pcard__topbar ${cfg.topbar}`}></div>
+
+                    {/* Popular badge */}
                     {isPopular && (
-                      <div className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--yellow" aria-hidden="true">
-                        <Shroomi pose="tag-discount" size={64} className="shroomi-bob" />
+                      <span className="absolute -top-3 right-1/2 translate-x-1/2 z-10 inline-flex items-center gap-1 text-[11px] font-bold text-white bg-slate-900 rounded-full px-3 py-1 shadow-md">
+                        <Star className="h-3 w-3" />
+                        الأكثر توفيراً
+                      </span>
+                    )}
+
+                    {/* Selected check */}
+                    {isSelected && (
+                      <span className="absolute top-3 left-3 z-10 inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-900 text-white shadow">
+                        <Check className="h-4 w-4" />
+                      </span>
+                    )}
+
+                    {/* Shroomi #2 — popular plan corner accent only */}
+                    {isPopular && (
+                      <div
+                        className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--yellow hidden sm:block"
+                        aria-hidden="true"
+                        style={{ width: 60, height: 60 }}
+                      >
+                        <Shroomi pose="tag-discount" size={60} className="shroomi-bob" />
                       </div>
                     )}
-                    {tier === 'premium' && (
-                      <div className="pk-card-mascot pk-card-mascot--tr shroomi-halo shroomi-halo--orange" aria-hidden="true">
-                        <Shroomi pose="party-coins" size={56} />
-                      </div>
-                    )}
-                    <CardHeader className={`text-center pb-3 ${isPopular ? 'pt-10' : 'pt-6'}`}>
-                      <div className="mb-3 flex justify-center">
-                        <span className={`inline-flex h-12 w-12 items-center justify-center rounded-full border-2 border-white shadow-sm ${tierIcon.bg}`}>
-                          <img src={tierIconSrc} className="h-6 w-6" alt="" />
+
+                    <div className={`p-5 sm:p-6 flex flex-col flex-1 ${isPopular ? 'pt-7' : ''}`}>
+                      {/* Tier icon + name */}
+                      <div className="flex flex-col items-center text-center">
+                        <span
+                          className={`inline-flex h-12 w-12 items-center justify-center rounded-xl border ${cfg.iconWrap} mb-3`}
+                        >
+                          <Icon className="h-6 w-6" />
                         </span>
-                      </div>
-                      <CardTitle className="font-heading text-xl font-bold">
-                        {stripWeekdayRangeFromPlanName(plan.name_ar || t(plan.name) || plan.name)}
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        {plan.description_ar || t(plan.description) || plan.description}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="text-center pb-6">
-                      <div className="mb-4">
-                        <span className="text-4xl font-heading font-bold text-slate-800">{plan.price}</span>
-                        <span className="text-sm text-slate-500 mr-1">دينار</span>
-                      </div>
-                      <div className="mb-4 flex justify-center gap-2">
-                        <Badge className="theme-price-badge">سعر مميز</Badge>
-                        <Badge className="theme-price-badge theme-price-badge--value">{plan.price} د</Badge>
-                      </div>
-                      
-                      <div className="bg-gradient-to-r from-[var(--pk-yellow)]/20 to-[var(--pk-orange)]/20 rounded-xl p-3 mb-4">
-                        <span className="text-2xl font-heading font-bold text-[var(--pk-orange)]">{plan.visits}</span>
-                        <span className="text-slate-600 mr-1 text-sm">زيارة</span>
+                        <h3 className="font-heading text-lg font-bold text-slate-900">
+                          {stripWeekdayRangeFromPlanName(plan.name_ar || t(plan.name) || plan.name)}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                          {plan.description_ar || t(plan.description) || plan.description}
+                        </p>
                       </div>
 
-                      {/* Validity Days Notice */}
-                      <div className="subscription-validity-pill">
-                        <img src={starIcon} className="h-3.5 w-3.5" alt="" />
-                        <p className="text-xs font-bold text-[var(--pk-blue)]">صالحة من الأحد إلى الخميس</p>
+                      {/* Price */}
+                      <div className="text-center mt-5">
+                        <div className="inline-flex items-baseline gap-1">
+                          <span className="font-heading text-4xl font-bold text-slate-900">
+                            {plan.price}
+                          </span>
+                          <span className="text-sm text-slate-500 font-medium">دينار</span>
+                        </div>
                       </div>
 
-                      <ul className="space-y-2 text-right mb-4" dir="rtl">
+                      {/* Visits block — single subtle slate panel (no rainbow gradient) */}
+                      <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3 text-center">
+                        <span className="font-heading text-2xl font-bold text-slate-900">
+                          {plan.visits}
+                        </span>
+                        <span className="text-slate-600 mr-1.5 text-sm font-medium">زيارة</span>
+                      </div>
+
+                      {/* Validity pill */}
+                      <div className="mt-3 inline-flex self-center items-center gap-1.5 text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 rounded-full px-3 py-1">
+                        <CalendarDays className="h-3 w-3 text-slate-500" />
+                        صالحة من الأحد إلى الخميس
+                      </div>
+
+                      {/* Features list */}
+                      <ul className="space-y-2 text-right mt-4 mb-5" dir="rtl">
                         {planFeatures[tier]?.slice(0, 3).map((feature, i) => (
                           <li key={i} className="flex items-center gap-2 text-xs">
-                            <img src={checkIcon} className="h-4 w-4 flex-shrink-0" alt="" />
-                            <span className="text-slate-600">{feature}</span>
+                            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
+                              <Check className="h-3 w-3" />
+                            </span>
+                            <span className="text-slate-700">{feature}</span>
                           </li>
                         ))}
                       </ul>
 
-                      <Button
-                        variant={selectedPlan?.id === plan.id ? 'default' : 'outline'}
-                        className={`w-full rounded-full h-10 text-sm font-semibold ${
-                          selectedPlan?.id === plan.id 
-                            ? 'bg-[var(--pk-yellow)] hover:bg-[var(--pk-yellow)]/90 text-[var(--text-primary)]' 
-                            : 'border-2 hover:border-[var(--pk-yellow)] hover:bg-[var(--pk-yellow)]/10'
-                        }`}
-                      >
-                        اختر الباقة
-                      </Button>
-                    </CardContent>
-                  </Card>
+                      {/* CTA — clean dark or outline (no playful gradient, no mascot) */}
+                      <div className="mt-auto">
+                        <span
+                          className={[
+                            'block w-full rounded-full h-10 text-sm font-semibold inline-flex items-center justify-center transition-colors',
+                            isSelected
+                              ? 'bg-slate-900 text-white'
+                              : 'border border-slate-300 text-slate-800 group-hover:border-slate-400',
+                          ].join(' ')}
+                        >
+                          {isSelected ? 'مختارة ✓' : 'اختر الباقة'}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
                 );
               })}
             </div>
 
-            {/* Purchase Section */}
+            {/* ======================================================
+                PURCHASE / AUTH SECTION
+                ====================================================== */}
             {isAuthenticated ? (
-              <Card className="booking-card max-w-xl mx-auto subscription-purchase-card">
-                <CardHeader className="booking-card-header">
-                  <CardTitle className="booking-card-title">أكمل عملية الشراء</CardTitle>
-                </CardHeader>
-                <CardContent className="py-5 space-y-5">
+              /* Shroomi #3a (authed path): thumbs-up-big corner companion
+                 on the purchase summary, contained, hidden <sm. */
+              <div className="pk-pcard relative max-w-xl mx-auto overflow-hidden">
+                <div
+                  className="pk-card-mascot pk-card-mascot--tl hidden sm:block shroomi-halo shroomi-halo--green"
+                  aria-hidden="true"
+                  style={{ width: 64, height: 64 }}
+                >
+                  <Shroomi pose="thumbs-up-big" size={64} className="shroomi-bob" />
+                </div>
+                <div className="pk-pcard__topbar pk-topbar--green"></div>
+                <div className="p-5 sm:p-6 space-y-5">
+                  <div className="pk-section-head">
+                    <span className="pk-section-head__num pk-section-head__num--done">
+                      <ShieldCheck className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <div className="pk-section-head__title">أكمل عملية الشراء</div>
+                      <div className="pk-section-head__sub">
+                        خطوة أخيرة قبل تفعيل الباقة
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-sm font-medium mb-2">اختر الطفل</label>
+                    <Label className="text-sm font-semibold text-slate-700">اختر الطفل</Label>
                     {children.length === 0 ? (
-                      <div className="text-muted-foreground text-sm">
-                        <p className="mb-2">لم يتم إضافة أطفال بعد</p>
-                        <Button variant="outline" size="sm" onClick={() => navigate('/profile')} className="rounded-full">
+                      <div className="mt-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                        <p className="text-sm text-slate-600 mb-3">
+                          لم يتم إضافة أطفال بعد
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate('/profile')}
+                          className="rounded-full border-slate-300"
+                        >
                           إضافة طفل
                         </Button>
                       </div>
                     ) : (
                       <Select value={selectedChild} onValueChange={setSelectedChild}>
-                        <SelectTrigger className="rounded-xl" data-testid="subscription-child-select">
+                        <SelectTrigger
+                          className="rounded-xl mt-1.5 border-slate-200"
+                          data-testid="subscription-child-select"
+                        >
                           <SelectValue placeholder="اختر طفلاً" />
                         </SelectTrigger>
                         <SelectContent>
                           {children.map((child) => (
-                            <SelectItem key={child.id} value={child.id}>{child.name}</SelectItem>
+                            <SelectItem key={child.id} value={child.id}>
+                              {child.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     )}
                   </div>
 
-                  <div className="pt-4 border-t">
+                  {/* Mini summary */}
+                  <div className="pk-summary-card">
+                    <div className="pk-summary-row">
+                      <span>الباقة المختارة</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedPlan
+                          ? stripWeekdayRangeFromPlanName(
+                              selectedPlan.name_ar || selectedPlan.name
+                            )
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="pk-summary-row">
+                      <span>عدد الزيارات</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedPlan ? `${selectedPlan.visits} زيارة` : '—'}
+                      </span>
+                    </div>
+                    <div className="pk-summary-row pk-summary-row--final">
+                      <span>الإجمالي</span>
+                      <span>
+                        {selectedPlan
+                          ? `${Number(selectedPlan.price).toFixed(1)} د`
+                          : '— د'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-200">
                     <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
                   </div>
 
-                  <div className="subscription-purchase-row flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t">
-                    {selectedPlan && (
-                      <div className="subscription-selected-summary text-center sm:text-right">
-                        <p className="text-xs text-muted-foreground">الباقة المختارة</p>
-                        <p className="font-bold">{stripWeekdayRangeFromPlanName(selectedPlan.name_ar || selectedPlan.name)}</p>
-                        <p className="font-bold text-xl text-secondary">{selectedPlan.price} د</p>
-                      </div>
-                    )}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4 border-t border-slate-200">
                     <Button
                       onClick={handlePurchase}
                       disabled={!selectedPlan || !selectedChild || loading}
-                      className="w-full sm:w-auto px-8 rounded-full h-[52px] btn-playful theme-gradient-btn text-white"
+                      className="w-full sm:w-auto px-8 rounded-full h-12 bg-slate-900 hover:bg-slate-800 text-white shadow-md disabled:opacity-60"
                       data-testid="purchase-btn"
                     >
                       {loading ? (
-                        <span className="inline-flex items-center gap-2"><span className="pk-spinner pk-spinner--sm" aria-hidden="true" />جاري المعالجة...</span>
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          جاري المعالجة...
+                        </span>
                       ) : (
-                        <span className="inline-flex items-center gap-2">اشترك الآن <MascotVariant accessory={subscriptionAccessory} alt="" /></span>
+                        <span className="inline-flex items-center gap-2">
+                          <Sparkles className="h-4 w-4" />
+                          اشترك الآن
+                        </span>
                       )}
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             ) : (
-              <Card className="booking-card max-w-xl mx-auto pk-auth-invite border-0 shadow-none">
-                <CardContent className="py-6 text-center">
-                  <div className="pk-auth-invite__shroomi" aria-hidden="true">
-                    <Shroomi pose="prayer" size={92} className="shroomi-pop-in" />
-                  </div>
-                  <p className="text-base mb-4">سجّل الدخول أو أنشئ حساب لإتمام الشراء</p>
-                  <div className="flex gap-4 justify-center">
-                    <Button onClick={() => navigate('/login')} variant="outline" className="rounded-full">تسجيل الدخول</Button>
-                    <Button onClick={() => navigate('/register')} className="rounded-full btn-playful bg-secondary text-secondary-foreground">إنشاء حساب</Button>
-                  </div>
-                </CardContent>
-              </Card>
+              /* Shroomi #3b (un-authed path): prayer mascot in the
+                 auth invite. Mutually exclusive with #3a, total = 3. */
+              <div className="pk-auth-invite max-w-xl mx-auto">
+                <div className="pk-auth-invite__shroomi" aria-hidden="true">
+                  <Shroomi pose="prayer" size={92} className="shroomi-pop-in" />
+                </div>
+                <p className="text-base font-semibold text-slate-800 mb-4">
+                  سجّل الدخول أو أنشئ حساب لإتمام الشراء
+                </p>
+                <div className="flex gap-3 justify-center flex-wrap">
+                  <Button
+                    onClick={() => navigate('/login')}
+                    variant="outline"
+                    className="rounded-full border-slate-300 hover:border-slate-400"
+                  >
+                    تسجيل الدخول
+                  </Button>
+                  <Button
+                    onClick={() => navigate('/register')}
+                    className="rounded-full bg-slate-900 hover:bg-slate-800 text-white"
+                  >
+                    إنشاء حساب
+                  </Button>
+                </div>
+              </div>
             )}
           </>
         )}
