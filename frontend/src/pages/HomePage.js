@@ -265,7 +265,7 @@ export default function HomePage() {
   const canOpenLightbox = showHeroImage;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900" dir="rtl">
+    <div className="min-h-screen bg-[#EAF8FF] text-slate-900" dir="rtl">
       {/* 1. Hero Section */}
       <section className="relative pt-20 pb-16 md:pt-28 md:pb-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
@@ -291,7 +291,7 @@ export default function HomePage() {
             <ul className="flex flex-wrap gap-4 pt-2">
               {trustBullets.map((bullet) => (
                 <li key={bullet} className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <CheckCircle2 className="h-4 w-4 text-rose-500" />
                   {bullet}
                 </li>
               ))}
@@ -305,7 +305,7 @@ export default function HomePage() {
               </Link>
               {!isAuthenticated && (
                 <Link to="/register" className="w-full sm:w-auto">
-                  <Button size="lg" variant="outline" className="w-full rounded-full text-base px-8 h-14 border-slate-300 hover:bg-slate-100" data-testid="hero-secondary-btn">
+                  <Button size="lg" variant="outline" className="w-full rounded-full text-base px-8 h-14 border-orange-300 text-orange-700 hover:bg-orange-50" data-testid="hero-secondary-btn">
                     سجل مجاناً
                   </Button>
                 </Link>
@@ -329,7 +329,7 @@ export default function HomePage() {
               data-testid="hero-image-clickable"
             >
               {!showHeroImage ? (
-                <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-400 font-medium">
+                <div className="w-full h-full flex items-center justify-center bg-sky-50 text-slate-400 font-medium">
                   جاري التحميل...
                 </div>
               ) : (
@@ -395,7 +395,7 @@ export default function HomePage() {
               {whyPeekabooFeatures.map((feature, index) => (
                 <Card key={index} className="bg-white border-slate-100 shadow-sm hover:shadow-md transition-shadow">
                   <CardContent className="p-6 text-center flex flex-col items-center h-full">
-                    <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-2xl mb-4 border border-slate-100 shadow-sm">
+                    <div className="w-12 h-12 rounded-full bg-sky-50 flex items-center justify-center text-2xl mb-4 border border-sky-100 shadow-sm">
                       {feature.icon}
                     </div>
                     <h3 className="font-bold text-base text-slate-900 mb-2">{feature.title}</h3>
@@ -407,9 +407,9 @@ export default function HomePage() {
           </section>
 
           {/* 3. Services / What We Offer */}
-          <section className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-100 mb-16 md:mb-24">
+          <section className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-sky-100 mb-16 md:mb-24">
             <div className="text-center max-w-2xl mx-auto mb-12 relative">
-              <Badge variant="secondary" className="mb-4 bg-amber-100 text-amber-700 hover:bg-amber-100 border-none px-3 py-1 text-sm font-medium">خدماتنا</Badge>
+              <Badge variant="secondary" className="mb-4 bg-orange-100 text-orange-700 hover:bg-orange-100 border-none px-3 py-1 text-sm font-medium">خدماتنا</Badge>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mb-4" data-testid="features-title">
                 ماذا نقدم
               </h2>
@@ -427,12 +427,12 @@ export default function HomePage() {
               {features.map((feature, index) => (
                 <Card 
                   key={index} 
-                  className={`bg-slate-50 border-slate-200 overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col ${feature.disabled ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                  className={`bg-sky-50 border-sky-100 overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col ${feature.disabled ? 'opacity-70 grayscale-[0.5]' : ''}`}
                   data-testid={`feature-card-${index}`}
                 >
                   <CardContent className="p-6 flex flex-col items-center text-center h-full relative">
                     {feature.isCoreOffer && (
-                      <Badge className="absolute top-4 right-4 bg-slate-900 text-white border-none shadow-sm z-10">الأكثر طلباً</Badge>
+                      <Badge className="absolute top-4 right-4 bg-rose-600 text-white border-none shadow-sm z-10">الأكثر طلباً</Badge>
                     )}
                     <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center mb-5 shadow-sm border border-slate-100">
                       <img src={feature.icon} alt="" className="w-8 h-8 opacity-80" />
@@ -447,7 +447,7 @@ export default function HomePage() {
                         </Button>
                       ) : (
                         <Link to={feature.link} className="block w-full">
-                          <Button className="w-full rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 shadow-sm" data-testid={`feature-btn-${index}`}>
+                          <Button className="w-full rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 hover:text-rose-800 shadow-sm" data-testid={`feature-btn-${index}`}>
                             {feature.buttonText}
                           </Button>
                         </Link>
@@ -462,14 +462,14 @@ export default function HomePage() {
           {/* 4. Gallery Section */}
           <section className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-200/60">
             <div className="text-center max-w-2xl mx-auto mb-12">
-              <Badge variant="secondary" className="mb-4 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none px-3 py-1 text-sm font-medium">لقطات حقيقية</Badge>
+              <Badge variant="secondary" className="mb-4 bg-rose-100 text-rose-700 hover:bg-rose-100 border-none px-3 py-1 text-sm font-medium">لقطات حقيقية</Badge>
               <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mb-4" data-testid="gallery-title">
                 لحظات ممتعة في بيكابو
               </h2>
               <p className="text-lg text-slate-600 mb-6">
                 شاهد ما يجعلنا مميزين!
               </p>
-              <div className="inline-flex items-center justify-center bg-slate-900 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-sm">
+              <div className="inline-flex items-center justify-center bg-gradient-to-r from-rose-600 to-orange-500 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-sm">
                 مفتوح يومياً من 10 صباحاً حتى 12 منتصف الليل
               </div>
             </div>
@@ -509,7 +509,7 @@ export default function HomePage() {
                   </div>
                 ))
               ) : (
-                <div className="col-span-full py-20 text-center text-slate-500 bg-white rounded-3xl border border-slate-100 border-dashed">
+                <div className="col-span-full py-20 text-center text-slate-500 bg-white rounded-3xl border border-sky-100 border-dashed">
                   لا توجد صور حالياً في المعرض
                 </div>
               )}
