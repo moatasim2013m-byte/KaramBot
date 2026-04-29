@@ -298,12 +298,12 @@ const normalizeTargetOrigin = (value) => {
  * @param {object} options
  * @param {number|string} options.amount        - e.g. 10 or "10.00"
  * @param {string} [options.currency='JOD']
- * @param {string} [options.locale='ar-xn']
+ * @param {string} [options.locale='en_US']
  * @param {string} [options.targetOrigin]       - e.g. "https://peekaboojor.com"
  *                                                (falls back to FRONTEND_URL env or "https://peekaboojor.com")
  * @returns {Promise<{ok: boolean, captureContext?: string, status?: number, error?: string, details?: object}>}
  */
-const createCaptureContext = async ({ amount, currency = 'JOD', locale = 'ar-xn', targetOrigin } = {}) => {
+const createCaptureContext = async ({ amount, currency = 'JOD', locale = 'en_US', targetOrigin } = {}) => {
   let totalAmount;
   try {
     totalAmount = formatAmount(amount);
@@ -317,15 +317,14 @@ const createCaptureContext = async ({ amount, currency = 'JOD', locale = 'ar-xn'
 
   const body = {
     targetOrigins: [normalizedOrigin],
-    clientVersion: 'v2.0',
     allowedCardNetworks: ['VISA', 'MASTERCARD'],
-    allowedPaymentTypes: ['PANENTRY'],
+    allowedPaymentTypes: ['CLICKTOPAY', 'PANENTRY', 'GOOGLEPAY', 'APPLEPAY'],
     country: 'JO',
-    locale: String(locale || 'ar-xn'),
+    locale: String(locale || 'en_US'),
     captureMandate: {
       billingType: 'FULL',
-      requestEmail: false,
-      requestPhone: false,
+      requestEmail: true,
+      requestPhone: true,
       requestShipping: false,
       showAcceptedNetworkIcons: true
     },
@@ -334,6 +333,11 @@ const createCaptureContext = async ({ amount, currency = 'JOD', locale = 'ar-xn'
         totalAmount,
         currency: String(currency || 'JOD').toUpperCase()
       }
+    },
+    completeMandate: {
+      type: 'CAPTURE',
+      decisionManager: true,
+      consumerAuthentication: true
     }
   };
 

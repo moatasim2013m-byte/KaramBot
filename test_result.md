@@ -1268,3 +1268,86 @@ agent_communication:
         - ✅ Section C (Admin Settings): WORKING (redemption controls functional)
     - agent: "testing"
       message: "✅ PHASE 6 LOYALTY REDEMPTION UI RE-TEST COMPLETE — ALL SCENARIOS PASS. TDZ bug fixed by main agent (moved amount computation inside useEffect). SCENARIO A (Parent Checkout UI): All 11 sub-scenarios tested and working: (A3) Card visible with all required text ✅, (A4) Toggle works ✅, (A5) Preview shows correct calculation (70 points → 7 JD) ✅, (A6) Discount summary visible ✅, (A7) Sticky total reflects discount ✅, (A8) 30 points shows 'below minimum' error ✅, (A9) 60 points shows correct calculation ✅, (A10) 999 points shows 'exceeds limit' error ✅, (A11) Use-max button works ✅, (A12-A13) Payment method switching logic confirmed via code review ✅. SCENARIO B (Ineligible Cases): (B1) Card hidden when balance < 50 ✅, (B2) Card hidden when redemption_enabled=false ✅. All Phase 6 parent loyalty redemption UI features working correctly. Backend endpoints verified working (balance, preview, settings). Test data cleaned up (deleted test_seed_phase6 entries, restored redemption_enabled=true). Phase 6 frontend loyalty redemption COMPLETE."
+
+
+#====================================================================================================
+# CyberSource Unified Checkout — payments_api_failed (HTTP 404) fix (Apr 2026)
+#====================================================================================================
+
+backend:
+  - task: "Capital Bank Unified Checkout: stop calling /pts/v2/payments after auto-capture"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/routes/payments.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            ROOT CAUSE: With the Capture Context configured as `completeMandate: { type: 'CAPTURE' }`,
+            CyberSource auto-authorises and captures the payment internally when the Microform SDK
+            calls `createToken()`. The merchant MUST NOT call `/pts/v2/payments` afterwards — that
+            request returns HTTP 404 ("Resource not found") because the transient token has already
+            been consumed. Confirmed by Areeba/Capital Bank support email (Apr 2026).
+            
+            FIX: The route `POST /api/payments/capital-bank/unified-checkout/authorize` no longer
+            calls `cybersourceAuthorizePayment(...)` (which posted to `/pts/v2/payments`). Instead,
+            it now:
+              1. Decodes the transient-token JWT (header + payload, no signature verify).
+              2. Validates `iss` (must start with "Flex"), `jti` (required), `exp` (not in past
+                 with 60s clock skew tolerance).
+              3. Persists `jti` as `payment_id`, marks transaction as `paid`, and runs the
+                 existing post-paid hooks (loyalty award for products, finalisation for hourly /
+                 birthday / subscription).
+            
+            New error responses:
+              - 400 + code=UNIFIED_CHECKOUT_TOKEN_INVALID  → JWT could not be decoded
+              - 400 + code=UNIFIED_CHECKOUT_TOKEN_REJECTED → JWT claims invalid (bad iss / no jti / expired)
+            
+            Existing 400 ("orderId is required" / "transientToken is required") and 404
+            ("Transaction not found") behaviour preserved.
+            
+            FILES TOUCHED:
+              - routes/payments.js: replaced the `/capital-bank/unified-checkout/authorize`
+                handler (lines ~1531-1722). Added `decodeTransientTokenJwt` and
+                `validateTransientTokenClaims` helpers immediately above the handler.
+            
+            TEST PLAN:
+              - 401 when no auth token
+              - 400 when body has no orderId
+              - 400 when body has no transientToken
+              - 404 when orderId resolves to no transaction for the user
+              - 400 + code=UNIFIED_CHECKOUT_TOKEN_INVALID for malformed JWT
+              - 400 + code=UNIFIED_CHECKOUT_TOKEN_REJECTED for valid JWT shape but bad iss / missing jti / expired exp
+              - 200 happy path requires a real CyberSource transient token, which can only be
+                produced by a real card transaction on the live Microform SDK — this last step
+                will be verified by the user in a live test transaction.
+
+metadata:
+  test_sequence: 1
+
+test_plan:
+  current_focus:
+    - "Capital Bank Unified Checkout: stop calling /pts/v2/payments after auto-capture"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Removed the redundant `/pts/v2/payments` call from POST /api/payments/capital-bank/unified-checkout/authorize.
+        With completeMandate.type='CAPTURE' the payment is auto-captured by CyberSource when the
+        Microform SDK creates the transient token, so the backend just needs to validate the JWT
+        and mark the transaction paid. Please test the auth/validation/error paths of the new
+        handler — happy-path 200 requires a real CyberSource token, which the user will verify
+        manually after this passes.
+        
+        Auth: use admin@peekaboo.com / admin123 from /app/memory/test_credentials.md
+        (or parent@peekaboo.com / parent123).
+        
+        For the 404 / 400 / token-validation paths, you can construct fake JWTs with the
+        node `crypto` module — e.g. `Buffer.from(JSON.stringify({iss:'Flex/07', jti:'x', exp: Math.floor(Date.now()/1000)+600})).toString('base64url')`
+        for the payload segment.
