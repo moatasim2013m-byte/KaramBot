@@ -3,8 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/useT';
 import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Calendar } from '../components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
@@ -13,15 +11,9 @@ import { Label } from '../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import { format, addDays, startOfDay } from 'date-fns';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles, CalendarDays, Clock, PartyPopper, Wand2, MessageSquareText, CalendarX2, Copy as CopyIcon, Check } from 'lucide-react';
 import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
 import Shroomi from '../components/Shroomi';
-import MascotVariant from '../components/theme/MascotVariant';
-import partyCakeIcon from '../assets/cartoon-icons/party-cake.svg';
-import sparkleIcon from '../assets/cartoon-icons/sparkle.svg';
-import alertIcon from '../assets/cartoon-icons/popper.svg';
-import copyIcon from '../assets/cartoon-icons/check.svg';
-import birthdayAccessory from '../assets/mascot-variants/birthday-party.svg';
 
 const RAW_BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').trim();
 const BACKEND_ORIGIN =
@@ -60,11 +52,11 @@ export default function BirthdayPage() {
   const { isAuthenticated, api } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  
+
   useEffect(() => {
     document.title = 'حفلات أعياد الميلاد | بيكابو';
   }, []);
-  
+
   const getBirthdayMinLeadDays = () => (new Date().getHours() < 18 ? 1 : 2);
   const [date, setDate] = useState(addDays(startOfDay(new Date()), getBirthdayMinLeadDays()));
   const [slots, setSlots] = useState([]);
@@ -202,7 +194,7 @@ export default function BirthdayPage() {
 
       const amount = (Number(selectedTheme.price) || 0) + getProductsTotal();
       const lineItems = buildLineItems();
-      
+
       if (paymentMethod === 'card') {
         // Online card provider checkout flow
         const response = await api.post('/payments/create-checkout', {
@@ -240,10 +232,10 @@ export default function BirthdayPage() {
           amount,
           lineItems
         });
-        
+
         // Get child name for confirmation
         const childObj = children.find(c => c.id === selectedChild);
-        
+
         // Navigate to confirmation page with booking details
         const confirmationData = {
           bookingId: response.data.booking?.id,
@@ -256,10 +248,10 @@ export default function BirthdayPage() {
           amount,
           paymentMethod
         };
-        
+
         // Store in localStorage for refresh persistence
         localStorage.setItem('pk_last_confirmation', JSON.stringify(confirmationData));
-        
+
         navigate('/booking-confirmation', { state: confirmationData });
         setLoading(false);
       }
@@ -398,345 +390,566 @@ export default function BirthdayPage() {
   const maxDate = addDays(startOfDay(new Date()), 90);
   const canBookTomorrow = getBirthdayMinLeadDays() === 1;
 
-  const BirthdaySlotsSkeleton = () => (
+  const filteredSlots = getFilteredBirthdaySlots();
+
+  const SlotsSkeleton = () => (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" aria-hidden="true">
       {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-        <div key={i} className="calendar-skeleton p-4">
-          <div className="h-4 bg-muted/70 rounded w-20 mx-auto mb-2"></div>
-          <div className="h-4 bg-muted/70 rounded w-16 mx-auto"></div>
-        </div>
+        <div key={i} className="h-16 rounded-2xl bg-slate-100 animate-pulse" />
       ))}
     </div>
   );
 
   return (
-    <div className="birthday-page birthday-playful min-h-screen py-8 md:py-12 pk-booking-page" dir="rtl">
-      <div className="page-shell max-w-6xl px-4 sm:px-6 lg:px-8">
+    <div className="pk-booking-page min-h-screen py-8 md:py-12" dir="rtl">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
 
-        {/* Premium Birthday Hero — replaces the legacy "Plan Your Party!"
-            mega-mascot block. party-big Shroomi sets the celebration tone
-            without overwhelming the layout. */}
-        <div className="pk-booking-hero mb-8">
+        {/* ======================================================
+            HERO — single coherent premium hero.
+            Shroomi #1 of 3: party-big mascot anchored to bottom
+            corner. Hidden on small screens to never overlap title.
+            ====================================================== */}
+        <div className="pk-booking-hero mb-8 md:mb-10">
           <div className="pk-booking-hero__deco-yellow" aria-hidden="true"></div>
-          <div className="pk-booking-hero__deco-blue" aria-hidden="true" style={{ background: 'rgba(245,107,156,.45)' }}></div>
+          <div
+            className="pk-booking-hero__deco-blue"
+            aria-hidden="true"
+            style={{ background: 'rgba(245,107,156,.4)' }}
+          ></div>
 
-          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--red" aria-hidden="true">
+          {/* In RTL, place the mascot on the LEFT (the empty side) so it
+              never overlaps the right-aligned heading text. */}
+          <div
+            className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--red hidden md:block"
+            aria-hidden="true"
+            style={{ right: 'auto', left: 24, bottom: -10 }}
+          >
             <Shroomi pose="party-big" size={150} className="shroomi-float" />
           </div>
 
           <div className="relative z-10 max-w-2xl">
-            <span className="pk-hero-eyebrow" style={{ color: '#9d174d', background: 'rgba(245,107,156,.18)', borderColor: 'rgba(245,107,156,.4)' }}>
-              <img src={partyCakeIcon} className="h-3.5 w-3.5" alt="" />
+            <span
+              className="pk-hero-eyebrow"
+              style={{
+                color: '#9d174d',
+                background: 'rgba(245,107,156,.14)',
+                borderColor: 'rgba(245,107,156,.32)',
+              }}
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
               احتفال لا يُنسى — كيك، بالونات، وفرحة
             </span>
-            <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mt-3 mb-2" data-testid="birthday-title">
+            <h1
+              className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mt-3 mb-2 tracking-tight"
+              data-testid="birthday-title"
+            >
               حفلات أعياد الميلاد
             </h1>
-            <p className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
+            <p className="text-slate-600 text-sm md:text-base max-w-md leading-relaxed">
               اختر التاريخ والثيم، وسنحضّر لطفلك تجربة احتفال متكاملة — بإشراف فريق بيكابو.
             </p>
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="birthday-tabs-list grid w-full max-w-sm mx-auto grid-cols-2 rounded-full p-1 h-12">
-            <TabsTrigger value="standard" className="rounded-full text-sm font-semibold" data-testid="tab-standard">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6 md:space-y-8">
+          {/* Premium tabs — clean white pill, dark active pill */}
+          <TabsList className="grid w-full max-w-sm mx-auto grid-cols-2 rounded-full p-1 h-12 bg-white border border-slate-200 shadow-sm">
+            <TabsTrigger
+              value="standard"
+              className="rounded-full text-sm font-semibold data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-md"
+              data-testid="tab-standard"
+            >
               الثيمات الجاهزة
             </TabsTrigger>
-            <TabsTrigger value="custom" className="rounded-full text-sm font-semibold" data-testid="tab-custom">
+            <TabsTrigger
+              value="custom"
+              className="rounded-full text-sm font-semibold data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-md"
+              data-testid="tab-custom"
+            >
               طلب مخصص
             </TabsTrigger>
           </TabsList>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Calendar */}
-            <Card className="booking-card">
-              <CardHeader className="booking-card-header">
-                <CardTitle className="booking-card-title">
-                  <span className="step-badge">1</span>
-                  اختر التاريخ
-                </CardTitle>
-                <CardDescription className="text-xs mr-10">
-                  {canBookTomorrow
-                    ? 'يمكن الحجز لليوم التالي قبل 6:00 مساءً'
-                    : 'انتهى وقت حجز اليوم التالي (بعد 6:00 مساءً)'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex justify-center py-4">
-                <Calendar
-                  mode="single"
-                  selected={date}
-                  onSelect={(d) => d && setDate(d)}
-                  disabled={(d) => d < minDate || d > maxDate}
-                  className="rounded-xl"
-                  data-testid="birthday-calendar"
-                />
-              </CardContent>
-            </Card>
-
-            {/* Time Slots */}
-            <Card className="booking-card lg:col-span-2">
-              <CardHeader className="booking-card-header">
-                <CardTitle className="booking-card-title">
-                  <span className={`step-badge ${selectedSlot ? 'step-badge-complete' : ''}`}>2</span>
-                  أوقات الحفلات
-                </CardTitle>
-                <CardDescription className="text-xs mr-10">
-                  {format(date, 'MMM d')} • كل حفلة ساعتان
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="py-4">
-                {loadingSlots ? (
-                  <div className="soft-loading-state py-6">
-                    <div className="flex justify-center mb-4">
-                      <span className="pk-spinner" aria-label="جاري التحميل" />
+          {/* ======================================================
+              STEP 1 + STEP 2 — Date + Slots side by side
+              ====================================================== */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* STEP 1: DATE */}
+            <div className="pk-pcard">
+              <div className="pk-pcard__topbar pk-topbar--blue"></div>
+              <div className="p-5 sm:p-6">
+                <div className="pk-section-head">
+                  <span className="pk-section-head__num">
+                    <CalendarDays className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <div className="pk-section-head__title">اختر التاريخ</div>
+                    <div className="pk-section-head__sub">
+                      {canBookTomorrow
+                        ? 'يمكن الحجز لليوم التالي قبل 6:00 مساءً'
+                        : 'انتهى وقت حجز اليوم التالي'}
                     </div>
-                    <BirthdaySlotsSkeleton />
                   </div>
-                ) : getFilteredBirthdaySlots().length === 0 ? (
-                  <div className="soft-loading-state text-center py-8 text-muted-foreground">
-                    <img src={alertIcon} className="h-10 w-10 mx-auto mb-3 opacity-70" alt="" />
-                    <p className="text-sm">لا توجد أوقات متاحة</p>
+                </div>
+                <div className="flex justify-center mt-3">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={(d) => d && setDate(d)}
+                    disabled={(d) => d < minDate || d > maxDate}
+                    className="rounded-xl"
+                    data-testid="birthday-calendar"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* STEP 2: SLOTS */}
+            <div className="pk-pcard lg:col-span-2">
+              <div
+                className={`pk-pcard__topbar ${selectedSlot ? 'pk-topbar--green' : 'pk-topbar--pink'}`}
+              ></div>
+              <div className="p-5 sm:p-6">
+                <div className="pk-section-head">
+                  <span
+                    className={`pk-section-head__num ${selectedSlot ? 'pk-section-head__num--done' : ''}`}
+                  >
+                    {selectedSlot ? <Check className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
+                  </span>
+                  <div>
+                    <div className="pk-section-head__title">أوقات الحفلات</div>
+                    <div className="pk-section-head__sub">
+                      {format(date, 'EEEE d MMM')} • كل حفلة ساعتان
+                    </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {getFilteredBirthdaySlots().map((slot) => {
-                      const endTime = getPartyEndTime(slot.start_time);
-                      return (
-                        <button
-                          key={slot.id}
-                          onClick={() => slot.is_available && setSelectedSlot(slot)}
-                          disabled={!slot.is_available}
-                          className={`slot-btn ${selectedSlot?.id === slot.id ? 'selected-pink' : ''} ${!slot.is_available ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          data-testid={`party-slot-${slot.start_time}`}
-                        >
-                          <div dir="ltr" className="font-heading font-semibold text-sm">
-                            {slot.start_time} → {endTime}
-                          </div>
-                          {!slot.is_available && <div className="text-xs text-destructive mt-1">محجوز</div>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                </div>
+
+                <div className="mt-4">
+                  {loadingSlots ? (
+                    <SlotsSkeleton />
+                  ) : filteredSlots.length === 0 ? (
+                    <div className="text-center py-10 text-slate-500">
+                      <CalendarX2 className="h-10 w-10 mx-auto mb-3 opacity-60" />
+                      <p className="text-sm font-medium">لا توجد أوقات متاحة</p>
+                      <p className="text-xs mt-1 text-slate-400">جرّب تاريخ آخر</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {filteredSlots.map((slot) => {
+                        const endTime = getPartyEndTime(slot.start_time);
+                        const isSelected = selectedSlot?.id === slot.id;
+                        const isDisabled = !slot.is_available;
+                        return (
+                          <button
+                            key={slot.id}
+                            type="button"
+                            onClick={() => slot.is_available && setSelectedSlot(slot)}
+                            disabled={isDisabled}
+                            className={[
+                              'relative rounded-2xl border px-3 py-3 text-center transition-all',
+                              isSelected
+                                ? 'border-slate-900 bg-slate-900 text-white shadow-md'
+                                : isDisabled
+                                ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed opacity-70'
+                                : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:shadow-sm',
+                            ].join(' ')}
+                            data-testid={`party-slot-${slot.start_time}`}
+                          >
+                            <div dir="ltr" className="font-heading font-bold text-sm">
+                              {slot.start_time} → {endTime}
+                            </div>
+                            {!slot.is_available && (
+                              <div className="text-[11px] mt-1 font-medium">محجوز</div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <TabsContent value="standard" className="space-y-6">
-            {/* Themes Grid */}
-            <div>
-              <h2 className="font-heading text-xl font-bold mb-4 flex items-center gap-2">
-                <span className={`step-badge ${selectedTheme ? 'step-badge-complete' : ''}`}>3</span>
-                اختر الثيم
-                <span className="ml-auto inline-flex items-center" aria-hidden="true">
-                  <Shroomi pose="jump-cheer" size={52} className="shroomi-bob" />
-                </span>
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                {themes.map((theme, index) => (
-                  <Card
-                    key={theme.id}
-                    onClick={() => setSelectedTheme(theme)}
-                    className={`pk-card theme-package-card birthday-theme-card cursor-pointer border-2 transition-all ${selectedTheme?.id === theme.id ? 'border-accent ring-2 ring-accent shadow-lg' : 'border-transparent hover:border-accent/40 hover:shadow-md'}`}
-                    data-testid={`theme-${theme.id}`}
-                    aria-selected={selectedTheme?.id === theme.id}
-                  >
-                    <div className={`pk-card-accent accent-${['pink', 'blue', 'yellow', 'green', 'orange'][index % 5]}`} />
-                    <CardContent className="p-3 pt-4 text-center relative">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <Badge className="theme-package-badge">باقة مرحة</Badge>
-                        {index === 1 && <Badge className="theme-saving-badge">الأكثر طلباً</Badge>}
-                      </div>
-                      {theme.image_url && (
-                        <img src={resolveMediaUrl(theme.image_url)} alt={theme.name_ar || theme.name} className="theme-package-image" />
-                      )}
-                      <h3 className="font-heading font-bold text-sm">{theme.name_ar || theme.name}</h3>
-                      <div className="mt-2 flex justify-center">
-                        <Badge className="theme-price-badge inline-flex items-center gap-1.5">
-                          <img src={partyCakeIcon} className="h-3.5 w-3.5" alt="" />
-                          <span>{theme.price} د</span>
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+          {/* ======================================================
+              STANDARD THEMES TAB
+              ====================================================== */}
+          <TabsContent value="standard" className="space-y-6 mt-0">
+            {/* THEMES GRID — pk-pcard wrapper holds the whole step.
+                Shroomi #2 of 3: gift-magic small corner accent
+                (only on >= sm screens, contained, no overlap). */}
+            <div className="pk-pcard relative overflow-hidden">
+              <div className="pk-pcard__topbar pk-topbar--orange"></div>
+              <div
+                className="pk-card-mascot pk-card-mascot--tr hidden sm:block"
+                aria-hidden="true"
+                style={{ width: 56, height: 56 }}
+              >
+                <Shroomi pose="gift-magic" size={56} className="shroomi-bob" />
               </div>
-
-              <Card className="booking-card mt-5">
-                <CardContent className="py-5 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <p className="text-sm font-medium">
-                      مولد نص الدعوة + كابشن إنستغرام (عربي أولاً)
-                    </p>
-                    <Button
-                      onClick={handleGenerateInviteCopy}
-                      disabled={inviteGenerating}
-                      variant="outline"
-                      className="rounded-full"
-                      data-testid="generate-ai-invite-btn"
-                    >
-                      {inviteGenerating ? <><Loader2 className="ml-2 h-4 w-4 animate-spin" />جاري الإنشاء...</> : 'إنشاء النص'}
-                    </Button>
+              <div className="p-5 sm:p-6">
+                <div className="pk-section-head">
+                  <span
+                    className={`pk-section-head__num ${selectedTheme ? 'pk-section-head__num--done' : ''}`}
+                  >
+                    {selectedTheme ? <Check className="h-4 w-4" /> : <PartyPopper className="h-4 w-4" />}
+                  </span>
+                  <div>
+                    <div className="pk-section-head__title">اختر الثيم</div>
+                    <div className="pk-section-head__sub">باقات احتفال جاهزة بأسعار شفافة</div>
                   </div>
+                </div>
 
-                  {inviteResult && (
-                    <div className="space-y-3">
-                      <div className="p-3 rounded-xl border bg-muted/30">
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <Label className="text-sm">الدعوة العربية</Label>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => copyToClipboard(inviteResult.inviteArabic, 'تم نسخ الدعوة العربية')}>
-                            <img src={copyIcon} className="h-4 w-4 ml-1" alt="" />نسخ
-                          </Button>
-                        </div>
-                        <p className="text-sm whitespace-pre-line">{inviteResult.inviteArabic}</p>
-                      </div>
-
-                      {inviteResult.inviteEnglish && (
-                        <div className="p-3 rounded-xl border bg-muted/30" dir="ltr">
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <Label className="text-sm">English Invite</Label>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => copyToClipboard(inviteResult.inviteEnglish, 'Copied English invite')}>
-                              <img src={copyIcon} className="h-4 w-4 ml-1" alt="" />Copy
-                            </Button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
+                  {themes.map((theme, index) => {
+                    const isSelected = selectedTheme?.id === theme.id;
+                    const isPopular = index === 1;
+                    return (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        onClick={() => setSelectedTheme(theme)}
+                        className={[
+                          'group relative text-right rounded-2xl border bg-white p-3 transition-all',
+                          isSelected
+                            ? 'border-slate-900 ring-2 ring-slate-900/10 shadow-md'
+                            : 'border-slate-200 hover:border-slate-300 hover:shadow-sm',
+                        ].join(' ')}
+                        data-testid={`theme-${theme.id}`}
+                        aria-selected={isSelected}
+                      >
+                        {isPopular && (
+                          <span className="absolute top-2 right-2 z-10 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 rounded-full px-2 py-0.5">
+                            الأكثر طلباً
+                          </span>
+                        )}
+                        {isSelected && (
+                          <span className="absolute top-2 left-2 z-10 inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-900 text-white shadow">
+                            <Check className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                        {theme.image_url && (
+                          <div className="aspect-[4/3] w-full overflow-hidden rounded-xl bg-slate-100 mb-3">
+                            <img
+                              src={resolveMediaUrl(theme.image_url)}
+                              alt={theme.name_ar || theme.name}
+                              className="w-full h-full object-cover transition-transform group-hover:scale-[1.03]"
+                            />
                           </div>
-                          <p className="text-sm whitespace-pre-line">{inviteResult.inviteEnglish}</p>
+                        )}
+                        <h3 className="font-heading font-bold text-sm text-slate-900 truncate">
+                          {theme.name_ar || theme.name}
+                        </h3>
+                        <div className="mt-1.5 inline-flex items-baseline gap-1">
+                          <span className="text-base font-bold text-slate-900">{theme.price}</span>
+                          <span className="text-xs text-slate-500 font-medium">دينار</span>
                         </div>
-                      )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
 
-                      <div className="p-3 rounded-xl border bg-muted/30">
+            {/* AI INVITE COPY GENERATOR */}
+            <div className="pk-pcard">
+              <div className="pk-pcard__topbar pk-topbar--purple"></div>
+              <div className="p-5 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-violet-50 text-violet-700 border border-violet-100 shrink-0">
+                      <MessageSquareText className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <p className="font-heading font-bold text-slate-900">
+                        مولد نص الدعوة + كابشن إنستغرام
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        نصوص جاهزة بالعربية والإنجليزية مع هاشتاغات
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleGenerateInviteCopy}
+                    disabled={inviteGenerating}
+                    variant="outline"
+                    className="rounded-full border-slate-300 hover:border-slate-400 shrink-0"
+                    data-testid="generate-ai-invite-btn"
+                  >
+                    {inviteGenerating ? (
+                      <>
+                        <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+                        جاري الإنشاء...
+                      </>
+                    ) : (
+                      'إنشاء النص'
+                    )}
+                  </Button>
+                </div>
+
+                {inviteResult && (
+                  <div className="space-y-3 mt-5">
+                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <Label className="text-sm font-semibold text-slate-700">
+                          الدعوة العربية
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-slate-600 hover:text-slate-900"
+                          onClick={() =>
+                            copyToClipboard(inviteResult.inviteArabic, 'تم نسخ الدعوة العربية')
+                          }
+                        >
+                          <CopyIcon className="h-3.5 w-3.5 ml-1" />
+                          نسخ
+                        </Button>
+                      </div>
+                      <p className="text-sm whitespace-pre-line text-slate-700">
+                        {inviteResult.inviteArabic}
+                      </p>
+                    </div>
+
+                    {inviteResult.inviteEnglish && (
+                      <div
+                        className="p-4 rounded-xl border border-slate-200 bg-slate-50/60"
+                        dir="ltr"
+                      >
                         <div className="flex items-center justify-between gap-2 mb-2">
-                          <Label className="text-sm">كابشن إنستغرام</Label>
+                          <Label className="text-sm font-semibold text-slate-700">
+                            English Invite
+                          </Label>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            onClick={() => copyToClipboard(`${inviteResult.igCaptionArabic}\n\n${(inviteResult.hashtags || []).join(' ')}`, 'تم نسخ الكابشن والهاشتاغات')}
+                            className="h-8 text-slate-600 hover:text-slate-900"
+                            onClick={() =>
+                              copyToClipboard(inviteResult.inviteEnglish, 'Copied English invite')
+                            }
                           >
-                            <img src={copyIcon} className="h-4 w-4 ml-1" alt="" />نسخ
+                            <CopyIcon className="h-3.5 w-3.5 mr-1" />
+                            Copy
                           </Button>
                         </div>
-                        <p className="text-sm whitespace-pre-line">{inviteResult.igCaptionArabic}</p>
-                        {!!inviteResult.hashtags?.length && (
-                          <p className="text-xs text-muted-foreground mt-2">{inviteResult.hashtags.join(' ')}</p>
-                        )}
+                        <p className="text-sm whitespace-pre-line text-slate-700">
+                          {inviteResult.inviteEnglish}
+                        </p>
                       </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    )}
 
-              <Card className="booking-card mt-5">
-                <CardContent className="py-5 space-y-4">
-                  <p className="text-sm font-medium">
-                    ما لقيت الثيم المناسب؟ اكتب وصفك وسننشئ لك ثيم بالذكاء الاصطناعي
-                  </p>
-                  <Textarea
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    placeholder="مثال: بالونات زرقاء و صفراء مع سبايدرمان و كيك كبير و خلفية احتفالية"
-                    className="rounded-xl min-h-[100px]"
-                    dir="rtl"
-                    data-testid="ai-theme-prompt"
-                  />
-                  <Button
-                    onClick={handleGenerateAiTheme}
-                    disabled={aiGenerating}
-                    className="rounded-full h-11 btn-playful bg-[var(--pk-red)] hover:bg-[var(--pk-orange)]"
-                    data-testid="generate-ai-theme-btn"
-                  >
-                    {aiGenerating ? <><Loader2 className="ml-2 h-5 w-5 animate-spin" />جاري إنشاء الثيم...</> : 'إنشاء بالذكاء الاصطناعي'}
-                  </Button>
-
-                  {aiGeneratedThemeUrl && (
-                    <div className="space-y-3">
-                      <img
-                        src={aiGeneratedThemeUrl}
-                        alt="AI generated birthday theme"
-                        className="w-full max-w-xs h-auto rounded-xl border"
-                      />
-                      <Button
-                        onClick={handleUseAiTheme}
-                        variant="outline"
-                        className="rounded-full"
-                        data-testid="use-ai-theme-btn"
-                      >
-                        استخدام هذا الثيم
-                      </Button>
+                    <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <Label className="text-sm font-semibold text-slate-700">
+                          كابشن إنستغرام
+                        </Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-slate-600 hover:text-slate-900"
+                          onClick={() =>
+                            copyToClipboard(
+                              `${inviteResult.igCaptionArabic}\n\n${(inviteResult.hashtags || []).join(' ')}`,
+                              'تم نسخ الكابشن والهاشتاغات'
+                            )
+                          }
+                        >
+                          <CopyIcon className="h-3.5 w-3.5 ml-1" />
+                          نسخ
+                        </Button>
+                      </div>
+                      <p className="text-sm whitespace-pre-line text-slate-700">
+                        {inviteResult.igCaptionArabic}
+                      </p>
+                      {!!inviteResult.hashtags?.length && (
+                        <p className="text-xs text-slate-500 mt-2">
+                          {inviteResult.hashtags.join(' ')}
+                        </p>
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Booking Form */}
-            {isAuthenticated && (
-              <Card className="booking-card birthday-summary-card relative overflow-visible">
-                {/* Friendly thumbs-up Shroomi marks the "ready to book" zone. */}
-                <div className="hidden sm:block absolute -top-8 left-4 z-10 shroomi-halo shroomi-halo--green" aria-hidden="true">
-                  <Shroomi pose="thumbs-up-big" size={88} className="shroomi-bob" />
+            {/* AI THEME GENERATOR */}
+            <div className="pk-pcard">
+              <div className="pk-pcard__topbar pk-topbar--yellow"></div>
+              <div className="p-5 sm:p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 shrink-0">
+                    <Wand2 className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="font-heading font-bold text-slate-900">
+                      ما لقيت الثيم المناسب؟
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      اكتب وصفك وسننشئ لك ثيم بالذكاء الاصطناعي
+                    </p>
+                  </div>
                 </div>
-                <CardHeader className="booking-card-header">
-                  <CardTitle className="booking-card-title">أكمل حجزك</CardTitle>
-                </CardHeader>
-                <CardContent className="py-5 space-y-5">
+
+                <Textarea
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="مثال: بالونات زرقاء و صفراء مع سبايدرمان و كيك كبير و خلفية احتفالية"
+                  className="rounded-xl min-h-[100px] border-slate-200 focus-visible:ring-slate-900"
+                  dir="rtl"
+                  data-testid="ai-theme-prompt"
+                />
+                <Button
+                  onClick={handleGenerateAiTheme}
+                  disabled={aiGenerating}
+                  className="rounded-full h-11 bg-slate-900 hover:bg-slate-800 text-white"
+                  data-testid="generate-ai-theme-btn"
+                >
+                  {aiGenerating ? (
+                    <>
+                      <Loader2 className="ml-2 h-5 w-5 animate-spin" />
+                      جاري إنشاء الثيم...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="ml-2 h-4 w-4" />
+                      إنشاء بالذكاء الاصطناعي
+                    </>
+                  )}
+                </Button>
+
+                {aiGeneratedThemeUrl && (
+                  <div className="space-y-3 pt-2">
+                    <img
+                      src={aiGeneratedThemeUrl}
+                      alt="AI generated birthday theme"
+                      className="w-full max-w-xs h-auto rounded-xl border border-slate-200"
+                    />
+                    <Button
+                      onClick={handleUseAiTheme}
+                      variant="outline"
+                      className="rounded-full border-slate-300"
+                      data-testid="use-ai-theme-btn"
+                    >
+                      استخدام هذا الثيم
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ======================================================
+                BOOKING SUMMARY / FORM (only when authenticated)
+                Shroomi #3 of 3: thumbs-up-big small corner accent.
+                Hidden on small screens to never crowd the form.
+                ====================================================== */}
+            {isAuthenticated && (
+              <div className="pk-pcard relative overflow-hidden">
+                <div
+                  className="pk-card-mascot pk-card-mascot--tl hidden sm:block shroomi-halo shroomi-halo--green"
+                  aria-hidden="true"
+                  style={{ width: 64, height: 64 }}
+                >
+                  <Shroomi pose="thumbs-up-big" size={64} className="shroomi-bob" />
+                </div>
+                <div className="pk-pcard__topbar pk-topbar--green"></div>
+                <div className="p-5 sm:p-6 space-y-6">
+                  <div className="pk-section-head">
+                    <span className="pk-section-head__num pk-section-head__num--done">4</span>
+                    <div>
+                      <div className="pk-section-head__title">أكمل حجزك</div>
+                      <div className="pk-section-head__sub">معلومات أخيرة قبل التأكيد</div>
+                    </div>
+                  </div>
+
+                  {/* Form fields grouped */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                      <Label className="text-sm">طفل عيد الميلاد</Label>
+                      <Label className="text-sm font-semibold text-slate-700">
+                        طفل عيد الميلاد
+                      </Label>
                       <Select value={selectedChild} onValueChange={setSelectedChild}>
-                        <SelectTrigger className="rounded-xl mt-1.5" data-testid="birthday-child-select">
+                        <SelectTrigger
+                          className="rounded-xl mt-1.5 border-slate-200"
+                          data-testid="birthday-child-select"
+                        >
                           <SelectValue placeholder="اختر الطفل" />
                         </SelectTrigger>
                         <SelectContent>
                           {children.map((child) => (
-                            <SelectItem key={child.id} value={child.id}>{child.name}</SelectItem>
+                            <SelectItem key={child.id} value={child.id}>
+                              {child.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
 
                     <div>
-                      <Label className="text-sm">عدد الضيوف</Label>
+                      <Label className="text-sm font-semibold text-slate-700">عدد الضيوف</Label>
                       <Input
                         type="number"
                         min="5"
                         max="50"
                         value={guestCount}
                         onChange={(e) => setGuestCount(parseInt(e.target.value))}
-                        className="rounded-xl mt-1.5"
+                        className="rounded-xl mt-1.5 border-slate-200"
                         data-testid="guest-count"
                       />
                     </div>
 
                     <div>
-                      <Label className="text-sm">الثيم المختار</Label>
-                      <div className="p-2.5 rounded-xl bg-muted mt-1.5 text-sm">
+                      <Label className="text-sm font-semibold text-slate-700">الثيم المختار</Label>
+                      <div className="rounded-xl mt-1.5 px-3 py-2 bg-slate-50 border border-slate-200 text-sm min-h-[40px] flex items-center">
                         {selectedTheme ? (
-                          <span className="font-semibold">{selectedTheme.name_ar || selectedTheme.name} - {Number(selectedTheme.price || 0).toFixed(1)} د</span>
+                          <span className="font-semibold text-slate-900">
+                            {selectedTheme.name_ar || selectedTheme.name} —{' '}
+                            {Number(selectedTheme.price || 0).toFixed(1)} د
+                          </span>
                         ) : (
-                          <span className="text-muted-foreground">لم يتم اختيار ثيم</span>
+                          <span className="text-slate-400">لم يتم اختيار ثيم</span>
                         )}
                       </div>
                     </div>
                   </div>
 
-
                   {products.length > 0 && (
                     <div>
-                      <Label className="text-sm">إضافات</Label>
+                      <Label className="text-sm font-semibold text-slate-700">إضافات</Label>
                       <div className="space-y-2 mt-2">
                         {products.map((product) => {
                           const qty = selectedProductQty[product.id] || 0;
                           return (
-                            <div key={product.id} className="flex items-center justify-between rounded-xl border p-3">
+                            <div
+                              key={product.id}
+                              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3"
+                            >
                               <div>
-                                <p className="font-medium">{product.nameAr}</p>
-                                <p className="text-xs text-muted-foreground">{product.priceJD} د</p>
+                                <p className="font-medium text-slate-900">{product.nameAr}</p>
+                                <p className="text-xs text-slate-500">{product.priceJD} د</p>
                               </div>
                               <div className="flex items-center gap-2">
-                                <Button type="button" variant="outline" size="sm" onClick={() => updateProductQty(product.id, qty - 1)}>-</Button>
-                                <span className="min-w-6 text-center">{qty}</span>
-                                <Button type="button" variant="outline" size="sm" onClick={() => updateProductQty(product.id, qty + 1)}>+</Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 rounded-full"
+                                  onClick={() => updateProductQty(product.id, qty - 1)}
+                                >
+                                  -
+                                </Button>
+                                <span className="min-w-6 text-center font-semibold">{qty}</span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 rounded-full"
+                                  onClick={() => updateProductQty(product.id, qty + 1)}
+                                >
+                                  +
+                                </Button>
                               </div>
                             </div>
                           );
@@ -745,126 +958,188 @@ export default function BirthdayPage() {
                     </div>
                   )}
 
-                  <div className="text-sm text-muted-foreground">إضافات: {getProductsTotal().toFixed(1)} دينار</div>
+                  {/* Mini summary breakdown */}
+                  <div className="pk-summary-card">
+                    <div className="pk-summary-row">
+                      <span>الثيم</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedTheme
+                          ? `${Number(selectedTheme.price || 0).toFixed(1)} د`
+                          : '— د'}
+                      </span>
+                    </div>
+                    <div className="pk-summary-row">
+                      <span>الإضافات</span>
+                      <span className="font-semibold text-slate-900">
+                        {getProductsTotal().toFixed(1)} د
+                      </span>
+                    </div>
+                    <div className="pk-summary-row pk-summary-row--final">
+                      <span>الإجمالي</span>
+                      <span>
+                        {((Number(selectedTheme?.price) || 0) + getProductsTotal()).toFixed(1)} د
+                      </span>
+                    </div>
+                  </div>
 
-                  <div className="pt-4 border-t">
+                  <div className="pt-4 border-t border-slate-200">
                     <PaymentMethodSelector value={paymentMethod} onChange={setPaymentMethod} />
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t">
-                    {selectedTheme && (
-                      <div className="text-center sm:text-right">
-                        <p className="text-xs text-muted-foreground">الإجمالي</p>
-                        <p className="font-bold text-2xl text-accent">{((Number(selectedTheme.price) || 0) + getProductsTotal()).toFixed(1)} د</p>
-                      </div>
-                    )}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4 border-t border-slate-200">
                     <Button
                       onClick={handleStandardBooking}
                       disabled={!selectedSlot || !selectedTheme || !selectedChild || loading}
-                      className="w-full sm:w-auto px-8 rounded-full h-[52px] btn-playful theme-gradient-btn"
+                      className="w-full sm:w-auto px-8 rounded-full h-12 bg-slate-900 hover:bg-slate-800 text-white shadow-md disabled:opacity-60"
                       data-testid="book-party-btn"
                     >
                       {loading ? (
-                        <span className="inline-flex items-center gap-2"><span className="pk-spinner pk-spinner--sm" aria-hidden="true" />جاري المعالجة...</span>
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          جاري المعالجة...
+                        </span>
                       ) : (
-                        <span className="inline-flex items-center gap-2">احجز عيد ميلاد <MascotVariant accessory={birthdayAccessory} alt="" /></span>
+                        <span className="inline-flex items-center gap-2">
+                          <PartyPopper className="h-4 w-4" />
+                          احجز عيد ميلاد
+                        </span>
                       )}
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             )}
           </TabsContent>
 
-          <TabsContent value="custom" className="space-y-6">
-            <Card className="booking-card">
-              <CardHeader className="booking-card-header">
-                <CardTitle className="booking-card-title">
-                  <img src={sparkleIcon} className="h-5 w-5" alt="" />
-                  طلب ثيم مخصص
-                </CardTitle>
-                <CardDescription className="text-sm mr-6">
-                  لديك فكرة فريدة؟ أخبرنا عنها وسنتواصل معك.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="py-5 space-y-5">
+          {/* ======================================================
+              CUSTOM REQUEST TAB
+              ====================================================== */}
+          <TabsContent value="custom" className="space-y-6 mt-0">
+            <div className="pk-pcard">
+              <div className="pk-pcard__topbar pk-topbar--pink"></div>
+              <div className="p-5 sm:p-6 space-y-5">
+                <div className="pk-section-head">
+                  <span className="pk-section-head__num">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <div className="pk-section-head__title">طلب ثيم مخصص</div>
+                    <div className="pk-section-head__sub">
+                      لديك فكرة فريدة؟ أخبرنا عنها وسنتواصل معك بالأسعار.
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-sm">طفل عيد الميلاد</Label>
+                    <Label className="text-sm font-semibold text-slate-700">طفل عيد الميلاد</Label>
                     <Select value={selectedChild} onValueChange={setSelectedChild}>
-                      <SelectTrigger className="rounded-xl mt-1.5">
+                      <SelectTrigger className="rounded-xl mt-1.5 border-slate-200">
                         <SelectValue placeholder="اختر الطفل" />
                       </SelectTrigger>
                       <SelectContent>
                         {children.map((child) => (
-                          <SelectItem key={child.id} value={child.id}>{child.name}</SelectItem>
+                          <SelectItem key={child.id} value={child.id}>
+                            {child.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div>
-                    <Label className="text-sm">عدد الضيوف المتوقع</Label>
+                    <Label className="text-sm font-semibold text-slate-700">
+                      عدد الضيوف المتوقع
+                    </Label>
                     <Input
                       type="number"
                       min="5"
                       max="100"
                       value={guestCount}
                       onChange={(e) => setGuestCount(parseInt(e.target.value))}
-                      className="rounded-xl mt-1.5"
+                      className="rounded-xl mt-1.5 border-slate-200"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <Label className="text-sm">صِف الثيم المخصص *</Label>
+                  <Label className="text-sm font-semibold text-slate-700">صِف الثيم المخصص *</Label>
                   <Textarea
                     value={customRequest}
                     onChange={(e) => setCustomRequest(e.target.value)}
                     placeholder="أخبرنا عن ثيم حفلة أحلامك..."
-                    className="rounded-xl mt-1.5 min-h-[100px]"
+                    className="rounded-xl mt-1.5 min-h-[100px] border-slate-200 focus-visible:ring-slate-900"
                     data-testid="custom-request"
                   />
                 </div>
 
                 <div>
-                  <Label className="text-sm">ملاحظات (اختياري)</Label>
+                  <Label className="text-sm font-semibold text-slate-700">ملاحظات (اختياري)</Label>
                   <Textarea
                     value={specialNotes}
                     onChange={(e) => setSpecialNotes(e.target.value)}
                     placeholder="أي متطلبات خاصة..."
-                    className="rounded-xl mt-1.5"
+                    className="rounded-xl mt-1.5 border-slate-200 focus-visible:ring-slate-900"
                     rows={2}
                   />
                 </div>
 
-                <Button
-                  onClick={handleCustomRequest}
-                  disabled={!selectedSlot || !selectedChild || !customRequest || loading}
-                  className="rounded-full h-11 btn-playful bg-[var(--pk-red)] hover:bg-[var(--pk-orange)]"
-                  data-testid="submit-custom-btn"
-                >
-                  {loading ? <span className="inline-flex items-center gap-2"><span className="pk-spinner pk-spinner--sm" aria-hidden="true" />جاري الإرسال...</span> : 'إرسال الطلب'}
-                </Button>
-                <p className="text-xs text-muted-foreground">سيتواصل فريقنا معك بالأسعار.</p>
-              </CardContent>
-            </Card>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+                  <p className="text-xs text-slate-500">
+                    سيتواصل فريقنا معك بالأسعار خلال 24 ساعة.
+                  </p>
+                  <Button
+                    onClick={handleCustomRequest}
+                    disabled={!selectedSlot || !selectedChild || !customRequest || loading}
+                    className="w-full sm:w-auto rounded-full h-11 px-6 bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-60"
+                    data-testid="submit-custom-btn"
+                  >
+                    {loading ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        جاري الإرسال...
+                      </span>
+                    ) : (
+                      'إرسال الطلب'
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
 
+        {/* ======================================================
+            AUTH INVITE — only when not authenticated.
+            Shroomi #3 of 3 (alternate path): balloons mascot.
+            When unauthenticated, the booking summary is hidden,
+            so total Shroomi count remains exactly 3:
+            hero (party-big) + themes (gift-magic) + auth (balloons).
+            ====================================================== */}
         {!isAuthenticated && (
-          <Card className="booking-card pk-auth-invite border-0 shadow-none mt-6">
-            <CardContent className="py-6 text-center">
-              <div className="pk-auth-invite__shroomi" aria-hidden="true">
-                <Shroomi pose="balloons" size={92} className="shroomi-pop-in" />
-              </div>
-              <p className="text-base mb-4">سجّل الدخول أو أنشئ حساب لحجز حفلة</p>
-              <div className="flex gap-4 justify-center">
-                <Button onClick={() => navigate('/login')} variant="outline" className="rounded-full">تسجيل الدخول</Button>
-                <Button onClick={() => navigate('/register')} className="rounded-full btn-playful bg-[var(--pk-red)]">إنشاء حساب</Button>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="pk-auth-invite mt-8">
+            <div className="pk-auth-invite__shroomi" aria-hidden="true">
+              <Shroomi pose="balloons" size={92} className="shroomi-pop-in" />
+            </div>
+            <p className="text-base font-semibold text-slate-800 mb-4">
+              سجّل الدخول أو أنشئ حساب لحجز حفلة
+            </p>
+            <div className="flex gap-3 justify-center flex-wrap">
+              <Button
+                onClick={() => navigate('/login')}
+                variant="outline"
+                className="rounded-full border-slate-300 hover:border-slate-400"
+              >
+                تسجيل الدخول
+              </Button>
+              <Button
+                onClick={() => navigate('/register')}
+                className="rounded-full bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                إنشاء حساب
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </div>

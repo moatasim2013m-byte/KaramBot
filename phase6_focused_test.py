@@ -13,7 +13,7 @@ import subprocess
 from datetime import datetime, timedelta
 
 # Configuration
-BACKEND_URL = "https://api-gateway-fix-15.preview.emergentagent.com/api"
+BACKEND_URL = "https://control-mode-2.preview.emergentagent.com/api"
 ADMIN_CREDS = {"email": "admin@peekaboo.com", "password": "admin123"}
 PARENT_CREDS = {"email": "parent@peekaboo.com", "password": "parent123"}
 
