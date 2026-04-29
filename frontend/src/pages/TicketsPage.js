@@ -683,7 +683,7 @@ export default function TicketsPage() {
           <div className="pk-booking-hero__deco-yellow" aria-hidden="true"></div>
           <div className="pk-booking-hero__deco-blue" aria-hidden="true"></div>
 
-          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--blue" aria-hidden="true">
+          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--blue hidden md:block" aria-hidden="true">
             <Shroomi pose="clipboard-write" size={150} className="shroomi-float" />
           </div>
 
