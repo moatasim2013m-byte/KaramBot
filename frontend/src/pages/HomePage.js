@@ -270,7 +270,7 @@ export default function HomePage() {
   const journeySteps = [
     { pose: 'wave', title: 'الاستقبال', desc: 'ترحيب دافئ من فريق بيكابو لحظة الوصول', color: 'red' },
     { pose: 'point', title: 'اختيار النشاط', desc: 'الطفل يختار اللعبة أو المنطقة المفضلة', color: 'blue' },
-    { pose: 'jump-cheer', title: 'اللعب والمرح', desc: 'وقت ممتع وآمن في مساحات اللعب', color: 'yellow' },
+    { pose: 'paws-up', title: 'اللعب والمرح', desc: 'وقت ممتع وآمن في مساحات اللعب', color: 'yellow' },
     { pose: 'clipboard-write', title: 'الأنشطة الإبداعية', desc: 'فنون وأنشطة تنمّي مهارات طفلك', color: 'green' },
     { pose: 'party-confetti', title: 'الاحتفال', desc: 'لحظات احتفال لا تُنسى', color: 'orange' },
     { pose: 'gift-magic', title: 'الهدية', desc: 'هدية صغيرة تخرج بها مبتسمة', color: 'red' },
