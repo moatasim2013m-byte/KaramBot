@@ -235,9 +235,9 @@
    ------------------------------------------------------------ */
 .pk-booking-page {
   background:
-    radial-gradient(900px 360px at 90% -10%, rgba(102,169,233,.16), transparent 65%),
-    radial-gradient(800px 360px at -10% 20%, rgba(242,229,51,.18), transparent 65%),
-    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    radial-gradient(900px 360px at 90% -10%, rgba(217,35,46,.09), transparent 65%),
+    radial-gradient(800px 360px at -10% 20%, rgba(242,138,46,.14), transparent 65%),
+    linear-gradient(180deg, #DFF4FF 0%, #EAF8FF 65%, #F0F9FF 100%);
   min-height: 100vh;
 }
 .pk-booking-hero {
@@ -308,14 +308,14 @@
   border: 1px solid #e2e8f0;
 }
 .pk-stepper__item.is-active {
-  background: rgba(102,169,233,.14);
-  color: #0f3a72;
-  border-color: rgba(102,169,233,.35);
+  background: rgba(217,35,46,.10);
+  color: #7f1d1d;
+  border-color: rgba(217,35,46,.30);
 }
 .pk-stepper__item.is-active .pk-stepper__num {
-  background: var(--pk-blue);
+  background: var(--pk-red);
   color: #fff;
-  border-color: var(--pk-blue);
+  border-color: var(--pk-red);
 }
 .pk-stepper__item.is-complete {
   background: rgba(151,198,74,.18);
@@ -343,8 +343,8 @@
   place-items: center;
   font-weight: 800;
   color: #fff;
-  background: linear-gradient(135deg, var(--pk-blue), #4f8fcf);
-  box-shadow: 0 8px 16px -8px rgba(102,169,233,.6);
+  background: linear-gradient(135deg, var(--pk-red), var(--pk-orange));
+  box-shadow: 0 8px 16px -8px rgba(217,35,46,.5);
 }
 .pk-section-head__num--done { background: linear-gradient(135deg, var(--pk-green), #6ea03a); box-shadow: 0 8px 16px -8px rgba(151,198,74,.6); }
 .pk-section-head__title { font-weight: 800; font-size: 1.05rem; color: #0f172a; }
