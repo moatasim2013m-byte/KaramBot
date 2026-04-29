@@ -11,6 +11,7 @@
 @tailwind components;
 @tailwind utilities;
 @import "./styles/peekaboo-ui.css";
+@import "./styles/shroomi-premium.css";
 
 /* Hide scrollbar but allow scrolling */
 .scrollbar-hide {
