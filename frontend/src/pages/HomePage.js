@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { useAuth } from '../context/AuthContext';
-import SkyBackground from '../components/theme/SkyBackground';
-import MascotVariant from '../components/theme/MascotVariant';
 import Shroomi from '../components/Shroomi';
-import mascotImg from '../assets/mascot.png';
 import logoImg from '../assets/logo.png';
 import playHourIcon from '../assets/cartoon-icons/play-clock.svg';
 import birthdayCakeIcon from '../assets/cartoon-icons/party-cake.svg';
@@ -16,9 +13,6 @@ import crownIcon from '../assets/cartoon-icons/crown.svg';
 import schoolBusIcon from '../assets/cartoon-icons/bus.svg';
 import homePartyIcon from '../assets/cartoon-icons/house-party.svg';
 import careHeartIcon from '../assets/cartoon-icons/heart-care.svg';
-import birthdayAccessory from '../assets/mascot-variants/birthday-party.svg';
-import playAccessory from '../assets/mascot-variants/play-session.svg';
-import subscriptionAccessory from '../assets/mascot-variants/subscription-crown.svg';
 import closeIcon from '../assets/cartoon-icons/close.svg';
 
 const RAW_BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || '').trim();
@@ -75,6 +69,7 @@ export default function HomePage() {
     ctaRoute: '/tickets',
     image: ''
   });
+
   useEffect(() => {
     document.title = 'بيكابو | ملعب داخلي للأطفال - إربد';
   }, []);
@@ -187,9 +182,6 @@ export default function HomePage() {
       description: 'احجز جلسات لعب لأطفالك واختر الوقت المثالي!',
       link: '/tickets',
       buttonText: 'احجز الآن',
-      badgeColor: 'badge-blue',
-      accentColor: 'accent-blue',
-      buttonVariant: 'btn-sunrise',
       isCoreOffer: true
     },
     {
@@ -199,9 +191,6 @@ export default function HomePage() {
       description: 'احتفل مع ثيمات رائعة وحفلات مخصصة!',
       link: '/birthday',
       buttonText: 'خطط لحفلتك',
-      badgeColor: 'badge-pink',
-      accentColor: 'accent-pink',
-      buttonVariant: 'btn-cotton-candy',
       isCoreOffer: true
     },
     {
@@ -211,9 +200,6 @@ export default function HomePage() {
       description: 'وفّر مع باقات الزيارات بصلاحية 30 يوم!',
       link: '/subscriptions',
       buttonText: 'اشترك الآن',
-      badgeColor: 'badge-yellow',
-      accentColor: 'accent-yellow',
-      buttonVariant: 'btn-sunshine',
       isCoreOffer: true
     },
     {
@@ -223,9 +209,6 @@ export default function HomePage() {
       description: 'رحلات مدرسية وبرامج لعب آمنة للمجموعات',
       link: '/groups',
       buttonText: 'تواصل معنا',
-      badgeColor: 'badge-green',
-      accentColor: 'accent-green',
-      buttonVariant: 'btn-ocean'
     },
     {
       icon: homePartyIcon,
@@ -233,9 +216,6 @@ export default function HomePage() {
       description: 'نأتيكم للمنزل مع ديكور واحتفال كامل!',
       link: '/home-party',
       buttonText: 'احجز حفلتك',
-      badgeColor: 'badge-orange',
-      accentColor: 'accent-orange',
-      buttonVariant: 'btn-sunrise'
     },
     {
       icon: careHeartIcon,
@@ -243,9 +223,6 @@ export default function HomePage() {
       description: 'برامج مخصصة لأصحاب الاحتياجات الخاصة',
       link: null,
       buttonText: 'قريباً',
-      badgeColor: 'badge-purple',
-      accentColor: 'accent-purple',
-      buttonVariant: 'btn-cotton-candy',
       disabled: true
     }
   ];
@@ -253,31 +230,26 @@ export default function HomePage() {
   const whyPeekabooFeatures = [
     {
       icon: '⭐',
-      badgeColor: 'badge-red',
       title: 'عناية واهتمام بكل طفل',
       description: 'نراعي احتياجات كل طفل ونمنحه تجربة مريحة وممتعة.'
     },
     {
       icon: '🧼',
-      badgeColor: 'badge-orange',
       title: 'نظافة وتعقيم مستمر',
       description: 'تعقيم مستمر للألعاب والمناطق طوال اليوم.'
     },
     {
       icon: '🧩',
-      badgeColor: 'badge-yellow',
       title: 'اللعب للتعلّم وتنمية المهارات',
       description: 'أنشطة تفاعلية تطوّر التفكير والتعاون والثقة.'
     },
     {
       icon: '🛡️',
-      badgeColor: 'badge-blue',
       title: 'بيئة آمنة ومراقبة',
       description: 'مساحات لعب آمنة مع متابعة دائمة من الفريق.'
     },
     {
       icon: '🎁',
-      badgeColor: 'badge-green',
       title: 'فعاليات وهدايا وتجارب ممتعة',
       description: 'مفاجآت وأنشطة موسمية تجعل كل زيارة مختلفة.'
     }
@@ -291,177 +263,114 @@ export default function HomePage() {
 
   const showHeroImage = heroImageReady && !!heroImgSrc && !heroImageError;
   const canOpenLightbox = showHeroImage;
-  const shroomiPoseClasses = ['shroomi-icon--wave', 'shroomi-icon--point', 'shroomi-icon--cheer'];
-
-  const renderShroomiIcon = (index) => (
-    <img
-      src={mascotImg}
-      alt=""
-      aria-hidden="true"
-      className={`shroomi-icon ${shroomiPoseClasses[index % shroomiPoseClasses.length]}`}
-      loading="lazy"
-      decoding="async"
-    />
-  );
-
-  const renderFeatureCtaMascot = (featureId, index) => {
-    if (featureId === 'birthdays') return <MascotVariant accessory={birthdayAccessory} alt="" />;
-    if (featureId === 'hourly') return <MascotVariant accessory={playAccessory} alt="" />;
-    if (featureId === 'subscriptions') return <MascotVariant accessory={subscriptionAccessory} alt="" />;
-    return renderShroomiIcon(index + 2);
-  };
-
-  const renderHeroTitleText = (title) => {
-    const parts = title.split(/(الأطفال|الاطفال)/g);
-    if (parts.length === 1) return title;
-
-    return parts.map((part, index) => {
-      if (part === 'الأطفال' || part === 'الاطفال') {
-        return (
-          <span key={`kids-word-${index}`} className="opl-hero-title-kids-word">
-            {part}
-          </span>
-        );
-      }
-
-      return <span key={`title-part-${index}`}>{part}</span>;
-    });
-  };
 
   return (
-    <div className="home-page" dir="rtl">
-      <SkyBackground className="home-sky-layer" />
-
-      <section id="home" className="home-hero-sky home-theme-section home-theme-section--sky pk-premium-hero pb-hero pb-section py-14 md:py-24">
-        <div className="page-shell home-hero-shell px-2 sm:px-4 lg:px-6 relative z-10">
-          <div className="hero-content-stack opl-hero">
-            <div className="hero-image-section opl-hero-inner">
-              <div className="hero-text-card text-right opl-hero-left" dir="rtl">
-                <div className="hero-brand-row mr-0">
-                  <img src={logoImg} alt="شعار بيكابو" className="hero-brand-logo" />
-                </div>
-                <p className="hero-brand-slogan opl-hero-badge">We bring happiness</p>
-                <p className="opl-dev-sign" aria-live="polite">
-                  🚧 الموقع تحت التطوير — قريباً سيكون متاحاً بالكامل
-                </p>
-                <h1 className="hero-main-title opl-hero-title opl-hero-title--kids font-heading text-3xl sm:text-4xl md:text-5xl lg:text-6xl leading-tight" data-testid="hero-title">
-                  {renderHeroTitleText(heroConfig.title)}
-                </h1>
-                <div className="hero-title-underline mr-0"></div>
-                <p className="hero-description opl-hero-subtitle-playful text-base sm:text-lg text-muted-foreground mt-6 leading-relaxed max-w-[520px] mr-0 opacity-85">
-                  {heroConfig.subtitle}
-                </p>
-
-
-                <div className="hero-cta-row opl-hero-cta-row flex flex-col sm:flex-row gap-4 justify-start">
-                  <Link to={heroConfig.ctaRoute}>
-                    <Button size="lg" className="rounded-full btn-playful pb-btn primary-btn hero-primary-btn hero-primary-btn--yellow text-base sm:text-lg px-8 h-[52px] w-full sm:w-auto" data-testid="hero-book-btn">
-                      <span className="cta-label-with-shroomi">
-                        <span>احجز جلسة</span>
-                        {renderShroomiIcon(0)}
-                      </span>
-                      <span className="mr-2 font-bold" aria-hidden="true">←</span>
-                    </Button>
-                  </Link>
-                  {!isAuthenticated && (
-                    <Link to="/register">
-                      <Button size="lg" variant="outline" className="rounded-full hero-secondary-btn hero-secondary-btn--red text-base sm:text-lg px-8 py-6 border-2 w-full sm:w-auto" data-testid="hero-signup-btn">
-                        <span className="cta-label-with-shroomi">
-                          <span>سجل مجاناً</span>
-                          {renderShroomiIcon(1)}
-                        </span>
-                      </Button>
-                    </Link>
-                  )}
-                  <a href={whatsappUrl} target="_blank" rel="noreferrer">
-                    <Button
-                      size="lg"
-                      className="rounded-full text-base sm:text-lg px-8 h-[52px] w-full sm:w-auto bg-[#25D366] hover:bg-[#20BD5A] text-white"
-                      data-testid="hero-whatsapp-btn"
-                    >
-                      <MessageCircle className="h-5 w-5 ml-2" />
-                      واتساب
-                    </Button>
-                  </a>
-                </div>
-
-                <ul className="opl-hero-trust-pills" aria-label="عوامل الثقة السريعة">
-                  {trustBullets.map((bullet) => (
-                    <li key={bullet}>{bullet}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div
-                className={`hero-image-panel opl-tablet-frame group ${canOpenLightbox ? 'is-clickable' : ''}`}
-                onClick={() => canOpenLightbox && setLightboxOpen(true)}
-                role={canOpenLightbox ? 'button' : undefined}
-                tabIndex={canOpenLightbox ? 0 : -1}
-                onKeyDown={(e) => canOpenLightbox && e.key === 'Enter' && setLightboxOpen(true)}
-                data-testid="hero-image-clickable"
-                aria-label="عرض صورة الأطفال بحجم أكبر"
-              >
-                <span className="sr-only" data-testid="hero-image">أطفال يلعبون في بيكابو</span>
-                {!showHeroImage && (
-                  <div className={`hero-media-placeholder ${!heroImageReady ? 'is-loading' : ''}`} aria-hidden="true">
-                    <div className="hero-media-placeholder__label">Peekaboo</div>
-                  </div>
-                )}
-                {showHeroImage && (
-                  <img
-                    src={heroImgSrc}
-                    alt="أطفال يلعبون في بيكابو"
-                    className="hero-photo"
-                    loading="eager"
-                    decoding="async"
-                    fetchPriority="auto"
-                    onError={() => setHeroImageError(true)}
-                  />
-                )}
-
-                {/* Zoom hint */}
-                {canOpenLightbox && (
-                  <div className="absolute bottom-4 left-4 bg-[var(--pk-blue)]/90 backdrop-blur-sm text-white px-3 py-2 rounded-full text-sm flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                    <span className="font-bold">🔍</span>
-                    <span>اضغط للتكبير</span>
-                  </div>
-                )}
-              </div>
-
+    <div className="min-h-screen bg-slate-50 text-slate-900" dir="rtl">
+      {/* 1. Hero Section */}
+      <section className="relative pt-20 pb-16 md:pt-28 md:pb-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
+          
+          <div className="space-y-6 text-right">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-sm font-medium text-slate-600">
+              <img src={logoImg} alt="Peekaboo" className="h-5 object-contain" />
+              <span>We bring happiness</span>
+            </div>
+            
+            <div className="inline-flex items-center text-xs font-medium text-amber-600 bg-amber-50 px-3 py-1 rounded-full mb-2">
+              🚧 الموقع تحت التطوير — قريباً سيكون متاحاً بالكامل
             </div>
 
-            {/* Premium Shroomi anchor — replaces the legacy floating mascot.
-                Two poses: a friendly "wave" tucked near the CTA on small
-                screens, and a larger "point-side" guide on desktop that
-                gestures toward the booking image. */}
-            <div className="pk-hero-shroomi pk-hero-shroomi--main hidden md:block" aria-hidden="true">
-              <Shroomi pose="point-side" size={220} className="shroomi-float" />
-            </div>
-            <div className="pk-hero-shroomi block md:hidden" aria-hidden="true" style={{ right: 8, bottom: -6, width: 110, height: 110 }}>
-              <Shroomi pose="wave" size={110} className="shroomi-bob" />
+            <h1 className="font-heading text-4xl sm:text-5xl md:text-6xl font-extrabold text-slate-900 leading-tight" data-testid="hero-title">
+              {heroConfig.title}
+            </h1>
+            
+            <p className="text-lg sm:text-xl text-slate-600 max-w-lg leading-relaxed">
+              {heroConfig.subtitle}
+            </p>
+
+            <ul className="flex flex-wrap gap-4 pt-2">
+              {trustBullets.map((bullet) => (
+                <li key={bullet} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  {bullet}
+                </li>
+              ))}
+            </ul>
+
+            <div className="flex flex-col sm:flex-row gap-4 pt-4">
+              <Link to={heroConfig.ctaRoute} className="w-full sm:w-auto">
+                <Button size="lg" className="w-full rounded-full text-base px-8 h-14 bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-500/25 transition-all" data-testid="hero-primary-btn">
+                  {heroConfig.ctaText}
+                </Button>
+              </Link>
+              {!isAuthenticated && (
+                <Link to="/register" className="w-full sm:w-auto">
+                  <Button size="lg" variant="outline" className="w-full rounded-full text-base px-8 h-14 border-slate-300 hover:bg-slate-100" data-testid="hero-secondary-btn">
+                    سجل مجاناً
+                  </Button>
+                </Link>
+              )}
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="w-full sm:w-auto">
+                <Button size="lg" className="w-full rounded-full text-base px-8 h-14 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/25 transition-all" data-testid="hero-whatsapp-btn">
+                  <MessageCircle className="h-5 w-5 ml-2" />
+                  واتساب
+                </Button>
+              </a>
             </div>
           </div>
+
+          <div className="relative w-full aspect-square md:aspect-[4/3] lg:aspect-square">
+            <div 
+              className={`w-full h-full rounded-3xl overflow-hidden shadow-2xl relative z-10 bg-slate-200 ${canOpenLightbox ? 'cursor-pointer hover:shadow-3xl transition-shadow' : ''}`}
+              onClick={() => canOpenLightbox && setLightboxOpen(true)}
+              role={canOpenLightbox ? 'button' : undefined}
+              tabIndex={canOpenLightbox ? 0 : -1}
+              onKeyDown={(e) => canOpenLightbox && e.key === 'Enter' && setLightboxOpen(true)}
+              data-testid="hero-image-clickable"
+            >
+              {!showHeroImage ? (
+                <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-400 font-medium">
+                  جاري التحميل...
+                </div>
+              ) : (
+                <img
+                  src={heroImgSrc}
+                  alt="أطفال يلعبون في بيكابو"
+                  className="w-full h-full object-cover"
+                  loading="eager"
+                  decoding="async"
+                  onError={() => setHeroImageError(true)}
+                />
+              )}
+            </div>
+            
+            {/* Placement 1: Hero Shroomi (Side/Back) */}
+            <div className="hidden lg:block absolute -right-16 bottom-8 z-0 opacity-90 pointer-events-none" aria-hidden="true">
+              <Shroomi pose="point-side" size={180} />
+            </div>
+          </div>
+
         </div>
       </section>
 
-      {/* Hero Image Lightbox Modal */}
+      {/* Hero Lightbox */}
       {lightboxOpen && (
         <div 
-          className="lightbox-overlay"
+          className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8"
           onClick={() => setLightboxOpen(false)}
           data-testid="lightbox-overlay"
         >
           <button 
-            className="lightbox-close"
+            className="absolute top-6 right-6 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
             onClick={() => setLightboxOpen(false)}
             aria-label="إغلاق"
           >
-            <img src={closeIcon} alt="" className="h-6 w-6" />
+            <img src={closeIcon} alt="" className="h-6 w-6 invert" />
           </button>
           <img
             src={heroImgSrc}
-            alt="أطفال يلعبون في بيكابو - عرض كامل"
-            className="lightbox-image"
+            alt="عرض كامل"
+            className="max-w-full max-h-full rounded-2xl shadow-2xl"
             onClick={(e) => e.stopPropagation()}
             data-testid="lightbox-image"
           />
@@ -470,256 +379,179 @@ export default function HomePage() {
 
       {showDeferredSections && (
         <>
-      {/* Features Section */}
-      <section className="section-container home-page-section home-theme-section home-theme-section--jungle pb-section page-shell page-section-gap">
-        <div className="max-w-7xl mx-auto" dir="rtl">
-          <div className="why-peekaboo-box why-peekaboo-single-card text-right relative" data-testid="why-peekaboo-box">
-            {/* Shroomi accent — symbol of "care" near the trust pillars. */}
-            <div className="hidden md:block absolute -top-6 -left-2 z-10 shroomi-halo shroomi-halo--red" aria-hidden="true">
-              <Shroomi pose="heart-hold" size={88} className="shroomi-bob" />
+          {/* 2. Why Peekaboo Section */}
+          <section className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-200/60">
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <Badge variant="secondary" className="mb-4 bg-sky-100 text-sky-700 hover:bg-sky-100 border-none px-3 py-1 text-sm font-medium">لماذا بيكابو</Badge>
+              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mb-4" data-testid="why-peekaboo-box">
+                ماذا يميزنا؟
+              </h2>
+              <p className="text-lg text-slate-600">
+                لأننا نهتم بالتفاصيل التي تصنع تجربة آمنة وممتعة لطفلك.
+              </p>
             </div>
-            <span className="pk-section-eyebrow pk-section-eyebrow--red mb-3">لماذا بيكابو</span>
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mt-2 mb-3">
-              ماذا يميزنا؟
-            </h2>
-            <p className="text-muted-foreground text-base sm:text-lg max-w-2xl mb-5">
-              لأننا نهتم بالتفاصيل التي تصنع تجربة آمنة وممتعة لطفلك.
-            </p>
 
-            <ul className="why-peekaboo-trust-list mb-5" aria-label="عوامل الثقة في بيكابو">
-              {trustBullets.map((item) => (
-                <li key={item}>✓ {item}</li>
-              ))}
-            </ul>
-
-            <div className="why-peekaboo-grid">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
               {whyPeekabooFeatures.map((feature, index) => (
-                <div key={index} className="why-feature-card rounded-lg border border-border/50 bg-background/60 p-2 text-center">
-                  <div className={`mx-auto mb-1.5 pk-icon-badge ${feature.badgeColor}`} aria-hidden="true">
-                    {feature.icon}
-                  </div>
-                  <h3 className="font-bold text-xs sm:text-sm leading-tight mb-1">{feature.title}</h3>
-                  <p className="text-muted-foreground text-[11px] leading-relaxed">{feature.description}</p>
-                </div>
+                <Card key={index} className="bg-white border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                  <CardContent className="p-6 text-center flex flex-col items-center h-full">
+                    <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-2xl mb-4 border border-slate-100 shadow-sm">
+                      {feature.icon}
+                    </div>
+                    <h3 className="font-bold text-base text-slate-900 mb-2">{feature.title}</h3>
+                    <p className="text-sm text-slate-500 leading-relaxed flex-grow">{feature.description}</p>
+                  </CardContent>
+                </Card>
               ))}
             </div>
+          </section>
 
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="section-container home-page-section home-theme-section home-theme-section--jungle pb-section page-shell page-section-gap">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12 relative">
-            <div className="hidden md:block absolute -top-4 right-2 z-0 shroomi-halo shroomi-halo--yellow opacity-90" aria-hidden="true">
-              <Shroomi pose="point" size={84} className="shroomi-float" />
+          {/* 3. Services / What We Offer */}
+          <section className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-100 mb-16 md:mb-24">
+            <div className="text-center max-w-2xl mx-auto mb-12 relative">
+              <Badge variant="secondary" className="mb-4 bg-amber-100 text-amber-700 hover:bg-amber-100 border-none px-3 py-1 text-sm font-medium">خدماتنا</Badge>
+              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mb-4" data-testid="features-title">
+                ماذا نقدم
+              </h2>
+              <p className="text-lg text-slate-600">
+                كل ما تحتاجه ليوم لعب مثالي!
+              </p>
+              
+              {/* Placement 2: Services Header Mascot */}
+              <div className="hidden md:block absolute -top-8 right-0 pointer-events-none opacity-90" aria-hidden="true">
+                <Shroomi pose="jump-cheer" size={80} />
+              </div>
             </div>
-            <span className="pk-section-eyebrow pk-section-eyebrow--blue mb-3 relative z-10">خدماتنا</span>
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mt-3 mb-4 relative z-10" data-testid="features-title">
-              ماذا نقدم
-            </h2>
-            <p className="text-muted-foreground text-base sm:text-lg max-w-xl mx-auto relative z-10">
-              كل ما تحتاجه ليوم لعب مثالي!
-            </p>
-          </div>
 
-          <div className="features-grid">
-            {features.map((feature, index) => (
-              <Card 
-                key={index} 
-                id={feature.id}
-                className={`pk-card pb-card feature-card theme-service-card ${feature.isCoreOffer ? 'theme-service-card--core' : ''} ${feature.disabled ? 'opacity-70' : ''}`}
-                data-testid={`feature-card-${index}`}
-              >
-                <div className={`pk-card-accent ${feature.accentColor}`} />
-                {feature.isCoreOffer && (
-                  <Badge className="absolute right-3 top-3 theme-package-badge z-10">الخدمات الأكثر طلباً</Badge>
-                )}
-                {/* Premium Shroomi corner mascot — varies pose by service so
-                    he never looks copy-pasted. Decorative only. */}
-                {feature.id === 'hourly' && (
-                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--blue" aria-hidden="true">
-                    <Shroomi pose="clock" size={56} />
-                  </div>
-                )}
-                {feature.id === 'birthdays' && (
-                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--red" aria-hidden="true">
-                    <Shroomi pose="party-confetti" size={56} />
-                  </div>
-                )}
-                {feature.id === 'subscriptions' && (
-                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--yellow" aria-hidden="true">
-                    <Shroomi pose="tag-discount" size={56} />
-                  </div>
-                )}
-                {feature.id === 'schools' && (
-                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--green" aria-hidden="true">
-                    <Shroomi pose="clipboard-write" size={52} />
-                  </div>
-                )}
-                {feature.disabled && (
-                  <div className="absolute top-3 left-3 bg-[var(--pk-purple)] text-white text-xs font-bold px-2 py-1 rounded-full z-10">
-                    قريباً
-                  </div>
-                )}
-                <CardContent className="feature-card-content text-center">
-                  <div className={`pk-icon-badge ${feature.disabled ? 'grayscale' : ''}`}>
-                    <img src={feature.icon} alt="" className="feature-icon-svg" />
-                  </div>
-                  <h3 className="pk-card-title text-base feature-title">{feature.title}</h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed feature-description">{feature.description}</p>
-                  {feature.disabled ? (
-                    <Button disabled className={`playful-btn primary-btn ${feature.buttonVariant} w-full opacity-50 cursor-not-allowed feature-cta`} data-testid={`feature-btn-${index}`}>
-                      <span className="feature-cta-label">
-                        <span className="feature-cta-mascot" aria-hidden="true">{renderFeatureCtaMascot(feature.id, index)}</span>
-                        <span>{feature.buttonText}</span>
-                      </span>
-                    </Button>
-                  ) : (
-                    <Link to={feature.link} className="feature-cta-link">
-                      <Button className={`playful-btn primary-btn ${feature.buttonVariant} w-full text-sm feature-cta`} data-testid={`feature-btn-${index}`}>
-                        <span className="feature-cta-label">
-                          <span className="feature-cta-mascot" aria-hidden="true">{renderFeatureCtaMascot(feature.id, index)}</span>
-                          <span>{feature.buttonText}</span>
-                        </span>
-                        <span className="mr-2 font-bold" aria-hidden="true">←</span>
-                      </Button>
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Gallery Section */}
-      <section className="section-container home-page-section home-theme-section home-theme-section--water pb-section page-shell page-section-gap">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12 relative">
-            <div className="hidden md:block absolute -top-2 left-2 z-0 opacity-90" aria-hidden="true">
-              <Shroomi pose="phone-photo" size={78} className="shroomi-bob" />
-            </div>
-            <span className="pk-section-eyebrow pk-section-eyebrow--green mb-3 relative z-10">لقطات حقيقية</span>
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mt-3 mb-4 relative z-10" data-testid="gallery-title">
-              لحظات ممتعة في بيكابو
-            </h2>
-            <p className="text-muted-foreground text-base sm:text-lg">
-              شاهد ما يجعلنا مميزين!
-            </p>
-            <div className="mt-4 inline-flex items-center bg-[var(--pk-red)] text-white px-4 sm:px-6 py-2 rounded-full font-heading font-bold shadow-sm text-sm sm:text-base">
-              مفتوح يومياً من 10 صباحاً حتى 12 منتصف الليل
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 auto-rows-fr">
-            {gallery.length > 0 ? (
-              gallery.slice(0, 6).map((item, index) => (
-                <div 
-                  key={item.id} 
-                  className={`relative rounded-2xl overflow-hidden shadow-md ${index === 0 ? 'col-span-2 md:row-span-2' : ''}`}
-                  data-testid={`gallery-item-${index}`}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {features.map((feature, index) => (
+                <Card 
+                  key={index} 
+                  className={`bg-slate-50 border-slate-200 overflow-hidden hover:shadow-lg transition-all duration-300 flex flex-col ${feature.disabled ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                  data-testid={`feature-card-${index}`}
                 >
-                  {item.type === 'video' ? (
-                    <div className={`relative bg-muted ${index === 0 ? 'aspect-[4/3] md:aspect-square' : 'aspect-square'}`}>
-                      <video
-                        src={resolveMediaUrl(item.url)}
-                        className="w-full h-full object-cover"
-                        preload="none"
-                        muted
-                        playsInline
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <span className="text-5xl" aria-hidden="true">▶️</span>
-                      </div>
+                  <CardContent className="p-6 flex flex-col items-center text-center h-full relative">
+                    {feature.isCoreOffer && (
+                      <Badge className="absolute top-4 right-4 bg-slate-900 text-white border-none shadow-sm z-10">الأكثر طلباً</Badge>
+                    )}
+                    <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center mb-5 shadow-sm border border-slate-100">
+                      <img src={feature.icon} alt="" className="w-8 h-8 opacity-80" />
                     </div>
-                  ) : (
-                    <img 
-                      src={resolveMediaUrl(item.url)} 
-                      alt={item.title || 'صورة من المعرض'} 
-                      className={`w-full object-cover hover:scale-105 transition-transform duration-300 ${index === 0 ? 'aspect-[4/3] md:aspect-square' : 'aspect-square'}`}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  )}
-                </div>
-              ))
-            ) : (
-              // Placeholder gallery items
-              <>
-                <div className="col-span-2 md:row-span-2 rounded-2xl overflow-hidden shadow-md">
-                  <img 
-                    src="/hero-fallback.jpg"
-                    alt="أطفال يلعبون"
-                    className="w-full h-full object-cover aspect-[4/3] md:aspect-square hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </div>
-                <div className="rounded-2xl overflow-hidden shadow-md">
-                  <img 
-                    src="/hero-fallback.jpg"
-                    alt="حفلة عيد ميلاد"
-                    className="w-full object-cover aspect-square hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </div>
-                <div className="rounded-2xl overflow-hidden shadow-md">
-                  <img 
-                    src="/hero-fallback.jpg"
-                    alt="متعة عائلية"
-                    className="w-full object-cover aspect-square hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      {!isAuthenticated && (
-        <section className="pb-section py-16 md:py-20 page-shell page-section-gap home-theme-section home-theme-section--party">
-          <div className="relative pk-cta-band max-w-4xl mx-auto">
-            {/* Two Shroomis frame the CTA — different poses + sides so he
-                feels like a recurring character, not a copy-pasted asset. */}
-            <div className="pk-cta-band__shroomi shroomi-halo shroomi-halo--yellow hidden sm:block" aria-hidden="true">
-              <Shroomi pose="party-confetti" size={150} className="shroomi-float" />
+                    <h3 className="font-bold text-xl text-slate-900 mb-3">{feature.title}</h3>
+                    <p className="text-sm text-slate-600 mb-6 flex-grow leading-relaxed">{feature.description}</p>
+                    
+                    <div className="w-full mt-auto">
+                      {feature.disabled ? (
+                        <Button disabled className="w-full rounded-xl bg-slate-200 text-slate-500 hover:bg-slate-200" data-testid={`feature-btn-${index}`}>
+                          {feature.buttonText}
+                        </Button>
+                      ) : (
+                        <Link to={feature.link} className="block w-full">
+                          <Button className="w-full rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 shadow-sm" data-testid={`feature-btn-${index}`}>
+                            {feature.buttonText}
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-            <div className="pk-cta-band__shroomi pk-cta-band__shroomi--right shroomi-halo shroomi-halo--blue hidden md:block" aria-hidden="true">
-              <Shroomi pose="thumbs-up-big" size={130} className="shroomi-bob" />
+          </section>
+
+          {/* 4. Gallery Section */}
+          <section className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-slate-200/60">
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <Badge variant="secondary" className="mb-4 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none px-3 py-1 text-sm font-medium">لقطات حقيقية</Badge>
+              <h2 className="font-heading text-3xl sm:text-4xl font-bold text-slate-900 mb-4" data-testid="gallery-title">
+                لحظات ممتعة في بيكابو
+              </h2>
+              <p className="text-lg text-slate-600 mb-6">
+                شاهد ما يجعلنا مميزين!
+              </p>
+              <div className="inline-flex items-center justify-center bg-slate-900 text-white px-5 py-2.5 rounded-full text-sm font-medium shadow-sm">
+                مفتوح يومياً من 10 صباحاً حتى 12 منتصف الليل
+              </div>
             </div>
 
-            <div className="flex justify-center mb-4 relative z-10">
-              <img src={logoImg} alt="شعار بيكابو" className="h-16 sm:h-20 drop-shadow-lg" />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 auto-rows-[200px] md:auto-rows-[280px]">
+              {gallery.length > 0 ? (
+                gallery.slice(0, 6).map((item, index) => (
+                  <div 
+                    key={item.id} 
+                    className={`relative rounded-2xl overflow-hidden bg-slate-100 shadow-sm border border-slate-200 ${index === 0 ? 'col-span-2 row-span-2' : ''}`}
+                    data-testid={`gallery-item-${index}`}
+                  >
+                    {item.type === 'video' ? (
+                      <>
+                        <video
+                          src={resolveMediaUrl(item.url)}
+                          className="w-full h-full object-cover"
+                          preload="none"
+                          muted
+                          playsInline
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/20">
+                          <div className="w-12 h-12 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                            <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-slate-900 border-b-[6px] border-b-transparent ml-1"></div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <img 
+                        src={resolveMediaUrl(item.url)} 
+                        alt={item.title || 'صورة من المعرض'} 
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full py-20 text-center text-slate-500 bg-white rounded-3xl border border-slate-100 border-dashed">
+                  لا توجد صور حالياً في المعرض
+                </div>
+              )}
             </div>
-            <span className="pk-section-eyebrow pk-section-eyebrow--red relative z-10">انضم إلى عائلة بيكابو</span>
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text-primary)] mt-3 mb-4 relative z-10" data-testid="cta-title">
-              هل أنت مستعد للمتعة؟
-            </h2>
-            <p className="text-[var(--text-secondary)] text-base sm:text-lg mb-8 max-w-xl mx-auto relative z-10">
-              أنشئ حسابك المجاني لحجز الجلسات، تتبع نقاط الولاء، والحصول على عروض حصرية!
-            </p>
-            <Link to="/register" className="relative z-10 inline-block">
-              <Button
-                size="lg"
-                className="rounded-full pb-btn home-cta home-cta-signup-btn primary-btn text-base sm:text-lg px-10 py-6 font-bold shadow-lg"
-                data-testid="cta-signup-btn"
-              >
-                <span className="cta-label-with-shroomi">
-                  <span>سجّل الآن</span>
-                  {renderShroomiIcon(1)}
-                </span>
-                <span className="mr-2 font-bold" aria-hidden="true">←</span>
-              </Button>
-            </Link>
-          </div>
-        </section>
-      )}
+          </section>
+
+          {/* 5. Final CTA Section */}
+          {!isAuthenticated && (
+            <section className="py-20 md:py-32 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-center relative">
+              <div className="bg-slate-900 rounded-[3rem] p-10 sm:p-16 md:p-20 shadow-2xl relative overflow-hidden">
+                {/* Subtle dark pattern overlay */}
+                <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white to-transparent" aria-hidden="true"></div>
+                
+                <div className="relative z-10">
+                  <img src={logoImg} alt="Peekaboo" className="h-16 mx-auto mb-8 brightness-0 invert opacity-90" />
+                  
+                  <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-6" data-testid="cta-title">
+                    هل أنت مستعد للمتعة؟
+                  </h2>
+                  
+                  <p className="text-slate-300 text-lg sm:text-xl max-w-2xl mx-auto mb-10 leading-relaxed">
+                    أنشئ حسابك المجاني لحجز الجلسات، تتبع نقاط الولاء، والحصول على عروض حصرية!
+                  </p>
+                  
+                  <Link to="/register" className="inline-block">
+                    <Button
+                      size="lg"
+                      className="rounded-full bg-white text-slate-900 hover:bg-slate-100 text-lg px-12 h-16 font-bold shadow-xl transition-transform hover:scale-105"
+                      data-testid="cta-signup-btn"
+                    >
+                      سجّل الآن للبدء
+                    </Button>
+                  </Link>
+                </div>
+
+                {/* Placement 3: Final CTA Shroomi */}
+                <div className="hidden lg:block absolute bottom-0 left-12 pointer-events-none opacity-90" aria-hidden="true">
+                  <Shroomi pose="thumbs-up-big" size={140} />
+                </div>
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>
