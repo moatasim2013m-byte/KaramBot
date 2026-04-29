@@ -6,6 +6,7 @@ const Message = require('../models/Message');
 const Order = require('../models/Order');
 const Business = require('../models/Business');
 const { sendTextMessage } = require('../services/whatsapp');
+const { decrypt } = require('../utils/tokenCrypto');
 
 router.use(authenticate, attachBusinessId);
 
@@ -67,9 +68,17 @@ router.post('/conversations/:id/send', async (req, res) => {
     const business = await Business.findById(req.businessId).select('+wa_access_token');
     if (!business) return res.status(404).json({ error: 'Business not found' });
 
+    let accessToken;
+    try {
+      accessToken = decrypt(business.wa_access_token);
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to decrypt WhatsApp token. Re-save via /token endpoint.' });
+    }
+    if (!accessToken) return res.status(500).json({ error: 'WhatsApp token not configured for this business' });
+
     const metaResponse = await sendTextMessage(
       business.wa_phone_number_id,
-      business.wa_access_token,
+      accessToken,
       conv.customer_wa_id,
       text,
     );

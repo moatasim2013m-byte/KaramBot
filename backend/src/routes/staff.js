@@ -5,9 +5,10 @@ const User = require('../models/User');
 
 router.use(authenticate, attachBusinessId);
 
-// GET /api/staff - list staff for a business
+// GET /api/staff
 router.get('/', requireRole('platform_admin', 'business_owner', 'manager'), async (req, res) => {
   try {
+    // platform_admin sees all; others see only their business
     const query = req.user.role === 'platform_admin'
       ? {}
       : { business_id: req.businessId };
@@ -19,7 +20,7 @@ router.get('/', requireRole('platform_admin', 'business_owner', 'manager'), asyn
   }
 });
 
-// PATCH /api/staff/:id - update staff (toggle active, change role)
+// PATCH /api/staff/:id
 router.patch('/:id', requireRole('platform_admin', 'business_owner'), async (req, res) => {
   try {
     const { active, role } = req.body;
@@ -27,12 +28,13 @@ router.patch('/:id', requireRole('platform_admin', 'business_owner'), async (req
     if (active !== undefined) update.active = active;
     if (role) update.role = role;
 
-    const user = await User.findOneAndUpdate(
-      { _id: req.params.id, business_id: req.businessId },
-      update,
-      { new: true },
-    ).select('-password');
+    // platform_admin: query by _id only (no business_id restriction)
+    // business_owner: must belong to their business
+    const filter = req.user.role === 'platform_admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, business_id: req.businessId };
 
+    const user = await User.findOneAndUpdate(filter, update, { new: true }).select('-password');
     if (!user) return res.status(404).json({ error: 'Staff member not found' });
     res.json({ user });
   } catch (err) {

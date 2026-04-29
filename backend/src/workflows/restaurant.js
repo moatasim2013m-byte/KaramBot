@@ -6,7 +6,7 @@
  * Prices, totals, availability = always from DB.
  */
 
-const { generateAIReply, extractJSON } = require('../ai/provider');
+const { generateValidatedAIReply } = require('../ai/provider');
 const { MenuItem, Category } = require('../models/Menu');
 const Order = require('../models/Order');
 
@@ -262,14 +262,15 @@ async function processRestaurantMessage(business, conversation, customerMessage)
       ? `[حالة الطلب: ${cart.length} صنف في السلة]\nرسالة العميل: ${customerMessage}`
       : customerMessage;
 
-    const aiRaw = await generateAIReply(systemPrompt, contextMsg);
-    const aiResult = extractJSON(aiRaw);
+    const aiResult = await generateValidatedAIReply(systemPrompt, contextMsg);
 
     if (!aiResult) {
+      // Both AI attempts failed — hand off to human, never crash or create bad order
+      console.warn(`AI returned invalid output twice for business ${business._id} — triggering human handoff`);
       return {
-        reply: 'عذراً، لم أفهم طلبك. هل يمكنك إعادة الصياغة؟',
-        stateUpdate: {},
-        action: 'NONE',
+        reply: business.ai_config?.fallback_message || 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
+        stateUpdate: { ai_enabled: false, status: 'human_takeover' },
+        action: 'HANDOFF_TO_HUMAN',
       };
     }
 

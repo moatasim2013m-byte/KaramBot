@@ -8,6 +8,7 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Order = require('../models/Order');
 const { sendTextMessage, markAsRead, normalizePhone } = require('../services/whatsapp');
+const { decrypt } = require('../utils/tokenCrypto');
 const { processRestaurantMessage } = require('../workflows/restaurant');
 
 /**
@@ -130,13 +131,26 @@ async function processInboundMessage(entry) {
     }
     if (business.status !== 'active') return;
 
+    // Decrypt token for use in this processing cycle only
+    let accessToken;
+    try {
+      accessToken = decrypt(business.wa_access_token);
+    } catch (decErr) {
+      console.error(`Failed to decrypt token for business ${business._id}:`, decErr.message);
+      return;
+    }
+    if (!accessToken) {
+      console.warn(`Business ${business._id} has no WhatsApp access token configured`);
+      return;
+    }
+
     for (const waMsg of messages) {
       const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
       const customerWaId = normalizePhone(waMsg.from);
       const profileName = contact.profile?.name;
 
       // Mark read
-      await markAsRead(phoneNumberId, business.wa_access_token, waMsg.id);
+      await markAsRead(phoneNumberId, accessToken, waMsg.id);
 
       // Get/create conversation
       const conversation = await getOrCreateConversation(business._id, customerWaId, profileName);
@@ -199,7 +213,7 @@ async function processInboundMessage(entry) {
         try {
           const metaResponse = await sendTextMessage(
             phoneNumberId,
-            business.wa_access_token,
+            accessToken,
             customerWaId,
             workflowResult.reply,
           );

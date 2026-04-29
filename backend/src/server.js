@@ -1,4 +1,7 @@
 require('dotenv').config();
+const { validateEnv } = require('./config/validateEnv');
+validateEnv(); // fail fast before anything else loads
+
 const app = require('./app');
 const { connectDB } = require('./config/database');
 

@@ -138,7 +138,58 @@ module.exports = {
   sendTextMessage,
   sendButtonMessage,
   sendListMessage,
+  sendTemplateMessage,
   markAsRead,
   parseInboundMessage,
   normalizePhone,
+  isWithinServiceWindow,
 };
+
+/**
+ * Send a WhatsApp template message.
+ * Used for outbound messages outside the 24-hour customer service window.
+ *
+ * @param {string} phoneNumberId
+ * @param {string} accessToken
+ * @param {string} to - recipient phone number
+ * @param {string} templateName - approved template name in Meta
+ * @param {string} languageCode - e.g. 'ar', 'en_US'
+ * @param {Array}  components - header/body/button variable components (optional)
+ */
+async function sendTemplateMessage(phoneNumberId, accessToken, to, templateName, languageCode = 'ar', components = []) {
+  const url = `${BASE_URL}/${phoneNumberId}/messages`;
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      ...(components.length > 0 && { components }),
+    },
+  };
+
+  const res = await axios.post(url, payload, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  return res.data;
+}
+
+/**
+ * Check if a customer is within the 24-hour WhatsApp customer service window.
+ * Returns true if the business is allowed to send free-form text messages.
+ *
+ * @param {Date|string} lastInboundAt - timestamp of last customer message
+ */
+function isWithinServiceWindow(lastInboundAt) {
+  if (!lastInboundAt) return false;
+  const last = new Date(lastInboundAt);
+  const now = new Date();
+  const diffMs = now - last;
+  const diffHours = diffMs / (1000 * 60 * 60);
+  return diffHours < 24;
+}
