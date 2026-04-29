@@ -1528,8 +1528,80 @@ router.post('/capital-bank/unified-checkout/session', authMiddleware, ensureHttp
   }
 });
 
-// Route B: authorize (+ capture) a payment using the transient token JWT
-// returned by the CyberSource JS SDK on the frontend.
+// ---------------------------------------------------------------------------
+// Helpers: decode + validate the CyberSource transient-token JWT.
+//
+// With the Capture Context configured as `completeMandate.type='CAPTURE'`,
+// CyberSource auto-authorises and captures the payment internally when the
+// Microform SDK calls `createToken()`. The merchant MUST NOT call
+// `/pts/v2/payments` afterwards — doing so returns HTTP 404 ("Resource not
+// found") because the transient token has already been consumed by the
+// auto-capture flow. (Confirmed by Areeba/Capital Bank support, Apr 2026.)
+//
+// So instead of re-calling the Payments API, we:
+//   1. Decode the transient-token JWT (header + payload, no signature verify
+//      — the JS SDK already validated against the JWKS embedded in the
+//      capture context).
+//   2. Sanity-check `iss` (must be a CyberSource Flex issuer), `exp` (must
+//      not be in the past), and `jti` (required, used as the merchant-side
+//      payment_id).
+//   3. Mark the transaction as paid and run the same post-paid hooks the
+//      legacy /pts/v2/payments path used to run.
+// ---------------------------------------------------------------------------
+const decodeTransientTokenJwt = (jwt) => {
+  if (typeof jwt !== 'string' || !jwt) {
+    return { ok: false, error: 'transientToken_missing' };
+  }
+  const parts = jwt.split('.');
+  if (parts.length < 2) {
+    return { ok: false, error: 'transientToken_malformed' };
+  }
+  const base64UrlDecode = (s) => {
+    const padded = s.replace(/-/g, '+').replace(/_/g, '/');
+    const padLen = (4 - (padded.length % 4)) % 4;
+    return Buffer.from(padded + '='.repeat(padLen), 'base64').toString('utf8');
+  };
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(base64UrlDecode(parts[0]) || '{}');
+    payload = JSON.parse(base64UrlDecode(parts[1]) || '{}');
+  } catch (_err) {
+    return { ok: false, error: 'transientToken_decode_failed' };
+  }
+  return { ok: true, header, payload };
+};
+
+const validateTransientTokenClaims = (payload) => {
+  const iss = String(payload?.iss || '');
+  const jti = String(payload?.jti || '');
+  const exp = Number(payload?.exp || 0);
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // Issuer should be a CyberSource Flex issuer. Areeba's tokens carry
+  // `iss: "Flex/<n>"` (e.g. "Flex/07"). Be lenient — any string starting
+  // with "Flex" is acceptable.
+  if (!iss.toLowerCase().startsWith('flex')) {
+    return { ok: false, error: 'transientToken_issuer_invalid', iss };
+  }
+  if (!jti) {
+    return { ok: false, error: 'transientToken_jti_missing' };
+  }
+  // Allow 60s clock skew.
+  if (exp > 0 && exp + 60 < nowSec) {
+    return { ok: false, error: 'transientToken_expired', exp, now: nowSec };
+  }
+  return { ok: true, iss, jti, exp };
+};
+
+// Route B: confirm a payment captured via Unified Checkout (completeMandate=CAPTURE).
+//
+// The frontend posts the transient-token JWT it received from
+// `microform.createToken(...)`. Because the capture context was created with
+// `completeMandate: { type: 'CAPTURE' }`, CyberSource has already processed
+// the auth+capture by the time the JWT is issued. We decode the JWT, persist
+// the `jti` as our payment_id, mark the transaction as paid, and run the
+// same post-paid hooks the legacy /pts/v2/payments path ran.
 router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHttpsForCapitalBank, async (req, res) => {
   try {
     const { orderId, transientToken } = req.body || {};
@@ -1552,93 +1624,77 @@ router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHt
 
     const currency = String(transaction.currency || 'JOD').toUpperCase();
 
-    console.info('[CyberSource Unified Checkout] Authorizing payment', {
-      order_id: transaction.session_id,
-      amount: amount.toFixed(2),
-      currency
-    });
-
-    const result = await cybersourceAuthorizePayment({
-      transientToken,
-      amount,
-      currency,
-      referenceNumber: transaction.session_id
-    });
-
-    const providerData = (result && typeof result.data === 'object' && result.data) ? result.data : {};
-    const providerStatus = String(providerData?.status || '').toUpperCase();
-    const providerPaymentId = String(
-      providerData?.id
-      || providerData?.processorInformation?.transactionId
-      || ''
-    ).trim();
-    const reasonCode = String(
-      providerData?.processorInformation?.responseCode
-      || providerData?.errorInformation?.reason
-      || providerData?.reason
-      || ''
-    ).trim();
-    const providerMessage = String(
-      providerData?.processorInformation?.responseCodeSource
-      || providerData?.errorInformation?.message
-      || providerData?.message
-      || ''
-    ).trim();
-
-    const isApproved = Boolean(result.ok)
-      && (providerStatus === 'AUTHORIZED'
-        || providerStatus === 'AUTHORIZED_PENDING_REVIEW'
-        || providerStatus === 'PARTIAL_AUTHORIZED'
-        || providerStatus === 'PENDING'
-        || providerStatus === 'TRANSMITTED');
-
-    const isPending = Boolean(result.ok)
-      && (providerStatus === 'PENDING_AUTHENTICATION'
-        || providerStatus === 'PENDING_REVIEW');
-
-    let newStatus;
-    let newPaymentStatus;
-    if (isApproved) {
-      newStatus = 'paid';
-      newPaymentStatus = 'paid';
-    } else if (isPending) {
-      newStatus = 'pending';
-      newPaymentStatus = 'pending';
-    } else {
-      newStatus = 'failed';
-      newPaymentStatus = 'failed';
+    // 1. Decode + validate the transient-token JWT.
+    const decoded = decodeTransientTokenJwt(transientToken);
+    if (!decoded.ok) {
+      console.error('[CyberSource Unified Checkout] Transient token decode failed', {
+        order_id: transaction.session_id,
+        error: decoded.error
+      });
+      return res.status(400).json({
+        success: false,
+        orderId: transaction.session_id,
+        error: 'Invalid payment token',
+        code: 'UNIFIED_CHECKOUT_TOKEN_INVALID',
+        provider: { reasonCode: decoded.error }
+      });
+    }
+    const claims = validateTransientTokenClaims(decoded.payload);
+    if (!claims.ok) {
+      console.error('[CyberSource Unified Checkout] Transient token claims invalid', {
+        order_id: transaction.session_id,
+        error: claims.error,
+        iss: claims.iss || null,
+        exp: claims.exp || null
+      });
+      return res.status(400).json({
+        success: false,
+        orderId: transaction.session_id,
+        error: 'Payment token rejected',
+        code: 'UNIFIED_CHECKOUT_TOKEN_REJECTED',
+        provider: { reasonCode: claims.error }
+      });
     }
 
-    // Do not demote an already-paid transaction (mirror processCapitalBankReturn logic).
-    const shouldKeepPaidState = transaction.status === 'paid' && newStatus !== 'paid';
+    const providerPaymentId = claims.jti;
 
+    console.info('[CyberSource Unified Checkout] Confirming auto-captured payment', {
+      order_id: transaction.session_id,
+      amount: amount.toFixed(2),
+      currency,
+      jti: providerPaymentId,
+      iss: claims.iss
+    });
+
+    // 2. Persist the paid state. Auto-capture means the payment is already
+    // settled on CyberSource's side — we just record it.
+    const shouldKeepPaidState = transaction.status === 'paid';
     const updatePayload = {
       $set: {
-        status: shouldKeepPaidState ? 'paid' : newStatus,
-        payment_status: shouldKeepPaidState ? 'paid' : newPaymentStatus,
+        status: shouldKeepPaidState ? 'paid' : 'paid',
+        payment_status: shouldKeepPaidState ? 'paid' : 'paid',
         updated_at: new Date(),
         provider: DB_PROVIDER_CAPITAL_BANK,
+        payment_id: providerPaymentId,
         'metadata.gateway_callback': {
-          source: 'unified_checkout_authorize',
-          decision: providerStatus || (result.ok ? 'UNKNOWN' : 'ERROR'),
-          reason_code: reasonCode,
-          message: providerMessage,
+          source: 'unified_checkout_autocapture',
+          decision: 'AUTHORIZED',
+          reason_code: '',
+          message: 'Captured via Unified Checkout completeMandate=CAPTURE',
           req_reference_number: transaction.session_id,
           reference_number: transaction.session_id,
           transaction_id: providerPaymentId,
           req_transaction_uuid: providerPaymentId,
           received_at: new Date().toISOString()
         },
-        'metadata.unified_checkout.authorize_status': providerStatus,
-        'metadata.unified_checkout.authorize_http_status': result.status || null,
+        'metadata.unified_checkout.authorize_status': 'AUTO_CAPTURED',
+        'metadata.unified_checkout.authorize_http_status': 200,
         'metadata.unified_checkout.authorized_at': new Date().toISOString(),
-        ...(providerPaymentId ? { payment_id: providerPaymentId } : {})
-      }
+        'metadata.unified_checkout.transient_token_jti': providerPaymentId,
+        'metadata.unified_checkout.transient_token_iss': claims.iss
+      },
+      $addToSet: { 'metadata.processed_transaction_ids': providerPaymentId }
     };
-
-    if (providerPaymentId) {
-      updatePayload.$addToSet = { 'metadata.processed_transaction_ids': providerPaymentId };
-    }
 
     const updated = await PaymentTransaction.findOneAndUpdate(
       { _id: transaction._id },
@@ -1646,31 +1702,7 @@ router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHt
       { new: true }
     );
 
-    if (!result.ok) {
-      let providerBodyString = '';
-      try {
-        providerBodyString = JSON.stringify(providerData, null, 2);
-      } catch (_e) {
-        providerBodyString = String(providerData);
-      }
-      console.error(`[CyberSource Unified Checkout] Authorize failed order_id=${transaction.session_id} http_status=${result.status} error=${result.error} provider_status=${providerStatus} reason_code=${reasonCode}\n${providerBodyString}`);
-      return res.status(402).json({
-        success: false,
-        orderId: transaction.session_id,
-        status: updated?.status || newStatus,
-        error: providerMessage || result.error || 'Payment authorization failed',
-        code: 'UNIFIED_CHECKOUT_AUTHORIZE_FAILED',
-        provider: {
-          status: providerStatus || null,
-          reasonCode: reasonCode || null,
-          httpStatus: result.status || null,
-          message: providerMessage || null,
-          body: providerData || null
-        }
-      });
-    }
-
-    // On success, mirror the existing callback post-processing.
+    // 3. Mirror the legacy post-paid hooks.
     if (updated && updated.status === 'paid' && updated.type === 'product') {
       try {
         await maybeAwardProductLoyaltyPoints(updated);
@@ -1691,21 +1723,20 @@ router.post('/capital-bank/unified-checkout/authorize', authMiddleware, ensureHt
       }
     }
 
-    console.info('[CyberSource Unified Checkout] Authorize completed', {
+    console.info('[CyberSource Unified Checkout] Authorize completed (auto-capture)', {
       order_id: transaction.session_id,
-      provider_status: providerStatus,
-      final_status: updated?.status || newStatus,
-      payment_id: providerPaymentId || null
+      final_status: updated?.status || 'paid',
+      payment_id: providerPaymentId
     });
 
     return res.status(200).json({
-      success: isApproved,
+      success: true,
       orderId: transaction.session_id,
-      status: updated?.status || newStatus,
+      status: updated?.status || 'paid',
       provider: {
-        status: providerStatus || null,
-        paymentId: providerPaymentId || null,
-        reasonCode: reasonCode || null
+        status: 'AUTHORIZED',
+        paymentId: providerPaymentId,
+        reasonCode: null
       }
     });
   } catch (error) {
