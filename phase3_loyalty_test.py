@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import uuid
 
 # Configuration
-BACKEND_URL = "https://credit-control-16.preview.emergentagent.com/api"
+BACKEND_URL = "https://api-gateway-fix-15.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 PARENT_EMAIL = "parent@peekaboo.com"

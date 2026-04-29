@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timedelta
 
 # Backend URL from frontend/.env
-BACKEND_URL = "https://credit-control-16.preview.emergentagent.com/api"
+BACKEND_URL = "https://api-gateway-fix-15.preview.emergentagent.com/api"
 
 # Test credentials from /app/memory/test_credentials.md
 ADMIN_EMAIL = "admin@peekaboo.com"
@@ -227,7 +227,7 @@ class Phase6LoyaltyTesterExtended:
                 "reference_id": "507f1f77bcf86cd799439011",  # Dummy slot ID
                 "child_ids": ["507f1f77bcf86cd799439013"],
                 "duration_hours": 2,
-                "origin_url": "https://credit-control-16.preview.emergentagent.com"
+                "origin_url": "https://api-gateway-fix-15.preview.emergentagent.com"
             }
             response = requests.post(f"{BACKEND_URL}/payments/create-checkout", 
                                    headers=headers, json=payload)
