@@ -54,25 +54,6 @@
 .shroomi-halo--green   { --halo: rgba(151,198,74,.28); }
 .shroomi-halo--orange  { --halo: rgba(242,138,46,.26); }
 
-/* ------------------------------------------------------------
-   Premium HomePage hero
-   ------------------------------------------------------------ */
-.pk-premium-hero {
-  position: relative;
-  isolation: isolate;
-  background:
-    radial-gradient(1200px 500px at 80% -10%, rgba(102,169,233,.18), transparent 60%),
-    radial-gradient(900px 400px at -10% 30%, rgba(242,229,51,.18), transparent 60%),
-    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-}
-.pk-premium-hero::after {
-  content: '';
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(15,23,42,.08), transparent);
-}
-
 .pk-hero-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -440,37 +421,3 @@
   display: block;
 }
 
-/* Final CTA on HomePage */
-.pk-cta-band {
-  position: relative;
-  border-radius: 28px;
-  padding: 40px 24px;
-  background:
-    radial-gradient(600px 240px at 90% 10%, rgba(217,35,46,.16), transparent 60%),
-    radial-gradient(500px 220px at 5% 90%, rgba(102,169,233,.18), transparent 60%),
-    linear-gradient(135deg, #ffffff, #f8fafc);
-  border: 1px solid rgba(15,23,42,.06);
-  box-shadow: 0 24px 60px -32px rgba(15,23,42,.25);
-  overflow: hidden;
-  text-align: center;
-}
-.pk-cta-band__shroomi {
-  position: absolute;
-  bottom: -8px;
-  left: 16px;
-  width: 110px;
-  height: 110px;
-  pointer-events: none;
-}
-.pk-cta-band__shroomi--right {
-  bottom: -8px;
-  right: 16px;
-  left: auto;
-  width: 96px;
-  height: 96px;
-}
-@media (min-width: 768px) {
-  .pk-cta-band { padding: 56px 40px; }
-  .pk-cta-band__shroomi { width: 150px; height: 150px; bottom: -12px; left: 28px; }
-  .pk-cta-band__shroomi--right { width: 130px; height: 130px; right: 28px; }
-}
