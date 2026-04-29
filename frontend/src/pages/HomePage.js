@@ -7,6 +7,7 @@ import { Badge } from '../components/ui/badge';
 import { useAuth } from '../context/AuthContext';
 import SkyBackground from '../components/theme/SkyBackground';
 import MascotVariant from '../components/theme/MascotVariant';
+import Shroomi from '../components/Shroomi';
 import mascotImg from '../assets/mascot.png';
 import logoImg from '../assets/logo.png';
 import playHourIcon from '../assets/cartoon-icons/play-clock.svg';
@@ -331,7 +332,7 @@ export default function HomePage() {
     <div className="home-page" dir="rtl">
       <SkyBackground className="home-sky-layer" />
 
-      <section id="home" className="home-hero-sky home-theme-section home-theme-section--sky pb-hero pb-section py-14 md:py-24">
+      <section id="home" className="home-hero-sky home-theme-section home-theme-section--sky pk-premium-hero pb-hero pb-section py-14 md:py-24">
         <div className="page-shell home-hero-shell px-2 sm:px-4 lg:px-6 relative z-10">
           <div className="hero-content-stack opl-hero">
             <div className="hero-image-section opl-hero-inner">
@@ -429,12 +430,16 @@ export default function HomePage() {
 
             </div>
 
-            {/* Mascot */}
-            <img
-              src={mascotImg}
-              alt="تميمة بيكابو"
-              className="hero-mascot"
-            />
+            {/* Premium Shroomi anchor — replaces the legacy floating mascot.
+                Two poses: a friendly "wave" tucked near the CTA on small
+                screens, and a larger "point-side" guide on desktop that
+                gestures toward the booking image. */}
+            <div className="pk-hero-shroomi pk-hero-shroomi--main hidden md:block" aria-hidden="true">
+              <Shroomi pose="point-side" size={220} className="shroomi-float" />
+            </div>
+            <div className="pk-hero-shroomi block md:hidden" aria-hidden="true" style={{ right: 8, bottom: -6, width: 110, height: 110 }}>
+              <Shroomi pose="wave" size={110} className="shroomi-bob" />
+            </div>
           </div>
         </div>
       </section>
@@ -468,8 +473,13 @@ export default function HomePage() {
       {/* Features Section */}
       <section className="section-container home-page-section home-theme-section home-theme-section--jungle pb-section page-shell page-section-gap">
         <div className="max-w-7xl mx-auto" dir="rtl">
-          <div className="why-peekaboo-box why-peekaboo-single-card text-right" data-testid="why-peekaboo-box">
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mb-3">
+          <div className="why-peekaboo-box why-peekaboo-single-card text-right relative" data-testid="why-peekaboo-box">
+            {/* Shroomi accent — symbol of "care" near the trust pillars. */}
+            <div className="hidden md:block absolute -top-6 -left-2 z-10 shroomi-halo shroomi-halo--red" aria-hidden="true">
+              <Shroomi pose="heart-hold" size={88} className="shroomi-bob" />
+            </div>
+            <span className="pk-section-eyebrow pk-section-eyebrow--red mb-3">لماذا بيكابو</span>
+            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mt-2 mb-3">
               ماذا يميزنا؟
             </h2>
             <p className="text-muted-foreground text-base sm:text-lg max-w-2xl mb-5">
@@ -501,11 +511,15 @@ export default function HomePage() {
       {/* Features Section */}
       <section className="section-container home-page-section home-theme-section home-theme-section--jungle pb-section page-shell page-section-gap">
         <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mb-4" data-testid="features-title">
+          <div className="text-center mb-12 relative">
+            <div className="hidden md:block absolute -top-4 right-2 z-0 shroomi-halo shroomi-halo--yellow opacity-90" aria-hidden="true">
+              <Shroomi pose="point" size={84} className="shroomi-float" />
+            </div>
+            <span className="pk-section-eyebrow pk-section-eyebrow--blue mb-3 relative z-10">خدماتنا</span>
+            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mt-3 mb-4 relative z-10" data-testid="features-title">
               ماذا نقدم
             </h2>
-            <p className="text-muted-foreground text-base sm:text-lg max-w-xl mx-auto">
+            <p className="text-muted-foreground text-base sm:text-lg max-w-xl mx-auto relative z-10">
               كل ما تحتاجه ليوم لعب مثالي!
             </p>
           </div>
@@ -521,6 +535,28 @@ export default function HomePage() {
                 <div className={`pk-card-accent ${feature.accentColor}`} />
                 {feature.isCoreOffer && (
                   <Badge className="absolute right-3 top-3 theme-package-badge z-10">الخدمات الأكثر طلباً</Badge>
+                )}
+                {/* Premium Shroomi corner mascot — varies pose by service so
+                    he never looks copy-pasted. Decorative only. */}
+                {feature.id === 'hourly' && (
+                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--blue" aria-hidden="true">
+                    <Shroomi pose="clock" size={56} />
+                  </div>
+                )}
+                {feature.id === 'birthdays' && (
+                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--red" aria-hidden="true">
+                    <Shroomi pose="party-confetti" size={56} />
+                  </div>
+                )}
+                {feature.id === 'subscriptions' && (
+                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--yellow" aria-hidden="true">
+                    <Shroomi pose="tag-discount" size={56} />
+                  </div>
+                )}
+                {feature.id === 'schools' && (
+                  <div className="pk-card-mascot pk-card-mascot--tl shroomi-halo shroomi-halo--green" aria-hidden="true">
+                    <Shroomi pose="clipboard-write" size={52} />
+                  </div>
                 )}
                 {feature.disabled && (
                   <div className="absolute top-3 left-3 bg-[var(--pk-purple)] text-white text-xs font-bold px-2 py-1 rounded-full z-10">
@@ -561,8 +597,12 @@ export default function HomePage() {
       {/* Gallery Section */}
       <section className="section-container home-page-section home-theme-section home-theme-section--water pb-section page-shell page-section-gap">
         <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mb-4" data-testid="gallery-title">
+          <div className="text-center mb-12 relative">
+            <div className="hidden md:block absolute -top-2 left-2 z-0 opacity-90" aria-hidden="true">
+              <Shroomi pose="phone-photo" size={78} className="shroomi-bob" />
+            </div>
+            <span className="pk-section-eyebrow pk-section-eyebrow--green mb-3 relative z-10">لقطات حقيقية</span>
+            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mt-3 mb-4 relative z-10" data-testid="gallery-title">
               لحظات ممتعة في بيكابو
             </h2>
             <p className="text-muted-foreground text-base sm:text-lg">
@@ -644,25 +684,29 @@ export default function HomePage() {
       {/* CTA Section */}
       {!isAuthenticated && (
         <section className="pb-section py-16 md:py-20 page-shell page-section-gap home-theme-section home-theme-section--party">
-          <div className="relative overflow-hidden max-w-4xl mx-auto px-6 py-12 md:py-16 home-cta-panel rounded-[var(--radius-2xl)] shadow-xl text-center">
-            <div className="cta-cloud-layer" aria-hidden="true">
-              <div className="cta-cloud cta-cloud-1"></div>
-              <div className="cta-cloud cta-cloud-2"></div>
-              <div className="cta-cloud cta-cloud-3"></div>
+          <div className="relative pk-cta-band max-w-4xl mx-auto">
+            {/* Two Shroomis frame the CTA — different poses + sides so he
+                feels like a recurring character, not a copy-pasted asset. */}
+            <div className="pk-cta-band__shroomi shroomi-halo shroomi-halo--yellow hidden sm:block" aria-hidden="true">
+              <Shroomi pose="party-confetti" size={150} className="shroomi-float" />
             </div>
-            <div className="flex justify-center mb-4">
+            <div className="pk-cta-band__shroomi pk-cta-band__shroomi--right shroomi-halo shroomi-halo--blue hidden md:block" aria-hidden="true">
+              <Shroomi pose="thumbs-up-big" size={130} className="shroomi-bob" />
+            </div>
+
+            <div className="flex justify-center mb-4 relative z-10">
               <img src={logoImg} alt="شعار بيكابو" className="h-16 sm:h-20 drop-shadow-lg" />
             </div>
-            <img src={mascotImg} alt="تميمة بيكابو" className="hidden sm:block absolute bottom-3 left-4 w-20 h-20 lg:w-24 lg:h-24 object-contain drop-shadow-lg" />
-            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text-primary)] mb-6" data-testid="cta-title">
+            <span className="pk-section-eyebrow pk-section-eyebrow--red relative z-10">انضم إلى عائلة بيكابو</span>
+            <h2 className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-[var(--text-primary)] mt-3 mb-4 relative z-10" data-testid="cta-title">
               هل أنت مستعد للمتعة؟
             </h2>
-            <p className="text-[var(--text-secondary)] text-base sm:text-lg mb-8 max-w-xl mx-auto">
+            <p className="text-[var(--text-secondary)] text-base sm:text-lg mb-8 max-w-xl mx-auto relative z-10">
               أنشئ حسابك المجاني لحجز الجلسات، تتبع نقاط الولاء، والحصول على عروض حصرية!
             </p>
-            <Link to="/register">
-              <Button 
-                size="lg" 
+            <Link to="/register" className="relative z-10 inline-block">
+              <Button
+                size="lg"
                 className="rounded-full pb-btn home-cta home-cta-signup-btn primary-btn text-base sm:text-lg px-10 py-6 font-bold shadow-lg"
                 data-testid="cta-signup-btn"
               >

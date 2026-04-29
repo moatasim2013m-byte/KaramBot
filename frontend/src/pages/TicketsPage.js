@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { format, addDays } from 'date-fns';
 import { Clock, Users, Loader2, AlertCircle, Star, Sun, Moon, Check, Cloud, Sparkles } from 'lucide-react';
 import { PaymentMethodSelector } from '../components/PaymentMethodSelector';
-import mascotImg from '../assets/mascot.png';
+import Shroomi from '../components/Shroomi';
 
 // Morning pricing constant
 const MORNING_PRICE_PER_HOUR = 3.5;
@@ -673,39 +673,47 @@ export default function TicketsPage() {
   const periodLabel = timeMode === 'morning' ? 'صباحي' : timeMode === 'afternoon' ? 'مسائي' : '---';
 
   return (
-    <div className="min-h-screen py-6 md:py-12 booking-mobile-page tickets-themed-page" dir="rtl">
+    <div className="min-h-screen py-6 md:py-12 booking-mobile-page tickets-themed-page pk-booking-page" dir="rtl">
       <div className="page-shell booking-mobile-shell tickets-themed-wrap px-4 sm:px-6 lg:px-8">
-        {/* Page Header */}
-        <div className="text-center mb-8">
-          <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mb-3">
-            احجز وقت اللعب
-          </h1>
-          <div className="booking-hero-intro" aria-label="مقدمة الحجز">
-            <span className="booking-hero-badge">
-              <Sparkles className="h-4 w-4" aria-hidden="true" />
-              تصميم مرح وتجربة أسهل
-            </span>
-            <div className="shroomi-promo shroomi-promo--booking shroomi-promo--mega">
-              <img src={mascotImg} alt="Shroomi with ticket" className="shroomi-promo__img shroomi-promo__img--ticket shroomi-promo__img--ticket-mega" />
-              <span className="shroomi-promo__text shroomi-promo__text--mega">احجز جلستك!</span>
-              <span className="shroomi-promo__subtext">خلّي المرح يبدأ الآن 🎉</span>
-            </div>
+        {/* Premium Booking Hero — replaces the legacy mega-mascot block.
+            Cleaner hierarchy, soft gradient deco, RTL-friendly, and a
+            single contextual Shroomi (clipboard-write) that frames him
+            as the parent's booking journey guide. */}
+        <div className="pk-booking-hero mb-6">
+          <div className="pk-booking-hero__deco-yellow" aria-hidden="true"></div>
+          <div className="pk-booking-hero__deco-blue" aria-hidden="true"></div>
+
+          <div className="pk-booking-hero__shroomi shroomi-halo shroomi-halo--blue" aria-hidden="true">
+            <Shroomi pose="clipboard-write" size={150} className="shroomi-float" />
           </div>
-          <p className="text-muted-foreground text-base md:text-lg max-w-xl mx-auto">
-            اختر التاريخ، الفترة، المدة، ثم الوقت المناسب
-          </p>
-          
-          <div className="booking-step-pills mt-6" role="list" aria-label="مراحل الحجز">
-            {stepPills.map((step) => (
-              <span
-                key={step.id}
-                role="listitem"
-                className={`booking-step-pill ${step.complete ? 'is-complete' : ''} ${activeStep === step.id && !step.complete ? 'is-active' : ''}`}
-              >
-                {step.complete ? <Check className="h-4 w-4" /> : null}
-                {step.label}
-              </span>
-            ))}
+
+          <div className="relative z-10 max-w-2xl">
+            <span className="pk-hero-eyebrow">
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              حجز سريع — 4 خطوات بسيطة
+            </span>
+            <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mt-3 mb-2">
+              احجز وقت اللعب
+            </h1>
+            <p className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
+              اختر التاريخ، الفترة، المدة، ثم الوقت المناسب — وشروومي يرافقك خطوة بخطوة.
+            </p>
+
+            {/* Premium step pills (replaces booking-step-pills). Same data,
+                same a11y semantics — only visual polish. */}
+            <div className="pk-stepper" role="list" aria-label="مراحل الحجز">
+              {stepPills.map((step) => {
+                const status = step.complete ? 'is-complete' : (activeStep === step.id ? 'is-active' : '');
+                return (
+                  <span key={step.id} role="listitem" className={`pk-stepper__item ${status}`}>
+                    <span className="pk-stepper__num">
+                      {step.complete ? <Check className="h-3.5 w-3.5" /> : step.id}
+                    </span>
+                    <span>{step.label.replace(/^\d\s*/, '')}</span>
+                  </span>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -886,7 +894,11 @@ export default function TicketsPage() {
 
         {/* Booking Summary */}
         {isAuthenticated && selectedSlot && (
-          <Card className="booking-card">
+          <Card className="booking-card relative overflow-visible">
+            {/* Friendly thumbs-up Shroomi marks the "ready to book" zone. */}
+            <div className="hidden sm:block absolute -top-8 left-4 z-10 shroomi-halo shroomi-halo--green" aria-hidden="true">
+              <Shroomi pose="thumbs-up-big" size={88} className="shroomi-bob" />
+            </div>
             <CardHeader className="booking-card-header">
               <CardTitle className="booking-card-title">أكمل حجزك</CardTitle>
             </CardHeader>
@@ -1038,11 +1050,16 @@ export default function TicketsPage() {
                   && Number(loyaltyBalance || 0) >= Number(loyaltyPolicy?.redeem_min_points || 0)
                   && Number(loyaltyPolicy?.redeem_min_points || 0) > 0
                   && (
-                  <div className="rounded-2xl border border-secondary/30 bg-secondary/5 p-4" data-testid="loyalty-redemption-card">
-                    <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="pk-loyalty-card" data-testid="loyalty-redemption-card">
+                    {/* Reward-themed Shroomi reinforces this is the "spend
+                        points" zone. Decorative only — UI logic unchanged. */}
+                    <div className="pk-loyalty-card__shroomi" aria-hidden="true">
+                      <Shroomi pose="party-coins" size={80} className="shroomi-bob" />
+                    </div>
+                    <div className="flex items-center justify-between gap-3 mb-2 pl-16">
                       <div className="flex items-center gap-2">
-                        <Star className="h-4 w-4 text-secondary" />
-                        <span className="font-semibold text-sm">استخدام نقاط الولاء</span>
+                        <Star className="h-4 w-4 text-amber-600" />
+                        <span className="font-bold text-sm text-amber-900">استخدام نقاط الولاء</span>
                       </div>
                       <Button
                         type="button"
@@ -1185,8 +1202,11 @@ export default function TicketsPage() {
         )}
 
         {!isAuthenticated && (
-          <Card className="booking-card booking-auth-card">
-            <CardContent className="py-8 text-center">
+          <Card className="booking-card booking-auth-card pk-auth-invite border-0 shadow-none">
+            <CardContent className="py-6 text-center">
+              <div className="pk-auth-invite__shroomi" aria-hidden="true">
+                <Shroomi pose="wave" size={92} className="shroomi-pop-in" />
+              </div>
               <p className="text-2xl font-bold mb-2">جاهزين للعب؟ 🎈</p>
               <p className="text-muted-foreground mb-5">انضموا لعائلة بيكابو وسنجهز لكم جلسة لعب ممتعة وآمنة.</p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
