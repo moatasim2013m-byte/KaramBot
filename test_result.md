@@ -272,10 +272,7 @@ backend:
 
 test_plan:
   current_focus:
-    - "(Phase 4 FE) Parent ProfilePage loyalty tab — balance + history + Arabic/RTL"
-    - "(Phase 4 FE) Admin SettingsTab → الولاء sub-tab: settings form loads, saves, persists after reload"
-    - "(Phase 4 FE) Admin SettingsTab → الولاء sub-tab: ledger loads + paginates (prev/next)"
-    - "(Phase 4 FE) Staff role must NOT see admin loyalty controls (/staff has no admin Settings/loyalty UI)"
+    - "Staff activation-blocker unblocker UI (pending_cash/pending_cliq payment confirmation)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -753,6 +750,21 @@ test_plan:
         - working: true
           agent: "testing"
           comment: "✅ TESTED: Existing opt-out functionality confirmed working. Bulk-send properly handles opted-out users through existing postWhatsAppTemplate() flow. No opted-out users in test data, but mechanism verified through code path and response structure."
+
+  - task: "Staff activation-blocker unblocker UI (pending_cash/pending_cliq payment confirmation)"
+    implemented: true
+    working: false
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "NEW feature. Staff can manually confirm pending cash/cliq payments during activation. Amber action panel appears below red blocking error with button labelled 'تأكيد استلام الدفع النقدي' (cash) or 'تأكيد استلام دفعة CliQ' (cliq). Clicking shows browser confirm dialog, POSTs to /api/staff/bookings/hourly/:id/confirm-payment, shows success toast, auto re-validates to refresh UI."
+        - working: false
+          agent: "testing"
+          comment: "❌ CRITICAL BUG: Frontend-backend field mismatch prevents payment confirmation. TESTED: (Case 1) Amber box with data-testid='pending-payment-action' appears correctly ✅. Button with data-testid='confirm-pending-payment-btn' visible with correct cash label 'تأكيد استلام الدفع النقدي' ✅. (Case 2) CliQ button label correct 'تأكيد استلام دفعة CliQ' ✅. (Case 4) Amber box does NOT appear for paid bookings ✅. (Case 5) No console errors ✅. BUG: When clicking confirm button, error toast shows 'لا يوجد حجز محدد لتأكيد الدفع' (No booking specified). ROOT CAUSE: Frontend line 465 reads qrValidation?.booking?._id but backend summarizeBooking() returns booking_id (not _id). FIX REQUIRED: Change line 465 in StaffPage.js from 'const bookingId = qrValidation?.booking?._id;' to 'const bookingId = qrValidation?.booking?.booking_id;'. Backend endpoint /api/staff/bookings/hourly/:id/confirm-payment is working (verified 8/8 PASS in backend tests). UI renders correctly, only the booking ID extraction is broken."
 
 frontend:
   - task: "Bulk Send UI card in campaigns tab"
