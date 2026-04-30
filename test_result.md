@@ -1325,12 +1325,77 @@ backend:
                 produced by a real card transaction on the live Microform SDK — this last step
                 will be verified by the user in a live test transaction.
 
+  - task: "Stabilization pass: customer/admin/staff frontend flows after HomePage rebuild + loyalty work"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/HomePage.js + repo-wide audit"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            STABILIZATION PASS — no redesign, no new features, no backend logic changes.
+
+            Audit findings (only two real issues identified):
+              1. INFRA (fixed): Node-app backend (/app/backend/node-app) was crash-looping
+                 because yarn install had not been run — `Cannot find module 'dotenv'`. Ran
+                 `yarn install` and restarted supervisor. /api/settings, /api/gallery now
+                 return 200 via both internal 8001 and external ingress.
+              2. UX BUG (fixed): Homepage hero visual area showed "جاري التحميل..." forever
+                 when `settings.hero_image` is empty (default / fresh install). The gate
+                 was `!showHeroImage` which stays true when ready+empty. Fix: split into
+                 three states — (a) !heroImageReady → loading text, (b) ready+no image →
+                 branded empty state (🎈 Peekaboo / We bring happiness on warm gradient),
+                 (c) ready+image → real <img>. No hooks/state/API/logic changed.
+
+            Repo-wide frontend lint: ✅ clean (pages + components).
+            No missing imports, no broken routes, no syntax errors.
+
+            PLEASE TEST THE FOLLOWING IN THIS STRICT ORDER:
+
+            === 1) CUSTOMER / PUBLIC FLOWS (unauthenticated + parent@peekaboo.com / parent123) ===
+              - Homepage `/` — sections render, no console errors, mobile layout OK, no
+                mascot overlap on CTAs, hero empty-state is the branded Peekaboo card (not
+                "جاري التحميل..."), all 3 hero CTAs clickable, journey scroll works on mobile.
+              - Tickets `/tickets` — date/time/duration selection, booking summary totals
+                update, loyalty redemption panel visibility rules correct, payment method
+                switching, CTA proceeds to checkout.
+              - Birthday `/birthday` — theme selection, slot picking, AI invite/theme buttons
+                render (even if generation requires admin config), booking summary + payment.
+              - Subscriptions `/subscriptions` — plan select, child select, purchase CTA,
+                payment flow.
+              - Groups `/groups` and Home Party `/home-party` — CTAs work, no runtime errors.
+              - Booking confirmation `/booking/confirmation/:id` if reachable from a created
+                booking — visual sanity only.
+              - Profile `/profile` — loyalty history loads, no broken rendering.
+
+            === 2) ADMIN FLOWS (admin@peekaboo.com / admin123) ===
+              - Admin dashboard `/admin` — all subtabs load (Overview, Bookings, Content,
+                Visitors, Staff, Themes, Settings).
+              - Loyalty settings save/load round-trip (within Settings or dedicated loyalty
+                tab — whatever exists in current repo).
+              - Loyalty ledger loads without error.
+              - Any booking/session admin actions still operable.
+
+            === 3) STAFF FLOWS (create or use a staff account per repo convention) ===
+              - `/staff` page loads.
+              - QR scanner UI renders, manual entry path usable.
+              - Validate/check-in flow runs end-to-end on a recent booking.
+              - Loyalty-award feedback shown after check-in.
+              - Active sessions list + pending check-ins list render.
+
+            Return: per-flow pass/fail, any real console/runtime errors, and only bugs
+            that are real regressions (not cosmetic preferences).
+
+
 metadata:
   test_sequence: 1
 
 test_plan:
   current_focus:
-    - "Capital Bank Unified Checkout: stop calling /pts/v2/payments after auto-capture"
+    - "Stabilization pass: customer/admin/staff frontend flows after HomePage rebuild + loyalty work"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
