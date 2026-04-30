@@ -27,14 +27,67 @@ const CONFIRMATION_PHRASES = [
 
 const CANCEL_PHRASES = ['إلغاء', 'cancel', 'لا', 'no', 'بطل', 'مش عارف'];
 
+// Split on whitespace + common Arabic/English punctuation.
+// Used by getDecisionTokens; kept module-local so callers can't mutate it.
+const DECISION_SPLIT_RE = /[\s،؛؟!,.?;:()\[\]{}"'«»…]+/;
+
+/**
+ * Normalize text for yes/no decision matching:
+ * lowercase, unify alef variants, strip tatweel + Arabic diacritics,
+ * collapse whitespace. Safe on null/undefined/non-string input.
+ */
+function normalizeDecisionText(text) {
+  return String(text == null ? '' : text)
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ـ/g, '')
+    .replace(/[\u064B-\u0652\u0670]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Tokenize normalized text into non-empty tokens, splitting on whitespace
+ * and common Arabic/English punctuation. Prevents false substring matches
+ * like "بلاش" containing "لا", or "أكيد" containing "أكد".
+ */
+function getDecisionTokens(text) {
+  return normalizeDecisionText(text)
+    .split(DECISION_SPLIT_RE)
+    .filter(Boolean);
+}
+
+/**
+ * Whole-token (and exact multi-token sequence) match for decision phrases.
+ * Both the input text and each phrase are normalized/tokenized, so
+ * "نعم!" matches "نعم" but "بلاش" no longer matches "لا".
+ */
+function hasDecisionPhrase(text, phrases) {
+  const tokens = getDecisionTokens(text);
+  if (tokens.length === 0) return false;
+  for (const phrase of phrases) {
+    const phraseTokens = getDecisionTokens(phrase);
+    if (phraseTokens.length === 0) continue;
+    if (phraseTokens.length === 1) {
+      if (tokens.includes(phraseTokens[0])) return true;
+      continue;
+    }
+    outer: for (let i = 0; i <= tokens.length - phraseTokens.length; i++) {
+      for (let j = 0; j < phraseTokens.length; j++) {
+        if (tokens[i + j] !== phraseTokens[j]) continue outer;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
 function isConfirmation(text) {
-  const lower = text.toLowerCase().trim();
-  return CONFIRMATION_PHRASES.some(p => lower.includes(p));
+  return hasDecisionPhrase(text, CONFIRMATION_PHRASES);
 }
 
 function isCancellation(text) {
-  const lower = text.toLowerCase().trim();
-  return CANCEL_PHRASES.some(p => lower.includes(p));
+  return hasDecisionPhrase(text, CANCEL_PHRASES);
 }
 
 /**
