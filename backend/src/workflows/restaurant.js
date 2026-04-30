@@ -213,6 +213,15 @@ async function processRestaurantMessage(business, conversation, customerMessage)
 
   // State: confirming order - deterministic, no AI needed
   if (state === STATES.CONFIRMING_ORDER) {
+    // Empty-cart guard: never emit CONFIRM_ORDER with empty items, even if the
+    // customer sends a confirmation phrase. Reset and ask them to restart.
+    if (!Array.isArray(cart) || cart.length === 0) {
+      return {
+        reply: 'سلة الطلب فارغة حالياً. يرجى إرسال الأصناف التي ترغب بطلبها من جديد.',
+        stateUpdate: { current_state: STATES.IDLE, workflow_data: {} },
+        action: 'CANCEL_ORDER',
+      };
+    }
     if (isConfirmation(customerMessage)) {
       const totals = calculateTotals(cart, workflowData.delivery_fee || 0);
       return {
