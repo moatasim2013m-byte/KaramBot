@@ -1185,14 +1185,14 @@ export default function StaffPage() {
       onTabChange={setActiveTab}
       onLogout={handleLogout}
       headerActions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <InstallPWAButton />
           {allowedTabs.length > 0 && (
             <Button
               variant="outline"
               size="sm"
               onClick={handleRefresh}
-              className="rounded-full gap-2"
+              className="rounded-full gap-1 px-2.5 sm:gap-2 sm:px-3"
               data-testid="staff-refresh-btn"
             >
               <RefreshCw className="h-4 w-4" />
