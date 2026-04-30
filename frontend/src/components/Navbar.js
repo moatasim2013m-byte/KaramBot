@@ -35,6 +35,18 @@ export const Navbar = () => {
     { path: '/subscriptions', label: 'الاشتراكات', pill: 'pill-yellow', testId: 'nav-subscriptions' },
   ];
 
+  // Mobile quick-nav pills (visible on ALL customer pages, not just Home).
+  // We include الرئيسية first and حجوزاتي for authed customers so buying
+  // destinations are reachable directly from the header without opening
+  // the hamburger menu.
+  const mobileQuickNavItems = [
+    { path: '/', label: 'الرئيسية', pill: 'pill-green', testId: 'nav-home' },
+    ...navItems,
+    ...(isAuthenticated && !isAdmin && !isStaff
+      ? [{ path: '/profile', label: 'حجوزاتي', pill: 'pill-orange', testId: 'nav-profile' }]
+      : []),
+  ];
+
   const handleLogout = () => {
     logout();
     navigate('/');
