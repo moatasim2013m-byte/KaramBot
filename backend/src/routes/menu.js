@@ -86,9 +86,13 @@ router.post('/items', async (req, res) => {
 
 router.patch('/items/:id', async (req, res) => {
   try {
+    // Drop client-supplied immutable/ownership fields so they can't be
+    // overwritten via the PATCH body. Filter still scopes by business_id.
+    const { _id, business_id, ...update } = req.body;
+    void _id; void business_id;
     const item = await MenuItem.findOneAndUpdate(
       { _id: req.params.id, business_id: req.businessId },
-      req.body,
+      update,
       { new: true },
     );
     if (!item) return res.status(404).json({ error: 'Item not found' });
