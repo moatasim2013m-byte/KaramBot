@@ -8,6 +8,18 @@ const Business = require('../models/Business');
 const { sendTextMessage } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
 
+// Cap search input length to keep the resulting RegExp cheap to evaluate,
+// even after escaping metacharacters.
+const MAX_SEARCH_LEN = 80;
+
+/**
+ * Escape regex metacharacters so user-supplied text is matched literally.
+ * Prevents ReDoS via patterns like (a+)+ and accidental matches from '.' / '*'.
+ */
+function escapeRegex(value) {
+  return String(value == null ? '' : value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 router.use(authenticate, attachBusinessId);
 
 // GET /api/inbox/conversations
@@ -16,7 +28,10 @@ router.get('/conversations', async (req, res) => {
     const { status, search, page = 1, limit = 30 } = req.query;
     const query = { business_id: req.businessId };
     if (status) query.status = status;
-    if (search) query.profile_name = new RegExp(search, 'i');
+    if (typeof search === 'string') {
+      const trimmed = search.trim().slice(0, MAX_SEARCH_LEN);
+      if (trimmed) query.profile_name = new RegExp(escapeRegex(trimmed), 'i');
+    }
 
     const convs = await Conversation.find(query)
       .sort({ last_message_at: -1 })
