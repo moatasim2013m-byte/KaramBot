@@ -854,8 +854,39 @@ router.post('/create-checkout', authMiddleware, async (req, res) => {
 
     // Ensure amount is a valid float
     amount = parseFloat(amount);
-    if (isNaN(amount) || amount <= 0) {
+    if (isNaN(amount) || amount < 0) {
       return res.status(400).json({ error: 'Invalid price configuration' });
+    }
+
+    // If discounts fully cover the booking/subscription amount, skip external
+    // gateway checkout and finalize immediately as a paid-by-balance flow.
+    if (amount === 0) {
+      const zeroAmountSessionId = `zero_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const zeroAmountTransaction = new PaymentTransaction({
+        session_id: zeroAmountSessionId,
+        user_id: req.userId,
+        amount,
+        currency: 'JOD',
+        status: 'paid',
+        payment_status: 'paid',
+        type,
+        reference_id,
+        provider: DB_PROVIDER_MANUAL,
+        metadata: {
+          ...metadata,
+          zero_amount_checkout: true,
+          zero_amount_reason: 'discount_fully_covered'
+        }
+      });
+      await zeroAmountTransaction.save();
+      await finalizeTransactionIfPaid(zeroAmountTransaction);
+      return res.status(200).json({
+        success: true,
+        message: 'No payment required',
+        orderId: zeroAmountSessionId,
+        payment_method: 'covered',
+        url: `/payment/success?orderId=${encodeURIComponent(zeroAmountSessionId)}`
+      });
     }
     console.log('Creating checkout session:', { type, amount, metadata });
     let sessionId;
