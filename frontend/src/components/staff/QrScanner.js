@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import jsQR from 'jsqr';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -8,12 +9,20 @@ import { Camera, CameraOff, Keyboard, Loader2, ScanLine, AlertTriangle } from 'l
  * QrScanner — Phase 6 QR-first layout.
  *
  * Camera scanner is ALWAYS the primary section at the top (visible whenever
- * the browser supports BarcodeDetector + getUserMedia). Manual booking-code
- * input is ALWAYS rendered below as a clearly-labelled fallback — staff no
- * longer have to toggle between modes.
+ * the device actually exposes a camera via getUserMedia, regardless of
+ * whether the browser ships the native BarcodeDetector API). Manual
+ * booking-code input is ALWAYS rendered below as a clearly-labelled fallback.
  *
- * Native BarcodeDetector API (Chrome, Edge, Safari iOS 15+) drives camera
- * scanning; manual input always works as a safety net.
+ * Decoding:
+ *  - If the browser ships `window.BarcodeDetector` (Chrome/Edge on Android &
+ *    desktop), we use the fast native path.
+ *  - Otherwise we fall back to `jsQR` running on a 2D canvas snapshot of the
+ *    <video>. This is what makes iPhone Safari and iPhone Chrome (both
+ *    WebKit, neither implements BarcodeDetector) work.
+ *
+ * "Camera unsupported" is now only shown when `getUserMedia` is truly
+ * unavailable or we are not in a secure context — not when BarcodeDetector
+ * is missing.
  *
  * Props:
  *   onScan(value)  — called with the scanned/typed string when submitted.
@@ -22,23 +31,37 @@ import { Camera, CameraOff, Keyboard, Loader2, ScanLine, AlertTriangle } from 'l
  */
 export default function QrScanner({ onScan, busy = false }) {
   const [manualValue, setManualValue] = useState('');
-  const [cameraSupported, setCameraSupported] = useState(true);
+  // 'supported' | 'no-getusermedia' | 'insecure-context'
+  const [cameraSupport, setCameraSupport] = useState('supported');
+  // Detailed reason for the latest camera error, rendered in Arabic.
   const [cameraError, setCameraError] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
 
   const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
   const scanLoopRef = useRef(null);
   const lastScanRef = useRef({ value: '', at: 0 });
 
-  // Determine BarcodeDetector availability once.
+  // Determine camera availability once.
+  // IMPORTANT: do NOT gate on BarcodeDetector — iOS Safari/Chrome do not
+  // ship it but `getUserMedia` works fine there.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const hasDetector = typeof window.BarcodeDetector !== 'undefined';
     const hasMedia = !!navigator.mediaDevices?.getUserMedia;
-    if (!hasDetector || !hasMedia) {
-      setCameraSupported(false);
+    const secure =
+      window.isSecureContext ||
+      window.location.protocol === 'https:' ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1';
+
+    if (!hasMedia) {
+      setCameraSupport('no-getusermedia');
+    } else if (!secure) {
+      setCameraSupport('insecure-context');
+    } else {
+      setCameraSupport('supported');
     }
   }, []);
 
@@ -55,52 +78,122 @@ export default function QrScanner({ onScan, busy = false }) {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    detectorRef.current = null;
     setCameraActive(false);
   };
 
+  const emitScan = (rawValue) => {
+    const value = (rawValue || '').trim();
+    if (!value) return;
+    const now = Date.now();
+    // Debounce duplicate scans within 1.5s.
+    if (value !== lastScanRef.current.value || now - lastScanRef.current.at > 1500) {
+      lastScanRef.current = { value, at: now };
+      onScan?.(value);
+    }
+  };
+
   const startCamera = async () => {
-    if (!cameraSupported) return;
+    if (cameraSupport !== 'supported') return;
     setCameraError('');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
-        audio: false
+        audio: false,
       });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+        // iOS Safari requires playsInline + muted (already on the element)
+        // and an explicit play() call inside the user gesture handler.
+        try {
+          await videoRef.current.play();
+        } catch (_playErr) {
+          // Autoplay can occasionally reject — user can tap the video to retry.
+        }
       }
       setCameraActive(true);
 
-      const Detector = window.BarcodeDetector;
-      detectorRef.current = new Detector({ formats: ['qr_code'] });
+      // Prefer native BarcodeDetector when available (fast path).
+      const hasNativeDetector = typeof window.BarcodeDetector !== 'undefined';
+      if (hasNativeDetector) {
+        try {
+          const Detector = window.BarcodeDetector;
+          detectorRef.current = new Detector({ formats: ['qr_code'] });
+        } catch (_ctorErr) {
+          // Some browsers advertise the class but throw on construction.
+          detectorRef.current = null;
+        }
+      }
+
+      // Ensure a reusable hidden canvas exists for the jsQR fallback path.
+      if (!canvasRef.current) {
+        canvasRef.current = document.createElement('canvas');
+      }
 
       const tick = async () => {
-        if (!videoRef.current || !detectorRef.current || !streamRef.current) return;
-        try {
-          const codes = await detectorRef.current.detect(videoRef.current);
-          if (codes && codes.length > 0) {
-            const value = (codes[0].rawValue || '').trim();
-            const now = Date.now();
-            // Debounce duplicate scans within 1.5s.
-            if (value && (value !== lastScanRef.current.value || now - lastScanRef.current.at > 1500)) {
-              lastScanRef.current = { value, at: now };
-              onScan?.(value);
+        const video = videoRef.current;
+        if (!video || !streamRef.current) return;
+
+        // Only try to decode once the video has enough data.
+        if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+          try {
+            if (detectorRef.current) {
+              // Native decoder path.
+              const codes = await detectorRef.current.detect(video);
+              if (codes && codes.length > 0) {
+                emitScan(codes[0].rawValue);
+              }
+            } else {
+              // jsQR fallback path — used on iOS Safari / iPhone Chrome and
+              // any other browser without BarcodeDetector.
+              const canvas = canvasRef.current;
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const result = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: 'dontInvert',
+              });
+              if (result?.data) {
+                emitScan(result.data);
+              }
             }
+          } catch (_err) {
+            // Transient decode errors (e.g. tab switch, frame not ready) are
+            // expected — just skip this frame.
           }
-        } catch (_err) {
-          // detect() can throw transient errors (e.g. on tab switch); ignore.
         }
+
         scanLoopRef.current = requestAnimationFrame(tick);
       };
       scanLoopRef.current = requestAnimationFrame(tick);
     } catch (err) {
-      const reason = err?.name === 'NotAllowedError'
-        ? 'تم رفض إذن الكاميرا. يرجى السماح بالوصول للكاميرا من إعدادات المتصفح، أو استخدم الإدخال اليدوي الاحتياطي بالأسفل.'
-        : 'تعذّر تشغيل الكاميرا. استخدم الإدخال اليدوي الاحتياطي بالأسفل.';
+      // Map the browser's MediaStreamError.name to an accurate Arabic reason.
+      const name = err?.name || '';
+      let reason;
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+        reason =
+          'تم رفض إذن الكاميرا. يرجى السماح بالوصول للكاميرا من إعدادات المتصفح (الإعدادات → Safari/Chrome → الكاميرا) ثم إعادة المحاولة، أو استخدم الإدخال اليدوي بالأسفل.';
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError') {
+        reason = 'لم يتم العثور على كاميرا متاحة على هذا الجهاز. استخدم الإدخال اليدوي بالأسفل.';
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        reason = 'الكاميرا مستخدمة من تطبيق آخر. أغلق التطبيقات الأخرى وأعد المحاولة، أو استخدم الإدخال اليدوي بالأسفل.';
+      } else if (name === 'TypeError') {
+        // getUserMedia can throw TypeError when not in a secure context.
+        reason = 'يتطلب تشغيل الكاميرا اتصالاً آمناً (HTTPS). استخدم الإدخال اليدوي بالأسفل.';
+      } else {
+        reason = 'تعذّر تشغيل الكاميرا. استخدم الإدخال اليدوي بالأسفل.';
+      }
       setCameraError(reason);
       setCameraActive(false);
+      // Make sure no orphan tracks stay alive.
+      const stream = streamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
     }
   };
 
@@ -117,6 +210,17 @@ export default function QrScanner({ onScan, busy = false }) {
     onScan?.(value);
   };
 
+  const unsupportedCopy =
+    cameraSupport === 'insecure-context'
+      ? {
+          title: 'يتطلب تشغيل الكاميرا اتصالاً آمناً',
+          body: 'افتح لوحة الموظفين عبر رابط HTTPS، أو استخدم الإدخال اليدوي الاحتياطي بالأسفل.',
+        }
+      : {
+          title: 'الكاميرا غير مدعومة في هذا المتصفح',
+          body: 'يرجى تحديث المتصفح أو استخدم الإدخال اليدوي الاحتياطي بالأسفل.',
+        };
+
   return (
     <div className="space-y-6" data-testid="qr-scanner-root">
       {/* ─────────── PRIMARY: Camera QR scanner ─────────── */}
@@ -126,7 +230,7 @@ export default function QrScanner({ onScan, busy = false }) {
           <h3 className="font-heading text-base font-bold">ماسح رمز QR بالكاميرا</h3>
         </div>
 
-        {cameraSupported ? (
+        {cameraSupport === 'supported' ? (
           <>
             <div className="relative aspect-square w-full max-w-sm mx-auto rounded-2xl overflow-hidden bg-black">
               <video
@@ -134,6 +238,7 @@ export default function QrScanner({ onScan, busy = false }) {
                 className="w-full h-full object-cover"
                 playsInline
                 muted
+                autoPlay
                 data-testid="scanner-video"
               />
               {!cameraActive && (
@@ -195,8 +300,8 @@ export default function QrScanner({ onScan, busy = false }) {
           >
             <AlertTriangle className="h-5 w-5 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">الكاميرا غير مدعومة في هذا المتصفح</p>
-              <p className="text-xs mt-1">يرجى تحديث المتصفح أو استخدم الإدخال اليدوي الاحتياطي بالأسفل.</p>
+              <p className="font-semibold">{unsupportedCopy.title}</p>
+              <p className="text-xs mt-1">{unsupportedCopy.body}</p>
             </div>
           </div>
         )}
