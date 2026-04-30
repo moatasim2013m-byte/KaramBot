@@ -77,7 +77,22 @@ router.get('/items/:id', async (req, res) => {
 
 router.post('/items', async (req, res) => {
   try {
-    const item = await MenuItem.create({ ...req.body, business_id: req.businessId });
+    // Strip client-supplied ownership fields so they can't override server scoping.
+    const { _id, business_id, ...payload } = req.body;
+    void _id; void business_id;
+    // If the client supplied a category_id, ensure it belongs to this business.
+    // Cross-tenant category references would let one business attach items to
+    // another's menu structure. Missing category_id is left to schema validation.
+    if (payload.category_id) {
+      const cat = await Category.findOne({
+        _id: payload.category_id,
+        business_id: req.businessId,
+      });
+      if (!cat) {
+        return res.status(400).json({ error: 'Invalid category_id for this business' });
+      }
+    }
+    const item = await MenuItem.create({ ...payload, business_id: req.businessId });
     res.status(201).json({ item });
   } catch (err) {
     res.status(400).json({ error: err.message });
