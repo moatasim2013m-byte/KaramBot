@@ -32,30 +32,46 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
 }
 
 /**
- * Save inbound message to DB (idempotent by meta_message_id)
+ * Save inbound message to DB (idempotent by meta_message_id).
+ * Returns { created, msg }:
+ *   - created=true when a new document was inserted
+ *   - created=false when the same meta_message_id was already stored (duplicate webhook)
+ * Callers MUST bail out of further processing when created===false to avoid
+ * double-replies / duplicate orders on Meta webhook redeliveries.
  */
 async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId) {
-  const existing = await Message.findOne({ meta_message_id: waMsg.id });
-  if (existing) return existing;
+  if (waMsg?.id) {
+    const existing = await Message.findOne({ meta_message_id: waMsg.id });
+    if (existing) return { created: false, msg: existing };
+  }
 
   const type = waMsg.type || 'text';
-  const msg = await Message.create({
-    business_id: businessId,
-    conversation_id: conversationId,
-    meta_message_id: waMsg.id,
-    direction: 'inbound',
-    message_type: type,
-    text_body: waMsg.text?.body || waMsg.interactive?.button_reply?.title || waMsg.interactive?.list_reply?.title,
-    media_id: waMsg.image?.id || waMsg.audio?.id || waMsg.video?.id || waMsg.document?.id,
-    media_mime_type: waMsg.image?.mime_type || waMsg.audio?.mime_type,
-    location: waMsg.location,
-    interactive_reply: waMsg.interactive,
-    sender_wa_id: senderWaId,
-    status: 'delivered',
-    raw_payload: waMsg,
-  });
-
-  return msg;
+  try {
+    const msg = await Message.create({
+      business_id: businessId,
+      conversation_id: conversationId,
+      meta_message_id: waMsg.id,
+      direction: 'inbound',
+      message_type: type,
+      text_body: waMsg.text?.body || waMsg.interactive?.button_reply?.title || waMsg.interactive?.list_reply?.title,
+      media_id: waMsg.image?.id || waMsg.audio?.id || waMsg.video?.id || waMsg.document?.id,
+      media_mime_type: waMsg.image?.mime_type || waMsg.audio?.mime_type,
+      location: waMsg.location,
+      interactive_reply: waMsg.interactive,
+      sender_wa_id: senderWaId,
+      status: 'delivered',
+      raw_payload: waMsg,
+    });
+    return { created: true, msg };
+  } catch (err) {
+    // Race: a parallel webhook inserted the same meta_message_id between our
+    // findOne and create. Treat as duplicate, do not re-process.
+    if (err && err.code === 11000) {
+      const existing = await Message.findOne({ meta_message_id: waMsg.id });
+      return { created: false, msg: existing };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -155,8 +171,14 @@ async function processInboundMessage(entry) {
       // Get/create conversation
       const conversation = await getOrCreateConversation(business._id, customerWaId, profileName);
 
-      // Save inbound message
-      await saveInboundMessage(business._id, conversation._id, waMsg, customerWaId);
+      // Save inbound message (idempotent on meta_message_id).
+      // If this exact webhook was already processed, bail out before doing
+      // any state mutation / AI call / outbound reply.
+      const { created } = await saveInboundMessage(business._id, conversation._id, waMsg, customerWaId);
+      if (!created) {
+        console.log(`Duplicate webhook for meta_message_id=${waMsg.id} — skipping reprocess`);
+        continue;
+      }
 
       // Update conversation metadata
       conversation.last_message_at = new Date();
