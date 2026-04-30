@@ -51,5 +51,12 @@
    - `PublicPageShell.js` was **not modified** (it's shared by other pages — kept untouched per scope).
    - **Zero business logic changed**: WhatsApp + phone CTAs, `data-testid` attributes, all preserved exactly. Only JSX and decorative Shroomi inserts. Lint clean on all 3 files; smoke screenshots verified at 1280px viewport.
 
+- [x] **Mobile customer nav UX — unified quick-nav strip (Feb 2026, presentation-only)**:
+   - `frontend/src/components/Navbar.js`: removed the homepage-only inline pill block (`mobile-home-headlines`) and replaced it with a single horizontally-scrollable quick-nav strip rendered on **all** customer pages (mobile only, `md:hidden`) below the navbar row. Strip uses the new `mobileQuickNavItems` source: الرئيسية + اللعب بالساعة + أعياد الميلاد + الاشتراكات + حجوزاتي (last one only when authed customer). Active-route highlighting preserved.
+   - `frontend/src/index.css`: added `.mobile-quick-nav-strip` + `.mobile-quick-nav-track` styles — soft top-border, padded, RTL-aware leading-edge fade hint, hidden scrollbar (Firefox + WebKit), scroll-snap proximity, `flex: 0 0 auto` pills.
+   - Verified at 390px on `/`, `/tickets`, `/birthday`, `/subscriptions`, `/groups`: strip renders with 4 pills (unauthed) and is scrollable. Desktop unchanged (strip hidden on `md+`, original 3-pill desktop nav preserved). Hamburger now only handles secondary links.
+   - **Mission 2 (decorative kids-themed background) confirmed already in place**: `sky-theme` class (sky-blue gradient + animated cloud + balloon SVG decorations + `pointer-events:none` + `z-index:0`) is applied to all customer pages via the `Layout` wrapper in `App.js`. No change required for Mission 2.
+   - **Zero backend / logic changes**: only Navbar JSX + CSS additions. RTL preserved.
+
 ## Backlog
 - [ ] Apply the same `DashboardLayout` shell to `AdminPage.js` (legacy, still uses Tabs + Navbar). New admin at `/app/frontend/src/pages/admin/AdminLayout.js` already uses a sidebar layout.

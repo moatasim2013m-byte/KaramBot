@@ -35,6 +35,18 @@ export const Navbar = () => {
     { path: '/subscriptions', label: 'الاشتراكات', pill: 'pill-yellow', testId: 'nav-subscriptions' },
   ];
 
+  // Mobile quick-nav pills (visible on ALL customer pages, not just Home).
+  // We include الرئيسية first and حجوزاتي for authed customers so buying
+  // destinations are reachable directly from the header without opening
+  // the hamburger menu.
+  const mobileQuickNavItems = [
+    { path: '/', label: 'الرئيسية', pill: 'pill-green', testId: 'nav-home' },
+    ...navItems,
+    ...(isAuthenticated && !isAdmin && !isStaff
+      ? [{ path: '/profile', label: 'حجوزاتي', pill: 'pill-orange', testId: 'nav-profile' }]
+      : []),
+  ];
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -150,22 +162,6 @@ export const Navbar = () => {
             )}
           </div>
 
-          {/* Mobile Navigation - Pills visible on Homepage for customer pages */}
-          {isCustomerNav && isHomePage && (
-            <div className="mobile-home-headlines order-3 basis-full md:hidden flex flex-wrap items-center justify-center gap-2">
-              {navItems.map((item) => (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`nav-pill ${item.pill} ${isActive(item.path) ? 'active' : ''}`}
-                  data-testid={`mobile-${item.testId}`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          )}
-
           {/* Mobile Menu Button - hidden on homepage to avoid duplicate navigation */}
           <button
             className={`md:hidden playful-menu-button ${isHomePage ? 'order-1 home-menu-toggle' : ''}`}
@@ -215,7 +211,31 @@ export const Navbar = () => {
           )}
         </div>
 
-        {/* Mobile Menu */}
+        {/* Mobile Quick Nav Strip — visible on ALL customer pages (mobile only).
+            Scrolls horizontally so primary buying destinations stay reachable
+            without opening the hamburger menu. */}
+        {isCustomerNav && (
+          <div
+            className="mobile-quick-nav-strip md:hidden"
+            data-testid="mobile-quick-nav-strip"
+            aria-label="روابط سريعة"
+          >
+            <div className="mobile-quick-nav-track">
+              {mobileQuickNavItems.map((item) => (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`nav-pill ${item.pill} ${isActive(item.path) ? 'active' : ''}`}
+                  data-testid={`mobile-${item.testId}`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Menu (hamburger) */}
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-border">
             {/* Staff Badge - Mobile */}

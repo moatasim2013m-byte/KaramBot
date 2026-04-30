@@ -471,6 +471,57 @@ h3 {
     }
 }
 
+/* ===== Mobile Quick Nav Strip (all customer pages) ===== */
+.mobile-quick-nav-strip {
+    width: 100%;
+    padding: 6px 0 8px;
+    margin-top: -2px;
+    border-top: 1px solid rgba(87, 209, 230, 0.18);
+    overflow: hidden;
+    position: relative;
+    z-index: 2;
+}
+
+.mobile-quick-nav-track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 12px 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.mobile-quick-nav-track::-webkit-scrollbar {
+    display: none;
+}
+
+.mobile-quick-nav-track > .nav-pill {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 999px;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* Soft fade at the leading edge to hint scrollability (RTL-aware) */
+[dir="rtl"] .mobile-quick-nav-strip::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 24px;
+    background: linear-gradient(to right, rgba(248, 251, 255, 0.95), rgba(248, 251, 255, 0));
+    pointer-events: none;
+    z-index: 3;
+}
+
 .menu-bar {
     display: block;
     height: 3px;
