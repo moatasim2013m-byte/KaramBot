@@ -190,15 +190,48 @@ async function processInboundMessage(entry) {
         continue;
       }
 
-      // Get message text
-      const customerText = waMsg.text?.body
+      // Get message text from supported sources, or convert non-text types
+      // to a usable text representation so the customer never gets silence.
+      const msgType = waMsg.type || 'text';
+      let customerText = waMsg.text?.body
         || waMsg.interactive?.button_reply?.title
         || waMsg.interactive?.list_reply?.title
         || '';
 
       if (!customerText) {
-        await conversation.save();
-        continue;
+        if (msgType === 'location' && waMsg.location) {
+          // Treat a shared pin as text — works as an address during COLLECTING_ADDRESS,
+          // and AI sees it as a normal message in other states.
+          const loc = waMsg.location;
+          const parts = [loc.name, loc.address].filter(Boolean);
+          customerText = parts.length
+            ? parts.join(' - ')
+            : `📍 موقع: ${loc.latitude}, ${loc.longitude}`;
+        } else if (msgType === 'reaction') {
+          // Reactions don't require a reply; just persist conversation state.
+          await conversation.save();
+          continue;
+        } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
+          // Static reply — do not run AI on media. Order/cart state is preserved.
+          const mediaReply = 'عذراً، ما أقدر أعالج الصور أو الملفات الصوتية حالياً. اكتبلي طلبك نصياً من فضلك 🙏\nأو قل "موظف" لتحويلك لأحد فريقنا.';
+          await conversation.save();
+          try {
+            const metaResponse = await sendTextMessage(
+              phoneNumberId,
+              accessToken,
+              customerWaId,
+              mediaReply,
+            );
+            await saveOutboundMessage(business._id, conversation._id, mediaReply, metaResponse);
+          } catch (sendErr) {
+            console.error('Failed to send media-not-supported reply:', sendErr.message);
+          }
+          continue;
+        } else {
+          // Unknown / unsupported types — persist state and move on quietly.
+          await conversation.save();
+          continue;
+        }
       }
 
       // Run workflow based on business type
