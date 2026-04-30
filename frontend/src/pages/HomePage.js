@@ -296,7 +296,7 @@ export default function HomePage() {
   const canOpenLightbox = showHeroImage;
 
   return (
-    <div className="min-h-screen bg-[#FFF8F0] text-[#2D2D2D]" dir="rtl">
+    <div className="min-h-screen bg-[#FFF8F0] text-[#2D2D2D] peekaboo-home-decor" dir="rtl">
       {/* ================== 1. HERO ================== */}
       <section className="relative overflow-hidden">
         {/* Warm cream → soft yellow gradient backdrop */}
@@ -305,12 +305,18 @@ export default function HomePage() {
           className="absolute inset-0 bg-gradient-to-b from-[#FFF8F0] via-[#FFF3DE] to-[#FFF8F0]"
         />
         {/* Subtle sky + sun (only here) */}
-        <div className="absolute inset-0 opacity-60 pointer-events-none" aria-hidden="true">
+        <div className="absolute inset-0 opacity-80 pointer-events-none" aria-hidden="true">
           <SkyBackground />
         </div>
         <div className="hidden md:block absolute top-8 left-8 opacity-90 pointer-events-none" aria-hidden="true">
           <SmilingSun className="w-24 h-24" />
         </div>
+        {/* Tiny sparkle accents */}
+        <span className="home-hero-sparkle home-hero-sparkle--a" aria-hidden="true" />
+        <span className="home-hero-sparkle home-hero-sparkle--b" aria-hidden="true" />
+        <span className="home-hero-sparkle home-hero-sparkle--c" aria-hidden="true" />
+        {/* Soft kids hill silhouette at bottom of hero */}
+        <div className="home-hero-hills" aria-hidden="true" />
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 md:pt-24 pb-20 md:pb-28">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -322,7 +328,7 @@ export default function HomePage() {
               </div>
 
               <h1
-                className="font-heading text-4xl sm:text-5xl md:text-6xl font-extrabold text-[#2D2D2D] leading-[1.15] tracking-tight"
+                className="font-heading heading-bubble text-4xl sm:text-5xl md:text-6xl font-extrabold text-[#2D2D2D] leading-[1.15] tracking-tight"
                 data-testid="hero-title"
               >
                 {heroConfig.title}
@@ -471,7 +477,7 @@ export default function HomePage() {
                 <span className="inline-block px-4 py-1.5 rounded-full bg-[#7AC74F]/15 text-[#3F7A1E] text-sm font-bold mb-4">
                   رحلة بيكابو
                 </span>
-                <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3">
+                <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3">
                   رحلة طفلك في بيكابو 🎠
                 </h2>
                 <p className="text-lg text-[#2D2D2D]/65">
@@ -521,7 +527,7 @@ export default function HomePage() {
                 <span className="inline-block px-4 py-1.5 rounded-full bg-[#E8872E]/12 text-[#B25E0F] text-sm font-bold mb-4">
                   خدماتنا
                 </span>
-                <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3" data-testid="features-title">
+                <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3" data-testid="features-title">
                   خدماتنا 🎯
                 </h2>
                 <p className="text-lg text-[#2D2D2D]/65">
@@ -535,7 +541,7 @@ export default function HomePage() {
                   return (
                     <div
                       key={index}
-                      className={`group relative bg-white rounded-3xl border border-black/5 shadow-[0_10px_30px_rgba(45,45,45,0.06)] hover:shadow-[0_18px_40px_rgba(45,45,45,0.10)] hover:-translate-y-1 transition-all duration-300 overflow-hidden flex flex-col ${
+                      className={`kids-service-card group relative bg-white rounded-3xl border border-black/5 shadow-[0_10px_30px_rgba(45,45,45,0.06)] hover:shadow-[0_18px_40px_rgba(45,45,45,0.10)] hover:-translate-y-1 transition-all duration-300 overflow-hidden flex flex-col ${
                         feature.disabled ? 'opacity-75' : ''
                       }`}
                       data-testid={`feature-card-${index}`}
@@ -549,10 +555,10 @@ export default function HomePage() {
                             الأكثر طلباً
                           </span>
                         )}
-                        <div className={`w-14 h-14 rounded-2xl ${a.soft} flex items-center justify-center mb-4 ring-1 ring-inset ${a.border}`}>
+                        <div className={`kids-icon-frame w-14 h-14 rounded-2xl ${a.soft} flex items-center justify-center mb-4 ring-1 ring-inset ${a.border}`}>
                           <img src={feature.icon} alt="" className="w-8 h-8" />
                         </div>
-                        <h3 className="font-bold text-lg text-[#2D2D2D] mb-2">{feature.title}</h3>
+                        <h3 className="font-heading font-bold text-lg text-[#2D2D2D] mb-2">{feature.title}</h3>
                         <p className="text-sm text-[#2D2D2D]/65 mb-5 flex-grow leading-relaxed">{feature.description}</p>
 
                         <div className="mt-auto">
@@ -593,7 +599,7 @@ export default function HomePage() {
                     ليش بيكابو
                   </span>
                   <h2
-                    className="font-heading text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-4 leading-tight"
+                    className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-4 leading-tight"
                     data-testid="why-peekaboo-box"
                   >
                     ليش بيكابو؟ 💛
@@ -678,7 +684,7 @@ export default function HomePage() {
                 <span className="inline-block px-4 py-1.5 rounded-full bg-[#E63946]/12 text-[#E63946] text-sm font-bold mb-4">
                   لقطات حقيقية
                 </span>
-                <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3" data-testid="gallery-title">
+                <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3" data-testid="gallery-title">
                   لحظات ممتعة في بيكابو
                 </h2>
                 <p className="text-lg text-[#2D2D2D]/65">
@@ -786,7 +792,7 @@ export default function HomePage() {
                     <span className="inline-block px-4 py-1.5 rounded-full bg-white/20 backdrop-blur text-white text-sm font-bold mb-4">
                       جاهز للحجز
                     </span>
-                    <h2 className="font-heading text-3xl sm:text-4xl md:text-5xl font-extrabold mb-4 leading-tight" data-testid="cta-title">
+                    <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold mb-4 leading-tight" data-testid="cta-title">
                       جاهز تحجز؟ 🎉
                     </h2>
                     <p className="text-base sm:text-lg text-white/90 max-w-xl leading-relaxed mb-7">

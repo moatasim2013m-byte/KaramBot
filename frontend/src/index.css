@@ -4965,3 +4965,228 @@ body {
 @media (min-width: 1024px) {
   .admin-kpi-grid { grid-template-columns: repeat(4, 1fr); }
 }
+
+
+/* ============================================================
+   ✨ PEEKABOO KIDS DECOR + UPLIFT v2 (public pages only)
+   - Soft floating clouds (top atmosphere)
+   - Gentle forest / hill silhouettes (bottom)
+   - Premium playful heading polish (.heading-bubble)
+   - Kid-themed service-card polish (.kids-service-card)
+   CSS-only. RTL-safe. Pointer-events: none on all decor.
+   ============================================================ */
+
+/* --- Premium playful heading polish (opt-in) --- */
+.heading-bubble {
+  font-family: var(--font-heading-ar);
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85),
+               0 2px 14px rgba(102, 169, 233, 0.10);
+}
+
+.heading-bubble .heading-bubble__accent {
+  display: inline-block;
+  background: linear-gradient(180deg, transparent 60%, rgba(255, 217, 102, 0.55) 60%);
+  padding: 0 0.15em;
+  border-radius: 4px;
+}
+
+/* Subtle decorative underline for section eyebrows */
+.kids-eyebrow {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* --- Public bg decoration system --- */
+.peekaboo-kids-decor,
+.peekaboo-home-decor,
+.wonder-sky-bg,
+.pk-booking-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.peekaboo-kids-decor > *,
+.peekaboo-home-decor > *,
+.wonder-sky-bg > *,
+.pk-booking-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Soft floating clouds (top atmosphere) - applied to public pages
+   that DON'T already have their own hero clouds (e.g. wonder-sky-bg
+   pages, booking pages). Skipped on .peekaboo-home-decor since
+   HomePage hero already ships its own SkyBackground. */
+.peekaboo-kids-decor::before,
+.wonder-sky-bg::before,
+.pk-booking-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 480px;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 90'><g fill='white'><ellipse cx='110' cy='55' rx='95' ry='28'/><ellipse cx='62' cy='42' rx='40' ry='22'/><ellipse cx='150' cy='40' rx='46' ry='24'/><ellipse cx='110' cy='28' rx='34' ry='17'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 80'><g fill='white'><ellipse cx='100' cy='50' rx='82' ry='25'/><ellipse cx='55' cy='37' rx='38' ry='20'/><ellipse cx='142' cy='37' rx='40' ry='22'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 60'><g fill='white'><ellipse cx='80' cy='38' rx='65' ry='18'/><ellipse cx='44' cy='28' rx='28' ry='14'/><ellipse cx='114' cy='28' rx='30' ry='15'/></g></svg>");
+  background-repeat: no-repeat;
+  background-position:
+    -50px 30px,
+    calc(100% + 40px) 90px,
+    52% 180px;
+  background-size:
+    300px 120px,
+    250px 100px,
+    180px 72px;
+  opacity: 0.55;
+  filter: drop-shadow(0 6px 14px rgba(102, 169, 233, 0.15));
+}
+
+/* Hills + tiny trees silhouette band (bottom of page).
+   Applied to ALL public wrappers including HomePage variant. */
+.peekaboo-kids-decor::after,
+.peekaboo-home-decor::after,
+.wonder-sky-bg::after,
+.pk-booking-page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 220px;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.55'/><circle cx='30' cy='32' r='22' fill='%2397C64A' opacity='0.65'/><circle cx='17' cy='36' r='13' fill='%2397C64A' opacity='0.55'/><circle cx='43' cy='36' r='13' fill='%2397C64A' opacity='0.55'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.5'/><circle cx='30' cy='32' r='22' fill='%237AC74F' opacity='0.6'/><circle cx='17' cy='36' r='13' fill='%237AC74F' opacity='0.5'/><circle cx='43' cy='36' r='13' fill='%237AC74F' opacity='0.5'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 200' preserveAspectRatio='none'><g><path d='M0,140 Q180,70 360,130 T720,110 T1080,130 T1440,110 L1440,200 L0,200 Z' fill='%2397C64A' opacity='0.20'/><path d='M0,170 Q240,110 480,160 T960,150 T1440,170 L1440,200 L0,200 Z' fill='%237AC74F' opacity='0.26'/></g></svg>");
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position:
+    6% bottom,
+    94% bottom,
+    bottom center;
+  background-size:
+    72px 96px,
+    72px 96px,
+    100% 200px;
+  opacity: 0.85;
+}
+
+/* Mobile: trim heights so decorations stay subtle and don't crowd */
+@media (max-width: 640px) {
+  .peekaboo-kids-decor::before,
+  .wonder-sky-bg::before,
+  .pk-booking-page::before {
+    height: 320px;
+    background-size: 220px 88px, 180px 72px, 140px 56px;
+    opacity: 0.45;
+  }
+  .peekaboo-kids-decor::after,
+  .peekaboo-home-decor::after,
+  .wonder-sky-bg::after,
+  .pk-booking-page::after {
+    height: 140px;
+    background-size: 50px 66px, 50px 66px, 100% 140px;
+    opacity: 0.7;
+  }
+}
+
+/* --- Service card v2 — premium kid-themed polish --- */
+.kids-service-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+}
+.kids-service-card::before {
+  content: '';
+  position: absolute;
+  top: -50px;
+  inset-inline-end: -50px;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 217, 102, 0.32) 0%, transparent 65%);
+  pointer-events: none;
+  transition: transform 0.45s ease;
+  z-index: 0;
+}
+.kids-service-card::after {
+  content: '';
+  position: absolute;
+  bottom: -45px;
+  inset-inline-start: -45px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(102, 169, 233, 0.22) 0%, transparent 65%);
+  pointer-events: none;
+  transition: transform 0.45s ease;
+  z-index: 0;
+}
+.kids-service-card:hover::before { transform: scale(1.18) rotate(8deg); }
+.kids-service-card:hover::after  { transform: scale(1.18) rotate(-6deg); }
+
+.kids-service-card > * { position: relative; z-index: 1; }
+
+.kids-service-card .kids-icon-frame {
+  position: relative;
+}
+.kids-service-card .kids-icon-frame::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 22px;
+  border: 2px dashed rgba(45, 45, 45, 0.10);
+  pointer-events: none;
+  transition: transform 0.4s ease;
+}
+.kids-service-card:hover .kids-icon-frame::after {
+  transform: rotate(6deg);
+}
+
+/* --- HomePage hero — soft hill strip at bottom of hero --- */
+.home-hero-hills {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 90px;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 90' preserveAspectRatio='none'><g><path d='M0,55 Q200,15 400,50 T800,40 T1200,50 T1440,35 L1440,90 L0,90 Z' fill='%23FFD166' opacity='0.20'/><path d='M0,72 Q240,38 480,65 T960,58 T1440,68 L1440,90 L0,90 Z' fill='%237AC74F' opacity='0.22'/></g></svg>");
+  background-repeat: no-repeat;
+  background-position: bottom center;
+  background-size: 100% 100%;
+}
+
+/* Tiny floating sparkles inside hero (optional accent) */
+.home-hero-sparkle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 217, 102, 0.95) 0%, rgba(255, 217, 102, 0) 70%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+}
+.home-hero-sparkle--a { top: 14%; inset-inline-start: 18%; }
+.home-hero-sparkle--b { top: 28%; inset-inline-end: 22%; width: 14px; height: 14px; }
+.home-hero-sparkle--c { bottom: 22%; inset-inline-start: 32%; width: 8px; height: 8px; }
+
+/* Reduced-motion safety: never animate decor */
+@media (prefers-reduced-motion: reduce) {
+  .kids-service-card::before,
+  .kids-service-card::after,
+  .kids-service-card .kids-icon-frame::after {
+    transition: none;
+  }
+}
