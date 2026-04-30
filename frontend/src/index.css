@@ -5389,3 +5389,62 @@ body {
   .home-hero-balloon--blue { display: none; } /* avoid crowding on 390px */
 }
 
+
+/* ============================================================
+   🧹 DESKTOP CLEANUP (≥1024px) — calmer, more premium
+   Goal: on wide screens, content first, decoration second.
+   Keeps mobile behaviour exactly as-is (earlier breakpoints win).
+   Rollback = delete this block only.
+   ============================================================ */
+@media (min-width: 1024px) {
+
+  /* --- Hero: kill competing decoration stack on desktop --- */
+  .home-hero-balloon,
+  .home-hero-sparkle,
+  .home-hero-hills {
+    display: none !important;
+  }
+
+  /* Service cards: revert to pass-1 calm glows (pass-2 was too loud wide) */
+  .kids-service-card::before {
+    width: 140px;
+    height: 140px;
+    background: radial-gradient(circle, rgba(255, 217, 102, 0.30) 0%, transparent 65%);
+  }
+  .kids-service-card::after {
+    width: 130px;
+    height: 130px;
+    background: radial-gradient(circle, rgba(102, 169, 233, 0.20) 0%, transparent 65%);
+  }
+  /* Shine sweep kept subtle on desktop */
+  .kids-service-card .kids-shine { opacity: 0; }
+  .kids-service-card:hover .kids-shine { opacity: 0.6; }
+
+  /* Conic halo on icon frame: calmer */
+  .kids-service-card:hover .kids-icon-frame::after { opacity: 0.55; }
+
+  /* Top cloud layer: revert to calmer pass-1 opacity on desktop */
+  .peekaboo-kids-decor::before,
+  .wonder-sky-bg::before,
+  .pk-booking-page::before {
+    opacity: 0.5;
+    filter: drop-shadow(0 6px 14px rgba(102, 169, 233, 0.15));
+  }
+
+  /* ✂️ HomePage-only: remove the bottom hills pseudo because
+     HomePage stacks multiple opaque section bgs over it, which makes
+     the hills bleed as a confusing mid-page band on wide screens.
+     Hills stay ON for single-bg public pages (Tickets/Birthday/Subs
+     via pk-booking-page, Groups/HomeParty/About via wonder-sky-bg). */
+  .peekaboo-home-decor::after {
+    display: none !important;
+  }
+
+  /* Bottom decoration on other public pages: slightly softer on desktop */
+  .peekaboo-kids-decor::after,
+  .wonder-sky-bg::after,
+  .pk-booking-page::after {
+    opacity: 0.9;
+  }
+}
+
