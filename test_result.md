@@ -1275,6 +1275,64 @@ agent_communication:
 #====================================================================================================
 
 backend:
+  - task: "Staff payment confirmation endpoint (activation-blocker unblocker for pending_cash/pending_cliq)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/routes/staff.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            NEW endpoint: POST /api/staff/bookings/hourly/:id/confirm-payment
+            
+            Purpose: close the UX gap where staff scans a booking blocked by
+            pending_cash / pending_cliq and had no in-place path to confirm
+            payment received at the door. Payment-gate logic on /qr/validate +
+            /qr/checkin is UNCHANGED; this endpoint only flips
+            payment_status pending_cash|pending_cliq -> paid.
+            
+            Auth: /api/staff/* already gated by authMiddleware +
+            staffMiddleware + staffPermissionMiddleware('access_staff_tools').
+            
+            Behaviour:
+              - 401 when no auth token (verified with curl).
+              - 404 when bookingId not found.
+              - 400 error_code='not_pending' when current payment_status is
+                not pending_cash|pending_cliq (e.g. already 'paid').
+              - 400 error_code='method_mismatch' when body.method is
+                supplied but doesn't match booking.payment_method.
+              - 400 error_code='invalid_method' when body.method is provided
+                but not one of 'cash' | 'cliq'.
+              - 409 error_code='already_confirmed' if the atomic findOneAndUpdate
+                fails (race / double-submit).
+              - 200 happy path: sets payment_status='paid', paid_at=new Date(),
+                attempts awardReferralForFirstConfirmedOrder (non-fatal), logs
+                an audit line with event='staff_confirm_payment' + staff_id +
+                payment_status_from.
+            
+            Response shape:
+              { ok: true, message: '...', booking: summarizeBooking(updated) }
+            
+            FILES TOUCHED:
+              - /app/backend/node-app/routes/staff.js (added import of
+                awardReferralForFirstConfirmedOrder at top; added new route
+                block just before module.exports).
+            
+            TEST PLAN:
+              1. 401 unauthenticated POST.
+              2. 404 non-existent bookingId (use a valid-format ObjectId).
+              3. 400 not_pending — pick any paid HourlyBooking.
+              4. 400 invalid_method — POST {method:'card'}.
+              5. 400 method_mismatch — pending_cash booking + {method:'cliq'}.
+              6. 200 happy path (cash) — verify DB state: payment_status='paid',
+                 paid_at set. Re-POST should now return 400 not_pending.
+              7. 200 happy path (cliq) — same as 6 but with pending_cliq seed.
+              8. Regression: /api/staff/qr/validate on the same booking after
+                 confirmation must return can_checkin:true.
+
   - task: "Capital Bank Unified Checkout: stop calling /pts/v2/payments after auto-capture"
     implemented: true
     working: "NA"
@@ -1390,12 +1448,26 @@ backend:
             that are real regressions (not cosmetic preferences).
 
 
+  - task: "POST /api/staff/bookings/hourly/:id/confirm-payment"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staff.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "NEW TASK — Staff activation-blocker unblocker. Added POST /api/staff/bookings/hourly/:id/confirm-payment in /app/backend/node-app/routes/staff.js (near end of file, just before module.exports). Endpoint is narrow-scope: only flips payment_status from pending_cash|pending_cliq -> paid, sets paid_at, and invokes awardReferralForFirstConfirmedOrder (idempotent + non-fatal). Auth: inherits the /api/staff/* router-level staffMiddleware + staffPermissionMiddleware('access_staff_tools'). Unauthenticated requests MUST return 401."
+        - working: true
+          agent: "testing"
+          comment: "✅ TESTED: All 8 test scenarios PASSED. (1) 401 without Authorization header ✅. (2) 404 with error_code='not_found' for non-existent booking ID (507f1f77bcf86cd799439011) ✅. (3) 400 with error_code='invalid_method' for method='card' ✅. (4) 400 with error_code='not_pending' for already-paid booking (booking NOT mutated) ✅. (5) 400 with error_code='method_mismatch' for cash booking + cliq method (booking NOT mutated) ✅. (6) 200 happy path (cash): payment_status='paid', paid_at set, Arabic message 'تم تأكيد استلام الدفع. يمكنك الآن تفعيل الجلسة.', idempotent (second call returns not_pending) ✅. (7) 200 happy path (cliq): payment_status='paid', paid_at set, Arabic message present, idempotent ✅. (8) Regression: QR validate after payment confirmation returns can_checkin=True, reason_code='ok' (NOT unpaid_cash/unpaid_cliq) ✅. Atomic conditional update prevents race conditions. Referral award integration working (non-fatal). All error codes correct. Test script: /app/test_confirm_payment.py"
+
 metadata:
-  test_sequence: 1
+  test_sequence: 3
 
 test_plan:
-  current_focus:
-    - "Stabilization pass: customer/admin/staff frontend flows after HomePage rebuild + loyalty work"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -1403,16 +1475,68 @@ test_plan:
 agent_communication:
     - agent: "main"
       message: |
-        Removed the redundant `/pts/v2/payments` call from POST /api/payments/capital-bank/unified-checkout/authorize.
-        With completeMandate.type='CAPTURE' the payment is auto-captured by CyberSource when the
-        Microform SDK creates the transient token, so the backend just needs to validate the JWT
-        and mark the transaction paid. Please test the auth/validation/error paths of the new
-        handler — happy-path 200 requires a real CyberSource token, which the user will verify
-        manually after this passes.
+        NEW TASK — Staff activation-blocker unblocker.
+        Added POST /api/staff/bookings/hourly/:id/confirm-payment in
+        /app/backend/node-app/routes/staff.js (near end of file, just before
+        module.exports). Endpoint is narrow-scope: only flips payment_status
+        from pending_cash|pending_cliq -> paid, sets paid_at, and invokes
+        awardReferralForFirstConfirmedOrder (idempotent + non-fatal).
         
-        Auth: use admin@peekaboo.com / admin123 from /app/memory/test_credentials.md
-        (or parent@peekaboo.com / parent123).
+        Auth: inherits the /api/staff/* router-level staffMiddleware +
+        staffPermissionMiddleware('access_staff_tools'). Unauthenticated
+        requests MUST return 401 (already verified with curl).
         
-        For the 404 / 400 / token-validation paths, you can construct fake JWTs with the
-        node `crypto` module — e.g. `Buffer.from(JSON.stringify({iss:'Flex/07', jti:'x', exp: Math.floor(Date.now()/1000)+600})).toString('base64url')`
-        for the payload segment.
+        Creds: admin@peekaboo.com / admin123 (role=admin works on staff routes).
+        
+        Please test:
+          1. 401 unauthenticated — POST with no token.
+          2. 404 — POST with a valid-format but non-existent bookingId.
+          3. 400 not_pending — pick any existing HourlyBooking with
+             payment_status === 'paid' and POST; expect error_code='not_pending'.
+          4. 400 method_mismatch — seed/find a booking with payment_method='cash'
+             and payment_status='pending_cash', then POST with {method:'cliq'}
+             and expect error_code='method_mismatch'.
+          5. Happy path (cash) — seed/find a pending_cash hourly booking, POST
+             with {method:'cash'}. Expect 200, body has ok:true, booking.payment_status
+             === 'paid', and DB paid_at is set. Calling the endpoint again must
+             now return error_code='not_pending'.
+          6. Happy path (cliq) — same as 5 but for pending_cliq with {method:'cliq'}.
+          7. 409 double-confirm idempotency — simulate two concurrent calls if
+             possible OR just confirm once, then call again; second call must
+             return 400 not_pending (already paid), not a 500.
+          8. Regression: the existing /api/staff/qr/validate against the same
+             booking post-confirmation must now return can_checkin:true (reason
+             no longer 'unpaid_cash' / 'unpaid_cliq').
+        
+        Do NOT test frontend. UI changes in StaffPage.js are not in scope for
+        this run.
+        
+        PREVIOUS TASK (still stable but out of current focus):
+        Capital Bank unified-checkout handler. No changes since last run.
+    - agent: "testing"
+      message: |
+        ✅ TESTING COMPLETE: POST /api/staff/bookings/hourly/:id/confirm-payment
+        
+        All 8 test scenarios passed successfully:
+        
+        1. ✅ 401 - No Authorization header correctly rejected
+        2. ✅ 404 - Non-existent booking ID (507f1f77bcf86cd799439011) returns error_code='not_found'
+        3. ✅ 400 invalid_method - method='card' rejected with error_code='invalid_method'
+        4. ✅ 400 not_pending - Already-paid booking rejected with error_code='not_pending' (booking NOT mutated)
+        5. ✅ 400 method_mismatch - Cash booking + cliq method rejected with error_code='method_mismatch' (booking NOT mutated)
+        6. ✅ 200 happy path (cash) - Payment confirmed, payment_status='paid', paid_at set, Arabic message present, idempotent (second call returns not_pending)
+        7. ✅ 200 happy path (cliq) - Payment confirmed, payment_status='paid', paid_at set, Arabic message present, idempotent
+        8. ✅ Regression - QR validate after payment returns can_checkin=True, reason_code='ok' (NOT unpaid_cash/unpaid_cliq)
+        
+        Implementation verified:
+        - Atomic conditional update prevents race conditions
+        - Referral award integration working (non-fatal)
+        - All error codes match specification
+        - Arabic messages present in responses
+        - Idempotency working correctly
+        - No mutations on error cases
+        
+        Test script: /app/test_confirm_payment.py
+        Test credentials: admin@peekaboo.com / admin123
+        
+        RECOMMENDATION: Endpoint is production-ready. Main agent can summarize and finish.
