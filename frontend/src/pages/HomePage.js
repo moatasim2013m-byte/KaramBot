@@ -305,7 +305,7 @@ export default function HomePage() {
           className="absolute inset-0 bg-gradient-to-b from-[#FFF8F0] via-[#FFF3DE] to-[#FFF8F0]"
         />
         {/* Subtle sky + sun (only here) */}
-        <div className="absolute inset-0 opacity-80 pointer-events-none" aria-hidden="true">
+        <div className="absolute inset-0 opacity-60 pointer-events-none" aria-hidden="true">
           <SkyBackground />
         </div>
         <div className="hidden md:block absolute top-8 left-8 opacity-90 pointer-events-none" aria-hidden="true">
@@ -422,17 +422,12 @@ export default function HomePage() {
                 )}
               </div>
 
-              {/* Soft accent dots */}
-              <div className="hidden md:block absolute -top-4 -left-4 w-20 h-20 rounded-full bg-[#FFD166]/40 blur-xl" aria-hidden="true" />
-              <div className="hidden md:block absolute -bottom-6 right-6 w-24 h-24 rounded-full bg-[#7AC74F]/30 blur-xl" aria-hidden="true" />
+              {/* Soft accent dots — mobile only (blob clutter on desktop) */}
+              <div className="md:hidden absolute -top-4 -left-4 w-20 h-20 rounded-full bg-[#FFD166]/40 blur-xl" aria-hidden="true" />
+              <div className="md:hidden absolute -bottom-6 right-6 w-24 h-24 rounded-full bg-[#7AC74F]/30 blur-xl" aria-hidden="true" />
 
-              {/* Shroomi #1: Hero wave — placed clearly aside, never overlapping */}
-              <div
-                className="hidden lg:block absolute -bottom-6 -left-10 z-10 pointer-events-none drop-shadow-xl"
-                aria-hidden="true"
-              >
-                <Shroomi pose="wave" size={170} />
-              </div>
+              {/* Shroomi #1: Hero wave — removed on desktop (was reading as a cropped fragment).
+                  Was previously visible at lg+; kept off on all breakpoints now to keep the hero calm. */}
             </div>
           </div>
         </div>
