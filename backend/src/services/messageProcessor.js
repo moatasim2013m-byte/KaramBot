@@ -206,14 +206,14 @@ async function processInboundMessage(entry) {
           const parts = [loc.name, loc.address].filter(Boolean);
           customerText = parts.length
             ? parts.join(' - ')
-            : `📍 موقع: ${loc.latitude}, ${loc.longitude}`;
+            : `${loc.latitude},${loc.longitude}`;
         } else if (msgType === 'reaction') {
           // Reactions don't require a reply; just persist conversation state.
           await conversation.save();
           continue;
         } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
           // Static reply — do not run AI on media. Order/cart state is preserved.
-          const mediaReply = 'عذراً، ما أقدر أعالج الصور أو الملفات الصوتية حالياً. اكتبلي طلبك نصياً من فضلك 🙏\nأو قل "موظف" لتحويلك لأحد فريقنا.';
+          const mediaReply = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
           await conversation.save();
           try {
             const metaResponse = await sendTextMessage(
