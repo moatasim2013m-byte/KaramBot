@@ -258,9 +258,22 @@ async function processInboundMessage(entry) {
 
       await conversation.save();
 
-      // Create order if confirmed
+      // Create order if confirmed. Must run BEFORE the outbound reply so that
+      // a failed insert can rewrite the reply into an apology + human handoff.
+      // Never tell a customer "طلبك تأكد" without a matching order row.
       if (workflowResult.action === 'CONFIRM_ORDER' && workflowResult.orderData) {
-        await createConfirmedOrder(business, conversation, workflowResult.orderData).catch(console.error);
+        try {
+          await createConfirmedOrder(business, conversation, workflowResult.orderData);
+        } catch (orderErr) {
+          console.error(
+            `Order creation failed for business=${business._id} conv=${conversation._id}:`,
+            orderErr,
+          );
+          workflowResult.reply = 'عذراً، حصل خطأ تقني أثناء تسجيل طلبك 🙏 سيتواصل معك أحد موظفينا فوراً لتأكيد طلبك يدوياً.';
+          conversation.ai_enabled = false;
+          conversation.status = 'human_takeover';
+          await conversation.save();
+        }
       }
 
       // Send reply
