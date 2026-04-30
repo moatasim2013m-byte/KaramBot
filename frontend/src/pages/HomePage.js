@@ -388,9 +388,17 @@ export default function HomePage() {
                 onKeyDown={(e) => canOpenLightbox && e.key === 'Enter' && setLightboxOpen(true)}
                 data-testid="hero-image-clickable"
               >
-                {!showHeroImage ? (
+                {!heroImageReady ? (
                   <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#FFD166]/30 to-[#FFF8F0] text-[#2D2D2D]/50 font-semibold">
                     جاري التحميل...
+                  </div>
+                ) : !showHeroImage ? (
+                  <div className="relative w-full h-full flex items-center justify-center bg-gradient-to-br from-[#FFD166]/35 via-[#FFF8F0] to-[#FFF3DE]">
+                    <div className="text-center px-6">
+                      <div className="text-6xl md:text-7xl mb-3" aria-hidden="true">🎈</div>
+                      <div className="text-xl md:text-2xl font-extrabold text-[#9A6B00]">Peekaboo</div>
+                      <div className="text-sm md:text-base text-[#2D2D2D]/60 mt-1">We bring happiness</div>
+                    </div>
                   </div>
                 ) : (
                   <img
