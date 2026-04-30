@@ -61,14 +61,14 @@ export function Header({
       className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-border"
       data-testid="dashboard-header"
     >
-      <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3 lg:px-8">
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
           {showDrawer ? (
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
                 <button
                   type="button"
-                  className="md:hidden inline-flex items-center justify-center h-9 w-9 rounded-md text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors"
+                  className="md:hidden inline-flex items-center justify-center h-8.5 w-8.5 sm:h-9 sm:w-9 rounded-md text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0"
                   aria-label="Open menu"
                   data-testid="mobile-menu-trigger"
                 >
@@ -155,13 +155,13 @@ export function Header({
             <img
               src={logoSrc}
               alt="Peekaboo"
-              className="h-8 w-auto md:hidden"
+              className="h-7 w-auto sm:h-8 md:hidden shrink-0"
               data-testid="header-mobile-logo"
             />
           ) : null}
           <div className="min-w-0">
             <h1
-              className="font-heading text-lg sm:text-xl md:text-2xl font-bold truncate"
+              className="font-heading text-base sm:text-xl md:text-2xl font-bold truncate leading-tight"
               data-testid="dashboard-title"
             >
               {title}
@@ -175,7 +175,7 @@ export function Header({
         </div>
         {headerActions ? (
           <div
-            className="flex items-center gap-2 shrink-0"
+            className="flex items-center gap-1.5 sm:gap-2 shrink-0"
             data-testid="dashboard-header-actions"
           >
             {headerActions}
