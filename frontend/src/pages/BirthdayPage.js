@@ -440,7 +440,7 @@ export default function BirthdayPage() {
               احتفال لا يُنسى — كيك، بالونات، وفرحة
             </span>
             <h1
-              className="font-heading text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mt-3 mb-2 tracking-tight"
+              className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mt-3 mb-2 tracking-tight"
               data-testid="birthday-title"
             >
               حفلات أعياد الميلاد

@@ -315,6 +315,10 @@ export default function HomePage() {
         <span className="home-hero-sparkle home-hero-sparkle--a" aria-hidden="true" />
         <span className="home-hero-sparkle home-hero-sparkle--b" aria-hidden="true" />
         <span className="home-hero-sparkle home-hero-sparkle--c" aria-hidden="true" />
+        {/* Floating balloons (pass 2) */}
+        <span className="home-hero-balloon home-hero-balloon--red" aria-hidden="true" />
+        <span className="home-hero-balloon home-hero-balloon--yellow" aria-hidden="true" />
+        <span className="home-hero-balloon home-hero-balloon--blue" aria-hidden="true" />
         {/* Soft kids hill silhouette at bottom of hero */}
         <div className="home-hero-hills" aria-hidden="true" />
 
@@ -328,7 +332,7 @@ export default function HomePage() {
               </div>
 
               <h1
-                className="font-heading heading-bubble text-4xl sm:text-5xl md:text-6xl font-extrabold text-[#2D2D2D] leading-[1.15] tracking-tight"
+                className="font-heading heading-bubble heading-bubble--hero text-4xl sm:text-5xl md:text-6xl font-extrabold leading-[1.15] tracking-tight"
                 data-testid="hero-title"
               >
                 {heroConfig.title}
@@ -546,6 +550,7 @@ export default function HomePage() {
                       }`}
                       data-testid={`feature-card-${index}`}
                     >
+                      <span className="kids-shine" aria-hidden="true" />
                       {/* Color-coded top strip */}
                       <div className={`h-1.5 w-full ${a.strip}`} />
 
