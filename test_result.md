@@ -753,7 +753,7 @@ test_plan:
 
   - task: "Staff activation-blocker unblocker UI (pending_cash/pending_cliq payment confirmation)"
     implemented: true
-    working: false
+    working: true
     file: "/app/frontend/src/pages/StaffPage.js"
     stuck_count: 0
     priority: "high"
@@ -765,6 +765,9 @@ test_plan:
         - working: false
           agent: "testing"
           comment: "❌ CRITICAL BUG: Frontend-backend field mismatch prevents payment confirmation. TESTED: (Case 1) Amber box with data-testid='pending-payment-action' appears correctly ✅. Button with data-testid='confirm-pending-payment-btn' visible with correct cash label 'تأكيد استلام الدفع النقدي' ✅. (Case 2) CliQ button label correct 'تأكيد استلام دفعة CliQ' ✅. (Case 4) Amber box does NOT appear for paid bookings ✅. (Case 5) No console errors ✅. BUG: When clicking confirm button, error toast shows 'لا يوجد حجز محدد لتأكيد الدفع' (No booking specified). ROOT CAUSE: Frontend line 465 reads qrValidation?.booking?._id but backend summarizeBooking() returns booking_id (not _id). FIX REQUIRED: Change line 465 in StaffPage.js from 'const bookingId = qrValidation?.booking?._id;' to 'const bookingId = qrValidation?.booking?.booking_id;'. Backend endpoint /api/staff/bookings/hourly/:id/confirm-payment is working (verified 8/8 PASS in backend tests). UI renders correctly, only the booking ID extraction is broken."
+        - working: true
+          agent: "testing"
+          comment: "✅ ALL 8 TEST CASES PASSED. BUG FIXED: Changed line 465 from qrValidation?.booking?._id to qrValidation?.booking?.booking_id. COMPREHENSIVE E2E TESTING: (TC1) Login & activation queue visible ✅. (TC2) CASH booking: Amber panel appears with correct Arabic text 'نقداً' and button label 'تأكيد استلام الدفع النقدي', activate button disabled ✅. (TC3) CLIQ booking: Amber panel appears with correct text 'CliQ' and button label 'تأكيد استلام دفعة CliQ' ✅. (TC4) Dialog dismiss works - panel remains visible ✅. (TC5) CASH payment confirmation: Dialog accept → success toast → panel disappears → activate button enabled ✅. (TC6) CLIQ payment confirmation: Dialog accept → panel disappears → activate button enabled ✅. (TC7) PAID booking: NO amber panel, activate button enabled immediately ✅. (TC8) Unauthorized access: Amber panel not accessible without auth ✅. Backend endpoint /api/staff/bookings/hourly/:id/confirm-payment working correctly. Auto re-validation after payment confirmation working. All Arabic UI text correct. Feature fully functional."
 
 frontend:
   - task: "Bulk Send UI card in campaigns tab"
@@ -1552,3 +1555,66 @@ agent_communication:
         Test credentials: admin@peekaboo.com / admin123
         
         RECOMMENDATION: Endpoint is production-ready. Main agent can summarize and finish.
+    - agent: "main"
+      message: |
+        User approved frontend testing for the Staff activation-blocker UI
+        (StaffPage.js — amber "تأكيد استلام الدفع" panel). Scope is strict —
+        DO NOT test other staff flows, DO NOT test admin pages.
+        
+        Creds: admin@peekaboo.com / admin123 (role=admin also passes staff gate).
+        Backend endpoint already verified (POST /api/staff/bookings/hourly/:id/confirm-payment).
+        
+        UI verification list:
+          1. Amber panel (data-testid='pending-payment-action') shows ONLY when
+             qrValidation.reasonCode is 'unpaid_cash' or 'unpaid_cliq' AND the
+             scanned booking matches the activatingBooking. Must NOT show for
+             any other reasonCode (e.g. already-paid 'ok', 'wrong_day', etc.).
+          2. Button label is "تأكيد استلام الدفع النقدي" for unpaid_cash and
+             "تأكيد استلام دفعة CliQ" for unpaid_cliq.
+          3. Clicking the button triggers window.confirm — verify the dialog
+             appears and cancel/accept both behave correctly.
+          4. On accept → toast success → qrValidation is re-fetched
+             automatically so the amber panel disappears and the green
+             "تفعيل الجلسة" button becomes enabled.
+          5. No regression: a booking that is already 'paid' flows straight
+             to enabled "تفعيل الجلسة" with no amber panel.
+          6. Unauthorized / wrong role — hitting /staff as an unauthenticated
+             user should NOT reveal the panel (route is guarded at App.js with
+             RequireStaff/RequireAuth).
+        
+        The testing agent may need to seed an HourlyBooking with
+        payment_method='cash' & payment_status='pending_cash' (and one with
+        'cliq' / 'pending_cliq') to surface the panel in the UI. Use
+        /app/test_confirm_payment.py as reference for seeding patterns.
+        
+        Out of scope: inbox, parties, loyalty, admin tools, checkout.
+
+frontend:
+  - task: "Staff activation-blocker unblocker UI (amber panel + confirm-payment)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+            Amber panel rendered in StaffPage.js ~line 1460-1508 with
+            data-testid='pending-payment-action' and button testid
+            'confirm-pending-payment-btn'. Panel visibility gated on
+            qrValidation.reasonCode ∈ {unpaid_cash, unpaid_cliq} and
+            qrValidation.booking.booking_code === activatingBooking.booking_code.
+            Clicking triggers window.confirm, then POSTs to
+            /api/staff/bookings/hourly/:id/confirm-payment, then re-runs
+            handleQrScan on the original scanned value to refresh validation.
+            Needs frontend E2E verification against seeded pending_cash /
+            pending_cliq bookings.
+
+test_plan:
+  current_focus:
+    - "Staff activation-blocker unblocker UI (amber panel + confirm-payment)"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"

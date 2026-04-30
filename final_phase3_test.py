@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 # Configuration
-BACKEND_URL = "https://iphone-scanner-test.preview.emergentagent.com/api"
+BACKEND_URL = "https://staff-bookings-qa.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@peekaboo.com"
 ADMIN_PASSWORD = "admin123"
 PARENT_EMAIL = "parent@peekaboo.com"

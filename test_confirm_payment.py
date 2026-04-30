@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from bson import ObjectId
 
 # Configuration
-BACKEND_URL = "https://iphone-scanner-test.preview.emergentagent.com/api"
+BACKEND_URL = "https://staff-bookings-qa.preview.emergentagent.com/api"
 ADMIN_CREDS = {"email": "admin@peekaboo.com", "password": "admin123"}
 
 class ConfirmPaymentTester:

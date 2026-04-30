@@ -9,7 +9,7 @@ import json
 import sys
 
 # Configuration
-BACKEND_URL = "https://iphone-scanner-test.preview.emergentagent.com"
+BACKEND_URL = "https://staff-bookings-qa.preview.emergentagent.com"
 API_BASE = f"{BACKEND_URL}/api"
 
 def log_test_result(test_name, status, message="", details=None):

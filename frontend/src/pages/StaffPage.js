@@ -462,7 +462,7 @@ export default function StaffPage() {
   // narrow (pending_cash|pending_cliq → paid only) and gated to staff.
   const handleConfirmPendingPayment = async (method) => {
     if (confirmingPayment) return;
-    const bookingId = qrValidation?.booking?._id;
+    const bookingId = qrValidation?.booking?.booking_id;
     if (!bookingId) {
       toast.error('لا يوجد حجز محدد لتأكيد الدفع');
       return;
