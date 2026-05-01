@@ -399,15 +399,27 @@ export default function BookingConfirmationPage() {
             العودة للرئيسية
           </Button>
           
-          <Link to="/profile" className="block">
-            <Button 
-              variant="outline"
-              className="w-full rounded-full h-12 text-lg border-2"
-            >
-              <User className="h-5 w-5 ml-2" />
-              عرض ملفي
-            </Button>
-          </Link>
+          {confirmation.isGuestBooking ? (
+            <Link to="/register" className="block">
+              <Button 
+                variant="outline"
+                className="w-full rounded-full h-12 text-lg border-2"
+              >
+                <User className="h-5 w-5 ml-2" />
+                سجّل حساباً — واكسب نقاط الولاء في زياراتك القادمة
+              </Button>
+            </Link>
+          ) : (
+            <Link to="/profile" className="block">
+              <Button 
+                variant="outline"
+                className="w-full rounded-full h-12 text-lg border-2"
+              >
+                <User className="h-5 w-5 ml-2" />
+                عرض ملفي
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
     </div>

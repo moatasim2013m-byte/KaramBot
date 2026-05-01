@@ -660,6 +660,180 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
   }
 });
 
+// Guest hourly booking (no account required — cash/cliq only).
+// Card payment requires an authenticated user (payment gateway state depends on user_id).
+// Loyalty is never earned or redeemed for guest bookings.
+router.post('/hourly/guest-offline', async (req, res) => {
+  let reservedSlotId = null;
+  let reservedCount = 0;
+
+  try {
+    const {
+      slot_id,
+      duration_hours,
+      payment_method,
+      parent_name,
+      parent_phone,
+      parent_email,
+      child_count,
+      guest_child_name,
+      custom_notes,
+      lineItems,
+      coupon_code
+    } = req.body;
+
+    // Card not allowed for guest checkout — requires authenticated gateway flow.
+    if (!['cash', 'cliq'].includes(payment_method)) {
+      return res.status(400).json({ error: 'الدفع بالبطاقة يتطلب تسجيل الدخول. الرجاء اختيار نقداً أو CliQ للحجز كضيف.' });
+    }
+
+    // Validate required guest contact fields.
+    const guestName = (parent_name || '').trim().slice(0, 100);
+    const guestPhone = (parent_phone || '').trim().slice(0, 30);
+    if (!guestName) {
+      return res.status(400).json({ error: 'اسم ولي الأمر مطلوب' });
+    }
+    if (!guestPhone) {
+      return res.status(400).json({ error: 'رقم الهاتف مطلوب' });
+    }
+
+    if (!isValidObjectId(slot_id)) {
+      return res.status(400).json({ error: 'معرّف الموعد غير صالح' });
+    }
+
+    const effectiveCount = Math.max(1, Math.min(MAX_GUEST_CHILD_COUNT, parseInt(child_count) || 1));
+
+    // ATOMIC capacity check — same pattern as authenticated paths.
+    const slot = await TimeSlot.findOneAndUpdate(
+      {
+        _id: slot_id,
+        slot_type: 'hourly',
+        $expr: { $lte: [{ $add: ['$booked_count', effectiveCount] }, '$capacity'] }
+      },
+      { $inc: { booked_count: effectiveCount } },
+      { new: true }
+    );
+
+    if (!slot) {
+      const existingSlot = await TimeSlot.findById(slot_id);
+      if (!existingSlot) {
+        return res.status(400).json({ error: 'الوقت غير صالح' });
+      }
+      const available = existingSlot.capacity - existingSlot.booked_count;
+      return res.status(400).json({
+        error: `عذراً، المتاح ${available} مكان فقط. اخترت ${effectiveCount} أطفال.`
+      });
+    }
+
+    reservedSlotId = slot_id;
+    reservedCount = effectiveCount;
+
+    const hours = normalizeDurationHours(duration_hours);
+    const basePrice = await getHourlyPrice(hours, slot.start_time);
+    const { normalizedLineItems, productsTotal } = await buildLineItems(lineItems);
+    const subtotalAmount = (basePrice * effectiveCount) + productsTotal;
+    let discountAmount = 0;
+    let normalizedCouponCode = '';
+
+    if (coupon_code) {
+      const couponValidation = await validateCoupon({
+        code: coupon_code,
+        amount: subtotalAmount,
+        type: 'hourly'
+      });
+      if (!couponValidation.valid) {
+        await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
+        return res.status(400).json({ error: couponValidation.message });
+      }
+      discountAmount = couponValidation.discountAmount;
+      normalizedCouponCode = couponValidation.normalizedCode;
+    }
+
+    const totalAmount = subtotalAmount - discountAmount;
+
+    if (!totalAmount || isNaN(totalAmount) || totalAmount <= 0) {
+      await TimeSlot.findByIdAndUpdate(slot_id, { $inc: { booked_count: -effectiveCount } });
+      return res.status(400).json({ error: 'خطأ في حساب السعر' });
+    }
+
+    const paymentStatus = payment_method === 'cash' ? 'pending_cash' : 'pending_cliq';
+    const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+    const { qr_token, qr_code } = await generateBookingQrPayload();
+
+    const booking = new HourlyBooking({
+      user_id: null,
+      is_guest_booking: true,
+      guest_parent_name: guestName,
+      guest_parent_phone: guestPhone,
+      guest_parent_email: (parent_email || '').trim().slice(0, 200),
+      child_id: null,
+      guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
+      child_count: effectiveCount,
+      slot_id,
+      duration_hours: hours,
+      custom_notes: (custom_notes || '').trim(),
+      qr_code,
+      qr_token,
+      qr_status: 'unused',
+      booking_code,
+      status: 'confirmed',
+      payment_method,
+      payment_status: paymentStatus,
+      amount: totalAmount,
+      subtotal_amount: subtotalAmount,
+      discount_amount: discountAmount,
+      coupon_code: normalizedCouponCode,
+      lineItems: normalizedLineItems
+    });
+
+    await booking.save();
+
+    if (normalizedCouponCode) {
+      await Coupon.findOneAndUpdate({ code: normalizedCouponCode }, { $inc: { redeemed_count: 1 } });
+    }
+
+    // Send WhatsApp confirmation to guest phone (non-blocking).
+    sendHourlyBookingWhatsAppConfirmation({
+      phone: guestPhone,
+      customerName: guestName,
+      date: slot?.date,
+      time: slot?.start_time,
+      childCount: effectiveCount,
+      durationHours: hours,
+      bookingReference: booking_code,
+      bookingId: booking._id?.toString(),
+      isPending: true,
+      paymentMethod: payment_method
+    }).catch((err) => console.error('GUEST_HOURLY_WHATSAPP_ERROR', err?.message || err));
+
+    notifyAdminsOfOrder({
+      orderType: 'Hourly Booking (Guest)',
+      orderId: booking_code,
+      customerName: guestName,
+      customerEmail: (parent_email || '').trim(),
+      amount: totalAmount,
+      paymentStatus,
+      createdAt: booking.created_at || new Date()
+    }).catch((error) => console.error('ADMIN_ORDER_ALERT_FAILED', error?.message || error));
+
+    reservedSlotId = null;
+    reservedCount = 0;
+
+    res.status(201).json({
+      bookings: [booking.toJSON()],
+      message: payment_method === 'cash'
+        ? 'تم الحجز بنجاح! الرجاء الدفع نقداً عند الاستقبال.'
+        : 'تم الحجز بنجاح! الرجاء إتمام التحويل عبر CliQ.'
+    });
+  } catch (error) {
+    if (reservedSlotId && reservedCount > 0) {
+      await TimeSlot.findByIdAndUpdate(reservedSlotId, { $inc: { booked_count: -reservedCount } });
+    }
+    console.error('Create guest hourly booking error:', error);
+    res.status(500).json({ error: 'فشل إنشاء الحجز' });
+  }
+});
+
 // Get user's hourly bookings
 router.get('/hourly', authMiddleware, async (req, res) => {
   try {

@@ -108,6 +108,14 @@ export default function TicketsPage() {
   const [guestChildCount, setGuestChildCount] = useState(1);
   const [guestChildName, setGuestChildName] = useState('');
 
+  // Guest checkout state — used when the user proceeds without an account.
+  const [guestMode, setGuestMode] = useState(null); // null = path-selector shown, 'form' = guest form shown
+  const [guestParentName, setGuestParentName] = useState('');
+  const [guestParentPhone, setGuestParentPhone] = useState('');
+  const [guestParentEmail, setGuestParentEmail] = useState('');
+  const [guestPaymentMethod, setGuestPaymentMethod] = useState('cash');
+  const [guestCouponCode, setGuestCouponCode] = useState('');
+
   // Phase 6 — loyalty redemption state.
   // loyaltyBalance: numeric points available for this user (null = not
   // loaded yet). loyaltyPolicy: minimum policy fields returned with the
@@ -252,6 +260,11 @@ export default function TicketsPage() {
       setLoyaltyPreview(null);
     }
   }, [paymentMethod, useLoyalty]);
+
+  // Reset the guest path-selector whenever the user picks a different slot.
+  useEffect(() => {
+    setGuestMode(null);
+  }, [selectedSlot]);
 
   // Reset selections when timeMode changes
   const handleTimeModeChange = (mode) => {
@@ -543,6 +556,80 @@ export default function TicketsPage() {
         navigate('/booking-confirmation', { state: confirmationData });
         setLoading(false);
       }
+    } catch (error) {
+      toast.error(error.response?.data?.error || error.message || 'فشل إنشاء الحجز');
+      setLoading(false);
+    }
+  };
+
+  // Guest checkout handler — no account required, cash/cliq only, no loyalty.
+  const handleGuestBooking = async () => {
+    if (!selectedSlot || !selectedDuration) {
+      toast.error('الرجاء اختيار الوقت والمدة');
+      return;
+    }
+
+    const trimmedName = guestParentName.trim();
+    const trimmedPhone = guestParentPhone.trim();
+
+    if (!trimmedName) {
+      toast.error('الرجاء إدخال اسم ولي الأمر');
+      return;
+    }
+    if (!trimmedPhone) {
+      toast.error('الرجاء إدخال رقم الهاتف');
+      return;
+    }
+
+    if (selectedSlot.available_spots < guestChildCount) {
+      toast.error(`عذراً، المتاح ${selectedSlot.available_spots} مكان فقط.`);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const lineItems = buildLineItems();
+
+      const response = await api.post('/bookings/hourly/guest-offline', {
+        slot_id: selectedSlot.id,
+        duration_hours: selectedDuration,
+        slot_start_time: selectedSlot.start_time,
+        payment_method: guestPaymentMethod,
+        parent_name: trimmedName,
+        parent_phone: trimmedPhone,
+        parent_email: guestParentEmail.trim() || undefined,
+        child_count: guestChildCount,
+        guest_child_name: guestChildName.trim() || undefined,
+        custom_notes: customNotes.trim() || undefined,
+        lineItems,
+        coupon_code: guestCouponCode.trim() || undefined
+      });
+
+      const firstBooking = response.data.bookings?.[0];
+      // Use the server-computed amount so coupon discounts are reflected.
+      const confirmedAmount = firstBooking?.amount ?? (getBaseBookingTotal() + getProductsTotal());
+
+      const confirmationData = {
+        bookingId: firstBooking?.id,
+        bookingCode: firstBooking?.booking_code,
+        bookingType: 'hourly',
+        childName: guestChildName.trim() || `${guestChildCount} أطفال`,
+        date: selectedSlot.date,
+        time: selectedSlot.start_time,
+        duration: selectedDuration,
+        amount: confirmedAmount,
+        paymentMethod: guestPaymentMethod,
+        qrCode: firstBooking?.qr_code,
+        qrToken: firstBooking?.qr_token,
+        qrStatus: firstBooking?.qr_status || 'unused',
+        parentPhone: trimmedPhone,
+        parentEmail: guestParentEmail.trim() || undefined,
+        isGuestBooking: true
+      };
+
+      localStorage.setItem('pk_last_confirmation', JSON.stringify(confirmationData));
+      navigate('/booking-confirmation', { state: confirmationData });
+      setLoading(false);
     } catch (error) {
       toast.error(error.response?.data?.error || error.message || 'فشل إنشاء الحجز');
       setLoading(false);
@@ -1202,23 +1289,232 @@ export default function TicketsPage() {
         )}
 
         {!isAuthenticated && (
-          <Card className="booking-card booking-auth-card pk-auth-invite border-0 shadow-none">
-            <CardContent className="py-6 text-center">
-              <div className="pk-auth-invite__shroomi" aria-hidden="true">
-                <Shroomi pose="wave" size={92} className="shroomi-pop-in" />
-              </div>
-              <p className="text-2xl font-bold mb-2">جاهزين للعب؟ 🎈</p>
-              <p className="text-muted-foreground mb-5">انضموا لعائلة بيكابو وسنجهز لكم جلسة لعب ممتعة وآمنة.</p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <Button onClick={() => navigate('/login')} variant="outline" className="rounded-full border-2 border-[#00BBF9] text-[#008ab9] font-bold">
-                  تسجيل الدخول
-                </Button>
-                <Button onClick={() => navigate('/register')} className="rounded-full btn-playful bg-[#FF595E] hover:bg-[#f1464b] font-bold">
-                  إنشاء حساب
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          selectedSlot ? (
+            /* Slot selected — show two-path checkout selector or guest form */
+            <Card className="booking-card" data-testid="guest-checkout-card">
+              <CardHeader className="booking-card-header">
+                <CardTitle className="booking-card-title">
+                  <span className={`step-badge ${guestMode === 'form' ? 'step-badge-complete' : ''}`}>5</span>
+                  كيف تريد المتابعة؟
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="py-6">
+                {guestMode === null ? (
+                  /* Path selector */
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button
+                      onClick={() => setGuestMode('form')}
+                      className="option-btn cartoon-option p-5 text-right"
+                      data-testid="guest-path-btn"
+                    >
+                      <div className="font-heading text-xl font-bold mb-1">إكمال كضيف 🎈</div>
+                      <div className="text-sm text-muted-foreground">بدون حساب — أسرع وأبسط</div>
+                      <div className="text-xs text-amber-700 mt-2 font-medium">نقداً أو CliQ فقط · لا تُكسب نقاط ولاء</div>
+                    </button>
+                    <button
+                      onClick={() => navigate('/login', { state: { from: '/tickets' } })}
+                      className="option-btn cartoon-option morning-option p-5 text-right"
+                      data-testid="login-path-btn"
+                    >
+                      <div className="font-heading text-xl font-bold mb-1">تسجيل الدخول / إنشاء حساب</div>
+                      <div className="text-sm text-muted-foreground">للدفع بالبطاقة ونقاط الولاء</div>
+                      <div className="text-xs text-blue-700 mt-2 font-medium">احفظ تاريخ زيارات طفلك</div>
+                    </button>
+                  </div>
+                ) : (
+                  /* Guest checkout form */
+                  <div className="space-y-5" dir="rtl">
+                    <button
+                      type="button"
+                      onClick={() => setGuestMode(null)}
+                      className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
+                    >
+                      ← تغيير طريقة المتابعة
+                    </button>
+
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                      💡 الحجز كضيف يدعم <strong>نقداً وCliQ فقط</strong>. لا تُكسب أو تُخصم نقاط ولاء.
+                    </div>
+
+                    {/* Guest contact fields */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="block text-sm font-medium mb-2">
+                          اسم ولي الأمر <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          value={guestParentName}
+                          onChange={(e) => setGuestParentName(e.target.value)}
+                          placeholder="مثال: أحمد محمد"
+                          className="rounded-xl"
+                          data-testid="guest-parent-name"
+                        />
+                      </div>
+                      <div>
+                        <Label className="block text-sm font-medium mb-2">
+                          رقم الهاتف <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          value={guestParentPhone}
+                          onChange={(e) => setGuestParentPhone(e.target.value)}
+                          placeholder="مثال: 0791234567"
+                          className="rounded-xl"
+                          type="tel"
+                          dir="ltr"
+                          data-testid="guest-parent-phone"
+                        />
+                      </div>
+                      <div>
+                        <Label className="block text-sm font-medium mb-2">اسم الطفل (اختياري)</Label>
+                        <Input
+                          value={guestChildName}
+                          onChange={(e) => setGuestChildName(e.target.value)}
+                          placeholder="اسم الطفل"
+                          className="rounded-xl"
+                        />
+                      </div>
+                      <div>
+                        <Label className="block text-sm font-medium mb-2">عدد الأطفال</Label>
+                        <div className="flex items-center gap-2">
+                          <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.max(1, c - 1))}>-</Button>
+                          <span className="min-w-8 text-center font-bold text-lg">{guestChildCount}</span>
+                          <Button type="button" variant="outline" size="sm" className="h-8 w-8 rounded-full p-0" onClick={() => setGuestChildCount(c => Math.min(20, c + 1))}>+</Button>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="block text-sm font-medium mb-2">البريد الإلكتروني (اختياري)</Label>
+                        <Input
+                          value={guestParentEmail}
+                          onChange={(e) => setGuestParentEmail(e.target.value)}
+                          placeholder="example@email.com"
+                          className="rounded-xl"
+                          type="email"
+                          dir="ltr"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Payment method — cash/cliq only for guests */}
+                    <div>
+                      <Label className="block text-base font-bold mb-2">طريقة الدفع</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { id: 'cash', label: 'نقداً', sub: 'عند الاستقبال' },
+                          { id: 'cliq', label: 'CliQ', sub: 'تحويل بنكي' }
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setGuestPaymentMethod(m.id)}
+                            className={`option-btn p-4 text-right ${guestPaymentMethod === m.id ? 'selected' : ''}`}
+                            data-testid={`guest-payment-${m.id}`}
+                          >
+                            <div className="font-bold">{m.label}</div>
+                            <div className="text-xs mt-0.5">{m.sub}</div>
+                          </button>
+                        ))}
+                      </div>
+                      {guestPaymentMethod === 'cliq' && (
+                        <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50 p-4 text-sm">
+                          <p className="font-bold text-purple-800 mb-1">معلومات التحويل CliQ</p>
+                          <p className="text-purple-700">الاسم: <strong>Peekaboo1</strong> · البنك: بنك الإسكان</p>
+                          <p className="text-xs text-purple-600 mt-1">بعد التحويل، أرسل صورة الإيصال على واتساب لتأكيد الحجز.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Optional coupon code — validated server-side on submit */}
+                    <div>
+                      <Label className="block text-sm font-medium mb-2">كوبون الخصم (اختياري)</Label>
+                      <Input
+                        value={guestCouponCode}
+                        onChange={(e) => setGuestCouponCode(e.target.value.toUpperCase())}
+                        placeholder="مثال: PEEK10"
+                        className="rounded-xl"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">سيتم التحقق من الكوبون عند إتمام الحجز</p>
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <Label htmlFor="guest-custom-notes" className="block text-sm font-medium mb-2">ملاحظات (اختياري)</Label>
+                      <Textarea
+                        id="guest-custom-notes"
+                        value={customNotes}
+                        onChange={(e) => setCustomNotes(e.target.value)}
+                        placeholder="أي ملاحظات أو طلبات خاصة..."
+                        className="rounded-xl resize-none"
+                        rows={2}
+                      />
+                    </div>
+
+                    {/* Booking summary */}
+                    <div className="booking-summary">
+                      <p className="text-sm text-muted-foreground mb-1">ملخص الحجز</p>
+                      <p className="font-bold">
+                        {selectedSlot
+                          ? `${selectedDuration} ساعة × ${guestChildCount} طفل = ${(parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * guestChildCount).toFixed(1)} دينار`
+                          : `${selectedDuration} ساعة × ${guestChildCount} طفل`
+                        }
+                      </p>
+                      {getProductsTotal() > 0 && (
+                        <p className="text-sm text-muted-foreground">إضافات: {getProductsTotal().toFixed(1)} دينار</p>
+                      )}
+                      <p className="font-semibold">الإجمالي: {(getBaseBookingTotal() + getProductsTotal()).toFixed(1)} دينار</p>
+                    </div>
+
+                    {/* Sticky CTA */}
+                    <div className="booking-sticky-wrap mt-6">
+                      <div className="booking-sticky-summary-bar">
+                        <div className="booking-sticky-summary__meta">
+                          <span>🗓 {format(date, 'dd/MM')}</span>
+                          <span>⏰ {periodLabel}</span>
+                          <span>⏱ {selectedDuration} س</span>
+                          <span>💰 {(getBaseBookingTotal() + getProductsTotal()).toFixed(1)} د</span>
+                        </div>
+                      </div>
+                      <div className="booking-sticky-summary">
+                        <Button
+                          onClick={handleGuestBooking}
+                          disabled={!selectedSlot || loading}
+                          className={`w-full px-8 rounded-full h-12 text-base ${timeMode === 'morning' ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : 'btn-playful'}`}
+                          data-testid="guest-book-btn"
+                        >
+                          {loading ? (
+                            <>
+                              <Loader2 className="ml-2 h-5 w-5 animate-spin" />
+                              جاري المعالجة...
+                            </>
+                          ) : (
+                            <span>احجز كضيف — {(getBaseBookingTotal() + getProductsTotal()).toFixed(1)} د</span>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            /* No slot selected yet — show the generic login/register invite */
+            <Card className="booking-card booking-auth-card pk-auth-invite border-0 shadow-none">
+              <CardContent className="py-6 text-center">
+                <div className="pk-auth-invite__shroomi" aria-hidden="true">
+                  <Shroomi pose="wave" size={92} className="shroomi-pop-in" />
+                </div>
+                <p className="text-2xl font-bold mb-2">جاهزين للعب؟ 🎈</p>
+                <p className="text-muted-foreground mb-5">انضموا لعائلة بيكابو وسنجهز لكم جلسة لعب ممتعة وآمنة.</p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Button onClick={() => navigate('/login')} variant="outline" className="rounded-full border-2 border-[#00BBF9] text-[#008ab9] font-bold">
+                    تسجيل الدخول
+                  </Button>
+                  <Button onClick={() => navigate('/register')} className="rounded-full btn-playful bg-[#FF595E] hover:bg-[#f1464b] font-bold">
+                    إنشاء حساب
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )
         )}
       </div>
     </div>
