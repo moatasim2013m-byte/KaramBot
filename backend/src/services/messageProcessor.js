@@ -9,7 +9,22 @@ const Message = require('../models/Message');
 const Order = require('../models/Order');
 const { sendTextMessage, markAsRead, normalizePhone } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
+const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { processRestaurantMessage } = require('../workflows/restaurant');
+
+/**
+ * Guard for outbound free-form auto-replies: returns true only if the
+ * 24-hour WhatsApp customer service window is still open for this
+ * conversation. When closed, logs a single warning and returns false so
+ * the caller can skip sendTextMessage + saveOutboundMessage safely.
+ */
+function canSendAutoReply(business, conversation, label) {
+  if (isWithinServiceWindow(conversation.last_inbound_at)) return true;
+  console.warn(
+    `[serviceWindow] Skipping ${label} outside 24h window — business=${business._id} conversation=${conversation._id}`,
+  );
+  return false;
+}
 
 /**
  * Get or create conversation for a customer
@@ -215,6 +230,9 @@ async function processInboundMessage(entry) {
           // Static reply — do not run AI on media. Order/cart state is preserved.
           const mediaReply = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
           await conversation.save();
+          if (!canSendAutoReply(business, conversation, 'media-not-supported reply')) {
+            continue;
+          }
           try {
             const metaResponse = await sendTextMessage(
               phoneNumberId,
@@ -286,6 +304,9 @@ async function processInboundMessage(entry) {
 
       // Send reply
       if (workflowResult.reply) {
+        if (!canSendAutoReply(business, conversation, 'workflow auto-reply')) {
+          continue;
+        }
         try {
           const metaResponse = await sendTextMessage(
             phoneNumberId,
