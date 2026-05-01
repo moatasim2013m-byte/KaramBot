@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n/useT';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
@@ -223,96 +222,58 @@ export default function ProfilePage() {
     );
   }
 
+  const initial = (user?.name || '').trim().charAt(0) || '؟';
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#F4F8FE] via-[#F9FBFF] to-[#FFF8F0] py-8 md:py-12" dir="rtl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Premium Dashboard Hero */}
-        <section className="relative overflow-hidden rounded-3xl bg-white border border-[#E6EAF2] shadow-[0_10px_30px_rgba(45,45,45,0.06)] mb-6 md:mb-8">
-          {/* Subtle decorative blobs (behind content, pointer-events-none) */}
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-[#FFD166]/20 blur-3xl" />
-            <div className="absolute -bottom-14 -left-10 w-48 h-48 rounded-full bg-[#4A90D9]/10 blur-3xl" />
-          </div>
-          <div className="relative p-6 md:p-8">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-              {/* Identity block */}
-              <div className="flex items-start gap-4 md:gap-5 flex-1 min-w-0">
-                <div className="shrink-0 w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-[#FFD166] to-[#E63946] flex items-center justify-center shadow-md">
-                  <User className="h-7 w-7 md:h-8 md:w-8 text-white" strokeWidth={2.5} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-[#2D2D2D]/60 mb-1">أهلاً بعودتك</p>
-                  <h1 className="font-heading heading-bubble text-2xl sm:text-3xl md:text-4xl font-extrabold text-[#2D2D2D] leading-tight truncate" data-testid="profile-title">
-                    مرحباً، <span className="heading-bubble__accent">{user?.name || ''}</span>
-                  </h1>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#2D2D2D]/65">
-                    {user?.email && (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Mail className="h-4 w-4" />
-                        <span className="truncate">{user.email}</span>
-                      </span>
-                    )}
-                    {user?.phone && (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Phone className="h-4 w-4" />
-                        <span className="ltr-text font-mono text-[13px]">{user.phone}</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
+    <div className="parent-dashboard-bg py-6 md:py-10" dir="rtl">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        {/* Premium Identity Card */}
+        <section className="identity-card p-5 sm:p-6 md:p-8 mb-6 md:mb-8">
+          <div className="flex flex-col md:flex-row md:items-center gap-5 md:gap-6">
+            <div className="flex items-start md:items-center gap-4 flex-1 min-w-0">
+              <div className="identity-avatar" aria-hidden="true">
+                {initial}
               </div>
-              {/* Loyalty featured chip */}
-              <div className="shrink-0 flex items-center gap-3 rounded-2xl bg-gradient-to-br from-[#FFF3D6] to-[#FFE2A8] border border-[#F2E533]/60 px-4 py-3 shadow-sm">
-                <div className="w-10 h-10 rounded-xl bg-white/80 flex items-center justify-center">
-                  <Sparkles className="h-5 w-5 text-[#E8872E]" />
-                </div>
-                <div className="leading-tight">
-                  <p className="text-[11px] font-medium text-[#2D2D2D]/60">نقاطك</p>
-                  <p className="font-heading font-extrabold text-[#2D2D2D]">
-                    <span className="text-xl">{loyaltyBalance}</span>
-                    <span className="text-xs font-bold text-[#2D2D2D]/60 mr-1">نقطة</span>
-                  </p>
+              <div className="min-w-0">
+                <p className="text-xs md:text-sm font-semibold text-[var(--pk-blue)] mb-1">
+                  أهلاً بعودتك 👋
+                </p>
+                <h1
+                  className="font-heading text-2xl sm:text-3xl md:text-4xl font-bold text-foreground leading-tight truncate"
+                  data-testid="profile-title"
+                >
+                  {user?.name || ''}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                  {user?.email && (
+                    <span className="truncate max-w-[240px] sm:max-w-none">{user.email}</span>
+                  )}
+                  {user?.email && user?.phone && (
+                    <span className="hidden sm:inline text-[var(--pk-blue)]/40">•</span>
+                  )}
+                  {user?.phone && (
+                    <span className="ltr-text font-semibold text-[var(--text-primary)]" dir="ltr">
+                      {user.phone}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Quick stat chips */}
-            <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-2.5 md:gap-3">
-              <div className="rounded-2xl bg-[#F1FAEA] border border-[#7AC74F]/25 p-3 flex items-center gap-3" data-testid="stat-children">
-                <div className="shrink-0 w-9 h-9 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                  <Baby className="h-4.5 w-4.5 text-[#3F7A1E]" />
-                </div>
-                <div className="leading-tight min-w-0">
-                  <p className="text-[11px] text-[#2D2D2D]/60">أطفالي</p>
-                  <p className="font-heading font-extrabold text-lg text-[#2D2D2D]">{children.length}</p>
-                </div>
+            {/* Loyalty Summary */}
+            <div className="loyalty-chip self-start md:self-center">
+              <div className="loyalty-chip__icon">
+                <Gift className="h-5 w-5" />
               </div>
-              <div className="rounded-2xl bg-[#E9F3FF] border border-[#4A90D9]/25 p-3 flex items-center gap-3" data-testid="stat-hourly">
-                <div className="shrink-0 w-9 h-9 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                  <Clock className="h-4.5 w-4.5 text-[#2A6FC7]" />
-                </div>
-                <div className="leading-tight min-w-0">
-                  <p className="text-[11px] text-[#2D2D2D]/60">جلساتي</p>
-                  <p className="font-heading font-extrabold text-lg text-[#2D2D2D]">{hourlyBookings.length}</p>
-                </div>
-              </div>
-              <div className="rounded-2xl bg-[#FFF1E1] border border-[#E8872E]/25 p-3 flex items-center gap-3" data-testid="stat-birthday">
-                <div className="shrink-0 w-9 h-9 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                  <Cake className="h-4.5 w-4.5 text-[#C66A1B]" />
-                </div>
-                <div className="leading-tight min-w-0">
-                  <p className="text-[11px] text-[#2D2D2D]/60">حفلاتي</p>
-                  <p className="font-heading font-extrabold text-lg text-[#2D2D2D]">{birthdayBookings.length}</p>
-                </div>
-              </div>
-              <div className="rounded-2xl bg-[#FDECEF] border border-[#E63946]/25 p-3 flex items-center gap-3" data-testid="stat-subs">
-                <div className="shrink-0 w-9 h-9 rounded-xl bg-white flex items-center justify-center shadow-sm">
-                  <TrendingUp className="h-4.5 w-4.5 text-[#C62433]" />
-                </div>
-                <div className="leading-tight min-w-0">
-                  <p className="text-[11px] text-[#2D2D2D]/60">اشتراكاتي</p>
-                  <p className="font-heading font-extrabold text-lg text-[#2D2D2D]">{subscriptions.length}</p>
-                </div>
+              <div className="leading-tight">
+                <p className="text-[11px] text-muted-foreground">رصيد نقاطي</p>
+                <p className="font-heading text-xl font-bold text-[var(--pk-orange)] leading-none">
+                  {loyaltyBalance}
+                  <span className="text-xs text-muted-foreground font-semibold mr-1">نقطة</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  ≈ {loyaltyJdValue.toFixed(2)} د.أ
+                </p>
               </div>
             </div>
           </div>
@@ -320,58 +281,95 @@ export default function ProfilePage() {
 
         {/* Active Session Alert */}
         {activeSession && (
-          <Card className={`relative overflow-hidden rounded-3xl mb-8 border-2 ${activeSession.warning_5min ? 'border-[#E63946]/60 bg-gradient-to-br from-[#FDECEF] to-[#FFF1E1]' : 'border-[#7AC74F]/50 bg-gradient-to-br from-[#F1FAEA] to-[#F6FBEF]'} shadow-[0_8px_22px_rgba(45,45,45,0.08)]`}>
-            <div aria-hidden="true" className="pointer-events-none absolute -top-8 -left-8 w-40 h-40 rounded-full bg-white/40 blur-3xl" />
-            <CardContent className="py-5 md:py-6 relative">
-              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className={`p-3.5 rounded-2xl shadow-sm ${activeSession.warning_5min ? 'bg-[#E63946] timer-warning' : 'bg-[#3F7A1E]'}`}>
-                    <Clock className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="font-heading heading-bubble font-extrabold text-lg md:text-xl text-[#2D2D2D]">جلسة لعب نشطة الآن 🎈</h3>
-                    <p className="text-sm text-[#2D2D2D]/65">
-                      {activeSession.child_id?.name || 'الطفل'} يلعب الآن — استمتعوا!
-                    </p>
-                  </div>
+          <div
+            className={`relative overflow-hidden rounded-3xl mb-6 md:mb-8 border shadow-sm ${
+              activeSession.warning_5min
+                ? 'bg-gradient-to-l from-[var(--pk-red)]/10 via-white to-white border-[var(--pk-red)]/40'
+                : 'bg-gradient-to-l from-[var(--pk-blue)]/10 via-white to-white border-[var(--pk-blue)]/30'
+            }`}
+          >
+            <div className="p-5 md:p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div
+                  className={`p-3 rounded-2xl shadow-sm ${
+                    activeSession.warning_5min
+                      ? 'bg-[var(--pk-red)] timer-warning'
+                      : 'bg-[var(--pk-blue)]'
+                  }`}
+                >
+                  <Clock className="h-6 w-6 text-white" />
                 </div>
-                <div className="text-center">
-                  <div className={`text-4xl md:text-5xl font-heading font-extrabold leading-none ${activeSession.warning_5min ? 'text-[#C62433]' : 'text-[#3F7A1E]'}`}>
-                    {activeSession.remaining_minutes}
-                  </div>
-                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-1 font-bold">دقيقة متبقية</p>
-                  {activeSession.warning_5min && (
-                    <div className="flex items-center justify-center gap-1 text-[#C62433] mt-1.5 bg-white/60 rounded-full px-2.5 py-1">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span className="text-xs font-bold">الجلسة تنتهي قريباً!</span>
-                    </div>
-                  )}
+                <div>
+                  <h3 className="font-heading font-bold text-lg text-foreground">جلسة لعب نشطة</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {activeSession.child_id?.name || 'الطفل'} يلعب الآن!
+                  </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+              <div className="text-center">
+                <div
+                  className={`text-4xl font-heading font-bold ${
+                    activeSession.warning_5min ? 'text-[var(--pk-red)]' : 'text-[var(--pk-blue)]'
+                  }`}
+                >
+                  {activeSession.remaining_minutes} دقيقة
+                </div>
+                <p className="text-sm text-muted-foreground">متبقية</p>
+                {activeSession.warning_5min && (
+                  <div className="flex items-center justify-center gap-1 text-[var(--pk-red)] mt-1">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="text-sm font-semibold">الجلسة تنتهي قريباً!</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Main Tabs */}
-        <Tabs defaultValue="children" className="space-y-6">
-          <div className="overflow-x-auto peekaboo-hide-scrollbar -mx-1 px-1">
-            <TabsList className="bg-white border border-[#E6EAF2] rounded-2xl p-1.5 inline-flex flex-nowrap whitespace-nowrap gap-1 shadow-sm data-[state=active]:shadow-md">
-              <TabsTrigger value="children" className="rounded-xl gap-2 px-3.5 py-2 data-[state=active]:bg-[#FFD166]/25 data-[state=active]:text-[#8A5A00] data-[state=active]:shadow-[0_2px_6px_rgba(232,135,46,0.15)] data-[state=active]:font-bold transition" data-testid="tab-children">
+        <Tabs defaultValue="children" className="space-y-5 md:space-y-6">
+          <div className="overflow-x-auto md:overflow-visible -mx-1 px-1">
+            <TabsList className="dashboard-tabs-list">
+              <TabsTrigger
+                value="children"
+                className="dashboard-tab-trigger"
+                data-testid="tab-children"
+              >
                 <Baby className="h-4 w-4" /> أطفالي
               </TabsTrigger>
-              <TabsTrigger value="hourly" className="rounded-xl gap-2 px-3.5 py-2 data-[state=active]:bg-[#4A90D9]/15 data-[state=active]:text-[#2A6FC7] data-[state=active]:shadow-[0_2px_6px_rgba(74,144,217,0.15)] data-[state=active]:font-bold transition" data-testid="tab-hourly">
+              <TabsTrigger
+                value="hourly"
+                className="dashboard-tab-trigger tab-accent-yellow"
+                data-testid="tab-hourly"
+              >
                 <Clock className="h-4 w-4" /> بالساعة
               </TabsTrigger>
-              <TabsTrigger value="birthday" className="rounded-xl gap-2 px-3.5 py-2 data-[state=active]:bg-[#E8872E]/15 data-[state=active]:text-[#C66A1B] data-[state=active]:shadow-[0_2px_6px_rgba(232,135,46,0.15)] data-[state=active]:font-bold transition" data-testid="tab-birthday">
+              <TabsTrigger
+                value="birthday"
+                className="dashboard-tab-trigger tab-accent-pink"
+                data-testid="tab-birthday"
+              >
                 <Cake className="h-4 w-4" /> أعياد الميلاد
               </TabsTrigger>
-              <TabsTrigger value="subscriptions" className="rounded-xl gap-2 px-3.5 py-2 data-[state=active]:bg-[#E63946]/12 data-[state=active]:text-[#C62433] data-[state=active]:shadow-[0_2px_6px_rgba(230,57,70,0.15)] data-[state=active]:font-bold transition" data-testid="tab-subscriptions">
+              <TabsTrigger
+                value="subscriptions"
+                className="dashboard-tab-trigger tab-accent-green"
+                data-testid="tab-subscriptions"
+              >
                 <Star className="h-4 w-4" /> الاشتراكات
               </TabsTrigger>
-              <TabsTrigger value="loyalty" className="rounded-xl gap-2 px-3.5 py-2 data-[state=active]:bg-[#7AC74F]/18 data-[state=active]:text-[#3F7A1E] data-[state=active]:shadow-[0_2px_6px_rgba(122,199,79,0.15)] data-[state=active]:font-bold transition" data-testid="tab-loyalty">
-                <Gift className="h-4 w-4" /> نقاط الولاء
+              <TabsTrigger
+                value="loyalty"
+                className="dashboard-tab-trigger tab-accent-orange"
+                data-testid="tab-loyalty"
+              >
+                <Gift className="h-4 w-4" /> نقاطي
               </TabsTrigger>
-              <TabsTrigger value="settings" className="rounded-xl gap-2 px-3.5 py-2 data-[state=active]:bg-[#2D2D2D]/8 data-[state=active]:text-[#2D2D2D] data-[state=active]:shadow-[0_2px_6px_rgba(45,45,45,0.12)] data-[state=active]:font-bold transition" data-testid="tab-settings">
+              <TabsTrigger
+                value="settings"
+                className="dashboard-tab-trigger"
+                data-testid="tab-settings"
+              >
                 <Settings className="h-4 w-4" /> الإعدادات
               </TabsTrigger>
             </TabsList>
@@ -379,21 +377,19 @@ export default function ProfilePage() {
 
           {/* Children Tab */}
           <TabsContent value="children">
-            <Card className="border border-[#E6EAF2] rounded-3xl shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="shrink-0 w-10 h-10 rounded-xl bg-[#FFD166]/25 flex items-center justify-center">
-                    <Baby className="h-5 w-5 text-[#8A5A00]" />
-                  </div>
-                  <div className="min-w-0">
-                    <CardTitle className="font-heading heading-bubble text-xl md:text-2xl">أطفالي</CardTitle>
-                    <CardDescription>إدارة ملفات أطفالك</CardDescription>
-                  </div>
+            <div className="dashboard-card">
+              <div className="dashboard-card__head">
+                <div>
+                  <h3>
+                    <Baby className="h-5 w-5 text-[var(--pk-blue)]" />
+                    أطفالي
+                  </h3>
+                  <p>إدارة ملفات أطفالك للحجز الأسرع</p>
                 </div>
                 <Dialog open={addChildOpen} onOpenChange={setAddChildOpen}>
                   <DialogTrigger asChild>
-                    <Button className="rounded-full gap-2 shrink-0" data-testid="add-child-btn">
-                      <Plus className="h-4 w-4" /> <span className="hidden sm:inline">إضافة طفل</span><span className="sm:hidden">إضافة</span>
+                    <Button className="rounded-full gap-2 btn-playful h-10 px-4 text-sm" data-testid="add-child-btn">
+                      <Plus className="h-4 w-4" /> إضافة طفل
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="rounded-3xl">
@@ -423,104 +419,128 @@ export default function ProfilePage() {
                           data-testid="child-birthday-input"
                         />
                       </div>
-                      <Button type="submit" className="w-full rounded-full" data-testid="save-child-btn">
+                      <Button type="submit" className="w-full rounded-full btn-playful" data-testid="save-child-btn">
                         إضافة طفل
                       </Button>
                     </form>
                   </DialogContent>
                 </Dialog>
-              </CardHeader>
-              <CardContent>
+              </div>
+              <div className="dashboard-card__body">
                 {children.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <div className="w-16 h-16 rounded-2xl bg-[#FFD166]/20 flex items-center justify-center mx-auto mb-4">
-                      <Baby className="h-8 w-8 text-[#8A5A00]" />
+                  <div className="dashboard-empty">
+                    <div className="dashboard-empty__icon">
+                      <Baby className="h-8 w-8" />
                     </div>
-                    <p className="font-semibold text-[#2D2D2D]">لم يتم إضافة أطفال بعد</p>
-                    <p className="text-sm mt-2">أضف طفلك الأول لبدء الحجز</p>
+                    <p className="font-heading text-lg font-bold text-foreground mb-1">لم يتم إضافة أطفال بعد</p>
+                    <p className="text-sm">أضف طفلك الأول لبدء الحجز بشكل أسرع</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {children.map((child) => (
-                      <Card key={child.id} className="border border-[#E6EAF2] rounded-2xl hover:shadow-md transition-shadow" data-testid={`child-card-${child.id}`}>
-                        <CardContent className="p-4 flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#FFD166]/25 to-[#FFE2A8]/40 flex items-center justify-center shrink-0">
-                              <Baby className="h-5 w-5 text-[#8A5A00]" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-semibold truncate">{child.name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatDateSafe(child.birthday, 'yyyy/MM/dd', 'تاريخ ميلاد غير محدد')}
-                              </p>
-                            </div>
+                      <div key={child.id} className="child-card" data-testid={`child-card-${child.id}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="child-avatar">
+                            <Baby className="h-5 w-5" />
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteChild(child.id)}
-                            className="text-destructive hover:text-destructive hover:bg-red-50 shrink-0"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </CardContent>
-                      </Card>
+                          <div className="min-w-0">
+                            <p className="font-heading font-bold text-foreground truncate">{child.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              تاريخ الميلاد: {formatDateSafe(child.birthday, 'yyyy/MM/dd', 'غير محدد')}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteChild(child.id)}
+                          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full shrink-0"
+                          aria-label="حذف الطفل"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
           {/* Hourly Bookings Tab */}
           <TabsContent value="hourly">
-            <Card className="border border-[#E6EAF2] rounded-3xl shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#4A90D9]/15 flex items-center justify-center">
-                    <Clock className="h-5 w-5 text-[#2A6FC7]" />
-                  </div>
-                  <div>
-                    <CardTitle className="font-heading heading-bubble text-xl md:text-2xl">حجوزات اللعب بالساعة</CardTitle>
-                    <CardDescription>سجل جلسات اللعب الخاصة بك</CardDescription>
-                  </div>
+            <div className="dashboard-card">
+              <div className="dashboard-card__head">
+                <div>
+                  <h3>
+                    <Clock className="h-5 w-5 text-[var(--pk-yellow)]" style={{ color: '#c7a700' }} />
+                    حجوزات اللعب بالساعة
+                  </h3>
+                  <p>سجل جلسات اللعب الخاصة بك</p>
                 </div>
-              </CardHeader>
-              <CardContent>
+                <Button
+                  onClick={() => navigate('/tickets')}
+                  variant="outline"
+                  className="rounded-full border-[var(--pk-yellow)]/60 bg-[var(--pk-yellow)]/15 hover:bg-[var(--pk-yellow)]/25 text-[var(--text-primary)] h-10 px-4 text-sm gap-2"
+                >
+                  <Plus className="h-4 w-4" /> حجز جديد
+                </Button>
+              </div>
+              <div className="dashboard-card__body">
                 {hourlyBookings.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <div className="w-16 h-16 rounded-2xl bg-[#4A90D9]/10 flex items-center justify-center mx-auto mb-4">
-                      <Clock className="h-8 w-8 text-[#2A6FC7]" />
+                  <div className="dashboard-empty">
+                    <div className="dashboard-empty__icon">
+                      <Clock className="h-8 w-8" />
                     </div>
-                    <p className="font-semibold text-[#2D2D2D]">لا توجد حجوزات بعد</p>
-                    <Button onClick={() => navigate('/tickets')} className="rounded-full mt-4">
+                    <p className="font-heading text-lg font-bold text-foreground mb-1">لا توجد حجوزات بعد</p>
+                    <p className="text-sm mb-4">احجز جلستك الأولى بالساعة الآن</p>
+                    <Button onClick={() => navigate('/tickets')} className="rounded-full btn-playful">
                       احجز جلسة
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {hourlyBookings.map((booking) => (
-                      <Card key={booking.id} className="border border-[#E6EAF2] rounded-2xl overflow-hidden hover:shadow-md transition-shadow relative">
-                        <div className="absolute top-0 bottom-0 right-0 w-1 bg-[#4A90D9]/40" aria-hidden="true" />
-                        <CardContent className="p-4 pr-5">
+                  <div className="space-y-3">
+                    {hourlyBookings.map((booking) => {
+                      const statusClass =
+                        booking.status === 'confirmed'
+                          ? 'is-confirmed'
+                          : booking.status === 'pending'
+                          ? 'is-pending'
+                          : booking.status === 'cancelled'
+                          ? 'is-cancelled'
+                          : booking.status === 'completed' || booking.status === 'checked_in'
+                          ? 'is-done'
+                          : '';
+                      return (
+                        <div key={booking.id} className={`booking-row ${statusClass}`}>
                           <div className="flex flex-col md:flex-row justify-between gap-4">
                             <div className="flex items-start gap-4">
                               {booking.status === 'confirmed' && booking.qr_code && (
-                                <div className="qr-container hidden md:block shrink-0">
-                                  <img src={booking.qr_code} alt="رمز QR" className="w-20 h-20 rounded-lg border border-gray-200" />
+                                <div className="qr-container hidden md:block shrink-0 p-2 rounded-xl bg-white border border-[var(--pk-blue)]/20">
+                                  <img src={booking.qr_code} alt="رمز QR" className="w-20 h-20" />
                                 </div>
                               )}
-                              <div>
+                              <div className="min-w-0">
                                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                  <span className="font-bold font-mono text-[#2D2D2D] tracking-wide">{booking.booking_code}</span>
-                                  <Badge className={getStatusBadge(booking.status)}>
-                                    {booking.status === 'confirmed' ? 'مؤكد' : booking.status === 'checked_in' ? 'مسجل الدخول' : booking.status === 'completed' ? 'مكتمل' : booking.status === 'cancelled' ? 'ملغي' : booking.status}
+                                  <span className="font-heading font-bold text-foreground tracking-wide">
+                                    {booking.booking_code}
+                                  </span>
+                                  <Badge className={`${getStatusBadge(booking.status)} font-bold`}>
+                                    {booking.status === 'confirmed'
+                                      ? 'مؤكد'
+                                      : booking.status === 'checked_in'
+                                      ? 'مسجل الدخول'
+                                      : booking.status === 'completed'
+                                      ? 'مكتمل'
+                                      : booking.status === 'cancelled'
+                                      ? 'ملغي'
+                                      : booking.status}
                                   </Badge>
                                   {(() => {
                                     const qrLabel = getQrStatusLabel(booking);
                                     return qrLabel ? (
                                       <span
-                                        className={`text-xs font-bold px-2 py-0.5 rounded-full border ${qrLabel.cls}`}
+                                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${qrLabel.cls}`}
                                         data-testid="qr-status-label"
                                       >
                                         {qrLabel.text}
@@ -528,25 +548,41 @@ export default function ProfilePage() {
                                     ) : null;
                                   })()}
                                 </div>
-                                <p className="text-sm text-[#2D2D2D]/70 inline-flex items-center gap-1.5">
-                                  <Calendar className="h-3.5 w-3.5" />
-                                  {booking.slot_id?.date} <span className="text-[#2D2D2D]/50">·</span> {booking.slot_id?.start_time}
-                                </p>
-                                <p className="text-sm text-[#2D2D2D]/70 inline-flex items-center gap-1.5 mt-0.5">
-                                  <Baby className="h-3.5 w-3.5" />
-                                  {booking.child_id?.name}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                                  <span className="inline-flex items-center gap-1">
+                                    <Calendar className="h-3.5 w-3.5" />
+                                    {booking.slot_id?.date}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    {booking.slot_id?.start_time}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1">
+                                    <Baby className="h-3.5 w-3.5" />
+                                    {booking.child_id?.name}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                            <div className="text-left">
-                              <p className="font-heading font-extrabold text-lg text-[#E63946]">{booking.amount} <span className="text-sm text-[#2D2D2D]/60 font-bold">دينار</span></p>
-                              {booking.coupon_code && (
-                                <p className="text-xs text-green-700 mt-0.5">كوبون: {booking.coupon_code}</p>
-                              )}
+                            <div className="md:text-left flex md:block items-center justify-between">
+                              <div>
+                                <p className="font-heading font-bold text-lg text-[var(--pk-orange)]">
+                                  {booking.amount} د.أ
+                                </p>
+                                {booking.coupon_code && (
+                                  <p className="text-xs text-[var(--pk-green)] font-semibold">
+                                    كوبون: {booking.coupon_code}
+                                  </p>
+                                )}
+                              </div>
                               {booking.status === 'confirmed' && (
                                 <Dialog>
                                   <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm" className="rounded-full mt-2 md:hidden">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="rounded-full md:mt-2 md:hidden border-[var(--pk-blue)]/40 text-[var(--pk-blue)]"
+                                    >
                                       <QrCode className="h-4 w-4 ml-1" /> عرض QR
                                     </Button>
                                   </DialogTrigger>
@@ -565,200 +601,247 @@ export default function ProfilePage() {
                               )}
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
           {/* Birthday Bookings Tab */}
           <TabsContent value="birthday">
-            <Card className="border border-[#E6EAF2] rounded-3xl shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#E8872E]/15 flex items-center justify-center">
-                    <Cake className="h-5 w-5 text-[#C66A1B]" />
-                  </div>
-                  <div>
-                    <CardTitle className="font-heading heading-bubble text-xl md:text-2xl">حجوزات أعياد الميلاد</CardTitle>
-                    <CardDescription>حجوزات الحفلات الخاصة بك</CardDescription>
-                  </div>
+            <div className="dashboard-card">
+              <div className="dashboard-card__head">
+                <div>
+                  <h3>
+                    <Cake className="h-5 w-5 text-[var(--pk-red)]" />
+                    حجوزات أعياد الميلاد
+                  </h3>
+                  <p>حفلاتك المحجوزة والطلبات المخصصة</p>
                 </div>
-              </CardHeader>
-              <CardContent>
+                <Button
+                  onClick={() => navigate('/birthday')}
+                  variant="outline"
+                  className="rounded-full border-[var(--pk-red)]/40 bg-[var(--pk-red)]/10 hover:bg-[var(--pk-red)]/15 text-[var(--pk-red)] h-10 px-4 text-sm gap-2"
+                >
+                  <Plus className="h-4 w-4" /> احجز حفلة
+                </Button>
+              </div>
+              <div className="dashboard-card__body">
                 {birthdayBookings.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <div className="w-16 h-16 rounded-2xl bg-[#E8872E]/12 flex items-center justify-center mx-auto mb-4">
-                      <Cake className="h-8 w-8 text-[#C66A1B]" />
+                  <div className="dashboard-empty">
+                    <div className="dashboard-empty__icon">
+                      <Cake className="h-8 w-8" />
                     </div>
-                    <p className="font-semibold text-[#2D2D2D]">لا توجد حجوزات حفلات بعد</p>
-                    <Button onClick={() => navigate('/birthday')} className="rounded-full mt-4 bg-accent">
+                    <p className="font-heading text-lg font-bold text-foreground mb-1">لا توجد حجوزات حفلات بعد</p>
+                    <p className="text-sm mb-4">اجعل عيد ميلاد طفلك لا يُنسى مع بيكابو</p>
+                    <Button onClick={() => navigate('/birthday')} className="rounded-full btn-playful">
                       احجز حفلة
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {birthdayBookings.map((booking) => (
-                      <Card key={booking.id} className="border border-[#E6EAF2] rounded-2xl overflow-hidden hover:shadow-md transition-shadow relative">
-                        <div className="absolute top-0 bottom-0 right-0 w-1 bg-[#E8872E]/50" aria-hidden="true" />
-                        <CardContent className="p-4 pr-5">
-                          <div className="flex justify-between items-start gap-3">
+                  <div className="space-y-3">
+                    {birthdayBookings.map((booking) => {
+                      const statusClass =
+                        booking.status === 'confirmed'
+                          ? 'is-confirmed'
+                          : booking.status === 'custom_pending' || booking.status === 'pending'
+                          ? 'is-pending'
+                          : booking.status === 'cancelled'
+                          ? 'is-cancelled'
+                          : '';
+                      return (
+                        <div key={booking.id} className={`booking-row ${statusClass}`}>
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                <span className="font-bold font-mono text-[#2D2D2D] tracking-wide">{booking.booking_code}</span>
-                                <Badge className={getStatusBadge(booking.status)}>
-                                  {booking.status === 'confirmed' ? 'مؤكد' : booking.status === 'custom_pending' ? 'قيد المراجعة' : booking.status}
+                                <span className="font-heading font-bold text-foreground tracking-wide">
+                                  {booking.booking_code}
+                                </span>
+                                <Badge className={`${getStatusBadge(booking.status)} font-bold`}>
+                                  {booking.status === 'confirmed'
+                                    ? 'مؤكد'
+                                    : booking.status === 'custom_pending'
+                                    ? 'قيد المراجعة'
+                                    : booking.status}
                                 </Badge>
                               </div>
-                              <p className="text-sm text-[#2D2D2D]/70 inline-flex items-center gap-1.5">
-                                <Calendar className="h-3.5 w-3.5" />
-                                {booking.slot_id?.date} <span className="text-[#2D2D2D]/50">·</span> {booking.slot_id?.start_time}
-                              </p>
-                              <p className="text-sm text-[#2D2D2D]/70 inline-flex items-center gap-1.5 mt-0.5">
-                                <Baby className="h-3.5 w-3.5" />
-                                {booking.child_id?.name}
-                              </p>
-                              <p className="text-sm text-[#2D2D2D]/80 mt-1">
-                                <span className="text-[#2D2D2D]/55">الثيم:</span> {booking.is_custom ? 'طلب مخصص' : booking.theme_id?.name_ar || booking.theme_id?.name}
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                                <span className="inline-flex items-center gap-1">
+                                  <Calendar className="h-3.5 w-3.5" />
+                                  {booking.slot_id?.date}
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock className="h-3.5 w-3.5" />
+                                  {booking.slot_id?.start_time}
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                  <Baby className="h-3.5 w-3.5" />
+                                  {booking.child_id?.name}
+                                </span>
+                              </div>
+                              <p className="text-sm mt-1.5">
+                                <span className="text-muted-foreground">الثيم:</span>{' '}
+                                <span className="font-semibold text-foreground">
+                                  {booking.is_custom
+                                    ? 'طلب مخصص'
+                                    : booking.theme_id?.name_ar || booking.theme_id?.name}
+                                </span>
                               </p>
                             </div>
                             <div className="text-left shrink-0">
-                              {booking.amount && <p className="font-heading font-extrabold text-lg text-[#C66A1B]">{booking.amount} <span className="text-sm text-[#2D2D2D]/60 font-bold">دينار</span></p>}
+                              {booking.amount && (
+                                <p className="font-heading font-bold text-lg text-[var(--pk-orange)]">
+                                  {booking.amount} د.أ
+                                </p>
+                              )}
                               {booking.is_custom && (
-                                <p className="text-xs text-muted-foreground mt-1">بانتظار التسعير</p>
+                                <p className="text-xs text-muted-foreground">بانتظار التسعير</p>
                               )}
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
           {/* Subscriptions Tab */}
           <TabsContent value="subscriptions">
-            <Card className="border border-[#E6EAF2] rounded-3xl shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#E63946]/12 flex items-center justify-center">
-                    <Star className="h-5 w-5 text-[#C62433]" />
-                  </div>
-                  <div>
-                    <CardTitle className="font-heading heading-bubble text-xl md:text-2xl">سجل الاشتراكات</CardTitle>
-                    <CardDescription>باقات الاشتراك الخاصة بك</CardDescription>
-                  </div>
+            <div className="dashboard-card">
+              <div className="dashboard-card__head">
+                <div>
+                  <h3>
+                    <Star className="h-5 w-5 text-[var(--pk-green)]" />
+                    سجل الاشتراكات
+                  </h3>
+                  <p>باقاتك النشطة والسابقة والزيارات المتبقية</p>
                 </div>
-              </CardHeader>
-              <CardContent>
+                <Button
+                  onClick={() => navigate('/subscriptions')}
+                  variant="outline"
+                  className="rounded-full border-[var(--pk-green)]/40 bg-[var(--pk-green)]/10 hover:bg-[var(--pk-green)]/15 text-[#5a7a1e] h-10 px-4 text-sm gap-2"
+                >
+                  <Plus className="h-4 w-4" /> تصفح الباقات
+                </Button>
+              </div>
+              <div className="dashboard-card__body">
                 {subscriptions.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <div className="w-16 h-16 rounded-2xl bg-[#E63946]/8 flex items-center justify-center mx-auto mb-4">
-                      <Star className="h-8 w-8 text-[#C62433]" />
+                  <div className="dashboard-empty">
+                    <div className="dashboard-empty__icon">
+                      <Star className="h-8 w-8" />
                     </div>
-                    <p className="font-semibold text-[#2D2D2D]">لا توجد اشتراكات بعد</p>
-                    <Button onClick={() => navigate('/subscriptions')} className="rounded-full mt-4 bg-secondary text-secondary-foreground">
+                    <p className="font-heading text-lg font-bold text-foreground mb-1">لا توجد اشتراكات بعد</p>
+                    <p className="text-sm mb-4">وفّر أكثر مع باقاتنا المتنوعة</p>
+                    <Button onClick={() => navigate('/subscriptions')} className="rounded-full btn-playful">
                       تصفح الباقات
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {subscriptions.map((sub) => (
-                      <Card key={sub.id} className={`border border-[#E6EAF2] rounded-2xl overflow-hidden hover:shadow-md transition-shadow relative ${sub.status === 'active' || sub.status === 'pending' ? 'ring-1 ring-[#E63946]/25' : ''}`}>
-                        <div className="absolute top-0 bottom-0 right-0 w-1 bg-[#E63946]/50" aria-hidden="true" />
-                        <CardContent className="p-4 pr-5">
-                          <div className="flex justify-between items-start gap-3">
+                  <div className="space-y-3">
+                    {subscriptions.map((sub) => {
+                      const statusClass =
+                        sub.status === 'active'
+                          ? 'is-confirmed'
+                          : sub.status === 'pending'
+                          ? 'is-pending'
+                          : sub.status === 'expired'
+                          ? 'is-cancelled'
+                          : 'is-done';
+                      return (
+                        <div key={sub.id} className={`booking-row ${statusClass}`}>
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                             <div className="min-w-0">
                               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                <span className="font-semibold text-[#2D2D2D]">{sub.plan_id?.name_ar || sub.plan_id?.name}</span>
-                                <Badge className={getStatusBadge(sub.status)}>
-                                  {sub.status === 'pending' ? 'غير مفعّل' : sub.status === 'active' ? 'نشط' : sub.status === 'expired' ? 'منتهي' : sub.status}
+                                <span className="font-heading font-bold text-foreground">
+                                  {sub.plan_id?.name_ar || sub.plan_id?.name}
+                                </span>
+                                <Badge className={`${getStatusBadge(sub.status)} font-bold`}>
+                                  {sub.status === 'pending'
+                                    ? 'غير مفعّل'
+                                    : sub.status === 'active'
+                                    ? 'نشط'
+                                    : sub.status === 'expired'
+                                    ? 'منتهي'
+                                    : sub.status}
                                 </Badge>
                               </div>
-                              <p className="text-sm text-[#2D2D2D]/70 inline-flex items-center gap-1.5">
+                              <p className="text-sm text-muted-foreground inline-flex items-center gap-1">
                                 <Baby className="h-3.5 w-3.5" />
                                 {sub.child_id?.name}
                               </p>
-                              <p className="text-sm text-[#2D2D2D]/70 inline-flex items-center gap-1.5 mt-0.5">
+                              <p className="text-sm text-muted-foreground mt-1 inline-flex items-center gap-1">
                                 <Calendar className="h-3.5 w-3.5" />
                                 {sub.status === 'pending'
                                   ? 'ينتهي بعد 30 يوم من أول تسجيل دخول'
                                   : sub.expires_at
-                                    ? `ينتهي: ${formatDateSafe(sub.expires_at, 'yyyy/MM/dd', 'غير محدد')}`
-                                    : 'لم يتم تحديد تاريخ انتهاء'
-                                }
+                                  ? `ينتهي: ${formatDateSafe(sub.expires_at, 'yyyy/MM/dd', 'غير محدد')}`
+                                  : 'لم يتم تحديد تاريخ انتهاء'}
                               </p>
                             </div>
-                            <div className="text-left shrink-0 bg-[#FDECEF] rounded-2xl px-4 py-2 border border-[#E63946]/20">
-                              <div className="text-2xl md:text-3xl font-heading font-extrabold text-[#C62433] leading-none">
+                            <div className="text-center bg-[var(--pk-green)]/10 rounded-2xl px-4 py-2 border border-[var(--pk-green)]/25 shrink-0">
+                              <div className="text-3xl font-heading font-bold text-[#5a7a1e] leading-none">
                                 {sub.remaining_visits}
                               </div>
-                              <p className="text-[11px] text-[#2D2D2D]/60 mt-0.5 text-center">زيارة متبقية</p>
+                              <p className="text-[11px] text-muted-foreground mt-1">زيارة متبقية</p>
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
           {/* Loyalty Tab */}
           <TabsContent value="loyalty">
-            <Card className="border border-[#E6EAF2] rounded-3xl shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#7AC74F]/18 flex items-center justify-center">
-                    <Gift className="h-5 w-5 text-[#3F7A1E]" />
-                  </div>
-                  <div>
-                    <CardTitle className="font-heading heading-bubble text-xl md:text-2xl flex items-center gap-2">
-                      نقاطي
-                    </CardTitle>
-                    <CardDescription>
-                      راقب رصيد نقاطك وقيمتها بالدينار.
-                    </CardDescription>
-                  </div>
+            <div className="dashboard-card">
+              <div className="dashboard-card__head">
+                <div>
+                  <h3>
+                    <Gift className="h-5 w-5 text-[var(--pk-orange)]" />
+                    نقاطي
+                  </h3>
+                  <p>راقب رصيد نقاطك وقيمتها بالدينار</p>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Points Balance Card - premium */}
-                <div className="relative overflow-hidden rounded-3xl p-6 md:p-8 text-center bg-gradient-to-br from-[#FFF9E3] via-[#FFE9B5] to-[#FFD78A] border border-[#F2E533]/50 shadow-[0_10px_24px_rgba(242,229,51,0.2)]">
-                  <div aria-hidden="true" className="pointer-events-none absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/40 blur-2xl" />
-                  <div aria-hidden="true" className="pointer-events-none absolute -bottom-6 -left-6 w-32 h-32 rounded-full bg-[#E8872E]/20 blur-3xl" />
-                  <div className="relative">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 text-[#8A5A00] text-xs font-bold mb-3">
-                      <Sparkles className="h-3.5 w-3.5" /> النقاط المتاحة
-                    </div>
-                    {loyaltyLoading ? (
-                      <p className="text-lg text-[#8A5A00]">جاري تحميل نقاطك...</p>
-                    ) : loyaltyError ? (
-                      <p className="text-lg text-destructive">{loyaltyError}</p>
-                    ) : (
-                      <>
-                        <p className="text-6xl md:text-7xl font-heading font-extrabold text-[#C66A1B] drop-shadow-sm">
-                          {loyaltyBalance}
-                        </p>
-                        <p className="text-base text-[#8A5A00] mt-1 font-bold">نقطة</p>
-                        <div className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full bg-white/80 border border-white text-[#2D2D2D] text-sm font-bold shadow-sm">
-                          ≈ {loyaltyJdValue.toFixed(2)} دينار
-                        </div>
-                      </>
-                    )}
-                  </div>
+              </div>
+              <div className="dashboard-card__body space-y-6">
+                {/* Points Balance Hero */}
+                <div className="loyalty-hero">
+                  <p className="text-xs md:text-sm font-semibold text-[var(--pk-orange)] mb-1 tracking-wide uppercase">
+                    النقاط المتاحة
+                  </p>
+                  {loyaltyLoading ? (
+                    <p className="text-base text-muted-foreground py-6">جاري تحميل نقاطك...</p>
+                  ) : loyaltyError ? (
+                    <p className="text-base text-destructive py-6">{loyaltyError}</p>
+                  ) : (
+                    <>
+                      <p className="font-heading text-6xl md:text-7xl font-bold text-[var(--pk-orange)] leading-none">
+                        {loyaltyBalance}
+                      </p>
+                      <p className="text-base text-[var(--text-secondary)] font-semibold mt-1">نقطة</p>
+                      <div className="inline-flex items-center gap-2 mt-4 px-4 py-1.5 bg-white/80 rounded-full border border-[var(--pk-orange)]/25 shadow-sm">
+                        <Gift className="h-4 w-4 text-[var(--pk-orange)]" />
+                        <span className="text-sm font-semibold text-[var(--text-primary)]">
+                          القيمة: {loyaltyJdValue.toFixed(2)} د.أ
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* History */}
                 <div>
-                  <h4 className="font-heading font-bold mb-3 text-[#2D2D2D] flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-[#3F7A1E]" />
+                  <h4 className="font-heading font-bold text-base mb-3 flex items-center gap-2">
+                    <span className="inline-block w-1.5 h-5 rounded-full bg-[var(--pk-orange)]" />
                     سجل النقاط
                   </h4>
                   {loyaltyLoading ? (
@@ -766,33 +849,46 @@ export default function ProfilePage() {
                   ) : loyaltyError ? (
                     <div className="text-center py-8 text-destructive">{loyaltyError}</div>
                   ) : loyaltyHistory.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Gift className="h-10 w-10 mx-auto mb-3 opacity-50" />
-                      <p>لا يوجد سجل نقاط بعد</p>
-                      <p className="text-sm mt-2">اكسب نقاط الولاء عند تسجيل الدخول للحجوزات!</p>
+                    <div className="dashboard-empty">
+                      <div className="dashboard-empty__icon">
+                        <Gift className="h-7 w-7" />
+                      </div>
+                      <p className="font-semibold text-foreground">لا يوجد سجل نقاط بعد</p>
+                      <p className="text-sm mt-1">اكسب نقاط الولاء عند تسجيل الدخول للحجوزات!</p>
                     </div>
                   ) : (
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                       {loyaltyHistory.map((entry) => {
                         const delta = entry.pointsDelta ?? entry.points ?? 0;
                         const isPositive = delta >= 0;
                         return (
-                          <div key={entry.id || entry._id || `${entry.createdAt || entry.created_at}-${entry.reason || entry.description}`} className="flex justify-between items-center p-3.5 rounded-xl bg-[#F7F9FB] border border-[#E6EAF2] hover:bg-white transition-colors">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${isPositive ? 'bg-green-50' : 'bg-red-50'}`}>
-                                <Gift className={`h-4 w-4 ${isPositive ? 'text-green-600' : 'text-red-600'}`} />
-                              </div>
-                              <div className="min-w-0">
-                                <p className="font-medium text-sm text-[#2D2D2D] truncate">{entry.reason || entry.description || 'عملية نقاط'}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {entry.createdAt || entry.created_at
-                                    ? formatDateSafe(entry.createdAt || entry.created_at, 'dd/MM/yyyy')
-                                    : '--/--/----'}
-                                </p>
-                              </div>
+                          <div
+                            key={
+                              entry.id ||
+                              entry._id ||
+                              `${entry.createdAt || entry.created_at}-${entry.reason || entry.description}`
+                            }
+                            className="loyalty-history-row"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground truncate">
+                                {entry.reason || entry.description || 'عملية نقاط'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.createdAt || entry.created_at
+                                  ? formatDateSafe(entry.createdAt || entry.created_at, 'dd/MM/yyyy')
+                                  : '--/--/----'}
+                              </p>
                             </div>
-                            <span className={`font-heading font-extrabold text-base shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                              {isPositive ? '+' : '-'}{Math.abs(delta)}
+                            <span
+                              className={`font-heading font-bold text-base px-3 py-1 rounded-full shrink-0 ${
+                                isPositive
+                                  ? 'bg-[var(--pk-green)]/15 text-[#5a7a1e]'
+                                  : 'bg-[var(--pk-red)]/10 text-[var(--pk-red)]'
+                              }`}
+                            >
+                              {isPositive ? '+' : '-'}
+                              {Math.abs(delta)}
                             </span>
                           </div>
                         );
@@ -800,40 +896,41 @@ export default function ProfilePage() {
                     </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </TabsContent>
 
           {/* Settings Tab */}
           <TabsContent value="settings">
-            <Card className="border border-[#E6EAF2] rounded-3xl shadow-sm">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#2D2D2D]/8 flex items-center justify-center">
-                    <Settings className="h-5 w-5 text-[#2D2D2D]" />
-                  </div>
-                  <div>
-                    <CardTitle className="font-heading heading-bubble text-xl md:text-2xl">الإعدادات</CardTitle>
-                    <CardDescription>تعديل معلومات حسابك</CardDescription>
-                  </div>
+            <div className="dashboard-card">
+              <div className="dashboard-card__head">
+                <div>
+                  <h3>
+                    <Settings className="h-5 w-5 text-[var(--pk-blue)]" />
+                    الإعدادات
+                  </h3>
+                  <p>تعديل معلومات حسابك</p>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
+              </div>
+              <div className="dashboard-card__body space-y-6">
                 {/* Phone Number */}
-                <div className="space-y-3 rounded-2xl bg-[#F7F9FB] border border-[#E6EAF2] p-4 md:p-5">
-                  <Label className="text-base font-bold text-[#2D2D2D] inline-flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-[#2A6FC7]" />
-                    رقم الهاتف
-                  </Label>
-                  <div className="flex gap-3 items-center max-w-md">
+                <div className="space-y-3 max-w-xl">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="inline-block w-1.5 h-5 rounded-full bg-[var(--pk-blue)]" />
+                    <Label className="text-base font-bold text-foreground">رقم الهاتف</Label>
+                  </div>
+                  <p className="text-sm text-muted-foreground -mt-1">
+                    نستخدم رقم هاتفك للتواصل وإرسال تأكيدات الحجز عبر واتساب.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
                     <div className="relative flex-1">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-[var(--pk-blue)]" />
                       <Input
                         type="tel"
                         value={editPhone}
                         onChange={(e) => setEditPhone(e.target.value)}
                         placeholder="07XXXXXXXX"
-                        className="pl-10 rounded-xl h-12 bg-white"
+                        className="pl-10 rounded-xl h-12 border-[var(--pk-blue)]/25 focus:border-[var(--pk-blue)] focus:ring-[var(--pk-blue)]/20"
                         dir="ltr"
                         data-testid="phone-input"
                       />
@@ -841,22 +938,28 @@ export default function ProfilePage() {
                     <Button
                       onClick={handleSavePhone}
                       disabled={savingPhone}
-                      className="rounded-full h-12 px-6"
+                      className="rounded-full h-12 px-6 btn-playful"
                       data-testid="save-phone-btn"
                     >
-                      {savingPhone ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        'حفظ'
-                      )}
+                      {savingPhone ? <Loader2 className="h-4 w-4 animate-spin" /> : 'حفظ'}
                     </Button>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    أدخل رقم هاتفك الأردني للتواصل (07XXXXXXXX)
-                  </p>
+                  <p className="text-xs text-muted-foreground">تنسيق الأرقام الأردنية (07XXXXXXXX)</p>
                 </div>
-              </CardContent>
-            </Card>
+
+                <div className="pt-4 border-t border-[var(--pk-blue)]/10">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="inline-block w-1.5 h-5 rounded-full bg-[var(--pk-blue)]" />
+                    <Label className="text-base font-bold text-foreground">الحساب</Label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span>
+                      البريد: <span className="font-semibold text-foreground">{user?.email || '—'}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

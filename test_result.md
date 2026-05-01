@@ -272,7 +272,7 @@ backend:
 
 test_plan:
   current_focus:
-    - "Staff activation-blocker unblocker UI (pending_cash/pending_cliq payment confirmation)"
+    - "Visual smoke test + polish verification for /profile and /booking/confirmation pages"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -1618,3 +1618,8 @@ test_plan:
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
+
+
+agent_communication:
+    -agent: "testing"
+    -message: "CRITICAL BLOCKER: Backend service completely down with 503 errors on https://credit-mode-preview.preview.emergentagent.com. All API endpoints failing (/api/auth/login, /api/settings, /api/gallery, etc.). Visual smoke test attempted for /profile and /booking/confirmation pages but cannot complete authentication flow. Frontend loads correctly with proper Arabic/RTL layout visible in screenshots. UI polish verification shows: Arabic text rendering correctly, RTL layout working, responsive design elements visible. Backend must be restored before any functional testing can proceed. 14 screenshots captured showing static UI elements only."
