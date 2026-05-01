@@ -80,6 +80,8 @@ export default function StaffPage() {
   const [qrValidation, setQrValidation] = useState(null); // { success, booking, message, reasonCode }
   const [qrValidating, setQrValidating] = useState(false);
   const [qrCheckingIn, setQrCheckingIn] = useState(false);
+  // Staff activation-blocker unblocker: confirm pending cash / cliq payment in-place
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
   // Phase 9 — selected booking from the activation queue. Activation MUST be
   // gated on this selection + a successful QR/code validation that matches it.
   const [activatingBooking, setActivatingBooking] = useState(null);
@@ -451,6 +453,59 @@ export default function StaffPage() {
       toast.error(data.error || 'فشل تفعيل الجلسة');
     } finally {
       setQrCheckingIn(false);
+    }
+  };
+
+  // Staff activation-blocker unblocker: when an activation scan reveals a
+  // booking blocked by pending_cash / pending_cliq, staff can confirm payment
+  // received at the door in-place, then continue to activate. The endpoint is
+  // narrow (pending_cash|pending_cliq → paid only) and gated to staff.
+  const handleConfirmPendingPayment = async (method) => {
+    if (confirmingPayment) return;
+    const bookingId = qrValidation?.booking?.booking_id;
+    if (!bookingId) {
+      toast.error('لا يوجد حجز محدد لتأكيد الدفع');
+      return;
+    }
+    const label =
+      method === 'cash'
+        ? 'تأكيد استلام الدفع النقدي؟'
+        : method === 'cliq'
+        ? 'تأكيد استلام دفعة CliQ؟'
+        : 'تأكيد استلام الدفع؟';
+    if (!window.confirm(label)) return;
+
+    setConfirmingPayment(true);
+    try {
+      const response = await api.post(
+        `/staff/bookings/hourly/${bookingId}/confirm-payment`,
+        method ? { method } : {}
+      );
+      toast.success(response.data?.message || 'تم تأكيد استلام الدفع');
+      // Re-run validation on the same scanned value so the UI refreshes with
+      // the new payment_status and the activate button becomes enabled.
+      if (qrValidation?.scanned) {
+        await handleQrScan(qrValidation.scanned);
+      } else {
+        // Fallback: at minimum flip the UI locally so staff isn't stuck.
+        setQrValidation((prev) =>
+          prev
+            ? {
+                ...prev,
+                canCheckin: true,
+                reasonCode: 'ready',
+                message: 'تم تأكيد الدفع — يمكنك الآن التفعيل',
+                booking: { ...(prev.booking || {}), payment_status: 'paid' }
+              }
+            : prev
+        );
+      }
+      fetchPendingCheckins();
+    } catch (error) {
+      const data = error.response?.data || {};
+      toast.error(data.error || 'تعذّر تأكيد الدفع');
+    } finally {
+      setConfirmingPayment(false);
     }
   };
 
@@ -1185,14 +1240,14 @@ export default function StaffPage() {
       onTabChange={setActiveTab}
       onLogout={handleLogout}
       headerActions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <InstallPWAButton />
           {allowedTabs.length > 0 && (
             <Button
               variant="outline"
               size="sm"
               onClick={handleRefresh}
-              className="rounded-full gap-2"
+              className="rounded-full gap-1 px-2.5 sm:gap-2 sm:px-3"
               data-testid="staff-refresh-btn"
             >
               <RefreshCw className="h-4 w-4" />
@@ -1401,6 +1456,56 @@ export default function StaffPage() {
                           </div>
                         );
                       })()}
+
+                      {/* Activation blocker unblocker: pending cash / cliq payment */}
+                      {qrValidation &&
+                        !qrValidation.activated &&
+                        (qrValidation.reasonCode === 'unpaid_cash' ||
+                          qrValidation.reasonCode === 'unpaid_cliq') &&
+                        qrValidation.booking?.booking_code ===
+                          activatingBooking.booking_code && (
+                          <div
+                            className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 flex items-start gap-3"
+                            data-testid="pending-payment-action"
+                          >
+                            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0 space-y-2">
+                              <p className="text-sm text-amber-900 leading-relaxed">
+                                {qrValidation.reasonCode === 'unpaid_cash'
+                                  ? 'هذا الحجز بانتظار استلام الدفع نقداً. بعد استلامك المبلغ، اضغط الزر أدناه لتأكيد الدفع ومتابعة التفعيل.'
+                                  : 'هذا الحجز بانتظار استلام دفعة CliQ. بعد تأكد استلام الدفعة، اضغط الزر أدناه لتأكيد الدفع ومتابعة التفعيل.'}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleConfirmPendingPayment(
+                                    qrValidation.reasonCode === 'unpaid_cash' ? 'cash' : 'cliq'
+                                  )
+                                }
+                                disabled={confirmingPayment}
+                                className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-4 py-2.5 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                                data-testid="confirm-pending-payment-btn"
+                              >
+                                {confirmingPayment ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    جاري التأكيد…
+                                  </>
+                                ) : qrValidation.reasonCode === 'unpaid_cash' ? (
+                                  <>
+                                    <CheckCircle className="h-4 w-4" />
+                                    تأكيد استلام الدفع النقدي
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle className="h-4 w-4" />
+                                    تأكيد استلام دفعة CliQ
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                     </>
                   )}
 

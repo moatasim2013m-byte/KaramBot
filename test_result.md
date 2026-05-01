@@ -272,10 +272,7 @@ backend:
 
 test_plan:
   current_focus:
-    - "(Phase 4 FE) Parent ProfilePage loyalty tab — balance + history + Arabic/RTL"
-    - "(Phase 4 FE) Admin SettingsTab → الولاء sub-tab: settings form loads, saves, persists after reload"
-    - "(Phase 4 FE) Admin SettingsTab → الولاء sub-tab: ledger loads + paginates (prev/next)"
-    - "(Phase 4 FE) Staff role must NOT see admin loyalty controls (/staff has no admin Settings/loyalty UI)"
+    - "Visual smoke test + polish verification for /profile and /booking/confirmation pages"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -753,6 +750,24 @@ test_plan:
         - working: true
           agent: "testing"
           comment: "✅ TESTED: Existing opt-out functionality confirmed working. Bulk-send properly handles opted-out users through existing postWhatsAppTemplate() flow. No opted-out users in test data, but mechanism verified through code path and response structure."
+
+  - task: "Staff activation-blocker unblocker UI (pending_cash/pending_cliq payment confirmation)"
+    implemented: true
+    working: true
+    file: "/app/frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "NEW feature. Staff can manually confirm pending cash/cliq payments during activation. Amber action panel appears below red blocking error with button labelled 'تأكيد استلام الدفع النقدي' (cash) or 'تأكيد استلام دفعة CliQ' (cliq). Clicking shows browser confirm dialog, POSTs to /api/staff/bookings/hourly/:id/confirm-payment, shows success toast, auto re-validates to refresh UI."
+        - working: false
+          agent: "testing"
+          comment: "❌ CRITICAL BUG: Frontend-backend field mismatch prevents payment confirmation. TESTED: (Case 1) Amber box with data-testid='pending-payment-action' appears correctly ✅. Button with data-testid='confirm-pending-payment-btn' visible with correct cash label 'تأكيد استلام الدفع النقدي' ✅. (Case 2) CliQ button label correct 'تأكيد استلام دفعة CliQ' ✅. (Case 4) Amber box does NOT appear for paid bookings ✅. (Case 5) No console errors ✅. BUG: When clicking confirm button, error toast shows 'لا يوجد حجز محدد لتأكيد الدفع' (No booking specified). ROOT CAUSE: Frontend line 465 reads qrValidation?.booking?._id but backend summarizeBooking() returns booking_id (not _id). FIX REQUIRED: Change line 465 in StaffPage.js from 'const bookingId = qrValidation?.booking?._id;' to 'const bookingId = qrValidation?.booking?.booking_id;'. Backend endpoint /api/staff/bookings/hourly/:id/confirm-payment is working (verified 8/8 PASS in backend tests). UI renders correctly, only the booking ID extraction is broken."
+        - working: true
+          agent: "testing"
+          comment: "✅ ALL 8 TEST CASES PASSED. BUG FIXED: Changed line 465 from qrValidation?.booking?._id to qrValidation?.booking?.booking_id. COMPREHENSIVE E2E TESTING: (TC1) Login & activation queue visible ✅. (TC2) CASH booking: Amber panel appears with correct Arabic text 'نقداً' and button label 'تأكيد استلام الدفع النقدي', activate button disabled ✅. (TC3) CLIQ booking: Amber panel appears with correct text 'CliQ' and button label 'تأكيد استلام دفعة CliQ' ✅. (TC4) Dialog dismiss works - panel remains visible ✅. (TC5) CASH payment confirmation: Dialog accept → success toast → panel disappears → activate button enabled ✅. (TC6) CLIQ payment confirmation: Dialog accept → panel disappears → activate button enabled ✅. (TC7) PAID booking: NO amber panel, activate button enabled immediately ✅. (TC8) Unauthorized access: Amber panel not accessible without auth ✅. Backend endpoint /api/staff/bookings/hourly/:id/confirm-payment working correctly. Auto re-validation after payment confirmation working. All Arabic UI text correct. Feature fully functional."
 
 frontend:
   - task: "Bulk Send UI card in campaigns tab"
@@ -1275,6 +1290,64 @@ agent_communication:
 #====================================================================================================
 
 backend:
+  - task: "Staff payment confirmation endpoint (activation-blocker unblocker for pending_cash/pending_cliq)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/node-app/routes/staff.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            NEW endpoint: POST /api/staff/bookings/hourly/:id/confirm-payment
+            
+            Purpose: close the UX gap where staff scans a booking blocked by
+            pending_cash / pending_cliq and had no in-place path to confirm
+            payment received at the door. Payment-gate logic on /qr/validate +
+            /qr/checkin is UNCHANGED; this endpoint only flips
+            payment_status pending_cash|pending_cliq -> paid.
+            
+            Auth: /api/staff/* already gated by authMiddleware +
+            staffMiddleware + staffPermissionMiddleware('access_staff_tools').
+            
+            Behaviour:
+              - 401 when no auth token (verified with curl).
+              - 404 when bookingId not found.
+              - 400 error_code='not_pending' when current payment_status is
+                not pending_cash|pending_cliq (e.g. already 'paid').
+              - 400 error_code='method_mismatch' when body.method is
+                supplied but doesn't match booking.payment_method.
+              - 400 error_code='invalid_method' when body.method is provided
+                but not one of 'cash' | 'cliq'.
+              - 409 error_code='already_confirmed' if the atomic findOneAndUpdate
+                fails (race / double-submit).
+              - 200 happy path: sets payment_status='paid', paid_at=new Date(),
+                attempts awardReferralForFirstConfirmedOrder (non-fatal), logs
+                an audit line with event='staff_confirm_payment' + staff_id +
+                payment_status_from.
+            
+            Response shape:
+              { ok: true, message: '...', booking: summarizeBooking(updated) }
+            
+            FILES TOUCHED:
+              - /app/backend/node-app/routes/staff.js (added import of
+                awardReferralForFirstConfirmedOrder at top; added new route
+                block just before module.exports).
+            
+            TEST PLAN:
+              1. 401 unauthenticated POST.
+              2. 404 non-existent bookingId (use a valid-format ObjectId).
+              3. 400 not_pending — pick any paid HourlyBooking.
+              4. 400 invalid_method — POST {method:'card'}.
+              5. 400 method_mismatch — pending_cash booking + {method:'cliq'}.
+              6. 200 happy path (cash) — verify DB state: payment_status='paid',
+                 paid_at set. Re-POST should now return 400 not_pending.
+              7. 200 happy path (cliq) — same as 6 but with pending_cliq seed.
+              8. Regression: /api/staff/qr/validate on the same booking after
+                 confirmation must return can_checkin:true.
+
   - task: "Capital Bank Unified Checkout: stop calling /pts/v2/payments after auto-capture"
     implemented: true
     working: "NA"
@@ -1325,12 +1398,91 @@ backend:
                 produced by a real card transaction on the live Microform SDK — this last step
                 will be verified by the user in a live test transaction.
 
+  - task: "Stabilization pass: customer/admin/staff frontend flows after HomePage rebuild + loyalty work"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/HomePage.js + repo-wide audit"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            STABILIZATION PASS — no redesign, no new features, no backend logic changes.
+
+            Audit findings (only two real issues identified):
+              1. INFRA (fixed): Node-app backend (/app/backend/node-app) was crash-looping
+                 because yarn install had not been run — `Cannot find module 'dotenv'`. Ran
+                 `yarn install` and restarted supervisor. /api/settings, /api/gallery now
+                 return 200 via both internal 8001 and external ingress.
+              2. UX BUG (fixed): Homepage hero visual area showed "جاري التحميل..." forever
+                 when `settings.hero_image` is empty (default / fresh install). The gate
+                 was `!showHeroImage` which stays true when ready+empty. Fix: split into
+                 three states — (a) !heroImageReady → loading text, (b) ready+no image →
+                 branded empty state (🎈 Peekaboo / We bring happiness on warm gradient),
+                 (c) ready+image → real <img>. No hooks/state/API/logic changed.
+
+            Repo-wide frontend lint: ✅ clean (pages + components).
+            No missing imports, no broken routes, no syntax errors.
+
+            PLEASE TEST THE FOLLOWING IN THIS STRICT ORDER:
+
+            === 1) CUSTOMER / PUBLIC FLOWS (unauthenticated + parent@peekaboo.com / parent123) ===
+              - Homepage `/` — sections render, no console errors, mobile layout OK, no
+                mascot overlap on CTAs, hero empty-state is the branded Peekaboo card (not
+                "جاري التحميل..."), all 3 hero CTAs clickable, journey scroll works on mobile.
+              - Tickets `/tickets` — date/time/duration selection, booking summary totals
+                update, loyalty redemption panel visibility rules correct, payment method
+                switching, CTA proceeds to checkout.
+              - Birthday `/birthday` — theme selection, slot picking, AI invite/theme buttons
+                render (even if generation requires admin config), booking summary + payment.
+              - Subscriptions `/subscriptions` — plan select, child select, purchase CTA,
+                payment flow.
+              - Groups `/groups` and Home Party `/home-party` — CTAs work, no runtime errors.
+              - Booking confirmation `/booking/confirmation/:id` if reachable from a created
+                booking — visual sanity only.
+              - Profile `/profile` — loyalty history loads, no broken rendering.
+
+            === 2) ADMIN FLOWS (admin@peekaboo.com / admin123) ===
+              - Admin dashboard `/admin` — all subtabs load (Overview, Bookings, Content,
+                Visitors, Staff, Themes, Settings).
+              - Loyalty settings save/load round-trip (within Settings or dedicated loyalty
+                tab — whatever exists in current repo).
+              - Loyalty ledger loads without error.
+              - Any booking/session admin actions still operable.
+
+            === 3) STAFF FLOWS (create or use a staff account per repo convention) ===
+              - `/staff` page loads.
+              - QR scanner UI renders, manual entry path usable.
+              - Validate/check-in flow runs end-to-end on a recent booking.
+              - Loyalty-award feedback shown after check-in.
+              - Active sessions list + pending check-ins list render.
+
+            Return: per-flow pass/fail, any real console/runtime errors, and only bugs
+            that are real regressions (not cosmetic preferences).
+
+
+  - task: "POST /api/staff/bookings/hourly/:id/confirm-payment"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/staff.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "NEW TASK — Staff activation-blocker unblocker. Added POST /api/staff/bookings/hourly/:id/confirm-payment in /app/backend/node-app/routes/staff.js (near end of file, just before module.exports). Endpoint is narrow-scope: only flips payment_status from pending_cash|pending_cliq -> paid, sets paid_at, and invokes awardReferralForFirstConfirmedOrder (idempotent + non-fatal). Auth: inherits the /api/staff/* router-level staffMiddleware + staffPermissionMiddleware('access_staff_tools'). Unauthenticated requests MUST return 401."
+        - working: true
+          agent: "testing"
+          comment: "✅ TESTED: All 8 test scenarios PASSED. (1) 401 without Authorization header ✅. (2) 404 with error_code='not_found' for non-existent booking ID (507f1f77bcf86cd799439011) ✅. (3) 400 with error_code='invalid_method' for method='card' ✅. (4) 400 with error_code='not_pending' for already-paid booking (booking NOT mutated) ✅. (5) 400 with error_code='method_mismatch' for cash booking + cliq method (booking NOT mutated) ✅. (6) 200 happy path (cash): payment_status='paid', paid_at set, Arabic message 'تم تأكيد استلام الدفع. يمكنك الآن تفعيل الجلسة.', idempotent (second call returns not_pending) ✅. (7) 200 happy path (cliq): payment_status='paid', paid_at set, Arabic message present, idempotent ✅. (8) Regression: QR validate after payment confirmation returns can_checkin=True, reason_code='ok' (NOT unpaid_cash/unpaid_cliq) ✅. Atomic conditional update prevents race conditions. Referral award integration working (non-fatal). All error codes correct. Test script: /app/test_confirm_payment.py"
+
 metadata:
-  test_sequence: 1
+  test_sequence: 3
 
 test_plan:
-  current_focus:
-    - "Capital Bank Unified Checkout: stop calling /pts/v2/payments after auto-capture"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -1338,16 +1490,136 @@ test_plan:
 agent_communication:
     - agent: "main"
       message: |
-        Removed the redundant `/pts/v2/payments` call from POST /api/payments/capital-bank/unified-checkout/authorize.
-        With completeMandate.type='CAPTURE' the payment is auto-captured by CyberSource when the
-        Microform SDK creates the transient token, so the backend just needs to validate the JWT
-        and mark the transaction paid. Please test the auth/validation/error paths of the new
-        handler — happy-path 200 requires a real CyberSource token, which the user will verify
-        manually after this passes.
+        NEW TASK — Staff activation-blocker unblocker.
+        Added POST /api/staff/bookings/hourly/:id/confirm-payment in
+        /app/backend/node-app/routes/staff.js (near end of file, just before
+        module.exports). Endpoint is narrow-scope: only flips payment_status
+        from pending_cash|pending_cliq -> paid, sets paid_at, and invokes
+        awardReferralForFirstConfirmedOrder (idempotent + non-fatal).
         
-        Auth: use admin@peekaboo.com / admin123 from /app/memory/test_credentials.md
-        (or parent@peekaboo.com / parent123).
+        Auth: inherits the /api/staff/* router-level staffMiddleware +
+        staffPermissionMiddleware('access_staff_tools'). Unauthenticated
+        requests MUST return 401 (already verified with curl).
         
-        For the 404 / 400 / token-validation paths, you can construct fake JWTs with the
-        node `crypto` module — e.g. `Buffer.from(JSON.stringify({iss:'Flex/07', jti:'x', exp: Math.floor(Date.now()/1000)+600})).toString('base64url')`
-        for the payload segment.
+        Creds: admin@peekaboo.com / admin123 (role=admin works on staff routes).
+        
+        Please test:
+          1. 401 unauthenticated — POST with no token.
+          2. 404 — POST with a valid-format but non-existent bookingId.
+          3. 400 not_pending — pick any existing HourlyBooking with
+             payment_status === 'paid' and POST; expect error_code='not_pending'.
+          4. 400 method_mismatch — seed/find a booking with payment_method='cash'
+             and payment_status='pending_cash', then POST with {method:'cliq'}
+             and expect error_code='method_mismatch'.
+          5. Happy path (cash) — seed/find a pending_cash hourly booking, POST
+             with {method:'cash'}. Expect 200, body has ok:true, booking.payment_status
+             === 'paid', and DB paid_at is set. Calling the endpoint again must
+             now return error_code='not_pending'.
+          6. Happy path (cliq) — same as 5 but for pending_cliq with {method:'cliq'}.
+          7. 409 double-confirm idempotency — simulate two concurrent calls if
+             possible OR just confirm once, then call again; second call must
+             return 400 not_pending (already paid), not a 500.
+          8. Regression: the existing /api/staff/qr/validate against the same
+             booking post-confirmation must now return can_checkin:true (reason
+             no longer 'unpaid_cash' / 'unpaid_cliq').
+        
+        Do NOT test frontend. UI changes in StaffPage.js are not in scope for
+        this run.
+        
+        PREVIOUS TASK (still stable but out of current focus):
+        Capital Bank unified-checkout handler. No changes since last run.
+    - agent: "testing"
+      message: |
+        ✅ TESTING COMPLETE: POST /api/staff/bookings/hourly/:id/confirm-payment
+        
+        All 8 test scenarios passed successfully:
+        
+        1. ✅ 401 - No Authorization header correctly rejected
+        2. ✅ 404 - Non-existent booking ID (507f1f77bcf86cd799439011) returns error_code='not_found'
+        3. ✅ 400 invalid_method - method='card' rejected with error_code='invalid_method'
+        4. ✅ 400 not_pending - Already-paid booking rejected with error_code='not_pending' (booking NOT mutated)
+        5. ✅ 400 method_mismatch - Cash booking + cliq method rejected with error_code='method_mismatch' (booking NOT mutated)
+        6. ✅ 200 happy path (cash) - Payment confirmed, payment_status='paid', paid_at set, Arabic message present, idempotent (second call returns not_pending)
+        7. ✅ 200 happy path (cliq) - Payment confirmed, payment_status='paid', paid_at set, Arabic message present, idempotent
+        8. ✅ Regression - QR validate after payment returns can_checkin=True, reason_code='ok' (NOT unpaid_cash/unpaid_cliq)
+        
+        Implementation verified:
+        - Atomic conditional update prevents race conditions
+        - Referral award integration working (non-fatal)
+        - All error codes match specification
+        - Arabic messages present in responses
+        - Idempotency working correctly
+        - No mutations on error cases
+        
+        Test script: /app/test_confirm_payment.py
+        Test credentials: admin@peekaboo.com / admin123
+        
+        RECOMMENDATION: Endpoint is production-ready. Main agent can summarize and finish.
+    - agent: "main"
+      message: |
+        User approved frontend testing for the Staff activation-blocker UI
+        (StaffPage.js — amber "تأكيد استلام الدفع" panel). Scope is strict —
+        DO NOT test other staff flows, DO NOT test admin pages.
+        
+        Creds: admin@peekaboo.com / admin123 (role=admin also passes staff gate).
+        Backend endpoint already verified (POST /api/staff/bookings/hourly/:id/confirm-payment).
+        
+        UI verification list:
+          1. Amber panel (data-testid='pending-payment-action') shows ONLY when
+             qrValidation.reasonCode is 'unpaid_cash' or 'unpaid_cliq' AND the
+             scanned booking matches the activatingBooking. Must NOT show for
+             any other reasonCode (e.g. already-paid 'ok', 'wrong_day', etc.).
+          2. Button label is "تأكيد استلام الدفع النقدي" for unpaid_cash and
+             "تأكيد استلام دفعة CliQ" for unpaid_cliq.
+          3. Clicking the button triggers window.confirm — verify the dialog
+             appears and cancel/accept both behave correctly.
+          4. On accept → toast success → qrValidation is re-fetched
+             automatically so the amber panel disappears and the green
+             "تفعيل الجلسة" button becomes enabled.
+          5. No regression: a booking that is already 'paid' flows straight
+             to enabled "تفعيل الجلسة" with no amber panel.
+          6. Unauthorized / wrong role — hitting /staff as an unauthenticated
+             user should NOT reveal the panel (route is guarded at App.js with
+             RequireStaff/RequireAuth).
+        
+        The testing agent may need to seed an HourlyBooking with
+        payment_method='cash' & payment_status='pending_cash' (and one with
+        'cliq' / 'pending_cliq') to surface the panel in the UI. Use
+        /app/test_confirm_payment.py as reference for seeding patterns.
+        
+        Out of scope: inbox, parties, loyalty, admin tools, checkout.
+
+frontend:
+  - task: "Staff activation-blocker unblocker UI (amber panel + confirm-payment)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/StaffPage.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: |
+            Amber panel rendered in StaffPage.js ~line 1460-1508 with
+            data-testid='pending-payment-action' and button testid
+            'confirm-pending-payment-btn'. Panel visibility gated on
+            qrValidation.reasonCode ∈ {unpaid_cash, unpaid_cliq} and
+            qrValidation.booking.booking_code === activatingBooking.booking_code.
+            Clicking triggers window.confirm, then POSTs to
+            /api/staff/bookings/hourly/:id/confirm-payment, then re-runs
+            handleQrScan on the original scanned value to refresh validation.
+            Needs frontend E2E verification against seeded pending_cash /
+            pending_cliq bookings.
+
+test_plan:
+  current_focus:
+    - "Staff activation-blocker unblocker UI (amber panel + confirm-payment)"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+
+agent_communication:
+    -agent: "testing"
+    -message: "CRITICAL BLOCKER: Backend service completely down with 503 errors on https://credit-mode-preview.preview.emergentagent.com. All API endpoints failing (/api/auth/login, /api/settings, /api/gallery, etc.). Visual smoke test attempted for /profile and /booking/confirmation pages but cannot complete authentication flow. Frontend loads correctly with proper Arabic/RTL layout visible in screenshots. UI polish verification shows: Arabic text rendering correctly, RTL layout working, responsive design elements visible. Backend must be restored before any functional testing can proceed. 14 screenshots captured showing static UI elements only."

@@ -3,7 +3,10 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock, Calendar, Banknote, Baby, Tag, QrCode } from 'lucide-react';
+import {
+  CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock,
+  Calendar, Banknote, Baby, Tag, QrCode, Sparkles, MapPin, ShieldCheck, Check
+} from 'lucide-react';
 
 const STORAGE_KEY = 'pk_last_confirmation';
 
@@ -30,6 +33,7 @@ export default function BookingConfirmationPage() {
   const navigate = useNavigate();
   const [confirmation, setConfirmation] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [refCopied, setRefCopied] = useState(false);
 
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -39,7 +43,7 @@ export default function BookingConfirmationPage() {
   useEffect(() => {
     // Try to get confirmation from router state first
     let data = location.state;
-    
+
     // If no router state, try localStorage
     if (!data) {
       try {
@@ -58,7 +62,7 @@ export default function BookingConfirmationPage() {
         console.error('Failed to persist confirmation:', e);
       }
     }
-    
+
     setConfirmation(data);
   }, [location.state]);
 
@@ -113,6 +117,13 @@ export default function BookingConfirmationPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyReference = (text) => {
+    navigator.clipboard.writeText(text);
+    setRefCopied(true);
+    toast.success('تم نسخ رقم الحجز!');
+    setTimeout(() => setRefCopied(false), 2000);
+  };
+
   const getBookingTypeLabel = (type) => {
     switch (type) {
       case 'hourly': return 'جلسة بالساعة';
@@ -143,15 +154,15 @@ export default function BookingConfirmationPage() {
   // No confirmation data
   if (!confirmation) {
     return (
-      <div className="min-h-screen bg-hero-gradient py-12" dir="rtl">
+      <div className="min-h-screen bg-gradient-to-b from-[#F4F8FE] via-[#F9FBFF] to-[#FFF8F0] py-12" dir="rtl">
         <div className="max-w-md mx-auto px-4">
           <Card className="rounded-3xl shadow-xl border-0 overflow-hidden">
             <CardContent className="p-8 text-center">
               <div className="text-6xl mb-4">🤷</div>
-              <h2 className="font-heading text-xl font-bold text-gray-700 mb-4">
+              <h2 className="font-heading heading-bubble text-xl font-bold text-gray-700 mb-4">
                 لا توجد تفاصيل حجز للعرض حالياً
               </h2>
-              <Button 
+              <Button
                 onClick={() => navigate('/')}
                 className="w-full rounded-full btn-playful"
               >
@@ -173,126 +184,168 @@ export default function BookingConfirmationPage() {
   const qrStatus = confirmation.qrStatus || 'unused';
   const showActiveQr = isHourly && confirmation.qrCode && qrStatus === 'unused';
   const qrAwaitingConfirmation = isHourly && !confirmation.qrCode;
+  const referenceCode = getReferenceCode();
 
   return (
-    <div className="min-h-screen bg-hero-gradient py-8 md:py-12" dir="rtl">
+    <div className="parent-dashboard-bg py-8 md:py-12" dir="rtl">
       <div className="max-w-lg mx-auto px-4">
-        {/* Success Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-4">
-            <CheckCircle className="h-12 w-12 text-green-500" />
+        {/* Celebratory Success Header */}
+        <div className="confirm-hero mb-6">
+          <div className="confirm-success-ring">
+            <CheckCircle className="h-14 w-14 text-[var(--pk-green)]" strokeWidth={2.5} />
           </div>
           <h1 className="font-heading text-3xl md:text-4xl font-bold text-foreground mb-2">
-            تم تأكيد الحجز ✅
+            تم تأكيد الحجز 🎉
           </h1>
-          <p className="text-lg text-muted-foreground">
-            {isCash && 'الدفع عند الاستقبال'}
-            {isCliq && 'الدفع عبر CliQ (تحويل بنكي)'}
+          <p className="text-base md:text-lg text-muted-foreground">
+            {isCash && 'استعد للاستمتاع — الدفع عند الاستقبال'}
+            {isCliq && 'خطوة أخيرة عبر CliQ لتفعيل حجزك'}
+            {!isCash && !isCliq && 'شكراً لحجزك في بيكابو!'}
           </p>
         </div>
 
-        {/* Booking Summary Card */}
-        <Card className="rounded-3xl shadow-xl border-0 overflow-hidden mb-6">
-          <CardContent className="p-6">
-            {/* Reference Code */}
-            <div className="bg-gradient-to-r from-[var(--pk-blue)] to-[var(--pk-green)] text-white rounded-2xl p-4 mb-6 text-center">
-              <p className="text-sm opacity-90 mb-1">رقم الحجز المرجعي</p>
-              <p className="font-heading text-2xl font-bold tracking-wider">{getReferenceCode()}</p>
-            </div>
+        {/* Reference Code - Premium Gradient Card */}
+        <div className="confirm-reference mb-6" data-testid="confirmation-reference-card">
+          <p className="text-xs md:text-sm font-semibold opacity-90 mb-1 tracking-wider uppercase">
+            رقم الحجز المرجعي
+          </p>
+          <p className="confirm-reference__code" data-testid="confirmation-reference-code">
+            {referenceCode}
+          </p>
+          <button
+            type="button"
+            onClick={() => copyToClipboard(referenceCode)}
+            className="confirm-reference__copy-btn"
+            aria-label="نسخ رقم الحجز"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            {copied ? 'تم النسخ' : 'نسخ الرقم'}
+          </button>
+        </div>
 
-            {/* Booking Details */}
-            <div className="space-y-4">
-              {confirmation.bookingType && (
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Tag className="h-5 w-5" />
-                    <span>نوع الحجز</span>
-                  </div>
-                  <span className="font-bold text-foreground">{getBookingTypeLabel(confirmation.bookingType)}</span>
+        {/* Booking Summary */}
+        <div className="mb-6">
+          <h2 className="confirm-section-title">
+            <span className="inline-block w-1.5 h-5 rounded-full bg-[var(--pk-blue)]" />
+            تفاصيل الحجز
+          </h2>
+          <div className="space-y-2.5">
+            {confirmation.bookingType && (
+              <div className="confirm-detail-row">
+                <div className="label">
+                  <span className="confirm-detail-icon c-blue">
+                    <Tag className="h-4 w-4" />
+                  </span>
+                  نوع الحجز
                 </div>
-              )}
-
-              {confirmation.childName && (
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Baby className="h-5 w-5" />
-                    <span>اسم الطفل</span>
-                  </div>
-                  <span className="font-bold text-foreground">{confirmation.childName}</span>
-                </div>
-              )}
-
-              {confirmation.date && (
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Calendar className="h-5 w-5" />
-                    <span>التاريخ</span>
-                  </div>
-                  <span className="font-bold text-foreground">{confirmation.date}</span>
-                </div>
-              )}
-
-              {confirmation.time && (
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Clock className="h-5 w-5" />
-                    <span>الوقت</span>
-                  </div>
-                  <span className="font-bold text-foreground">{confirmation.time}</span>
-                </div>
-              )}
-
-              {confirmation.duration && (
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Clock className="h-5 w-5" />
-                    <span>المدة</span>
-                  </div>
-                  <span className="font-bold text-foreground">{confirmation.duration} ساعة</span>
-                </div>
-              )}
-
-              {confirmation.amount && (
-                <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Banknote className="h-5 w-5" />
-                    <span>المبلغ</span>
-                  </div>
-                  <span className="font-bold text-lg text-[var(--pk-red)]">{confirmation.amount} دينار</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Banknote className="h-5 w-5" />
-                  <span>طريقة الدفع</span>
-                </div>
-                <span className="font-bold text-foreground">{getPaymentMethodLabel(confirmation.paymentMethod)}</span>
+                <span className="value">{getBookingTypeLabel(confirmation.bookingType)}</span>
               </div>
+            )}
 
-              {/* Payment Status */}
-              <div className="flex items-center justify-between py-2">
-                <span className="text-gray-600">حالة الدفع</span>
-                <span className={`px-3 py-1 rounded-full text-sm font-bold ${
-                  isCash ? 'bg-yellow-100 text-yellow-700' : 'bg-purple-100 text-purple-700'
-                }`}>
-                  {isCash && 'بانتظار الدفع عند الاستقبال'}
-                  {isCliq && 'بانتظار التحويل'}
+            {confirmation.childName && (
+              <div className="confirm-detail-row">
+                <div className="label">
+                  <span className="confirm-detail-icon c-purple">
+                    <Baby className="h-4 w-4" />
+                  </span>
+                  اسم الطفل
+                </div>
+                <span className="value">{confirmation.childName}</span>
+              </div>
+            )}
+
+            {confirmation.date && (
+              <div className="confirm-detail-row">
+                <div className="label">
+                  <span className="confirm-detail-icon c-green">
+                    <Calendar className="h-4 w-4" />
+                  </span>
+                  التاريخ
+                </div>
+                <span className="value">{confirmation.date}</span>
+              </div>
+            )}
+
+            {confirmation.time && (
+              <div className="confirm-detail-row">
+                <div className="label">
+                  <span className="confirm-detail-icon c-yellow">
+                    <Clock className="h-4 w-4" />
+                  </span>
+                  الوقت
+                </div>
+                <span className="value">{confirmation.time}</span>
+              </div>
+            )}
+
+            {confirmation.duration && (
+              <div className="confirm-detail-row">
+                <div className="label">
+                  <span className="confirm-detail-icon c-yellow">
+                    <Clock className="h-4 w-4" />
+                  </span>
+                  المدة
+                </div>
+                <span className="value">{confirmation.duration} ساعة</span>
+              </div>
+            )}
+
+            {confirmation.amount && (
+              <div className="confirm-detail-row">
+                <div className="label">
+                  <span className="confirm-detail-icon c-red">
+                    <Banknote className="h-4 w-4" />
+                  </span>
+                  المبلغ
+                </div>
+                <span className="value text-lg text-[var(--pk-red)]">{confirmation.amount} د.أ</span>
+              </div>
+            )}
+
+            <div className="confirm-detail-row">
+              <div className="label">
+                <span className="confirm-detail-icon c-orange">
+                  <Banknote className="h-4 w-4" />
                 </span>
+                طريقة الدفع
               </div>
+              <span className="value">{getPaymentMethodLabel(confirmation.paymentMethod)}</span>
             </div>
-          </CardContent>
-        </Card>
+
+            {/* Payment Status */}
+            <div className="confirm-detail-row">
+              <div className="label">
+                <span className="confirm-detail-icon c-yellow">
+                  <Tag className="h-4 w-4" />
+                </span>
+                حالة الدفع
+              </div>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-bold ${
+                  isCash
+                    ? 'bg-[var(--pk-yellow)]/30 text-[#8a7000] border border-[var(--pk-yellow)]/60'
+                    : 'bg-[var(--pk-purple)]/15 text-[var(--pk-purple)] border border-[var(--pk-purple)]/30'
+                }`}
+              >
+                {isCash && 'بانتظار الدفع عند الاستقبال'}
+                {isCliq && 'بانتظار التحويل'}
+              </span>
+            </div>
+          </div>
+        </div>
 
         {/* QR Code Block — hourly bookings only */}
         {showActiveQr && (
-          <Card className="rounded-3xl shadow-xl border-2 border-[var(--pk-blue)]/20 bg-white overflow-hidden mb-6" data-testid="confirmation-qr-card">
-            <CardContent className="p-6 text-center">
-              <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-[var(--pk-blue)]/10 text-[var(--pk-blue)] text-sm font-bold">
+          <div
+            className="rounded-3xl border-2 border-[var(--pk-blue)]/25 bg-white overflow-hidden mb-6 shadow-[0_10px_28px_rgba(102,169,233,0.18)]"
+            data-testid="confirmation-qr-card"
+          >
+            <div className="p-6 text-center">
+              <div className="inline-flex items-center gap-2 mb-3 px-3 py-1.5 rounded-full bg-gradient-to-r from-[var(--pk-blue)]/15 to-[var(--pk-green)]/15 text-[var(--pk-blue)] text-sm font-bold border border-[var(--pk-blue)]/25">
                 <QrCode className="h-4 w-4" />
                 رمز QR للجلسة
               </div>
-              <div className="bg-white p-3 rounded-2xl inline-block border-2 border-gray-100 shadow-sm">
+              <div className="bg-white p-3 rounded-2xl inline-block border-2 border-[var(--pk-blue)]/15 shadow-sm">
                 <img
                   src={confirmation.qrCode}
                   alt="رمز QR للحجز"
@@ -300,100 +353,243 @@ export default function BookingConfirmationPage() {
                   data-testid="confirmation-qr-image"
                 />
               </div>
-              <p className="mt-4 text-base font-bold text-foreground">
+              <p className="mt-4 text-base font-bold text-[#2D2D2D]">
                 يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                رمز الحجز: <span className="font-mono font-bold tracking-wider">{getReferenceCode()}</span>
+                رمز الحجز:{' '}
+                <span className="font-mono font-bold tracking-wider text-foreground">
+                  {referenceCode}
+                </span>
               </p>
               {(isCash || isCliq) && (
-                <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                <p className="mt-3 text-xs text-[#8a6b00] bg-[var(--pk-yellow)]/20 border border-[var(--pk-yellow)]/40 rounded-lg p-2.5">
                   سيتم تفعيل الجلسة بعد إتمام الدفع عند الوصول
                 </p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {qrAwaitingConfirmation && !showActiveQr && (
-          <Card className="rounded-3xl shadow border border-dashed border-gray-300 bg-gray-50 overflow-hidden mb-6">
-            <CardContent className="p-5 text-center text-sm text-muted-foreground">
+          <div className="rounded-3xl border border-dashed border-[var(--pk-blue)]/35 bg-[var(--pk-blue)]/5 overflow-hidden mb-6">
+            <div className="p-5 text-center text-sm text-muted-foreground">
               سيتم إصدار رمز QR للحجز فور تأكيد الدفع.
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
+
+        {/* Next Steps Guide */}
+        <div className="mb-6">
+          <h2 className="confirm-section-title">
+            <span className="inline-block w-1.5 h-5 rounded-full bg-[var(--pk-green)]" />
+            الخطوات القادمة
+          </h2>
+          <div className="space-y-2.5">
+            {isCliq && (
+              <div className="next-step-item">
+                <div className="next-step-item__num">1</div>
+                <p className="next-step-item__text">
+                  حوّل المبلغ عبر CliQ إلى <span className="font-bold">Peekaboo1</span> (بنك الإسكان).
+                </p>
+              </div>
+            )}
+            {isCliq && (
+              <div className="next-step-item">
+                <div className="next-step-item__num">2</div>
+                <p className="next-step-item__text">
+                  أرسل صورة إيصال التحويل على واتساب لتأكيد حجزك.
+                </p>
+              </div>
+            )}
+            <div className="next-step-item">
+              <div className="next-step-item__num">{isCliq ? 3 : 1}</div>
+              <p className="next-step-item__text">
+                {isHourly
+                  ? 'عند الوصول، أبرز رمز QR عند الاستقبال لتفعيل الجلسة.'
+                  : 'عند الوصول، قدّم رقم الحجز عند الاستقبال.'}
+              </p>
+            </div>
+            {isCash && (
+              <div className="next-step-item">
+                <div className="next-step-item__num">2</div>
+                <p className="next-step-item__text">
+                  ادفع المبلغ ({confirmation.amount || ''} د.أ) نقداً في الاستقبال.
+                </p>
+              </div>
+            )}
+            <div className="next-step-item">
+              <div className="next-step-item__num">{isCliq ? 4 : isCash ? 3 : 2}</div>
+              <p className="next-step-item__text">
+                استمتع معنا! لأي استفسار، تواصل معنا على واتساب{' '}
+                <span className="ltr-text font-bold text-[var(--pk-green)]" dir="ltr">
+                  0777775652
+                </span>
+                .
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* CliQ Transfer Details */}
         {isCliq && (
-          <Card className="rounded-3xl shadow-xl border-2 border-purple-200 bg-purple-50 overflow-hidden mb-6">
-            <CardContent className="p-6">
-              <h3 className="font-heading text-xl font-bold text-purple-800 mb-4 flex items-center gap-2">
-                <Building2 className="h-6 w-6" />
+          <div className="rounded-3xl border-2 border-[var(--pk-purple)]/25 bg-gradient-to-br from-[var(--pk-purple)]/10 via-white to-[var(--pk-purple)]/5 overflow-hidden mb-6 shadow-sm">
+            <div className="p-6">
+              <h3 className="font-heading text-lg font-bold text-[var(--pk-purple)] mb-4 flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
                 تفاصيل التحويل CliQ
               </h3>
 
-              <div className="space-y-3 mb-4">
-                <div className="flex items-center justify-between bg-white rounded-xl p-3">
-                  <span className="text-purple-700">الاسم:</span>
+              <div className="space-y-2.5 mb-4">
+                <div className="flex items-center justify-between bg-white rounded-xl p-3 border border-[var(--pk-purple)]/15">
+                  <span className="text-muted-foreground text-sm">الاسم</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-purple-900">Peekaboo1</span>
-                    <button 
+                    <span className="font-heading font-bold text-foreground">Peekaboo1</span>
+                    <button
                       onClick={() => copyToClipboard('Peekaboo1')}
-                      className="p-1.5 hover:bg-purple-100 rounded-lg transition-colors"
+                      className="p-1.5 hover:bg-[var(--pk-purple)]/10 rounded-lg transition-colors"
                       title="نسخ"
+                      aria-label="نسخ الاسم"
                     >
-                      <Copy className={`h-4 w-4 ${copied ? 'text-green-500' : 'text-purple-600'}`} />
+                      <Copy className={`h-4 w-4 ${copied ? 'text-[var(--pk-green)]' : 'text-[var(--pk-purple)]'}`} />
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between bg-white rounded-xl p-3">
-                  <span className="text-purple-700">البنك:</span>
-                  <span className="font-bold text-purple-900">بنك الإسكان</span>
+                <div className="flex items-center justify-between bg-white rounded-xl p-3 border border-[var(--pk-purple)]/15">
+                  <span className="text-muted-foreground text-sm">البنك</span>
+                  <span className="font-heading font-bold text-foreground">بنك الإسكان</span>
                 </div>
 
-                <div className="flex items-center justify-between bg-white rounded-xl p-3">
-                  <span className="text-purple-700">المبلغ:</span>
-                  <span className="font-bold text-lg text-purple-900">{confirmation.amount} دينار</span>
+                <div className="flex items-center justify-between bg-white rounded-xl p-3 border border-[var(--pk-purple)]/15">
+                  <span className="text-muted-foreground text-sm">المبلغ</span>
+                  <span className="font-heading font-bold text-lg text-[var(--pk-red)]">
+                    {confirmation.amount} د.أ
+                  </span>
                 </div>
               </div>
 
-              {/* Important Note */}
-              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 mb-4 text-center">
-                <p className="text-sm text-yellow-800 font-medium">
+              <div className="bg-[var(--pk-yellow)]/25 border border-[var(--pk-yellow)]/50 rounded-xl p-3 mb-4 text-center">
+                <p className="text-sm text-[#8a6b00] font-semibold">
                   ⚠️ بعد التحويل، أرسل صورة الإيصال على واتساب لتأكيد الحجز
                 </p>
               </div>
 
-              {/* Contact Buttons */}
               <div className="grid grid-cols-2 gap-3">
-                <a 
-                  href={`https://wa.me/962777775652?text=مرحباً، أريد تأكيد حجزي رقم: ${getReferenceCode()}`}
+                <a
+                  href={`https://wa.me/962777775652?text=مرحباً، أريد تأكيد حجزي رقم: ${referenceCode}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1"
                 >
-                  <Button className="w-full rounded-full bg-green-500 hover:bg-green-600 text-white gap-2">
+                  <Button className="w-full rounded-full bg-[var(--pk-green)] hover:bg-[#88b83b] text-white gap-2 h-12 shadow-md">
                     <MessageCircle className="h-5 w-5" />
                     واتساب
                   </Button>
                 </a>
                 <a href="tel:0777775652" className="flex-1">
-                  <Button variant="outline" className="w-full rounded-full gap-2 border-purple-300 text-purple-700 hover:bg-purple-100">
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-full gap-2 border-[var(--pk-purple)]/40 text-[var(--pk-purple)] hover:bg-[var(--pk-purple)]/10 h-12"
+                  >
                     <Phone className="h-5 w-5" />
-                    0777775652
+                    اتصل
                   </Button>
                 </a>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
+        )}
+
+        {/* Next Steps Card — reassuring guide for parents */}
+        <Card className="rounded-3xl shadow-[0_8px_22px_rgba(45,45,45,0.05)] border border-[#E6EAF2] bg-white overflow-hidden mb-5">
+          <CardContent className="p-5 md:p-6">
+            <h3 className="font-heading heading-bubble text-lg md:text-xl font-extrabold text-[#2D2D2D] mb-4 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#E8872E]" />
+              ماذا بعد؟
+            </h3>
+            <ol className="space-y-3.5">
+              <li className="flex items-start gap-3">
+                <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#FFD166] to-[#E8872E] text-white font-heading font-extrabold flex items-center justify-center text-sm shadow-sm">1</span>
+                <div className="pt-0.5">
+                  <p className="font-bold text-[#2D2D2D] text-sm md:text-base">
+                    {isCliq ? 'أرسل حوالة CliQ ثم أرسل الإيصال' : 'احفظ رقم الحجز'}
+                  </p>
+                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
+                    {isCliq
+                      ? 'حوّل المبلغ لحساب Peekaboo1 في بنك الإسكان ثم أرسل صورة الإيصال على واتساب.'
+                      : 'ستحتاج إليه عند الوصول. يمكنك نسخه من البطاقة أعلاه.'}
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#4A90D9] to-[#2A6FC7] text-white font-heading font-extrabold flex items-center justify-center text-sm shadow-sm">2</span>
+                <div className="pt-0.5">
+                  <p className="font-bold text-[#2D2D2D] text-sm md:text-base inline-flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4 text-[#2A6FC7]" />
+                    توجّه إلى بيكابو في الموعد
+                  </p>
+                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
+                    يفضَّل الوصول قبل 10 دقائق من بداية الجلسة.
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#7AC74F] to-[#3F7A1E] text-white font-heading font-extrabold flex items-center justify-center text-sm shadow-sm">3</span>
+                <div className="pt-0.5">
+                  <p className="font-bold text-[#2D2D2D] text-sm md:text-base inline-flex items-center gap-1.5">
+                    {isHourly ? <><QrCode className="h-4 w-4 text-[#3F7A1E]" /> اعرض رمز QR عند الاستقبال</> : 'اقضِ وقتاً مميزاً مع طفلك'}
+                  </p>
+                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
+                    {isHourly
+                      ? 'فريق بيكابو سيفعّل الجلسة ويرحّب بكم — استمتعوا!'
+                      : 'فريقنا جاهز لاستقبالكم — استمتعوا بوقتكم في بيكابو!'}
+                  </p>
+                </div>
+              </li>
+            </ol>
+          </CardContent>
+        </Card>
+
+        {/* Universal Support CTA (WhatsApp) — helpful for any booking */}
+        {!isCliq && (
+          <div className="rounded-3xl bg-white border border-[#E6EAF2] p-4 md:p-5 mb-5 flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0 w-10 h-10 rounded-xl bg-[#25D366]/15 flex items-center justify-center">
+                <MessageCircle className="h-5 w-5 text-[#1EB855]" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-[#2D2D2D] text-sm">تحتاج مساعدة؟</p>
+                <p className="text-xs text-[#2D2D2D]/65">تواصل معنا على واتساب</p>
+              </div>
+            </div>
+            <a
+              href={`https://wa.me/962777775652?text=مرحباً، لدي استفسار بخصوص حجزي رقم: ${referenceCode}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0"
+            >
+              <Button className="rounded-full bg-[#25D366] hover:bg-[#1EB855] text-white gap-2 h-10">
+                <MessageCircle className="h-4 w-4" />
+                تواصل معنا
+              </Button>
+            </a>
+          </div>
         )}
 
         {/* CTA Buttons */}
         <div className="space-y-3">
-          <Button 
+          <Link to="/profile" className="block">
+            <Button className="w-full rounded-full h-12 confirm-cta-primary text-lg font-bold">
+              <User className="h-5 w-5 ml-2" />
+              عرض ملفي وحجوزاتي
+            </Button>
+          </Link>
+
+          <Button
             onClick={() => navigate('/')}
-            className="w-full rounded-full h-12 btn-playful text-lg"
+            variant="outline"
+            className="w-full rounded-full h-12 text-base border-2 border-[var(--pk-blue)]/30 text-[var(--text-primary)] hover:bg-[var(--pk-blue)]/5"
           >
             <Home className="h-5 w-5 ml-2" />
             العودة للرئيسية

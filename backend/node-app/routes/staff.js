@@ -11,6 +11,7 @@ const { sendCheckinConfirmation } = require('../utils/checkinNotifications');
 const { logger } = require('../utils/logger');
 const { generateBookingQrPayload } = require('../utils/bookingQr');
 const { awardLoyaltyForHourlyCheckin } = require('../utils/loyaltyAward');
+const { awardReferralForFirstConfirmedOrder } = require('../utils/referrals');
 
 const router = express.Router();
 
@@ -747,6 +748,130 @@ router.post('/qr/backfill', async (req, res) => {
   } catch (error) {
     logger.error({ event: 'qr_backfill_failed', error: error.message, stack: error.stack });
     return res.status(500).json({ error: 'Backfill failed' });
+  }
+});
+
+// =============================================================================
+// Staff payment confirmation (activation blocker unblocker)
+// =============================================================================
+// Narrow-scope endpoint: staff sees a booking blocked by pending_cash /
+// pending_cliq during activation and needs to confirm they received payment at
+// the door. This endpoint ONLY allows the pending_cash|pending_cliq → paid
+// transition and nothing else. Mirrors the relevant side-effect from admin's
+// PUT /admin/bookings/hourly/:id: sets paid_at, awards first-order referral
+// (idempotent + non-fatal). The subsequent activation still flows through
+// /qr/checkin, preserving audit + loyalty behavior.
+router.post('/bookings/hourly/:id/confirm-payment', async (req, res) => {
+  const bookingId = req.params.id;
+  const method = (req.body?.method || '').toString().toLowerCase();
+
+  if (method && !['cash', 'cliq'].includes(method)) {
+    return res.status(400).json({ error: 'طريقة الدفع غير مدعومة', error_code: 'invalid_method' });
+  }
+
+  try {
+    const existing = await HourlyBooking.findById(bookingId)
+      .populate('slot_id')
+      .populate('child_id')
+      .populate('user_id');
+
+    if (!existing) {
+      logger.info({
+        event: 'staff_confirm_payment',
+        result: 'not_found',
+        booking_id: bookingId,
+        staff_id: req.userId
+      });
+      return res.status(404).json({ error: ARABIC_MESSAGES.not_found, error_code: 'not_found' });
+    }
+
+    // Only allow the pending → paid transition. Never downgrade or change
+    // anything else about the booking.
+    if (!['pending_cash', 'pending_cliq'].includes(existing.payment_status)) {
+      logger.info({
+        event: 'staff_confirm_payment',
+        result: 'not_pending',
+        booking_id: existing._id.toString(),
+        current_status: existing.payment_status,
+        staff_id: req.userId
+      });
+      return res.status(400).json({
+        error: 'هذا الحجز غير في انتظار تأكيد الدفع',
+        error_code: 'not_pending',
+        booking: summarizeBooking(existing)
+      });
+    }
+
+    // Defence-in-depth: if staff explicitly declares a method, it must match
+    // the booking's recorded method (prevents e.g. confirming CliQ on a cash
+    // booking by mistake).
+    if (method && existing.payment_method && existing.payment_method !== method) {
+      return res.status(400).json({
+        error: 'طريقة الدفع لا تطابق الحجز',
+        error_code: 'method_mismatch',
+        booking: summarizeBooking(existing)
+      });
+    }
+
+    // Atomic conditional update to guard against double-confirm races.
+    const updated = await HourlyBooking.findOneAndUpdate(
+      { _id: existing._id, payment_status: { $in: ['pending_cash', 'pending_cliq'] } },
+      { $set: { payment_status: 'paid', paid_at: new Date() } },
+      { new: true }
+    )
+      .populate('slot_id')
+      .populate('child_id')
+      .populate('user_id');
+
+    if (!updated) {
+      const fresh = await HourlyBooking.findById(bookingId)
+        .populate('slot_id')
+        .populate('child_id')
+        .populate('user_id');
+      return res.status(409).json({
+        error: 'تم تأكيد الدفع مسبقاً',
+        error_code: 'already_confirmed',
+        booking: fresh ? summarizeBooking(fresh) : null
+      });
+    }
+
+    // Award referral for first confirmed order (idempotent + non-fatal).
+    try {
+      await awardReferralForFirstConfirmedOrder(
+        updated.user_id?._id || updated.user_id,
+        `hourly:${updated._id}`
+      );
+    } catch (refErr) {
+      logger.error({
+        event: 'staff_confirm_payment_referral_failed',
+        booking_id: updated._id.toString(),
+        error: refErr.message
+      });
+    }
+
+    logger.info({
+      event: 'staff_confirm_payment',
+      result: 'ok',
+      booking_id: updated._id.toString(),
+      booking_code: updated.booking_code,
+      payment_method: updated.payment_method,
+      payment_status_from: existing.payment_status,
+      staff_id: req.userId
+    });
+
+    return res.json({
+      ok: true,
+      message: 'تم تأكيد استلام الدفع. يمكنك الآن تفعيل الجلسة.',
+      booking: summarizeBooking(updated)
+    });
+  } catch (error) {
+    logger.error({
+      event: 'staff_confirm_payment_failed',
+      booking_id: bookingId,
+      error: error.message,
+      stack: error.stack
+    });
+    return res.status(500).json({ error: ARABIC_MESSAGES.server_error });
   }
 });
 

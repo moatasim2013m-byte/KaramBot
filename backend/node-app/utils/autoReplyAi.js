@@ -87,6 +87,7 @@ const buildStaticSystemPrompt = () => [
   '• "في صور للمكان؟" → وجّه للإنستغرام أو الموقع',
   '• "اللعب بالساعه" / "بالساعة" / "كم سعر الساعة" / "سعر اللعب" / "الساعة بكم" / "قديش الساعة" → جاوب مباشرة بأسعار الدخول بالساعة من حقل pricing في البيانات الحية بدون أي سؤال متابعة.',
   '• "كم دخوله طفل" / "بكم دخول الطفل" / "كم للطفل" / "قديش دخول الطفل" / "السعر دخول طفل" → topic="play_sessions"، جاوب مباشرة بسعر الدخول بالساعة والساعتين من pricing. لا تذكر داي كير إلا لو الزبون قالها.',
+  '• إذا سأل الزبون عن السعر/الدخول لأي طفل: اذكر active_offer إذا كان فعّالاً، واذكر بوضوح أنه "صالح حتى 2 مايو 2026".',
   '• "ايش داي كير" / "شو الداي كير" / "شو هو الداي كير" / "يعني شو داي كير" → topic="daycare"، جاوب بتعريف مختصر للداي كير (رعاية يومية للأطفال بدون أهل) بدون ذكر أسعار إلا لو سأل عنها.',
   '• "الداي كير كم" / "كم الداي كير" / "كم سعر الداي كير" / "بكم الداي كير" / "قديش الداي كير" → topic="daycare"، جاوب مباشرة بسعر الداي كير من البيانات الحية فقط، لا تخلط مع أسعار اللعب بالساعة.',
   '',
@@ -405,6 +406,18 @@ const getJordanNowParts = () => {
 let _cachedFacts = null;
 let _cachedFactsExpiry = 0;
 const FACTS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MAY_2026_PROMO_END_JORDAN = '2026-05-02';
+
+const getJordanDateIso = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: JORDAN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+};
 
 const loadFacts = async () => {
   const now = Date.now();
@@ -427,6 +440,11 @@ const loadFacts = async () => {
   const priceFacts = pricingDocs.map((doc) => `${doc.key}: ${doc.value}`).join(', ');
   const daycareFacts = plans.map((plan) => `${plan.name_ar || plan.name}: ${plan.price} د.أ`).join(' | ');
   const birthdayFacts = birthdayThemes.map((theme) => `${theme.name_ar || theme.name}: ${theme.price} د.أ`).join(' | ');
+  const jordanDateIso = getJordanDateIso();
+  const isMayPromoActive = jordanDateIso <= MAY_2026_PROMO_END_JORDAN;
+  const activeOfferFacts = isMayPromoActive
+    ? 'عرض Peekaboo Irbid: الطفل الأول 10 دنانير والطفل الثاني مجاناً لمدة ساعتين لعب (بدل 20) — صالح حتى 2 مايو 2026.'
+    : 'لا يوجد عرض أخوة فعّال حالياً.';
 
   const facts = {
     hours: String(hoursDoc?.value || ''),
@@ -435,7 +453,8 @@ const loadFacts = async () => {
     regularClosingTime: normalizeTime24(closingDoc?.value, DEFAULT_REGULAR_CLOSING_TIME),
     pricing: priceFacts,
     daycare: daycareFacts,
-    birthday: birthdayFacts
+    birthday: birthdayFacts,
+    activeOffer: activeOfferFacts
   };
 
   _cachedFacts = facts;
@@ -636,6 +655,7 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       `hours: ${facts.hours || 'unknown'}`,
       `location: ${facts.location || 'unknown'}`,
       `pricing: ${facts.pricing || 'unknown'}`,
+      `active_offer: ${facts.activeOffer || 'unknown'}`,
       `daycare_plans: ${facts.daycare || 'unknown'}`,
       `birthday_packages: ${facts.birthday || 'unknown'}`,
       approvedFaqContext,

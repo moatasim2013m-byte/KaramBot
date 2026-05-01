@@ -471,6 +471,57 @@ h3 {
     }
 }
 
+/* ===== Mobile Quick Nav Strip (all customer pages) ===== */
+.mobile-quick-nav-strip {
+    width: 100%;
+    padding: 6px 0 8px;
+    margin-top: -2px;
+    border-top: 1px solid rgba(87, 209, 230, 0.18);
+    overflow: hidden;
+    position: relative;
+    z-index: 2;
+}
+
+.mobile-quick-nav-track {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 12px 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+
+.mobile-quick-nav-track::-webkit-scrollbar {
+    display: none;
+}
+
+.mobile-quick-nav-track > .nav-pill {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 999px;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* Soft fade at the leading edge to hint scrollability (RTL-aware) */
+[dir="rtl"] .mobile-quick-nav-strip::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 24px;
+    background: linear-gradient(to right, rgba(248, 251, 255, 0.95), rgba(248, 251, 255, 0));
+    pointer-events: none;
+    z-index: 3;
+}
+
 .menu-bar {
     display: block;
     height: 3px;
@@ -4914,3 +4965,933 @@ body {
 @media (min-width: 1024px) {
   .admin-kpi-grid { grid-template-columns: repeat(4, 1fr); }
 }
+
+
+/* ============================================================
+   ✨ PEEKABOO KIDS DECOR + UPLIFT v2 (public pages only)
+   - Soft floating clouds (top atmosphere)
+   - Gentle forest / hill silhouettes (bottom)
+   - Premium playful heading polish (.heading-bubble)
+   - Kid-themed service-card polish (.kids-service-card)
+   CSS-only. RTL-safe. Pointer-events: none on all decor.
+   ============================================================ */
+
+/* --- Premium playful heading polish (opt-in) --- */
+.heading-bubble {
+  font-family: var(--font-heading-ar);
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85),
+               0 2px 14px rgba(102, 169, 233, 0.10);
+}
+
+.heading-bubble .heading-bubble__accent {
+  display: inline-block;
+  background: linear-gradient(180deg, transparent 60%, rgba(255, 217, 102, 0.55) 60%);
+  padding: 0 0.15em;
+  border-radius: 4px;
+}
+
+/* Subtle decorative underline for section eyebrows */
+.kids-eyebrow {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* --- Public bg decoration system --- */
+.peekaboo-kids-decor,
+.peekaboo-home-decor,
+.wonder-sky-bg,
+.pk-booking-page {
+  position: relative;
+  isolation: isolate;
+}
+
+.peekaboo-kids-decor > *,
+.peekaboo-home-decor > *,
+.wonder-sky-bg > *,
+.pk-booking-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Soft floating clouds (top atmosphere) - applied to public pages
+   that DON'T already have their own hero clouds (e.g. wonder-sky-bg
+   pages, booking pages). Skipped on .peekaboo-home-decor since
+   HomePage hero already ships its own SkyBackground. */
+.peekaboo-kids-decor::before,
+.wonder-sky-bg::before,
+.pk-booking-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 480px;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 90'><g fill='white'><ellipse cx='110' cy='55' rx='95' ry='28'/><ellipse cx='62' cy='42' rx='40' ry='22'/><ellipse cx='150' cy='40' rx='46' ry='24'/><ellipse cx='110' cy='28' rx='34' ry='17'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 80'><g fill='white'><ellipse cx='100' cy='50' rx='82' ry='25'/><ellipse cx='55' cy='37' rx='38' ry='20'/><ellipse cx='142' cy='37' rx='40' ry='22'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 60'><g fill='white'><ellipse cx='80' cy='38' rx='65' ry='18'/><ellipse cx='44' cy='28' rx='28' ry='14'/><ellipse cx='114' cy='28' rx='30' ry='15'/></g></svg>");
+  background-repeat: no-repeat;
+  background-position:
+    -50px 30px,
+    calc(100% + 40px) 90px,
+    52% 180px;
+  background-size:
+    300px 120px,
+    250px 100px,
+    180px 72px;
+  opacity: 0.55;
+  filter: drop-shadow(0 6px 14px rgba(102, 169, 233, 0.15));
+}
+
+/* Hills + tiny trees silhouette band (bottom of page).
+   Applied to ALL public wrappers including HomePage variant. */
+.peekaboo-kids-decor::after,
+.peekaboo-home-decor::after,
+.wonder-sky-bg::after,
+.pk-booking-page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 220px;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.55'/><circle cx='30' cy='32' r='22' fill='%2397C64A' opacity='0.65'/><circle cx='17' cy='36' r='13' fill='%2397C64A' opacity='0.55'/><circle cx='43' cy='36' r='13' fill='%2397C64A' opacity='0.55'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.5'/><circle cx='30' cy='32' r='22' fill='%237AC74F' opacity='0.6'/><circle cx='17' cy='36' r='13' fill='%237AC74F' opacity='0.5'/><circle cx='43' cy='36' r='13' fill='%237AC74F' opacity='0.5'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 200' preserveAspectRatio='none'><g><path d='M0,140 Q180,70 360,130 T720,110 T1080,130 T1440,110 L1440,200 L0,200 Z' fill='%2397C64A' opacity='0.20'/><path d='M0,170 Q240,110 480,160 T960,150 T1440,170 L1440,200 L0,200 Z' fill='%237AC74F' opacity='0.26'/></g></svg>");
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position:
+    6% bottom,
+    94% bottom,
+    bottom center;
+  background-size:
+    72px 96px,
+    72px 96px,
+    100% 200px;
+  opacity: 0.85;
+}
+
+/* Mobile: trim heights so decorations stay subtle and don't crowd */
+@media (max-width: 640px) {
+  .peekaboo-kids-decor::before,
+  .wonder-sky-bg::before,
+  .pk-booking-page::before {
+    height: 320px;
+    background-size: 220px 88px, 180px 72px, 140px 56px;
+    opacity: 0.45;
+  }
+  .peekaboo-kids-decor::after,
+  .peekaboo-home-decor::after,
+  .wonder-sky-bg::after,
+  .pk-booking-page::after {
+    height: 140px;
+    background-size: 50px 66px, 50px 66px, 100% 140px;
+    opacity: 0.7;
+  }
+}
+
+/* --- Service card v2 — premium kid-themed polish --- */
+.kids-service-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+}
+.kids-service-card::before {
+  content: '';
+  position: absolute;
+  top: -50px;
+  inset-inline-end: -50px;
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 217, 102, 0.32) 0%, transparent 65%);
+  pointer-events: none;
+  transition: transform 0.45s ease;
+  z-index: 0;
+}
+.kids-service-card::after {
+  content: '';
+  position: absolute;
+  bottom: -45px;
+  inset-inline-start: -45px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(102, 169, 233, 0.22) 0%, transparent 65%);
+  pointer-events: none;
+  transition: transform 0.45s ease;
+  z-index: 0;
+}
+.kids-service-card:hover::before { transform: scale(1.18) rotate(8deg); }
+.kids-service-card:hover::after  { transform: scale(1.18) rotate(-6deg); }
+
+.kids-service-card > * { position: relative; z-index: 1; }
+
+.kids-service-card .kids-icon-frame {
+  position: relative;
+}
+.kids-service-card .kids-icon-frame::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 22px;
+  border: 2px dashed rgba(45, 45, 45, 0.10);
+  pointer-events: none;
+  transition: transform 0.4s ease;
+}
+.kids-service-card:hover .kids-icon-frame::after {
+  transform: rotate(6deg);
+}
+
+/* --- HomePage hero — soft hill strip at bottom of hero --- */
+.home-hero-hills {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 90px;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 90' preserveAspectRatio='none'><g><path d='M0,55 Q200,15 400,50 T800,40 T1200,50 T1440,35 L1440,90 L0,90 Z' fill='%23FFD166' opacity='0.20'/><path d='M0,72 Q240,38 480,65 T960,58 T1440,68 L1440,90 L0,90 Z' fill='%237AC74F' opacity='0.22'/></g></svg>");
+  background-repeat: no-repeat;
+  background-position: bottom center;
+  background-size: 100% 100%;
+}
+
+/* Tiny floating sparkles inside hero (optional accent) */
+.home-hero-sparkle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 217, 102, 0.95) 0%, rgba(255, 217, 102, 0) 70%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+}
+.home-hero-sparkle--a { top: 14%; inset-inline-start: 18%; }
+.home-hero-sparkle--b { top: 28%; inset-inline-end: 22%; width: 14px; height: 14px; }
+.home-hero-sparkle--c { bottom: 22%; inset-inline-start: 32%; width: 8px; height: 8px; }
+
+/* Reduced-motion safety: never animate decor */
+@media (prefers-reduced-motion: reduce) {
+  .kids-service-card::before,
+  .kids-service-card::after,
+  .kids-service-card .kids-icon-frame::after {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   ✨ PEEKABOO KIDS DECOR — PASS 2 (bolder, more kid-vibe)
+   Layered on top of v2. Rollback = delete this block only.
+   - Stronger clouds + hills opacity
+   - Hero floating balloons (CSS-only)
+   - Warm gradient hero title (.heading-bubble--hero)
+   - Richer service-card corner glows + shine sweep
+   - heading-bubble typography ripple across all public pages
+   ============================================================ */
+
+/* --- Typography pass 2: hero gradient + rounder feel --- */
+.heading-bubble--hero {
+  background: linear-gradient(180deg, #2D2D2D 0%, #3B3B3B 55%, #7A4E1E 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 2px 0 rgba(255, 255, 255, 0.75))
+          drop-shadow(0 8px 22px rgba(102, 169, 233, 0.18));
+}
+/* Accessible fallback for user agents that don't support background-clip:text */
+@supports not (-webkit-background-clip: text) {
+  .heading-bubble--hero {
+    color: #2D2D2D;
+    -webkit-text-fill-color: currentColor;
+    background: none;
+  }
+}
+
+/* --- Decoration strength bump (clouds) --- */
+.peekaboo-kids-decor::before,
+.wonder-sky-bg::before,
+.pk-booking-page::before {
+  opacity: 0.75;
+  filter: drop-shadow(0 8px 18px rgba(102, 169, 233, 0.22));
+}
+
+/* --- Decoration strength bump (hills + trees) --- */
+.peekaboo-kids-decor::after,
+.peekaboo-home-decor::after,
+.wonder-sky-bg::after,
+.pk-booking-page::after {
+  opacity: 1;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.7'/><circle cx='30' cy='30' r='22' fill='%2397C64A' opacity='0.85'/><circle cx='17' cy='36' r='13' fill='%2397C64A' opacity='0.75'/><circle cx='43' cy='36' r='13' fill='%2397C64A' opacity='0.75'/><circle cx='22' cy='24' r='4' fill='%23ffffff' opacity='0.35'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.65'/><circle cx='30' cy='30' r='22' fill='%237AC74F' opacity='0.8'/><circle cx='17' cy='36' r='13' fill='%237AC74F' opacity='0.7'/><circle cx='43' cy='36' r='13' fill='%237AC74F' opacity='0.7'/><circle cx='38' cy='24' r='4' fill='%23ffffff' opacity='0.35'/></g></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 200' preserveAspectRatio='none'><g><path d='M0,140 Q180,70 360,130 T720,110 T1080,130 T1440,110 L1440,200 L0,200 Z' fill='%2397C64A' opacity='0.35'/><path d='M0,170 Q240,110 480,160 T960,150 T1440,170 L1440,200 L0,200 Z' fill='%237AC74F' opacity='0.45'/></g></svg>");
+}
+
+/* Extra mid-size tree between the two corner trees on wide screens */
+@media (min-width: 1024px) {
+  .peekaboo-kids-decor::after,
+  .peekaboo-home-decor::after,
+  .wonder-sky-bg::after,
+  .pk-booking-page::after {
+    background-image:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.7'/><circle cx='30' cy='30' r='22' fill='%2397C64A' opacity='0.85'/><circle cx='17' cy='36' r='13' fill='%2397C64A' opacity='0.75'/><circle cx='43' cy='36' r='13' fill='%2397C64A' opacity='0.75'/></g></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='44' width='5' height='28' fill='%23A0671E' opacity='0.65'/><circle cx='30' cy='30' r='22' fill='%237AC74F' opacity='0.8'/><circle cx='17' cy='36' r='13' fill='%237AC74F' opacity='0.7'/><circle cx='43' cy='36' r='13' fill='%237AC74F' opacity='0.7'/></g></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 200' preserveAspectRatio='none'><g><path d='M0,140 Q180,70 360,130 T720,110 T1080,130 T1440,110 L1440,200 L0,200 Z' fill='%2397C64A' opacity='0.35'/><path d='M0,170 Q240,110 480,160 T960,150 T1440,170 L1440,200 L0,200 Z' fill='%237AC74F' opacity='0.45'/></g></svg>"),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 80'><g><rect x='27.5' y='46' width='4' height='24' fill='%23A0671E' opacity='0.55'/><circle cx='30' cy='32' r='18' fill='%2397C64A' opacity='0.65'/><circle cx='20' cy='36' r='10' fill='%2397C64A' opacity='0.55'/><circle cx='40' cy='36' r='10' fill='%2397C64A' opacity='0.55'/></g></svg>");
+    background-position: 6% bottom, 94% bottom, bottom center, 48% bottom;
+    background-size: 86px 112px, 86px 112px, 100% 200px, 64px 84px;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat;
+  }
+}
+
+/* --- Hero floating balloons (HomePage hero, CSS-only) --- */
+.home-hero-balloon {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+  width: 36px;
+  height: 48px;
+  opacity: 0.85;
+  filter: drop-shadow(0 6px 10px rgba(45, 45, 45, 0.12));
+  animation: hero-balloon-float 7s ease-in-out infinite;
+}
+.home-hero-balloon::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 16px 0;
+  border-radius: 50% 50% 50% 50% / 55% 55% 45% 45%;
+  background: var(--balloon-color, #E63946);
+  box-shadow: inset -4px -6px 10px rgba(0, 0, 0, 0.12),
+              inset 6px 6px 10px rgba(255, 255, 255, 0.25);
+}
+.home-hero-balloon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 32px;
+  width: 1px;
+  height: 18px;
+  background: rgba(45, 45, 45, 0.35);
+  transform: translateX(-50%);
+}
+.home-hero-balloon--red    { top: 8%;  inset-inline-start: 6%;  --balloon-color: #E63946; animation-delay: 0s;   }
+.home-hero-balloon--yellow { top: 14%; inset-inline-end: 10%;  --balloon-color: #FFD166; animation-delay: 1.5s; width: 30px; height: 40px; }
+.home-hero-balloon--blue   { top: 30%; inset-inline-end: 4%;   --balloon-color: #66A9E9; animation-delay: 3s;   width: 26px; height: 34px; }
+
+@keyframes hero-balloon-float {
+  0%, 100% { transform: translateY(0)    rotate(-2deg); }
+  50%      { transform: translateY(-14px) rotate(2deg);  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-balloon { animation: none; }
+}
+
+/* --- Service card: richer glows + shine sweep --- */
+.kids-service-card::before {
+  background: radial-gradient(circle, rgba(255, 209, 102, 0.55) 0%, transparent 70%);
+  width: 160px;
+  height: 160px;
+}
+.kids-service-card::after {
+  background: radial-gradient(circle, rgba(102, 169, 233, 0.38) 0%, transparent 70%);
+  width: 150px;
+  height: 150px;
+}
+
+/* Soft shine sweep on hover */
+.kids-service-card .kids-shine {
+  position: absolute;
+  top: 0;
+  inset-inline-start: -60%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  transform: skewX(-18deg);
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  transition: transform 0.85s ease, opacity 0.3s ease;
+}
+.kids-service-card:hover .kids-shine {
+  inset-inline-start: 120%;
+  opacity: 1;
+}
+
+/* Upgrade icon frame: remove dashed, add soft gradient halo */
+.kids-service-card .kids-icon-frame::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 24px;
+  border: none;
+  background: conic-gradient(
+    from 0deg,
+    rgba(255, 209, 102, 0.35),
+    rgba(102, 169, 233, 0.35),
+    rgba(151, 198, 74, 0.35),
+    rgba(230, 57, 70, 0.28),
+    rgba(255, 209, 102, 0.35)
+  );
+  filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: -1;
+}
+.kids-service-card:hover .kids-icon-frame::after {
+  opacity: 0.9;
+  transform: none;
+}
+
+/* --- Sparkle amplification (hero) --- */
+.home-hero-sparkle {
+  box-shadow: 0 0 12px 2px rgba(255, 217, 102, 0.55);
+  animation: hero-sparkle-twinkle 3.5s ease-in-out infinite;
+}
+.home-hero-sparkle--b { animation-delay: 1s; }
+.home-hero-sparkle--c { animation-delay: 2s; }
+@keyframes hero-sparkle-twinkle {
+  0%, 100% { transform: scale(1);   opacity: 0.55; }
+  50%      { transform: scale(1.35); opacity: 1;    }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-sparkle { animation: none; }
+}
+
+/* --- Mobile: keep pass-2 still restrained --- */
+@media (max-width: 640px) {
+  .peekaboo-kids-decor::before,
+  .wonder-sky-bg::before,
+  .pk-booking-page::before {
+    opacity: 0.6;
+  }
+  .peekaboo-kids-decor::after,
+  .peekaboo-home-decor::after,
+  .wonder-sky-bg::after,
+  .pk-booking-page::after {
+    opacity: 0.85;
+  }
+  .home-hero-balloon--blue { display: none; } /* avoid crowding on 390px */
+}
+
+
+/* ============================================================
+   🧹 DESKTOP CLEANUP (≥1024px) — calmer, more premium
+   Goal: on wide screens, content first, decoration second.
+   Keeps mobile behaviour exactly as-is (earlier breakpoints win).
+   Rollback = delete this block only.
+   ============================================================ */
+@media (min-width: 1024px) {
+
+  /* --- Hero: kill competing decoration stack on desktop --- */
+  .home-hero-balloon,
+  .home-hero-sparkle,
+  .home-hero-hills {
+    display: none !important;
+  }
+
+  /* Service cards: revert to pass-1 calm glows (pass-2 was too loud wide) */
+  .kids-service-card::before {
+    width: 140px;
+    height: 140px;
+    background: radial-gradient(circle, rgba(255, 217, 102, 0.30) 0%, transparent 65%);
+  }
+  .kids-service-card::after {
+    width: 130px;
+    height: 130px;
+    background: radial-gradient(circle, rgba(102, 169, 233, 0.20) 0%, transparent 65%);
+  }
+  /* Shine sweep kept subtle on desktop */
+  .kids-service-card .kids-shine { opacity: 0; }
+  .kids-service-card:hover .kids-shine { opacity: 0.6; }
+
+  /* Conic halo on icon frame: calmer */
+  .kids-service-card:hover .kids-icon-frame::after { opacity: 0.55; }
+
+  /* Top cloud layer: revert to calmer pass-1 opacity on desktop */
+  .peekaboo-kids-decor::before,
+  .wonder-sky-bg::before,
+  .pk-booking-page::before {
+    opacity: 0.5;
+    filter: drop-shadow(0 6px 14px rgba(102, 169, 233, 0.15));
+  }
+
+  /* ✂️ HomePage-only: remove the bottom hills pseudo because
+     HomePage stacks multiple opaque section bgs over it, which makes
+     the hills bleed as a confusing mid-page band on wide screens.
+     Hills stay ON for single-bg public pages (Tickets/Birthday/Subs
+     via pk-booking-page, Groups/HomeParty/About via wonder-sky-bg). */
+  .peekaboo-home-decor::after {
+    display: none !important;
+  }
+
+  /* Bottom decoration on other public pages: slightly softer on desktop */
+  .peekaboo-kids-decor::after,
+  .wonder-sky-bg::after,
+  .pk-booking-page::after {
+    opacity: 0.9;
+  }
+}
+
+
+
+/* =====================================================
+   PARENT DASHBOARD + BOOKING CONFIRMATION POLISH
+   Presentation-only additions (July 2026).
+   Branded by logo palette: blue / yellow / orange / green / red.
+   Does not alter any existing selectors above.
+   ===================================================== */
+
+/* ----- Parent dashboard shell ----- */
+.parent-dashboard-bg {
+    background:
+        radial-gradient(ellipse at 8% 0%, rgba(102, 169, 233, 0.16), transparent 55%),
+        radial-gradient(ellipse at 92% 8%, rgba(242, 229, 51, 0.18), transparent 55%),
+        radial-gradient(ellipse at 0% 100%, rgba(151, 198, 74, 0.12), transparent 50%),
+        radial-gradient(ellipse at 100% 100%, rgba(242, 138, 46, 0.12), transparent 55%),
+        #f7fbff;
+    min-height: 100vh;
+}
+
+/* ----- Premium identity card ----- */
+.identity-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 28px;
+    background: #ffffff;
+    border: 1px solid rgba(102, 169, 233, 0.18);
+    box-shadow: 0 12px 34px rgba(25, 90, 124, 0.10);
+}
+.identity-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 12% 20%, rgba(242, 229, 51, 0.22), transparent 45%),
+        radial-gradient(circle at 88% 12%, rgba(102, 169, 233, 0.18), transparent 50%),
+        radial-gradient(circle at 88% 90%, rgba(151, 198, 74, 0.16), transparent 45%),
+        linear-gradient(180deg, #ffffff 0%, #fafdff 100%);
+    pointer-events: none;
+    z-index: 0;
+}
+.identity-card > * { position: relative; z-index: 1; }
+
+.identity-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--pk-yellow), var(--pk-orange) 55%, var(--pk-red));
+    color: #ffffff;
+    border: 4px solid #ffffff;
+    box-shadow: 0 8px 22px rgba(242, 138, 46, 0.35);
+    font-family: var(--font-heading-ar);
+    font-weight: 700;
+    font-size: 1.6rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+@media (min-width: 768px) {
+    .identity-avatar { width: 76px; height: 76px; font-size: 2rem; }
+}
+
+.loyalty-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.9rem;
+    background: #ffffff;
+    border-radius: 18px;
+    border: 1px solid rgba(242, 229, 51, 0.55);
+    box-shadow: 0 6px 18px rgba(242, 138, 46, 0.15);
+}
+.loyalty-chip__icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--pk-yellow), var(--pk-orange));
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* ----- Dashboard tabs ----- */
+.dashboard-tabs-list {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(102, 169, 233, 0.22);
+    border-radius: 20px;
+    padding: 6px;
+    box-shadow: 0 6px 20px rgba(25, 90, 124, 0.08);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    width: 100%;
+    height: auto;
+}
+@media (min-width: 768px) {
+    .dashboard-tabs-list {
+        display: inline-flex;
+        width: auto;
+        gap: 4px;
+        border-radius: 999px;
+    }
+}
+
+.dashboard-tab-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.7rem;
+    font-family: var(--font-heading-ar);
+    font-weight: 700;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    border-radius: 14px;
+    background: transparent;
+    border: none;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+@media (min-width: 768px) {
+    .dashboard-tab-trigger {
+        padding: 0.6rem 1.15rem;
+        font-size: 0.95rem;
+        border-radius: 999px;
+    }
+}
+.dashboard-tab-trigger:hover {
+    color: var(--text-primary);
+    background: rgba(102, 169, 233, 0.10);
+}
+.dashboard-tab-trigger[data-state="active"] {
+    color: #ffffff !important;
+    background: linear-gradient(135deg, var(--pk-blue), #4f98de);
+    box-shadow: 0 6px 16px rgba(102, 169, 233, 0.38);
+}
+.dashboard-tab-trigger[data-state="active"].tab-accent-pink {
+    background: linear-gradient(135deg, var(--pk-red), #e74c3c);
+    box-shadow: 0 6px 16px rgba(217, 35, 46, 0.35);
+}
+.dashboard-tab-trigger[data-state="active"].tab-accent-yellow {
+    background: linear-gradient(135deg, var(--pk-yellow), #f4c430);
+    color: #5D4E00 !important;
+    box-shadow: 0 6px 16px rgba(242, 229, 51, 0.5);
+}
+.dashboard-tab-trigger[data-state="active"].tab-accent-orange {
+    background: linear-gradient(135deg, var(--pk-orange), #e67e22);
+    box-shadow: 0 6px 16px rgba(242, 138, 46, 0.4);
+}
+.dashboard-tab-trigger[data-state="active"].tab-accent-green {
+    background: linear-gradient(135deg, var(--pk-green), #88b83b);
+    box-shadow: 0 6px 16px rgba(151, 198, 74, 0.4);
+}
+
+/* ----- Dashboard section card ----- */
+.dashboard-card {
+    background: #ffffff;
+    border-radius: 24px;
+    border: 1px solid rgba(102, 169, 233, 0.18);
+    box-shadow: 0 10px 28px rgba(25, 90, 124, 0.08);
+    overflow: hidden;
+}
+.dashboard-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid rgba(102, 169, 233, 0.12);
+    background: linear-gradient(180deg, rgba(102, 169, 233, 0.05), transparent);
+    flex-wrap: wrap;
+}
+.dashboard-card__head h3 {
+    font-family: var(--font-heading-ar);
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--text-primary);
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.dashboard-card__head p {
+    margin: 2px 0 0;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+.dashboard-card__body { padding: 18px 20px 22px; }
+
+/* Empty state */
+.dashboard-empty {
+    text-align: center;
+    padding: 44px 16px;
+    color: var(--text-secondary);
+}
+.dashboard-empty__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(102, 169, 233, 0.15), rgba(242, 229, 51, 0.20));
+    color: var(--pk-blue);
+    margin: 0 auto 14px;
+}
+
+/* Child card */
+.child-card {
+    background: #ffffff;
+    border-radius: 18px;
+    border: 1px solid rgba(102, 169, 233, 0.18);
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.child-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 24px rgba(25, 90, 124, 0.10);
+    border-color: rgba(102, 169, 233, 0.35);
+}
+.child-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--pk-blue), #4f98de);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Booking row card */
+.booking-row {
+    position: relative;
+    background: #ffffff;
+    border-radius: 18px;
+    border: 1px solid rgba(102, 169, 233, 0.18);
+    padding: 14px 14px 14px 18px;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.booking-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0; /* RTL: accent on the right */
+    width: 4px;
+    background: var(--pk-blue);
+}
+[dir="rtl"] .booking-row::before { right: 0; left: auto; }
+.booking-row.is-confirmed::before { background: var(--pk-green); }
+.booking-row.is-pending::before { background: var(--pk-yellow); }
+.booking-row.is-cancelled::before { background: var(--pk-red); }
+.booking-row.is-done::before { background: #9aa5b1; }
+.booking-row:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(25, 90, 124, 0.10);
+}
+
+/* Loyalty hero */
+.loyalty-hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    padding: 22px;
+    background:
+        radial-gradient(circle at 90% 10%, rgba(242, 229, 51, 0.55), transparent 45%),
+        radial-gradient(circle at 10% 100%, rgba(242, 138, 46, 0.35), transparent 45%),
+        linear-gradient(135deg, #fff5d9, #ffe7cf);
+    border: 1px solid rgba(242, 138, 46, 0.35);
+    text-align: center;
+}
+
+/* History row */
+.loyalty-history-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #ffffff;
+    border: 1px solid rgba(102, 169, 233, 0.14);
+    gap: 12px;
+}
+
+/* ===== Booking confirmation polish ===== */
+.confirm-hero {
+    text-align: center;
+    padding: 14px 0 6px;
+    position: relative;
+}
+.confirm-success-ring {
+    position: relative;
+    width: 108px;
+    height: 108px;
+    margin: 0 auto 12px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle, #ffffff 55%, rgba(151, 198, 74, 0.25) 70%, transparent 72%);
+    border: 3px solid rgba(151, 198, 74, 0.55);
+    box-shadow: 0 14px 34px rgba(151, 198, 74, 0.35);
+}
+.confirm-success-ring::after {
+    content: '';
+    position: absolute;
+    inset: -14px;
+    border-radius: 999px;
+    background: conic-gradient(from 0deg,
+        rgba(242, 229, 51, 0.25),
+        rgba(102, 169, 233, 0.25),
+        rgba(151, 198, 74, 0.25),
+        rgba(242, 138, 46, 0.25),
+        rgba(242, 229, 51, 0.25));
+    filter: blur(18px);
+    z-index: -1;
+    opacity: 0.8;
+}
+
+.confirm-reference {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    padding: 20px 16px;
+    color: #ffffff;
+    text-align: center;
+    background:
+        radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.25), transparent 45%),
+        radial-gradient(circle at 90% 80%, rgba(255, 255, 255, 0.18), transparent 40%),
+        linear-gradient(135deg, var(--pk-red), var(--pk-orange) 55%, var(--pk-yellow));
+    box-shadow: 0 12px 32px rgba(217, 35, 46, 0.28);
+}
+.confirm-reference__code {
+    font-family: var(--font-heading-ar);
+    font-weight: 800;
+    font-size: clamp(1.6rem, 5vw, 2.1rem);
+    letter-spacing: 0.08em;
+}
+.confirm-reference__copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 10px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    color: #ffffff;
+    font-size: 0.82rem;
+    font-weight: 700;
+    transition: all 0.2s ease;
+}
+.confirm-reference__copy-btn:hover {
+    background: rgba(255, 255, 255, 0.32);
+    transform: translateY(-1px);
+}
+
+.confirm-detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #ffffff;
+    border: 1px solid rgba(102, 169, 233, 0.15);
+    transition: border-color 0.2s ease;
+}
+.confirm-detail-row:hover { border-color: rgba(102, 169, 233, 0.32); }
+.confirm-detail-row .label { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--text-secondary); font-size: 0.92rem; }
+.confirm-detail-row .value { font-family: var(--font-heading-ar); font-weight: 700; color: var(--text-primary); font-size: 0.98rem; }
+
+.confirm-detail-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.confirm-detail-icon.c-blue { background: rgba(102, 169, 233, 0.15); color: var(--pk-blue); }
+.confirm-detail-icon.c-green { background: rgba(151, 198, 74, 0.18); color: #6a8f2f; }
+.confirm-detail-icon.c-yellow { background: rgba(242, 229, 51, 0.32); color: #8a7000; }
+.confirm-detail-icon.c-orange { background: rgba(242, 138, 46, 0.18); color: var(--pk-orange); }
+.confirm-detail-icon.c-red { background: rgba(217, 35, 46, 0.14); color: var(--pk-red); }
+.confirm-detail-icon.c-purple { background: rgba(107, 126, 242, 0.15); color: var(--pk-purple); }
+
+.confirm-section-title {
+    font-family: var(--font-heading-ar);
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin: 0 0 10px;
+}
+
+.next-step-item {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(102, 169, 233, 0.06);
+    border: 1px solid rgba(102, 169, 233, 0.14);
+}
+.next-step-item__num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--pk-blue), #4f98de);
+    color: #ffffff;
+    font-family: var(--font-heading-ar);
+    font-weight: 800;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.next-step-item__text { font-size: 0.88rem; color: var(--text-primary); line-height: 1.65; }
+
+/* CTA primary for confirmation */
+.confirm-cta-primary {
+    background: linear-gradient(135deg, var(--pk-red), var(--pk-orange)) !important;
+    color: #ffffff !important;
+    box-shadow: 0 10px 24px rgba(217, 35, 46, 0.28) !important;
+}
+.confirm-cta-primary:hover {
+    filter: brightness(1.05);
+    transform: translateY(-2px);
+}
+
