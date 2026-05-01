@@ -1,11 +1,5 @@
-/**
- * Environment variable validator.
- * In production: hard fail on missing critical vars.
- * In development: warn but continue.
- */
-
 const REQUIRED_ALWAYS = [
-  'MONGO_URL',
+  'DATABASE_URL',
   'JWT_SECRET',
   'WHATSAPP_WEBHOOK_VERIFY_TOKEN',
 ];
@@ -23,17 +17,23 @@ const AI_KEYS = {
 
 function validateEnv() {
   const isProd = process.env.NODE_ENV === 'production';
+  const isPreview = process.env.SKIP_DB_CONNECT === 'true';
   const errors = [];
   const warnings = [];
 
-  // Always required
+  // DATABASE_URL is not required in preview mode
   for (const key of REQUIRED_ALWAYS) {
+    if (key === 'DATABASE_URL' && isPreview) {
+      if (!process.env[key]) {
+        warnings.push(`${key} (not required in SKIP_DB_CONNECT=true preview mode)`);
+      }
+      continue;
+    }
     if (!process.env[key]) {
       errors.push(key);
     }
   }
 
-  // Required in production only
   if (isProd) {
     for (const key of REQUIRED_IN_PRODUCTION) {
       if (!process.env[key]) {
@@ -48,7 +48,6 @@ function validateEnv() {
     }
   }
 
-  // AI provider key
   const provider = process.env.AI_PROVIDER || 'gemini';
   const aiKey = AI_KEYS[provider];
   if (aiKey) {
@@ -63,7 +62,6 @@ function validateEnv() {
     warnings.push(`Unknown AI_PROVIDER="${provider}". Supported: gemini, openai`);
   }
 
-  // JWT_SECRET strength check
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
     if (isProd) {
       errors.push('JWT_SECRET must be at least 32 characters in production');
@@ -72,7 +70,6 @@ function validateEnv() {
     }
   }
 
-  // TOKEN_ENCRYPTION_KEY length check (must be 32 bytes = 64 hex chars)
   if (process.env.TOKEN_ENCRYPTION_KEY) {
     if (process.env.TOKEN_ENCRYPTION_KEY.length !== 64) {
       const msg = 'TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)';
@@ -81,19 +78,16 @@ function validateEnv() {
     }
   }
 
-  // META_APP_SECRET - warn in dev if missing (webhook sig validation will be skipped)
   if (!isProd && !process.env.META_APP_SECRET) {
     warnings.push('META_APP_SECRET is missing — webhook signature validation is DISABLED (dev only)');
   }
 
-  // Print warnings
   if (warnings.length > 0) {
     console.warn('\n⚠️  Environment warnings:');
     warnings.forEach(w => console.warn(`   - ${w}`));
     console.warn('');
   }
 
-  // Fail on errors
   if (errors.length > 0) {
     console.error('\n❌ FATAL: Missing required environment variables:');
     errors.forEach(e => console.error(`   - ${e}`));

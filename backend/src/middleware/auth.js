@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const prisma = require('../config/prisma');
 
-// Verify JWT and attach user to req
 async function authenticate(req, res, next) {
   try {
     const header = req.headers.authorization;
@@ -12,7 +11,13 @@ async function authenticate(req, res, next) {
     const token = header.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(decoded.id).select('-password');
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: {
+        id: true, name: true, email: true, role: true,
+        business_id: true, active: true,
+      },
+    });
     if (!user || !user.active) {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
@@ -24,7 +29,6 @@ async function authenticate(req, res, next) {
   }
 }
 
-// Require specific roles
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
@@ -35,7 +39,6 @@ function requireRole(...roles) {
   };
 }
 
-// Ensure user belongs to the business being accessed (or is platform_admin)
 function requireBusinessAccess(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   if (req.user.role === 'platform_admin') return next();
@@ -43,13 +46,12 @@ function requireBusinessAccess(req, res, next) {
   const businessId = req.params.businessId || req.query.businessId || req.body.business_id;
   if (!businessId) return res.status(400).json({ error: 'business_id required' });
 
-  if (req.user.business_id?.toString() !== businessId.toString()) {
+  if (req.user.business_id !== businessId) {
     return res.status(403).json({ error: 'Access denied to this business' });
   }
   next();
 }
 
-// Attach business_id from user automatically (for staff/owner routes)
 function attachBusinessId(req, res, next) {
   if (req.user?.role !== 'platform_admin' && req.user?.business_id) {
     req.businessId = req.user.business_id;

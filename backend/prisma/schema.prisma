@@ -1,0 +1,353 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // directUrl = env("DIRECT_URL")  // Uncomment when using connection pooling or proxy services (e.g., PgBouncer, Cloud SQL Auth Proxy)
+}
+
+// ─── Business ────────────────────────────────────────────────────────────────
+
+model Business {
+  id                     String   @id @default(cuid())
+  name                   String
+  slug                   String   @unique
+  business_type          String   @default("restaurant")
+  logo_url               String?
+  language_default       String   @default("ar")
+  timezone               String   @default("Asia/Amman")
+  currency               String   @default("JOD")
+  address                String?
+  wa_phone_number_id     String   @unique
+  wa_business_account_id String?
+  wa_access_token        String?  // stored encrypted; never expose raw
+  opening_hours          Json     @default("[]")
+  status                 String   @default("active")
+  ai_config              Json     @default("{}")
+  policies               Json     @default("{}")
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  users         User[]
+  conversations Conversation[]
+  messages      Message[]
+  orders        Order[]
+  categories    Category[]
+  menuItems     MenuItem[]
+  modifierGroups ModifierGroup[]
+
+  @@index([slug])
+  @@index([wa_phone_number_id])
+  @@map("businesses")
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id          String    @id @default(cuid())
+  name        String
+  email       String    @unique
+  password    String    // bcrypt hash
+  role        String    @default("staff")
+  business_id String?
+  active      Boolean   @default(true)
+  last_login  DateTime?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  business            Business?      @relation(fields: [business_id], references: [id])
+  assignedConversations Conversation[] @relation("AssignedStaff")
+  sentMessages        Message[]
+  orderStatusChanges  OrderStatusHistory[]
+
+  @@index([email])
+  @@index([business_id])
+  @@map("users")
+}
+
+// ─── Conversation ─────────────────────────────────────────────────────────────
+
+model Conversation {
+  id                     String    @id @default(cuid())
+  business_id            String
+  customer_wa_id         String
+  profile_name           String?
+  status                 String    @default("open")
+  assigned_staff_id      String?
+  last_message_at        DateTime  @default(now())
+  last_inbound_at        DateTime?
+  unread_count           Int       @default(0)
+  ai_enabled             Boolean   @default(true)
+  current_workflow_type  String?
+  current_state          String?
+  workflow_data          Json      @default("{}")
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+
+  business       Business  @relation(fields: [business_id], references: [id])
+  assigned_staff User?     @relation("AssignedStaff", fields: [assigned_staff_id], references: [id])
+  messages       Message[]
+  orders         Order[]
+
+  @@unique([business_id, customer_wa_id])
+  @@index([business_id])
+  @@index([customer_wa_id])
+  @@map("conversations")
+}
+
+// ─── Message ──────────────────────────────────────────────────────────────────
+
+model Message {
+  id               String   @id @default(cuid())
+  business_id      String
+  conversation_id  String
+  meta_message_id  String?  @unique
+  direction        String
+  message_type     String   @default("text")
+  text_body        String?
+  media_id         String?
+  media_mime_type  String?
+  media_url        String?
+  interactive_reply Json?
+  location         Json?
+  status           String   @default("pending")
+  sender_wa_id     String?
+  sent_by_user_id  String?
+  is_ai_generated  Boolean  @default(false)
+  raw_payload      Json?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  business      Business     @relation(fields: [business_id], references: [id])
+  conversation  Conversation @relation(fields: [conversation_id], references: [id])
+  sent_by_user  User?        @relation(fields: [sent_by_user_id], references: [id])
+
+  @@index([conversation_id])
+  @@index([business_id])
+  @@map("messages")
+}
+
+// ─── Order ────────────────────────────────────────────────────────────────────
+
+model Order {
+  id              String   @id @default(cuid())
+  business_id     String
+  conversation_id String
+  customer_wa_id  String
+  customer_name   String?
+  customer_phone  String?
+  items           Json     @default("[]")
+  subtotal        Float    @default(0)
+  delivery_fee    Float    @default(0)
+  total           Float    @default(0)
+  order_type      String   @default("delivery")
+  address         String?
+  location        Json?
+  notes           String?
+  status          String   @default("draft")
+  payment_method  String   @default("cash")
+  payment_status  String   @default("pending")
+  confirmed_at    DateTime?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  business        Business       @relation(fields: [business_id], references: [id])
+  conversation    Conversation   @relation(fields: [conversation_id], references: [id])
+  status_history  OrderStatusHistory[]
+
+  @@index([business_id])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderStatusHistory {
+  id         String   @id @default(cuid())
+  order_id   String
+  status     String
+  changed_at DateTime @default(now())
+  changed_by String?
+
+  order   Order @relation(fields: [order_id], references: [id])
+  user    User? @relation(fields: [changed_by], references: [id])
+
+  @@index([order_id])
+  @@map("order_status_history")
+}
+
+// ─── Category ─────────────────────────────────────────────────────────────────
+
+model Category {
+  id          String   @id @default(cuid())
+  business_id String
+  name_ar     String
+  name_en     String?
+  sort_order  Int      @default(0)
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business  Business   @relation(fields: [business_id], references: [id])
+  menuItems MenuItem[]
+
+  @@index([business_id])
+  @@map("categories")
+}
+
+// ─── ModifierGroup ────────────────────────────────────────────────────────────
+
+model ModifierGroup {
+  id          String   @id @default(cuid())
+  business_id String
+  name_ar     String
+  name_en     String?
+  required    Boolean  @default(false)
+  min_select  Int      @default(0)
+  max_select  Int      @default(1)
+  options     Json     @default("[]")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business   Business              @relation(fields: [business_id], references: [id])
+  menuItems  MenuItemModifierGroup[]
+
+  @@index([business_id])
+  @@map("modifier_groups")
+}
+
+// ─── MenuItem ─────────────────────────────────────────────────────────────────
+
+model MenuItem {
+  id             String   @id @default(cuid())
+  business_id    String
+  category_id    String
+  name_ar        String
+  name_en        String?
+  description_ar String?
+  description_en String?
+  price          Float
+  image_url      String?
+  active         Boolean  @default(true)
+  available      Boolean  @default(true)
+  sort_order     Int      @default(0)
+  tags           Json     @default("[]")
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  business        Business               @relation(fields: [business_id], references: [id])
+  category        Category               @relation(fields: [category_id], references: [id])
+  modifierGroups  MenuItemModifierGroup[]
+
+  @@index([business_id])
+  @@index([category_id])
+  @@map("menu_items")
+}
+
+model MenuItemModifierGroup {
+  menu_item_id      String
+  modifier_group_id String
+
+  menuItem      MenuItem      @relation(fields: [menu_item_id], references: [id])
+  modifierGroup ModifierGroup @relation(fields: [modifier_group_id], references: [id])
+
+  @@id([menu_item_id, modifier_group_id])
+  @@map("menu_item_modifier_groups")
+}
+
+// ─── Clinic models ────────────────────────────────────────────────────────────
+
+model Service {
+  id               String   @id @default(cuid())
+  business_id      String
+  name_ar          String
+  name_en          String?
+  duration_minutes Int      @default(30)
+  price            Float?
+  active           Boolean  @default(true)
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  doctorServices    DoctorService[]
+  appointmentSlots  AppointmentSlot[]
+  appointments      Appointment[]
+
+  @@index([business_id])
+  @@map("services")
+}
+
+model Doctor {
+  id          String   @id @default(cuid())
+  business_id String
+  name_ar     String
+  name_en     String?
+  specialty_ar String?
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  doctorServices    DoctorService[]
+  appointmentSlots  AppointmentSlot[]
+  appointments      Appointment[]
+
+  @@index([business_id])
+  @@map("doctors")
+}
+
+model DoctorService {
+  doctor_id  String
+  service_id String
+
+  doctor  Doctor  @relation(fields: [doctor_id], references: [id])
+  service Service @relation(fields: [service_id], references: [id])
+
+  @@id([doctor_id, service_id])
+  @@map("doctor_services")
+}
+
+model AppointmentSlot {
+  id          String   @id @default(cuid())
+  business_id String
+  doctor_id   String?
+  service_id  String?
+  start_time  DateTime?
+  end_time    DateTime?
+  is_booked   Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  doctor  Doctor?  @relation(fields: [doctor_id], references: [id])
+  service Service? @relation(fields: [service_id], references: [id])
+  appointments Appointment[]
+
+  @@index([business_id])
+  @@map("appointment_slots")
+}
+
+model Appointment {
+  id              String   @id @default(cuid())
+  business_id     String
+  conversation_id String?
+  customer_wa_id  String?
+  customer_name   String?
+  customer_phone  String?
+  doctor_id       String?
+  service_id      String?
+  slot_id         String?
+  scheduled_at    DateTime?
+  status          String   @default("draft")
+  notes           String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  doctor  Doctor?          @relation(fields: [doctor_id], references: [id])
+  service Service?         @relation(fields: [service_id], references: [id])
+  slot    AppointmentSlot? @relation(fields: [slot_id], references: [id])
+
+  @@index([business_id])
+  @@map("appointments")
+}

@@ -1,13 +1,8 @@
-const mongoose = require('mongoose');
+const prisma = require('./prisma');
 
 async function connectDB() {
-  const uri = process.env.MONGO_URL;
-  const dbName = process.env.DB_NAME || 'whatsapp_saas';
-
-  if (!uri) throw new Error('MONGO_URL is not defined in environment variables');
-
-  await mongoose.connect(uri, { dbName });
-  console.log(`✅ MongoDB connected: ${dbName}`);
+  await prisma.$connect();
+  console.log('✅ PostgreSQL connected via Prisma');
 }
 
 module.exports = { connectDB };
