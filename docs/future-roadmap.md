@@ -35,3 +35,10 @@
 - [ ] Sentiment analysis for complaint prioritization
 - [ ] Predictive demand (busy hours alert)
 - [ ] AI-powered menu recommendations
+
+## Phase 7 - Infrastructure (Database)
+- [ ] Migrate from MongoDB/Mongoose to Google Cloud SQL (PostgreSQL)
+  - See full plan: [cloud-sql-migration-plan.md](./cloud-sql-migration-plan.md)
+- [ ] Zero-downtime dual-write phase
+- [ ] Historical data backfill from MongoDB Atlas
+- [ ] Remove Mongoose dependency after cut-over
