@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MessageCircle, CheckCircle2, Wifi, Coffee, Eye, MapPin, Clock, Phone, ArrowLeft } from 'lucide-react';
+import { MessageCircle, CheckCircle2, Wifi, Coffee, Eye, MapPin, Clock, Phone } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../context/AuthContext';
 import Shroomi from '../components/Shroomi';
@@ -271,7 +271,7 @@ export default function HomePage() {
   const journeySteps = [
     { pose: 'wave',            title: 'الاستقبال',                         desc: 'نستقبل الطفل بحب ونبدأ تجربة بيكابو بابتسامة',           color: 'red'    },
     { pose: 'paws-up',         title: 'اللعب',                             desc: 'يلعب الطفل ويستمتع في مناطق اللعب المختلفة داخل بيكابو', color: 'yellow' },
-    { pose: 'party-big',       title: 'الاحتفال مع الشخصيات الكرتونية',    desc: 'شخصيات كرتونية وأجواء احتفالية تصنع لحظات لا تُنسى',      color: 'orange' },
+    { pose: 'jump-cheer',      title: 'الاحتفال مع الشخصيات الكرتونية',    desc: 'شخصيات كرتونية وأجواء احتفالية تصنع لحظات لا تُنسى',      color: 'orange' },
     { pose: 'gold-run', title: 'مسابقات وفعاليات طوال اليوم',       desc: 'مسابقات وفعاليات مستمرة طوال ساعات العمل',                color: 'red'    },
     { pose: 'clipboard-write', title: 'نشاط فني أو حسي',                   desc: 'كل يوم نشاط مختلف: فني أو حسي أو تفاعلي',                 color: 'green'  },
     { pose: 'gift-magic',      title: 'هديتك معك',                         desc: 'كل طفل لازم يطلع بهديته — الهدايا جزء أساسي من معايير بيكابو', color: 'blue' },
@@ -500,27 +500,26 @@ export default function HomePage() {
                 </p>
               </div>
 
-              {/* Mobile: horizontal snap scroll · Tablet: 3-col · Desktop: 4-col · XL: all 7 in one row */}
+              {/* Mobile: horizontal snap scroll · Tablet: 3-col · Desktop: 4-col (2 rows of 4+3) */}
               <div className="relative">
-                <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 md:gap-4 xl:gap-3 overflow-x-auto md:overflow-visible pb-6 md:pb-0 snap-x snap-mandatory peekaboo-hide-scrollbar">
+                <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-x-auto md:overflow-visible pb-6 md:pb-0 snap-x snap-mandatory peekaboo-hide-scrollbar">
                   {journeySteps.map((step, idx) => {
                     const a = accentMap[step.color];
                     return (
                       <div
                         key={step.title}
-                        className="snap-start shrink-0 w-[76%] sm:w-[48%] md:w-auto relative"
+                        className="snap-start shrink-0 w-[78%] sm:w-[48%] md:w-auto relative"
                       >
                         <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-4 pt-7 flex flex-col items-center text-center`}>
                           {/* Step number */}
                           <div className={`absolute -top-4 ${a.strip} text-white text-sm font-extrabold w-9 h-9 rounded-full flex items-center justify-center shadow-md ring-4 ring-[#F6FBEF]`}>
                             {idx + 1}
                           </div>
-                          {/* Mascot tile — neutral cream bg + colored ring keeps each mascot fully readable across all color themes */}
-                          <div className={`w-24 h-24 rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3 overflow-hidden`}>
+                          {/* Mascot tile — larger container, no overflow-hidden clip, centered */}
+                          <div className={`w-28 h-28 rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3`}>
                             <Shroomi
                               pose={step.pose}
-                              size={88}
-                              className="max-w-full max-h-full"
+                              size={104}
                               style={{ objectFit: 'contain', objectPosition: 'center' }}
                             />
                           </div>
@@ -531,12 +530,6 @@ export default function HomePage() {
                             {step.desc}
                           </p>
                         </div>
-                        {/* Connector arrow — only show on XL when all 7 cards sit in one row */}
-                        {idx < journeySteps.length - 1 && (
-                          <div className="hidden xl:flex absolute top-1/2 -left-2.5 -translate-y-1/2 z-10 items-center justify-center w-5 h-5 text-[#7AC74F]" aria-hidden="true">
-                            <ArrowLeft className="h-4 w-4" />
-                          </div>
-                        )}
                       </div>
                     );
                   })}
