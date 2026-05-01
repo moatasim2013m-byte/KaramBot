@@ -1,7 +1,28 @@
 const mongoose = require('mongoose');
 
 const hourlyBookingSchema = new mongoose.Schema({
-  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  // user_id is optional for guest checkouts (is_guest_booking: true).
+  // All authenticated bookings continue to have a user_id set.
+  // The validator below enforces this at the document layer.
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false,
+    default: null,
+    validate: {
+      validator: function (v) {
+        // user_id is required unless this is explicitly a guest booking.
+        return this.is_guest_booking === true || v != null;
+      },
+      message: 'user_id is required for non-guest bookings'
+    }
+  },
+  // Guest booking flag — set to true when the booking was made without an account.
+  is_guest_booking: { type: Boolean, default: false },
+  // Guest contact fields — only populated when is_guest_booking is true.
+  guest_parent_name: { type: String, default: '' },
+  guest_parent_phone: { type: String, default: '' },
+  guest_parent_email: { type: String, default: '' },
   // child_id is now optional — WhatsApp walk-in bookings may not have a registered child.
   // When null, `guest_child_name` carries the name the customer gave over chat.
   child_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Child', default: null },
@@ -62,7 +83,8 @@ const hourlyBookingSchema = new mongoose.Schema({
 hourlyBookingSchema.set('toJSON', {
   transform: (doc, ret) => {
     ret.id = ret._id.toString();
-    ret.user_id = ret.user_id.toString();
+    // user_id is null for guest bookings — guard before calling toString().
+    ret.user_id = ret.user_id ? ret.user_id.toString() : null;
     // child_id is optional — guard against null guest bookings.
     ret.child_id = ret.child_id ? ret.child_id.toString() : null;
     ret.slot_id = ret.slot_id.toString();
