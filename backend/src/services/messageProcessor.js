@@ -114,8 +114,7 @@ async function createConfirmedOrder(business, conversation, orderData) {
       status: 'confirmed',
       confirmed_at: new Date(),
       status_history: {
-        // changed_by is omitted: automated AI-confirmed order, no human actor
-        create: [{ status: 'confirmed', changed_at: new Date() }],
+        create: [{ status: 'confirmed', changed_at: new Date(), changed_by: null }],
       },
     },
   });

@@ -48,7 +48,7 @@ router.get('/today', async (req, res) => {
       where: {
         business_id: req.businessId,
         created_at: { gte: start },
-        NOT: { status: 'draft' },
+      NOT: { status: { in: ['draft'] } },
       },
       orderBy: { created_at: 'desc' },
       include: { status_history: { orderBy: { changed_at: 'asc' } } },

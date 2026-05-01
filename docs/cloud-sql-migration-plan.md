@@ -1,9 +1,11 @@
 # Cloud SQL Migration Plan (MongoDB → PostgreSQL)
 
-> **Status: Future / Not Started**
-> The app currently runs MongoDB + Mongoose with `SKIP_DB_CONNECT=true` for preview.
-> This document describes what a migration to Google Cloud SQL (PostgreSQL) would look like
-> when the time comes. **No migration work should begin until explicitly scheduled.**
+> **Status: Completed**
+> The backend has been migrated from MongoDB/Mongoose to PostgreSQL via Prisma ORM.
+> This document describes the migration approach that was followed and serves as a reference
+> for the schema design decisions made. The Cloud SQL instance still needs to be provisioned
+> in GCP and `DATABASE_URL` set to a real PostgreSQL connection string before the app can run
+> in production with a live database.
 
 ---
 
@@ -137,7 +139,7 @@ Direct column mapping. `services[]` on `doctors` → junction table `doctor_serv
 
 ### Phase A – Dual-write (zero downtime)
 1. Provision Cloud SQL PostgreSQL instance (private IP, same VPC as Cloud Run).
-2. Add `pg` (node-postgres) client alongside existing Mongoose — **no ORM**.
+2. Prisma ORM was used as the new data layer (replacing Mongoose).
 3. Write new records to both MongoDB and PostgreSQL simultaneously.
 4. Run a backfill script to copy historical data (convert ObjectIds to UUIDs with a stable hash or a mapping table).
 

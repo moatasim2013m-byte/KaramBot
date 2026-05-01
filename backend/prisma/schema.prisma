@@ -6,9 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // directUrl = env("DIRECT_URL")  // Uncomment when using connection pooling or proxy services (e.g., PgBouncer, Cloud SQL Auth Proxy)
 }
 
 // ─── Business ────────────────────────────────────────────────────────────────
