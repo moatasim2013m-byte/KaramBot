@@ -94,11 +94,15 @@ router.get('/pending-checkins', async (req, res) => {
     
     const pendingBookings = await HourlyBooking.find({
       slot_id: { $in: slotIds },
-      status: 'confirmed'
+      status: 'confirmed',
+      $or: [
+        { qr_status: 'unused' },
+        { qr_status: { $exists: false } },
+        { qr_status: null }
+      ]
     })
     .populate('child_id')
-    .populate('slot_id')
-    .sort({ 'slot_id.start_time': 1 });
+    .populate('slot_id');
 
     const bookings = pendingBookings.map(booking => ({
       id: booking._id.toString(),
@@ -111,6 +115,14 @@ router.get('/pending-checkins', async (req, res) => {
       payment_status: booking.payment_status || null,
       payment_method: booking.payment_method || null
     }));
+
+    bookings.sort((a, b) => {
+      if (a.slot_time < b.slot_time) return -1;
+      if (a.slot_time > b.slot_time) return 1;
+      if (a.booking_code < b.booking_code) return -1;
+      if (a.booking_code > b.booking_code) return 1;
+      return 0;
+    });
 
     res.json({ bookings });
   } catch (error) {

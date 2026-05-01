@@ -1342,6 +1342,9 @@ export default function StaffPage() {
                     >
                       <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
                       <p>لا توجد حجوزات بانتظار التفعيل</p>
+                      <p className="text-xs mt-2 text-muted-foreground">
+                        للتحقق من الحجوزات المسجّلة، راجع قسم الحجوزات في لوحة الإدارة.
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-3" data-testid="activation-queue">
@@ -1361,6 +1364,11 @@ export default function StaffPage() {
                             <code className="text-xs bg-white px-2 py-0.5 rounded mt-1 inline-block">
                               {booking.booking_code}
                             </code>
+                            {(booking.payment_status === 'pending_cash' || booking.payment_status === 'pending_cliq') && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold mt-0.5 inline-block">
+                                {booking.payment_status === 'pending_cash' ? 'دفع نقدي مطلوب' : 'دفعة CliQ مطلوبة'}
+                              </span>
+                            )}
                           </div>
                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
                             <span
