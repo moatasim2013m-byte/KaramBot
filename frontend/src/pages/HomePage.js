@@ -266,14 +266,16 @@ export default function HomePage() {
     'اربد- شارع ابو راشد'
   ];
 
-  // Journey is presentation-only static content per spec
+  // Journey is presentation-only static content per spec.
+  // 7 real Peekaboo steps in exact order — from arrival to farewell.
   const journeySteps = [
-    { pose: 'wave', title: 'الاستقبال', desc: 'ترحيب دافئ من فريق بيكابو لحظة الوصول', color: 'red' },
-    { pose: 'point', title: 'اختيار النشاط', desc: 'الطفل يختار اللعبة أو المنطقة المفضلة', color: 'blue' },
-    { pose: 'paws-up', title: 'اللعب والمرح', desc: 'وقت ممتع وآمن في مساحات اللعب', color: 'yellow' },
-    { pose: 'clipboard-write', title: 'الأنشطة الإبداعية', desc: 'فنون وأنشطة تنمّي مهارات طفلك', color: 'green' },
-    { pose: 'party-confetti', title: 'الاحتفال', desc: 'لحظات احتفال لا تُنسى', color: 'orange' },
-    { pose: 'gift-magic', title: 'الهدية', desc: 'هدية صغيرة تخرج بها مبتسمة', color: 'red' },
+    { pose: 'wave',            title: 'الاستقبال',                         desc: 'نستقبل الطفل بحب ونبدأ تجربة بيكابو بابتسامة',           color: 'red'    },
+    { pose: 'paws-up',         title: 'اللعب',                             desc: 'يلعب الطفل ويستمتع في مناطق اللعب المختلفة داخل بيكابو', color: 'yellow' },
+    { pose: 'party-big',       title: 'الاحتفال مع الشخصيات الكرتونية',    desc: 'شخصيات كرتونية وأجواء احتفالية تصنع لحظات لا تُنسى',      color: 'orange' },
+    { pose: 'gold-run', title: 'مسابقات وفعاليات طوال اليوم',       desc: 'مسابقات وفعاليات مستمرة طوال ساعات العمل',                color: 'red'    },
+    { pose: 'clipboard-write', title: 'نشاط فني أو حسي',                   desc: 'كل يوم نشاط مختلف: فني أو حسي أو تفاعلي',                 color: 'green'  },
+    { pose: 'gift-magic',      title: 'هديتك معك',                         desc: 'كل طفل لازم يطلع بهديته — الهدايا جزء أساسي من معايير بيكابو', color: 'blue' },
+    { pose: 'wave2',           title: 'مع السلامة',                        desc: 'نودّع الطفل بابتسامة وننتظره في الزيارة القادمة',         color: 'yellow' },
   ];
 
   // Static parent-area cards (presentation-only)
@@ -470,45 +472,69 @@ export default function HomePage() {
       {showDeferredSections && (
         <>
           {/* ================== 2. PEEKABOO JOURNEY ================== */}
-          <section className="relative py-12 md:py-16 bg-gradient-to-b from-[#F1FAEA] via-[#F6FBEF] to-[#FFF8F0]">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="text-center max-w-2xl mx-auto mb-8 md:mb-10">
+          <section className="relative py-12 md:py-16 bg-gradient-to-b from-[#F1FAEA] via-[#F6FBEF] to-[#FFF8F0] overflow-hidden">
+            {/* Subtle kid-vibe decorations (pointer-events:none, behind content) */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 overflow-hidden"
+            >
+              {/* soft cloud top-left */}
+              <div className="absolute -top-6 left-[6%] w-40 h-16 rounded-full bg-white/70 blur-2xl opacity-70" />
+              {/* soft pastel hill silhouette bottom */}
+              <div className="absolute bottom-0 left-0 right-0 h-10 bg-[#7AC74F]/10 [mask-image:radial-gradient(ellipse_at_center_bottom,black_60%,transparent_100%)]" />
+              {/* playful color blobs — subtle, NOT noisy */}
+              <div className="absolute top-16 right-[8%] w-24 h-24 rounded-full bg-[#FFD166]/20 blur-2xl" />
+              <div className="absolute bottom-10 left-[10%] w-28 h-28 rounded-full bg-[#4A90D9]/15 blur-2xl" />
+              <div className="hidden md:block absolute top-10 left-[40%] w-20 h-20 rounded-full bg-[#E63946]/10 blur-2xl" />
+            </div>
+            <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="text-center max-w-2xl mx-auto mb-8 md:mb-12">
                 <span className="inline-block px-4 py-1.5 rounded-full bg-[#7AC74F]/15 text-[#3F7A1E] text-sm font-bold mb-4">
                   رحلة بيكابو
                 </span>
                 <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3">
-                  رحلة طفلك في بيكابو 🎠
+                  رحلة طفلك في <span className="heading-bubble__accent">بيكابو</span> 🎠
                 </h2>
-                <p className="text-lg text-[#2D2D2D]/65">
-                  من لحظة الوصول إلى لحظة الوداع — كل خطوة مصممة بعناية.
+                <p className="text-base sm:text-lg text-[#2D2D2D]/65 leading-relaxed">
+                  من لحظة الدخول حتى لحظة المغادرة — كل خطوة جزء من تجربة بيكابو.
                 </p>
               </div>
 
-              {/* Horizontal scroll on mobile, grid on lg */}
+              {/* Mobile: horizontal snap scroll · Tablet: 3-col · Desktop: 4-col · XL: all 7 in one row */}
               <div className="relative">
-                <div className="flex lg:grid lg:grid-cols-6 gap-4 overflow-x-auto pb-6 lg:pb-0 snap-x snap-mandatory peekaboo-hide-scrollbar">
+                <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 md:gap-4 xl:gap-3 overflow-x-auto md:overflow-visible pb-6 md:pb-0 snap-x snap-mandatory peekaboo-hide-scrollbar">
                   {journeySteps.map((step, idx) => {
                     const a = accentMap[step.color];
                     return (
                       <div
                         key={step.title}
-                        className="snap-start shrink-0 w-[78%] sm:w-[46%] md:w-[32%] lg:w-auto relative"
+                        className="snap-start shrink-0 w-[76%] sm:w-[48%] md:w-auto relative"
                       >
-                        <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-4 pt-6 flex flex-col items-center text-center`}>
+                        <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-4 pt-7 flex flex-col items-center text-center`}>
                           {/* Step number */}
-                          <div className={`absolute -top-4 ${a.strip} text-white text-sm font-extrabold w-9 h-9 rounded-full flex items-center justify-center shadow-md ring-4 ring-[#FFF8F0]`}>
+                          <div className={`absolute -top-4 ${a.strip} text-white text-sm font-extrabold w-9 h-9 rounded-full flex items-center justify-center shadow-md ring-4 ring-[#F6FBEF]`}>
                             {idx + 1}
                           </div>
-                          <div className={`w-28 h-28 rounded-2xl ${a.soft} flex items-center justify-center mb-2.5`}>
-                            <Shroomi pose={step.pose} size={96} />
+                          {/* Mascot tile — neutral cream bg + colored ring keeps each mascot fully readable across all color themes */}
+                          <div className={`w-24 h-24 rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3 overflow-hidden`}>
+                            <Shroomi
+                              pose={step.pose}
+                              size={88}
+                              className="max-w-full max-h-full"
+                              style={{ objectFit: 'contain', objectPosition: 'center' }}
+                            />
                           </div>
-                          <h3 className="font-bold text-base text-[#2D2D2D] mb-1">{step.title}</h3>
-                          <p className="text-xs text-[#2D2D2D]/60 leading-relaxed">{step.desc}</p>
+                          <h3 className="font-heading font-bold text-sm md:text-[15px] text-[#2D2D2D] mb-1 leading-snug min-h-[2.6em] flex items-center justify-center px-0.5">
+                            {step.title}
+                          </h3>
+                          <p className="text-[11.5px] md:text-xs text-[#2D2D2D]/65 leading-relaxed">
+                            {step.desc}
+                          </p>
                         </div>
-                        {/* Connector arrow (desktop, between cards) */}
+                        {/* Connector arrow — only show on XL when all 7 cards sit in one row */}
                         {idx < journeySteps.length - 1 && (
-                          <div className="hidden lg:flex absolute top-1/2 -left-3 -translate-y-1/2 z-10 items-center justify-center w-6 h-6 text-[#7AC74F]" aria-hidden="true">
-                            <ArrowLeft className="h-5 w-5" />
+                          <div className="hidden xl:flex absolute top-1/2 -left-2.5 -translate-y-1/2 z-10 items-center justify-center w-5 h-5 text-[#7AC74F]" aria-hidden="true">
+                            <ArrowLeft className="h-4 w-4" />
                           </div>
                         )}
                       </div>
@@ -527,7 +553,7 @@ export default function HomePage() {
                   خدماتنا
                 </span>
                 <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3" data-testid="features-title">
-                  خدماتنا 🎯
+                  <span className="heading-bubble__accent">خدماتنا</span> 🎯
                 </h2>
                 <p className="text-lg text-[#2D2D2D]/65">
                   كل ما تحتاجه ليوم لعب مثالي وحفلات لا تُنسى.
@@ -602,7 +628,7 @@ export default function HomePage() {
                     className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-4 leading-tight"
                     data-testid="why-peekaboo-box"
                   >
-                    ليش بيكابو؟ 💛
+                    ليش <span className="heading-bubble__accent">بيكابو</span>؟ 💛
                   </h2>
                   <p className="text-lg text-[#2D2D2D]/65 leading-relaxed mb-6">
                     لأننا نهتم بكل تفصيلة تصنع تجربة آمنة وممتعة لطفلك ولك.
@@ -685,7 +711,7 @@ export default function HomePage() {
                   لقطات حقيقية
                 </span>
                 <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold text-[#2D2D2D] mb-3" data-testid="gallery-title">
-                  لحظات ممتعة في بيكابو
+                  لحظات ممتعة في <span className="heading-bubble__accent">بيكابو</span>
                 </h2>
                 <p className="text-lg text-[#2D2D2D]/65">
                   لمحات من الفرح والمرح اليومي.

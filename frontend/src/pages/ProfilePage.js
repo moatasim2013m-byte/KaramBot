@@ -12,7 +12,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { 
   User, Baby, Clock, Cake, Star, Gift, Plus, Edit, Trash2, 
-  AlertTriangle, Calendar, Loader2, Phone, Settings, QrCode
+  AlertTriangle, Calendar, Loader2, Phone, Settings, QrCode,
+  Sparkles, Mail, TrendingUp
 } from 'lucide-react';
 
 export default function ProfilePage() {

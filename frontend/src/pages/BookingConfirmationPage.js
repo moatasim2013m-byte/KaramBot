@@ -3,7 +3,10 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { toast } from 'sonner';
-import { CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock, Calendar, Banknote, Baby, Tag, QrCode } from 'lucide-react';
+import {
+  CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock,
+  Calendar, Banknote, Baby, Tag, QrCode, Sparkles, MapPin, ShieldCheck, Check
+} from 'lucide-react';
 
 const STORAGE_KEY = 'pk_last_confirmation';
 
@@ -30,6 +33,7 @@ export default function BookingConfirmationPage() {
   const navigate = useNavigate();
   const [confirmation, setConfirmation] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [refCopied, setRefCopied] = useState(false);
 
   useLayoutEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -39,7 +43,7 @@ export default function BookingConfirmationPage() {
   useEffect(() => {
     // Try to get confirmation from router state first
     let data = location.state;
-    
+
     // If no router state, try localStorage
     if (!data) {
       try {
@@ -58,7 +62,7 @@ export default function BookingConfirmationPage() {
         console.error('Failed to persist confirmation:', e);
       }
     }
-    
+
     setConfirmation(data);
   }, [location.state]);
 
@@ -113,6 +117,13 @@ export default function BookingConfirmationPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const copyReference = (text) => {
+    navigator.clipboard.writeText(text);
+    setRefCopied(true);
+    toast.success('تم نسخ رقم الحجز!');
+    setTimeout(() => setRefCopied(false), 2000);
+  };
+
   const getBookingTypeLabel = (type) => {
     switch (type) {
       case 'hourly': return 'جلسة بالساعة';
@@ -143,15 +154,15 @@ export default function BookingConfirmationPage() {
   // No confirmation data
   if (!confirmation) {
     return (
-      <div className="min-h-screen bg-hero-gradient py-12" dir="rtl">
+      <div className="min-h-screen bg-gradient-to-b from-[#F4F8FE] via-[#F9FBFF] to-[#FFF8F0] py-12" dir="rtl">
         <div className="max-w-md mx-auto px-4">
           <Card className="rounded-3xl shadow-xl border-0 overflow-hidden">
             <CardContent className="p-8 text-center">
               <div className="text-6xl mb-4">🤷</div>
-              <h2 className="font-heading text-xl font-bold text-gray-700 mb-4">
+              <h2 className="font-heading heading-bubble text-xl font-bold text-gray-700 mb-4">
                 لا توجد تفاصيل حجز للعرض حالياً
               </h2>
-              <Button 
+              <Button
                 onClick={() => navigate('/')}
                 className="w-full rounded-full btn-playful"
               >
@@ -342,7 +353,7 @@ export default function BookingConfirmationPage() {
                   data-testid="confirmation-qr-image"
                 />
               </div>
-              <p className="mt-4 text-base font-bold text-foreground">
+              <p className="mt-4 text-base font-bold text-[#2D2D2D]">
                 يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -487,6 +498,82 @@ export default function BookingConfirmationPage() {
                 </a>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Next Steps Card — reassuring guide for parents */}
+        <Card className="rounded-3xl shadow-[0_8px_22px_rgba(45,45,45,0.05)] border border-[#E6EAF2] bg-white overflow-hidden mb-5">
+          <CardContent className="p-5 md:p-6">
+            <h3 className="font-heading heading-bubble text-lg md:text-xl font-extrabold text-[#2D2D2D] mb-4 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#E8872E]" />
+              ماذا بعد؟
+            </h3>
+            <ol className="space-y-3.5">
+              <li className="flex items-start gap-3">
+                <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#FFD166] to-[#E8872E] text-white font-heading font-extrabold flex items-center justify-center text-sm shadow-sm">1</span>
+                <div className="pt-0.5">
+                  <p className="font-bold text-[#2D2D2D] text-sm md:text-base">
+                    {isCliq ? 'أرسل حوالة CliQ ثم أرسل الإيصال' : 'احفظ رقم الحجز'}
+                  </p>
+                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
+                    {isCliq
+                      ? 'حوّل المبلغ لحساب Peekaboo1 في بنك الإسكان ثم أرسل صورة الإيصال على واتساب.'
+                      : 'ستحتاج إليه عند الوصول. يمكنك نسخه من البطاقة أعلاه.'}
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#4A90D9] to-[#2A6FC7] text-white font-heading font-extrabold flex items-center justify-center text-sm shadow-sm">2</span>
+                <div className="pt-0.5">
+                  <p className="font-bold text-[#2D2D2D] text-sm md:text-base inline-flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4 text-[#2A6FC7]" />
+                    توجّه إلى بيكابو في الموعد
+                  </p>
+                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
+                    يفضَّل الوصول قبل 10 دقائق من بداية الجلسة.
+                  </p>
+                </div>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-[#7AC74F] to-[#3F7A1E] text-white font-heading font-extrabold flex items-center justify-center text-sm shadow-sm">3</span>
+                <div className="pt-0.5">
+                  <p className="font-bold text-[#2D2D2D] text-sm md:text-base inline-flex items-center gap-1.5">
+                    {isHourly ? <><QrCode className="h-4 w-4 text-[#3F7A1E]" /> اعرض رمز QR عند الاستقبال</> : 'اقضِ وقتاً مميزاً مع طفلك'}
+                  </p>
+                  <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
+                    {isHourly
+                      ? 'فريق بيكابو سيفعّل الجلسة ويرحّب بكم — استمتعوا!'
+                      : 'فريقنا جاهز لاستقبالكم — استمتعوا بوقتكم في بيكابو!'}
+                  </p>
+                </div>
+              </li>
+            </ol>
+          </CardContent>
+        </Card>
+
+        {/* Universal Support CTA (WhatsApp) — helpful for any booking */}
+        {!isCliq && (
+          <div className="rounded-3xl bg-white border border-[#E6EAF2] p-4 md:p-5 mb-5 flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0 w-10 h-10 rounded-xl bg-[#25D366]/15 flex items-center justify-center">
+                <MessageCircle className="h-5 w-5 text-[#1EB855]" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-[#2D2D2D] text-sm">تحتاج مساعدة؟</p>
+                <p className="text-xs text-[#2D2D2D]/65">تواصل معنا على واتساب</p>
+              </div>
+            </div>
+            <a
+              href={`https://wa.me/962777775652?text=مرحباً، لدي استفسار بخصوص حجزي رقم: ${referenceCode}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0"
+            >
+              <Button className="rounded-full bg-[#25D366] hover:bg-[#1EB855] text-white gap-2 h-10">
+                <MessageCircle className="h-4 w-4" />
+                تواصل معنا
+              </Button>
+            </a>
           </div>
         )}
 
