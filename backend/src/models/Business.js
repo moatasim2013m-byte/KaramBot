@@ -22,7 +22,7 @@ const businessSchema = new mongoose.Schema({
   address: String,
 
   // WhatsApp Cloud API credentials (store encrypted in production)
-  wa_phone_number_id: { type: String, required: true },
+  wa_phone_number_id: { type: String, required: true, unique: true },
   wa_business_account_id: String,
   wa_access_token: { type: String, select: false }, // never expose in queries by default
 
