@@ -11,6 +11,7 @@ const conversationSchema = new mongoose.Schema({
   },
   assigned_staff_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   last_message_at: { type: Date, default: Date.now },
+  last_inbound_at: Date,
   unread_count: { type: Number, default: 0 },
   ai_enabled: { type: Boolean, default: true },
 
