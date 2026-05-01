@@ -269,17 +269,13 @@ async function processInboundMessage(entry) {
             `Order creation failed for business=${business._id} conv=${conversation._id}:`,
             orderErr,
           );
-          workflowResult.reply = 'عذراً، حصل خطأ تقني أثناء تسجيل طلبك 🙏 سيتواصل معك أحد موظفينا فوراً لتأكيد طلبك يدوياً.';
+          workflowResult.reply = 'عذراً، حصل خطأ أثناء تسجيل طلبك. سيتواصل معك أحد موظفينا فوراً لإتمام الطلب.';
           conversation.ai_enabled = false;
           conversation.status = 'human_takeover';
-          // Revert the premature "order_placed" state that the workflow pushed
-          // in stateUpdate, otherwise the conversation looks finalized while no
-          // Order row exists. Drop back to confirming_order so a human can pick up.
-          conversation.current_state = 'confirming_order';
-          if (conversation.workflow_data && conversation.workflow_data.confirmed === true) {
-            conversation.workflow_data.confirmed = false;
-            conversation.markModified('workflow_data');
-          }
+          // Clear current_state so the conversation no longer looks finalized
+          // and does not auto-advance. Keep workflow_data intact so staff can
+          // see exactly what the customer wanted (cart, address, order type).
+          conversation.current_state = null;
           await conversation.save();
         }
       }
