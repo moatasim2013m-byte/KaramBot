@@ -56,13 +56,11 @@ function encrypt(plaintext) {
 function decrypt(encryptedStr) {
   if (!encryptedStr) return null;
 
-  // Support legacy plain tokens (not yet encrypted) — detect by missing ':' format
-  // Plain WhatsApp tokens typically start with "EAA" or similar; never contain exactly 2 colons
   const parts = encryptedStr.split(':');
   if (parts.length !== 3) {
-    // Likely a plain token from before encryption was added
-    console.warn('⚠️  wa_access_token appears unencrypted. Re-save via PATCH /api/businesses/:id/token to encrypt.');
-    return encryptedStr;
+    throw new Error(
+      'WhatsApp token is not encrypted. Re-save it via PATCH /api/businesses/:id/token.'
+    );
   }
 
   try {
