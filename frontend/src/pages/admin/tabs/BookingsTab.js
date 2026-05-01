@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
@@ -120,6 +121,15 @@ export default function BookingsTab(props) {
                       >
                         {activatingBookingId === booking.id ? 'Activating...' : 'Activate Session'}
                       </Button>
+                    )}
+                    {booking.status === 'confirmed' && booking.payment_method === 'card' && (
+                      <Link
+                        to="/staff?tab=scanner"
+                        className="text-xs text-primary underline-offset-2 hover:underline"
+                        title="انتقل إلى قائمة التفعيل في لوحة الموظف"
+                      >
+                        → قائمة التفعيل
+                      </Link>
                     )}
                   </div>
                 </div>

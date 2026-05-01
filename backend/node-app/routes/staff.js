@@ -6,7 +6,7 @@ const Child = require('../models/Child');
 const TimeSlot = require('../models/TimeSlot');
 const User = require('../models/User');
 const { authMiddleware, staffMiddleware, staffPermissionMiddleware } = require('../middleware/auth');
-const { addMinutes, format } = require('date-fns');
+const { addMinutes } = require('date-fns');
 const { sendCheckinConfirmation } = require('../utils/checkinNotifications');
 const { logger } = require('../utils/logger');
 const { generateBookingQrPayload } = require('../utils/bookingQr');
@@ -14,6 +14,14 @@ const { awardLoyaltyForHourlyCheckin } = require('../utils/loyaltyAward');
 const { awardReferralForFirstConfirmedOrder } = require('../utils/referrals');
 
 const router = express.Router();
+
+// Jordan timezone date helper.
+// Cloud Run (and most server environments) run in UTC. Jordan is UTC+3.
+// Using Intl.DateTimeFormat with 'Asia/Amman' ensures we always get the
+// correct local calendar date regardless of the server's system timezone,
+// avoiding an off-by-one on today's bookings between UTC 21:00–00:00.
+const getJordanTodayString = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Amman' }).format(new Date());
 
 // Apply staff middleware to all routes (staffMiddleware allows both staff and admin)
 router.use(authMiddleware, staffMiddleware);
@@ -78,7 +86,7 @@ router.get('/stream/active-sessions', async (req, res) => {
 // Get today's confirmed hourly bookings (pending check-in)
 router.get('/pending-checkins', async (req, res) => {
   try {
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = getJordanTodayString();
     
     // Get today's slots
     const todaySlots = await TimeSlot.find({ date: today, slot_type: 'hourly' });
@@ -300,7 +308,7 @@ router.post('/consume-visit', async (req, res) => {
 // Get today's birthday parties (read-only)
 router.get('/today-birthdays', async (req, res) => {
   try {
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = getJordanTodayString();
     
     // Get today's birthday slots
     const todaySlots = await TimeSlot.find({ date: today, slot_type: 'birthday' });
