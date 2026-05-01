@@ -181,7 +181,9 @@ async function processInboundMessage(entry) {
       }
 
       // Update conversation metadata
-      conversation.last_message_at = new Date();
+      const now = new Date();
+      conversation.last_message_at = now;
+      conversation.last_inbound_at = now;
       conversation.unread_count = (conversation.unread_count || 0) + 1;
 
       // If human takeover - don't auto-reply
