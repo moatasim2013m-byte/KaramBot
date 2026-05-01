@@ -7,6 +7,7 @@ const Order = require('../models/Order');
 const Business = require('../models/Business');
 const { sendTextMessage } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
+const { isWithinServiceWindow } = require('../utils/serviceWindow');
 
 // Cap search input length to keep the resulting RegExp cheap to evaluate,
 // even after escaping metacharacters.
@@ -79,6 +80,12 @@ router.post('/conversations/:id/send', async (req, res) => {
 
     const conv = await Conversation.findOne({ _id: req.params.id, business_id: req.businessId });
     if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+
+    if (!isWithinServiceWindow(conv.last_inbound_at)) {
+      return res.status(409).json({
+        error: 'Cannot send free-form WhatsApp message outside the 24-hour service window. Use an approved template message.',
+      });
+    }
 
     const business = await Business.findById(req.businessId).select('+wa_access_token');
     if (!business) return res.status(404).json({ error: 'Business not found' });
