@@ -8,7 +8,11 @@ const { connectDB } = require('./config/database');
 const PORT = process.env.PORT || 8080;
 
 async function start() {
-  await connectDB();
+  if (process.env.SKIP_DB_CONNECT === 'true') {
+    console.warn('⚠️ DB connection skipped for preview mode');
+  } else {
+    await connectDB();
+  }
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Server running on port ${PORT}`);
