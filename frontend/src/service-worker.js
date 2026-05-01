@@ -1,9 +1,13 @@
 /* eslint-disable no-restricted-globals */
 
-import { clientsClaim } from "workbox-core";
+import { clientsClaim, skipWaiting } from "workbox-core";
 import { precacheAndRoute, createHandlerBoundToURL } from "workbox-precaching";
 import { registerRoute } from "workbox-routing";
 
+// Activate the new service worker immediately without waiting for all tabs to
+// close. Combined with clientsClaim() this ensures staff devices receive code
+// updates on the very next page navigation after a new build is deployed.
+skipWaiting();
 clientsClaim();
 
 precacheAndRoute(self.__WB_MANIFEST);

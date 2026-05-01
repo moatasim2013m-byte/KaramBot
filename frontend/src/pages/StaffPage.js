@@ -1412,7 +1412,6 @@ export default function StaffPage() {
                           qrValidation.canCheckin &&
                           qrValidation.booking?.booking_code === activatingBooking.booking_code;
                         const wrongBooking =
-                          qrValidation.canCheckin &&
                           qrValidation.booking?.booking_code &&
                           qrValidation.booking.booking_code !== activatingBooking.booking_code;
                         return (
