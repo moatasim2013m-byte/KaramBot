@@ -110,6 +110,8 @@ export default function StaffPage() {
   const autoScrollEnabledRef = useRef(true);
   const previousMessageCountRef = useRef(0);
   const previousConversationWaIdRef = useRef(null);
+  // Track previous pending-checkins count so we can fire a toast when it grows.
+  const prevPendingCountRef = useRef(null);
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showQRManager, setShowQRManager] = useState(false);
   const [qrForm, setQrForm] = useState({ label: '', message: '', category: 'other' });
@@ -191,6 +193,7 @@ export default function StaffPage() {
         id: 'scanner',
         label: 'تفعيل الجلسات',
         icon: <QrCode className="h-4 w-4" />,
+        badge: pendingCheckins.length || undefined,
       });
       items.push({
         id: 'sessions',
@@ -229,6 +232,7 @@ export default function StaffPage() {
     return items;
   }, [
     staffPermissions,
+    pendingCheckins.length,
     activeSessions.length,
     todayParties.length,
     inboxStats?.unread_messages,
@@ -356,6 +360,28 @@ export default function StaffPage() {
     };
     return () => activeSessionsStream.close();
   }, [createAuthedEventSource, staffPermissions.access_staff_tools]);
+
+  // Poll pending-checkins every 30 s so new bookings appear without a manual
+  // refresh. active-sessions already updates via SSE; this closes the gap for
+  // the activation queue which has no stream of its own.
+  useEffect(() => {
+    if (!staffPermissions.access_staff_tools) return undefined;
+    const interval = setInterval(() => {
+      fetchPendingCheckins();
+      fetchTodayParties();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [fetchPendingCheckins, fetchTodayParties, staffPermissions.access_staff_tools]);
+
+  // Show a toast whenever the activation queue grows (new booking arrived).
+  useEffect(() => {
+    const prev = prevPendingCountRef.current;
+    const current = pendingCheckins.length;
+    if (prev !== null && current > prev) {
+      toast.info(`حجز جديد بانتظار التفعيل (${current - prev} جديد)`);
+    }
+    prevPendingCountRef.current = current;
+  }, [pendingCheckins.length]);
 
   const handleCheckin = async (e) => {
     e.preventDefault();
@@ -1278,12 +1304,27 @@ export default function StaffPage() {
               /* ───── Activation queue (no booking selected yet) ───── */
               <Card className="rounded-2xl">
                 <CardHeader>
-                  <CardTitle className="font-heading flex items-center gap-2">
-                    <QrCode className="h-5 w-5 text-primary" /> تفعيل الجلسات
-                  </CardTitle>
-                  <CardDescription>
-                    اختر حجزاً من قائمة الحجوزات بانتظار التفعيل لإكمال التحقق وتفعيل الجلسة
-                  </CardDescription>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <CardTitle className="font-heading flex items-center gap-2">
+                        <QrCode className="h-5 w-5 text-primary" /> تفعيل الجلسات
+                      </CardTitle>
+                      <CardDescription>
+                        اختر حجزاً من قائمة الحجوزات بانتظار التفعيل لإكمال التحقق وتفعيل الجلسة
+                      </CardDescription>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={fetchPendingCheckins}
+                      className="flex-shrink-0 gap-1"
+                      title="تحديث قائمة الحجوزات"
+                      data-testid="queue-refresh-btn"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div
