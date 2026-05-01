@@ -11,6 +11,7 @@ const bcrypt = require('bcryptjs');
 const Business = require('../src/models/Business');
 const User = require('../src/models/User');
 const { Category, MenuItem } = require('../src/models/Menu');
+const { encrypt } = require('../src/utils/tokenCrypto');
 
 async function seed() {
   await mongoose.connect(process.env.MONGO_URL, { dbName: process.env.DB_NAME || 'whatsapp_saas' });
@@ -29,6 +30,7 @@ async function seed() {
   }
 
   // ─── Create Business ──────────────────────────────────────────────────────────
+  const demoWaAccessToken = process.env.DEMO_WA_ACCESS_TOKEN || 'DEMO_TOKEN';
   const business = await Business.create({
     name: 'مطعم الأصيل',
     slug: 'demo-restaurant',
@@ -39,7 +41,7 @@ async function seed() {
     address: 'عمان، الأردن',
     wa_phone_number_id: process.env.DEMO_WA_PHONE_NUMBER_ID || '123456789',
     wa_business_account_id: process.env.DEMO_WA_BUSINESS_ACCOUNT_ID || '987654321',
-    wa_access_token: process.env.DEMO_WA_ACCESS_TOKEN || 'DEMO_TOKEN',
+    wa_access_token: encrypt(demoWaAccessToken),
     opening_hours: [
       { day: 0, open: '11:00', close: '23:00' }, // Sun
       { day: 1, open: '11:00', close: '23:00' }, // Mon
