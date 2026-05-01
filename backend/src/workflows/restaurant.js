@@ -7,8 +7,7 @@
  */
 
 const { generateValidatedAIReply } = require('../ai/provider');
-const { MenuItem, Category } = require('../models/Menu');
-const Order = require('../models/Order');
+const prisma = require('../config/prisma');
 
 const STATES = {
   IDLE: 'idle',
@@ -27,15 +26,8 @@ const CONFIRMATION_PHRASES = [
 
 const CANCEL_PHRASES = ['إلغاء', 'cancel', 'لا', 'no', 'بطل', 'مش عارف'];
 
-// Split on whitespace + common Arabic/English punctuation.
-// Used by getDecisionTokens; kept module-local so callers can't mutate it.
 const DECISION_SPLIT_RE = /[\s،؛؟!,.?;:()\[\]{}"'«»…]+/;
 
-/**
- * Normalize text for yes/no decision matching:
- * lowercase, unify alef variants, strip tatweel + Arabic diacritics,
- * collapse whitespace. Safe on null/undefined/non-string input.
- */
 function normalizeDecisionText(text) {
   return String(text == null ? '' : text)
     .toLowerCase()
@@ -46,22 +38,10 @@ function normalizeDecisionText(text) {
     .trim();
 }
 
-/**
- * Tokenize normalized text into non-empty tokens, splitting on whitespace
- * and common Arabic/English punctuation. Prevents false substring matches
- * like "بلاش" containing "لا", or "أكيد" containing "أكد".
- */
 function getDecisionTokens(text) {
-  return normalizeDecisionText(text)
-    .split(DECISION_SPLIT_RE)
-    .filter(Boolean);
+  return normalizeDecisionText(text).split(DECISION_SPLIT_RE).filter(Boolean);
 }
 
-/**
- * Whole-token (and exact multi-token sequence) match for decision phrases.
- * Both the input text and each phrase are normalized/tokenized, so
- * "نعم!" matches "نعم" but "بلاش" no longer matches "لا".
- */
 function hasDecisionPhrase(text, phrases) {
   const tokens = getDecisionTokens(text);
   if (tokens.length === 0) return false;
@@ -82,17 +62,9 @@ function hasDecisionPhrase(text, phrases) {
   return false;
 }
 
-function isConfirmation(text) {
-  return hasDecisionPhrase(text, CONFIRMATION_PHRASES);
-}
+function isConfirmation(text) { return hasDecisionPhrase(text, CONFIRMATION_PHRASES); }
+function isCancellation(text) { return hasDecisionPhrase(text, CANCEL_PHRASES); }
 
-function isCancellation(text) {
-  return hasDecisionPhrase(text, CANCEL_PHRASES);
-}
-
-/**
- * Build system prompt with live DB data
- */
 function buildSystemPrompt(business, menuText) {
   return `أنت مساعد طلبات ودود لمطعم "${business.name}".
 شخصيتك: ${business.ai_config?.personality || 'مساعد ودود ومحترف'}.
@@ -116,30 +88,31 @@ ${menuText}
 }`;
 }
 
-/**
- * Format menu for AI prompt
- */
 async function buildMenuText(businessId) {
-  const categories = await Category.find({ business_id: businessId, active: true }).sort('sort_order');
-  const items = await MenuItem.find({ business_id: businessId, active: true, available: true });
+  const categories = await prisma.category.findMany({
+    where: { business_id: businessId, active: true },
+    orderBy: { sort_order: 'asc' },
+  });
+  const items = await prisma.menuItem.findMany({
+    where: { business_id: businessId, active: true, available: true },
+  });
 
   const lines = [];
   for (const cat of categories) {
-    const catItems = items.filter(i => i.category_id.toString() === cat._id.toString());
+    const catItems = items.filter(i => i.category_id === cat.id);
     if (!catItems.length) continue;
     lines.push(`\n[${cat.name_ar}]`);
     for (const item of catItems) {
-      lines.push(`- ${item.name_ar}: ${item.price} ${''} (ID: ${item._id})`);
+      lines.push(`- ${item.name_ar}: ${item.price} ${''} (ID: ${item.id})`);
     }
   }
   return lines.join('\n') || 'القائمة فارغة حالياً';
 }
 
-/**
- * Match AI-extracted items to real DB menu items
- */
 async function matchItemsToMenu(businessId, extractedItems) {
-  const allItems = await MenuItem.find({ business_id: businessId, active: true, available: true });
+  const allItems = await prisma.menuItem.findMany({
+    where: { business_id: businessId, active: true, available: true },
+  });
   const matched = [];
 
   for (const ext of extractedItems || []) {
@@ -151,7 +124,7 @@ async function matchItemsToMenu(businessId, extractedItems) {
     );
     if (found) {
       matched.push({
-        menu_item_id: found._id,
+        menu_item_id: found.id,
         name_ar: found.name_ar,
         name_en: found.name_en,
         quantity: Math.max(1, parseInt(ext.quantity) || 1),
@@ -164,9 +137,6 @@ async function matchItemsToMenu(businessId, extractedItems) {
   return matched;
 }
 
-/**
- * Calculate order totals from cart
- */
 function calculateTotals(cart, deliveryFee = 0) {
   const subtotal = cart.reduce((sum, i) => sum + i.item_total, 0);
   return {
@@ -176,9 +146,6 @@ function calculateTotals(cart, deliveryFee = 0) {
   };
 }
 
-/**
- * Format cart summary in Arabic
- */
 function formatCartSummary(cart, totals, currency = 'JOD') {
   if (!cart.length) return 'سلة الطلب فارغة.';
   const lines = cart.map(i => `• ${i.name_ar} × ${i.quantity} = ${i.item_total.toFixed(2)} ${currency}`);
@@ -188,20 +155,15 @@ function formatCartSummary(cart, totals, currency = 'JOD') {
   return lines.join('\n');
 }
 
-/**
- * Main workflow processor
- */
 async function processRestaurantMessage(business, conversation, customerMessage) {
   const state = conversation.current_state || STATES.IDLE;
   const workflowData = conversation.workflow_data || {};
   const cart = workflowData.cart || [];
 
-  // Human takeover - skip AI
   if (!conversation.ai_enabled) {
     return { reply: null, stateUpdate: {}, action: 'NONE' };
   }
 
-  // Check human handoff keywords
   const handoffKeywords = business.ai_config?.handoff_keywords || [];
   if (handoffKeywords.some(k => customerMessage.toLowerCase().includes(k.toLowerCase()))) {
     return {
@@ -211,10 +173,7 @@ async function processRestaurantMessage(business, conversation, customerMessage)
     };
   }
 
-  // State: confirming order - deterministic, no AI needed
   if (state === STATES.CONFIRMING_ORDER) {
-    // Empty-cart guard: never emit CONFIRM_ORDER with empty items, even if the
-    // customer sends a confirmation phrase. Reset and ask them to restart.
     if (!Array.isArray(cart) || cart.length === 0) {
       return {
         reply: 'سلة الطلب فارغة حالياً. يرجى إرسال الأصناف التي ترغب بطلبها من جديد.',
@@ -248,7 +207,6 @@ async function processRestaurantMessage(business, conversation, customerMessage)
         action: 'CANCEL_ORDER',
       };
     } else {
-      // Still asking for confirmation
       const totals = calculateTotals(cart, workflowData.delivery_fee || 0);
       const summary = formatCartSummary(cart, totals, business.currency);
       return {
@@ -259,7 +217,6 @@ async function processRestaurantMessage(business, conversation, customerMessage)
     }
   }
 
-  // State: collecting address
   if (state === STATES.COLLECTING_ADDRESS) {
     workflowData.address = customerMessage;
     const totals = calculateTotals(cart, business.policies?.delivery_fee || 0);
@@ -275,7 +232,6 @@ async function processRestaurantMessage(business, conversation, customerMessage)
     };
   }
 
-  // State: asking order type (delivery/pickup)
   if (state === STATES.ASKING_ORDER_TYPE) {
     const lower = customerMessage.toLowerCase();
     let orderType = null;
@@ -308,7 +264,6 @@ async function processRestaurantMessage(business, conversation, customerMessage)
         action: 'NONE',
       };
     }
-    // Unclear
     return {
       reply: 'هل تريد توصيل إلى بيتك أم ستستلم الطلب بنفسك؟',
       stateUpdate: {},
@@ -316,9 +271,8 @@ async function processRestaurantMessage(business, conversation, customerMessage)
     };
   }
 
-  // All other states: use AI for NLP
   try {
-    const menuText = await buildMenuText(business._id);
+    const menuText = await buildMenuText(business.id);
     const systemPrompt = buildSystemPrompt(business, menuText);
     const contextMsg = state !== STATES.IDLE && cart.length
       ? `[حالة الطلب: ${cart.length} صنف في السلة]\nرسالة العميل: ${customerMessage}`
@@ -327,8 +281,7 @@ async function processRestaurantMessage(business, conversation, customerMessage)
     const aiResult = await generateValidatedAIReply(systemPrompt, contextMsg);
 
     if (!aiResult) {
-      // Both AI attempts failed — hand off to human, never crash or create bad order
-      console.warn(`AI returned invalid output twice for business ${business._id} — triggering human handoff`);
+      console.warn(`AI returned invalid output twice for business ${business.id} — triggering human handoff`);
       return {
         reply: business.ai_config?.fallback_message || 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
         stateUpdate: { ai_enabled: false, status: 'human_takeover' },
@@ -338,13 +291,11 @@ async function processRestaurantMessage(business, conversation, customerMessage)
 
     const { reply, action, extracted_items } = aiResult;
 
-    // Handle ADD_ITEM
     if (action === 'ADD_ITEM' && extracted_items?.length) {
-      const newItems = await matchItemsToMenu(business._id, extracted_items);
+      const newItems = await matchItemsToMenu(business.id, extracted_items);
       if (newItems.length) {
-        // Merge into cart
         for (const newItem of newItems) {
-          const existing = cart.find(i => i.menu_item_id?.toString() === newItem.menu_item_id?.toString());
+          const existing = cart.find(i => i.menu_item_id === newItem.menu_item_id);
           if (existing) {
             existing.quantity += newItem.quantity;
             existing.item_total = existing.quantity * existing.unit_price;
@@ -356,7 +307,6 @@ async function processRestaurantMessage(business, conversation, customerMessage)
         const totals = calculateTotals(cart, 0);
         const cartLine = formatCartSummary(cart, totals, business.currency);
         const confirmReply = `${reply}\n\n🛒 سلتك الحالية:\n${cartLine}\n\nهل تريد إضافة شيء آخر؟`;
-
         return {
           reply: confirmReply,
           stateUpdate: { current_state: STATES.COLLECTING_ITEMS, workflow_data: workflowData },
@@ -371,7 +321,6 @@ async function processRestaurantMessage(business, conversation, customerMessage)
       }
     }
 
-    // Handle ASK_ORDER_TYPE
     if (action === 'ASK_ORDER_TYPE' || (cart.length > 0 && action === 'SHOW_SUMMARY')) {
       const targetAction = cart.length > 0 ? 'ASK_ORDER_TYPE' : action;
       return {

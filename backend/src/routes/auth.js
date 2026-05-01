@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const prisma = require('../config/prisma');
 const { authenticate } = require('../middleware/auth');
 
 function signToken(userId) {
@@ -16,20 +17,30 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-    const user = await User.findOne({ email }).select('+password');
-    if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true, name: true, email: true, role: true,
+        business_id: true, active: true, password: true,
+      },
+    });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
     if (!user.active) return res.status(403).json({ error: 'Account is inactive' });
 
-    user.last_login = new Date();
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { last_login: new Date() },
+    });
 
-    const token = signToken(user._id);
+    const token = signToken(user.id);
     res.json({
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -44,7 +55,6 @@ router.post('/login', async (req, res) => {
 // POST /api/auth/register (platform_admin creates business users)
 router.post('/register', authenticate, async (req, res) => {
   try {
-    // Only platform_admin or business_owner can create users
     if (!['platform_admin', 'business_owner'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Not authorized' });
     }
@@ -52,15 +62,23 @@ router.post('/register', authenticate, async (req, res) => {
     const { name, email, password, role, business_id } = req.body;
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, password required' });
 
-    // business_owner can only create staff/manager for their own business
     const targetBusinessId = req.user.role === 'platform_admin' ? business_id : req.user.business_id;
     const targetRole = req.user.role === 'platform_admin' ? (role || 'staff') : 'staff';
 
-    const existing = await User.findOne({ email });
+    const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ error: 'Email already in use' });
 
-    const user = await User.create({ name, email, password, role: targetRole, business_id: targetBusinessId });
-    res.status(201).json({ id: user._id, name: user.name, email: user.email, role: user.role });
+    const hashed = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashed,
+        role: targetRole,
+        business_id: targetBusinessId || null,
+      },
+    });
+    res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -69,7 +87,7 @@ router.post('/register', authenticate, async (req, res) => {
 // GET /api/auth/me
 router.get('/me', authenticate, (req, res) => {
   res.json({
-    id: req.user._id,
+    id: req.user.id,
     name: req.user.name,
     email: req.user.email,
     role: req.user.role,

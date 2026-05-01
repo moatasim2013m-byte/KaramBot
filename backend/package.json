@@ -7,10 +7,19 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node scripts/seed.js",
-    "test": "jest --forceExit --detectOpenHandles"
+    "test": "jest --forceExit --detectOpenHandles",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "prisma:migrate:dev": "prisma migrate dev"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
   },
   "dependencies": {
     "@google/generative-ai": "^0.2.0",
+    "@prisma/client": "^5.22.0",
     "axios": "^1.6.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -21,10 +30,9 @@
     "helmet": "^7.1.0",
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.0.3",
-    "mongoose-paginate-v2": "^1.7.4",
     "morgan": "^1.10.0",
-    "openai": "^4.20.0"
+    "openai": "^4.20.0",
+    "prisma": "^5.22.0"
   },
   "devDependencies": {
     "jest": "^30.3.0",

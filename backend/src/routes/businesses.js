@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
-const Business = require('../models/Business');
+const prisma = require('../config/prisma');
 const { encrypt } = require('../utils/tokenCrypto');
 
 router.use(authenticate);
@@ -38,8 +38,18 @@ function pickAllowed(body, allowedKeys) {
 // GET /api/businesses
 router.get('/', async (req, res) => {
   try {
-    const query = req.user.role === 'platform_admin' ? {} : { _id: req.user.business_id };
-    const businesses = await Business.find(query).select('-wa_access_token');
+    const where = req.user.role === 'platform_admin' ? {} : { id: req.user.business_id };
+    const businesses = await prisma.business.findMany({
+      where,
+      select: {
+        id: true, name: true, slug: true, business_type: true,
+        logo_url: true, language_default: true, timezone: true,
+        currency: true, address: true, wa_phone_number_id: true,
+        wa_business_account_id: true, opening_hours: true,
+        status: true, ai_config: true, policies: true,
+        created_at: true, updated_at: true,
+      },
+    });
     res.json({ businesses });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -50,8 +60,18 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const isAdmin = req.user.role === 'platform_admin';
-    const filter = isAdmin ? { _id: req.params.id } : { _id: req.user.business_id };
-    const biz = await Business.findOne(filter).select('-wa_access_token');
+    const where = isAdmin ? { id: req.params.id } : { id: req.user.business_id };
+    const biz = await prisma.business.findFirst({
+      where,
+      select: {
+        id: true, name: true, slug: true, business_type: true,
+        logo_url: true, language_default: true, timezone: true,
+        currency: true, address: true, wa_phone_number_id: true,
+        wa_business_account_id: true, opening_hours: true,
+        status: true, ai_config: true, policies: true,
+        created_at: true, updated_at: true,
+      },
+    });
     if (!biz) return res.status(404).json({ error: 'Business not found' });
     res.json({ business: biz });
   } catch (err) {
@@ -65,7 +85,8 @@ router.post('/', requireRole('platform_admin'), async (req, res) => {
     if ('wa_access_token' in req.body) {
       return res.status(400).json({ error: 'Set WhatsApp token via PATCH /api/businesses/:id/token' });
     }
-    const biz = await Business.create(req.body);
+    const { wa_access_token: _tok, ...biz } = await prisma.business.create({ data: req.body });
+    void _tok;
     res.status(201).json({ business: biz });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -76,7 +97,7 @@ router.post('/', requireRole('platform_admin'), async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const isAdmin = req.user.role === 'platform_admin';
-    if (!isAdmin && req.user.business_id?.toString() !== req.params.id) {
+    if (!isAdmin && req.user.business_id !== req.params.id) {
       return res.status(403).json({ error: 'Access denied' });
     }
     if ('wa_access_token' in req.body) {
@@ -97,15 +118,21 @@ router.patch('/:id', async (req, res) => {
       return res.status(400).json({ error: 'No valid fields to update' });
     }
 
-    const biz = await Business.findByIdAndUpdate(
-      req.params.id,
-      { $set: update },
-      { new: true, runValidators: true }
-    ).select('-wa_access_token');
-
-    if (!biz) return res.status(404).json({ error: 'Business not found' });
+    const biz = await prisma.business.update({
+      where: { id: req.params.id },
+      data: update,
+      select: {
+        id: true, name: true, slug: true, business_type: true,
+        logo_url: true, language_default: true, timezone: true,
+        currency: true, address: true, wa_phone_number_id: true,
+        wa_business_account_id: true, opening_hours: true,
+        status: true, ai_config: true, policies: true,
+        created_at: true, updated_at: true,
+      },
+    });
     res.json({ business: biz });
   } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Business not found' });
     res.status(400).json({ error: err.message });
   }
 });
@@ -114,7 +141,7 @@ router.patch('/:id', async (req, res) => {
 router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), async (req, res) => {
   try {
     const isAdmin = req.user.role === 'platform_admin';
-    if (!isAdmin && req.user.business_id?.toString() !== req.params.id) {
+    if (!isAdmin && req.user.business_id !== req.params.id) {
       return res.status(403).json({ error: 'Access denied' });
     }
     const { wa_access_token } = req.body;
@@ -128,9 +155,13 @@ router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), asyn
       console.error('Token encryption failed:', encErr.message);
       return res.status(500).json({ error: 'Token encryption failed. Check TOKEN_ENCRYPTION_KEY.' });
     }
-    await Business.findByIdAndUpdate(req.params.id, { wa_access_token: encryptedToken });
+    await prisma.business.update({
+      where: { id: req.params.id },
+      data: { wa_access_token: encryptedToken },
+    });
     res.json({ success: true, message: 'Token encrypted and saved' });
   } catch (err) {
+    if (err.code === 'P2025') return res.status(404).json({ error: 'Business not found' });
     res.status(500).json({ error: err.message });
   }
 });

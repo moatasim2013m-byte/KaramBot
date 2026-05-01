@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, attachBusinessId } = require('../middleware/auth');
-const Order = require('../models/Order');
+const prisma = require('../config/prisma');
 
 router.use(authenticate, attachBusinessId);
 
@@ -11,21 +11,27 @@ const VALID_STATUSES = ['draft', 'awaiting_confirmation', 'confirmed', 'preparin
 router.get('/', async (req, res) => {
   try {
     const { status, date, page = 1, limit = 50 } = req.query;
-    const query = { business_id: req.businessId };
-    if (status) query.status = status;
+    const where = { business_id: req.businessId };
+    if (status) where.status = status;
     if (date) {
       const d = new Date(date);
       const next = new Date(d);
       next.setDate(next.getDate() + 1);
-      query.created_at = { $gte: d, $lt: next };
+      where.created_at = { gte: d, lt: next };
     }
 
-    const orders = await Order.find(query)
-      .sort({ created_at: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: parseInt(limit),
+        include: { status_history: { orderBy: { changed_at: 'asc' } } },
+      }),
+      prisma.order.count({ where }),
+    ]);
 
-    const total = await Order.countDocuments(query);
     res.json({ orders, total, page: parseInt(page) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -38,11 +44,15 @@ router.get('/today', async (req, res) => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
 
-    const orders = await Order.find({
-      business_id: req.businessId,
-      created_at: { $gte: start },
-      status: { $nin: ['draft'] },
-    }).sort({ created_at: -1 });
+    const orders = await prisma.order.findMany({
+      where: {
+        business_id: req.businessId,
+        created_at: { gte: start },
+        NOT: { status: 'draft' },
+      },
+      orderBy: { created_at: 'desc' },
+      include: { status_history: { orderBy: { changed_at: 'asc' } } },
+    });
 
     const summary = {
       total_orders: orders.length,
@@ -62,7 +72,10 @@ router.get('/today', async (req, res) => {
 // GET /api/orders/:id
 router.get('/:id', async (req, res) => {
   try {
-    const order = await Order.findOne({ _id: req.params.id, business_id: req.businessId });
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, business_id: req.businessId },
+      include: { status_history: { orderBy: { changed_at: 'asc' } } },
+    });
     if (!order) return res.status(404).json({ error: 'Order not found' });
     res.json({ order });
   } catch (err) {
@@ -70,7 +83,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PATCH /api/orders/:id/status - update order status
+// PATCH /api/orders/:id/status
 router.patch('/:id/status', async (req, res) => {
   try {
     const { status, notes } = req.body;
@@ -78,13 +91,26 @@ router.patch('/:id/status', async (req, res) => {
       return res.status(400).json({ error: `Invalid status. Valid: ${VALID_STATUSES.join(', ')}` });
     }
 
-    const order = await Order.findOne({ _id: req.params.id, business_id: req.businessId });
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const existing = await prisma.order.findFirst({
+      where: { id: req.params.id, business_id: req.businessId },
+    });
+    if (!existing) return res.status(404).json({ error: 'Order not found' });
 
-    order.status = status;
-    if (notes) order.notes = notes;
-    order.status_history.push({ status, changed_at: new Date(), changed_by: req.user._id });
-    await order.save();
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: {
+        status,
+        ...(notes ? { notes } : {}),
+        status_history: {
+          create: {
+            status,
+            changed_at: new Date(),
+            changed_by: req.user.id,
+          },
+        },
+      },
+      include: { status_history: { orderBy: { changed_at: 'asc' } } },
+    });
 
     res.json({ order });
   } catch (err) {

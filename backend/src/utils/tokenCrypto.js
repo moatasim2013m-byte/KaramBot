@@ -58,9 +58,8 @@ function decrypt(encryptedStr) {
 
   const parts = encryptedStr.split(':');
   if (parts.length !== 3) {
-    throw new Error(
-      'WhatsApp token is not encrypted. Re-save it via PATCH /api/businesses/:id/token.'
-    );
+    console.warn('WhatsApp token is unencrypted. Re-save it via PATCH /api/businesses/:id/token.');
+    return encryptedStr;
   }
 
   try {
