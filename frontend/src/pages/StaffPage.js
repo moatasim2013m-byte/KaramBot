@@ -361,7 +361,7 @@ export default function StaffPage() {
     return () => activeSessionsStream.close();
   }, [createAuthedEventSource, staffPermissions.access_staff_tools]);
 
-  // Poll pending-checkins every 30 s so new bookings appear without a manual
+  // Poll pending-checkins every 15 s so new bookings appear without a manual
   // refresh. active-sessions already updates via SSE; this closes the gap for
   // the activation queue which has no stream of its own.
   useEffect(() => {
@@ -369,7 +369,7 @@ export default function StaffPage() {
     const interval = setInterval(() => {
       fetchPendingCheckins();
       fetchTodayParties();
-    }, 30000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [fetchPendingCheckins, fetchTodayParties, staffPermissions.access_staff_tools]);
 
@@ -437,15 +437,15 @@ export default function StaffPage() {
 
   const handleQrActivate = async () => {
     if (!qrValidation?.scanned || qrCheckingIn) return;
-    // Phase 9 guard — staff must have selected a booking from the queue and
-    // the validated QR/code must belong to that exact booking. UI also
-    // disables the button under the same conditions; this is defense-in-depth.
-    if (!activatingBooking) {
-      toast.error('يرجى اختيار حجز من القائمة أولاً');
+    // Security: the validated QR/code must identify a booking.
+    const validatedCode = qrValidation.booking?.booking_code;
+    if (!validatedCode) {
+      toast.error('الرمز لا يطابق أي حجز');
       return;
     }
-    const validatedCode = qrValidation.booking?.booking_code;
-    if (!validatedCode || validatedCode !== activatingBooking.booking_code) {
+    // If a booking was pre-selected from the queue, the validated code must
+    // match it exactly (defense-in-depth).
+    if (activatingBooking && validatedCode !== activatingBooking.booking_code) {
       toast.error('الرمز لا يطابق الحجز المحدد');
       return;
     }
@@ -1295,109 +1295,309 @@ export default function StaffPage() {
         {allowedTabs.length > 0 && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsContent value="scanner">
-            {/* Phase 9 — QR-first session activation. The pending bookings
-                list IS the activation queue. Selecting a booking opens a
-                dedicated activation panel that gates the "Activate Session"
-                button on a successful QR/code validation that belongs to
-                the selected booking. */}
+            {/* Phase 9 — QR-first session activation.
+                The scanner / manual-entry tool is ALWAYS visible at the top
+                so staff can verify any booking code even when the queue is
+                empty.  The pending-bookings queue is a secondary section
+                below.  Selecting a booking from the queue pre-fills
+                activatingBooking so the activate button is constrained to
+                that specific booking; scanning from the always-visible tool
+                without a queue selection works too — the validated booking
+                code is enough to activate. */}
             {!activatingBooking ? (
-              /* ───── Activation queue (no booking selected yet) ───── */
-              <Card className="rounded-2xl">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <CardTitle className="font-heading flex items-center gap-2">
-                        <QrCode className="h-5 w-5 text-primary" /> تفعيل الجلسات
-                      </CardTitle>
-                      <CardDescription>
-                        اختر حجزاً من قائمة الحجوزات بانتظار التفعيل لإكمال التحقق وتفعيل الجلسة
-                      </CardDescription>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={fetchPendingCheckins}
-                      className="flex-shrink-0 gap-1"
-                      title="تحديث قائمة الحجوزات"
-                      data-testid="queue-refresh-btn"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div
-                    className="mb-4 flex items-start gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-900"
-                    data-testid="activation-rule-banner"
-                  >
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                    <span>يجب التحقق من رمز QR أو رمز الحجز قبل تفعيل أي جلسة.</span>
-                  </div>
-                  <h3 className="font-heading font-bold mb-2">الحجوزات بانتظار التفعيل</h3>
-                  {pendingCheckins.length === 0 ? (
+              /* ───── Always-visible tool + queue section ───── */
+              <div className="space-y-4">
+                {/* ── Always-visible activation tool ── */}
+                <Card className="rounded-2xl" data-testid="always-visible-activation-tool">
+                  <CardHeader>
+                    <CardTitle className="font-heading flex items-center gap-2">
+                      <QrCode className="h-5 w-5 text-primary" /> أداة التفعيل
+                    </CardTitle>
+                    <CardDescription>
+                      امسح رمز QR أو أدخل رمز الحجز يدوياً لتفعيل الجلسة
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
                     <div
-                      className="text-center py-12 text-muted-foreground"
-                      data-testid="activation-queue-empty"
+                      className="flex items-start gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-900"
+                      data-testid="activation-rule-banner"
                     >
-                      <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
-                      <p>لا توجد حجوزات بانتظار التفعيل</p>
-                      <p className="text-xs mt-2 text-muted-foreground">
-                        للتحقق من الحجوزات المسجّلة، راجع قسم الحجوزات في لوحة الإدارة.
-                      </p>
+                      <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <span>يجب التحقق من رمز QR أو رمز الحجز قبل تفعيل أي جلسة.</span>
                     </div>
-                  ) : (
-                    <div className="space-y-3" data-testid="activation-queue">
-                      {pendingCheckins.map((booking) => (
-                        <button
-                          key={booking.id}
-                          type="button"
-                          onClick={() => handleSelectActivation(booking)}
-                          className="w-full text-right flex items-center justify-between gap-3 p-4 rounded-2xl border-2 border-transparent bg-muted/50 hover:bg-muted hover:border-primary/40 active:scale-[0.99] transition"
-                          data-testid={`activation-queue-item-${booking.booking_code}`}
+
+                    <QrScanner onScan={handleQrScan} busy={qrValidating} />
+
+                    {/* Validation feedback */}
+                    {qrValidation && (() => {
+                      const isReady = qrValidation.canCheckin;
+                      return (
+                        <div
+                          className={`rounded-xl border-2 p-3 ${
+                            isReady ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'
+                          }`}
+                          data-testid="qr-validation-result"
                         >
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-base truncate">{booking.child_name}</p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <Clock className="h-3.5 w-3.5" /> {booking.slot_time || '—'}
-                            </p>
-                            <code className="text-xs bg-white px-2 py-0.5 rounded mt-1 inline-block">
-                              {booking.booking_code}
-                            </code>
-                            {(booking.payment_status === 'pending_cash' || booking.payment_status === 'pending_cliq') && (
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold mt-0.5 inline-block">
-                                {booking.payment_status === 'pending_cash' ? 'دفع نقدي مطلوب' : 'دفعة CliQ مطلوبة'}
-                              </span>
+                          <div className="flex items-start gap-2">
+                            {isReady ? (
+                              <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                            ) : (
+                              <XCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
                             )}
+                            <div className="flex-1 min-w-0">
+                              <p
+                                className={`font-bold text-sm ${isReady ? 'text-green-700' : 'text-red-700'}`}
+                                data-testid="qr-validation-message"
+                              >
+                                {isReady
+                                  ? `تم التحقق من الرمز ✓ — ${qrValidation.booking?.child_name || ''}`
+                                  : qrValidation.message || 'الرمز غير صالح'}
+                              </p>
+                              {qrValidation.booking?.booking_code && (
+                                <p className="text-xs mt-1 text-muted-foreground">
+                                  رمز الحجز:{' '}
+                                  <code className="font-mono bg-white px-1 rounded">
+                                    {qrValidation.booking.booking_code}
+                                  </code>
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            <span
-                              className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                                booking.qr_status === 'unused'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : booking.qr_status === 'checked_in'
-                                    ? 'bg-green-100 text-green-700'
-                                    : booking.qr_status === 'cancelled'
-                                      ? 'bg-red-100 text-red-700'
-                                      : 'bg-slate-100 text-slate-600'
-                              }`}
-                              data-testid={`activation-queue-status-${booking.booking_code}`}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Pending-payment unblock for walk-in scans (no queue pre-selection) */}
+                    {qrValidation &&
+                      !qrValidation.activated &&
+                      (qrValidation.reasonCode === 'unpaid_cash' ||
+                        qrValidation.reasonCode === 'unpaid_cliq') && (
+                        <div
+                          className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 flex items-start gap-3"
+                          data-testid="pending-payment-action"
+                        >
+                          <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0 space-y-2">
+                            <p className="text-sm text-amber-900 leading-relaxed">
+                              {qrValidation.reasonCode === 'unpaid_cash'
+                                ? 'هذا الحجز بانتظار استلام الدفع نقداً. بعد استلامك المبلغ، اضغط الزر أدناه لتأكيد الدفع ومتابعة التفعيل.'
+                                : 'هذا الحجز بانتظار استلام دفعة CliQ. بعد تأكد استلام الدفعة، اضغط الزر أدناه لتأكيد الدفع ومتابعة التفعيل.'}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleConfirmPendingPayment(
+                                  qrValidation.reasonCode === 'unpaid_cash' ? 'cash' : 'cliq'
+                                )
+                              }
+                              disabled={confirmingPayment}
+                              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-4 py-2.5 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                              data-testid="confirm-pending-payment-btn"
                             >
-                              {booking.qr_status === 'unused' && 'بانتظار التفعيل'}
-                              {booking.qr_status === 'checked_in' && 'تم التفعيل'}
-                              {booking.qr_status === 'cancelled' && 'ملغي'}
-                              {booking.qr_status === 'expired' && 'منتهي'}
-                              {!['unused', 'checked_in', 'cancelled', 'expired'].includes(booking.qr_status) &&
-                                (booking.qr_status || '—')}
-                            </span>
-                            <span className="text-xs text-primary font-semibold">ابدأ التفعيل ←</span>
+                              {confirmingPayment ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  جاري التأكيد…
+                                </>
+                              ) : qrValidation.reasonCode === 'unpaid_cash' ? (
+                                <>
+                                  <CheckCircle className="h-4 w-4" />
+                                  تأكيد استلام الدفع النقدي
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle className="h-4 w-4" />
+                                  تأكيد استلام دفعة CliQ
+                                </>
+                              )}
+                            </button>
                           </div>
-                        </button>
-                      ))}
+                        </div>
+                      )}
+
+                    {/* Activation success */}
+                    {qrValidation?.activated && (
+                      <div
+                        className="rounded-xl border-2 border-green-300 bg-green-50 p-4 flex items-start gap-3"
+                        data-testid="activation-success"
+                      >
+                        <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0" />
+                        <p className="font-bold text-green-700">
+                          {qrValidation.message || 'تم تفعيل الجلسة بنجاح'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Phase 5 — loyalty result after activation */}
+                    {qrValidation?.activated && qrValidation.loyalty && (
+                      <div
+                        className={`rounded-xl border p-3 flex items-start gap-3 ${
+                          qrValidation.loyalty.awarded
+                            ? 'bg-amber-50 border-amber-300'
+                            : 'bg-slate-50 border-slate-200'
+                        }`}
+                        data-testid="qr-loyalty-result"
+                      >
+                        <Gift
+                          className={`h-6 w-6 flex-shrink-0 ${
+                            qrValidation.loyalty.awarded ? 'text-amber-600' : 'text-slate-500'
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className={`font-bold text-sm ${
+                              qrValidation.loyalty.awarded ? 'text-amber-700' : 'text-slate-700'
+                            }`}
+                            data-testid="qr-loyalty-message"
+                          >
+                            {qrValidation.loyalty.awarded
+                              ? `تمت إضافة ${qrValidation.loyalty.points} نقاط ولاء`
+                              : 'لم يتم إضافة نقاط ولاء'}
+                          </p>
+                          {!qrValidation.loyalty.awarded && getLoyaltyReasonText(qrValidation.loyalty.reason) && (
+                            <p className="text-xs text-slate-600 mt-0.5" data-testid="qr-loyalty-reason">
+                              {getLoyaltyReasonText(qrValidation.loyalty.reason)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-1">
+                      {!qrValidation?.activated ? (
+                        <>
+                          <Button
+                            onClick={handleQrActivate}
+                            disabled={qrCheckingIn || !qrValidation?.canCheckin}
+                            className="flex-1 rounded-full h-12 bg-green-600 hover:bg-green-700"
+                            data-testid="qr-activate-btn"
+                          >
+                            {qrCheckingIn ? (
+                              <Loader2 className="h-5 w-5 ml-2 animate-spin" />
+                            ) : (
+                              <CheckCircle className="h-5 w-5 ml-2" />
+                            )}
+                            تفعيل الجلسة
+                          </Button>
+                          {qrValidation && (
+                            <Button
+                              variant="outline"
+                              onClick={handleQrReset}
+                              className="rounded-full h-12 px-4"
+                              data-testid="qr-reset-btn"
+                            >
+                              مسح آخر
+                            </Button>
+                          )}
+                        </>
+                      ) : (
+                        <Button
+                          onClick={() => {
+                            setQrValidation(null);
+                            fetchPendingCheckins();
+                            fetchActiveSessions();
+                          }}
+                          className="flex-1 rounded-full h-12"
+                          data-testid="activation-done-btn"
+                        >
+                          تفعيل جلسة أخرى
+                        </Button>
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+
+                {/* ── Pending activation queue (secondary section) ── */}
+                <Card className="rounded-2xl">
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <CardTitle className="font-heading flex items-center gap-2">
+                          <Clock className="h-5 w-5 text-primary" /> الحجوزات بانتظار التفعيل
+                        </CardTitle>
+                        <CardDescription>
+                          اضغط على حجز لتحديده ثم استخدم أداة التفعيل أعلاه، أو امسح الرمز مباشرةً
+                        </CardDescription>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={fetchPendingCheckins}
+                        className="flex-shrink-0 gap-1"
+                        title="تحديث قائمة الحجوزات"
+                        data-testid="queue-refresh-btn"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {pendingCheckins.length === 0 ? (
+                      <div
+                        className="text-center py-8 text-muted-foreground"
+                        data-testid="activation-queue-empty"
+                      >
+                        <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-500" />
+                        <p>لا توجد حجوزات بانتظار التفعيل حالياً</p>
+                        <p className="text-xs mt-1 text-muted-foreground">
+                          يمكنك استخدام أداة التفعيل أعلاه لمسح أي رمز حجز
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3" data-testid="activation-queue">
+                        {pendingCheckins.map((booking) => (
+                          <button
+                            key={booking.id}
+                            type="button"
+                            onClick={() => handleSelectActivation(booking)}
+                            className="w-full text-right flex items-center justify-between gap-3 p-4 rounded-2xl border-2 border-transparent bg-muted/50 hover:bg-muted hover:border-primary/40 active:scale-[0.99] transition"
+                            data-testid={`activation-queue-item-${booking.booking_code}`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-base truncate">{booking.child_name}</p>
+                              <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                                <Clock className="h-3.5 w-3.5" /> {booking.slot_time || '—'}
+                              </p>
+                              <code className="text-xs bg-white px-2 py-0.5 rounded mt-1 inline-block">
+                                {booking.booking_code}
+                              </code>
+                              {(booking.payment_status === 'pending_cash' || booking.payment_status === 'pending_cliq') && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold mt-0.5 inline-block">
+                                  {booking.payment_status === 'pending_cash' ? 'دفع نقدي مطلوب' : 'دفعة CliQ مطلوبة'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              <span
+                                className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                                  booking.qr_status === 'unused'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : booking.qr_status === 'checked_in'
+                                      ? 'bg-green-100 text-green-700'
+                                      : booking.qr_status === 'cancelled'
+                                        ? 'bg-red-100 text-red-700'
+                                        : 'bg-slate-100 text-slate-600'
+                                }`}
+                                data-testid={`activation-queue-status-${booking.booking_code}`}
+                              >
+                                {booking.qr_status === 'unused' && 'بانتظار التفعيل'}
+                                {booking.qr_status === 'checked_in' && 'تم التفعيل'}
+                                {booking.qr_status === 'cancelled' && 'ملغي'}
+                                {booking.qr_status === 'expired' && 'منتهي'}
+                                {!['unused', 'checked_in', 'cancelled', 'expired'].includes(booking.qr_status) &&
+                                  (booking.qr_status || '—')}
+                              </span>
+                              <span className="text-xs text-primary font-semibold">ابدأ التفعيل ←</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             ) : (
               /* ───── Per-booking activation panel ───── */
               <Card className="rounded-2xl" data-testid="activation-panel">
