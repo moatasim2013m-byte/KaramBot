@@ -70,6 +70,8 @@ export default function ReportsPage() {
     else loadWeekly();
   }, [view, dailyDate]);
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   const shiftDay = (delta) => {
     const d = new Date(dailyDate);
     d.setDate(d.getDate() + delta);
@@ -117,7 +119,7 @@ export default function ReportsPage() {
             <span className="text-sm font-medium text-gray-700">
               {new Date(daily.date).toLocaleDateString('ar-JO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </span>
-            <button onClick={() => shiftDay(1)} disabled={dailyDate >= new Date().toISOString().split('T')[0]}
+            <button onClick={() => shiftDay(1)} disabled={dailyDate >= todayStr}
               className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-30">
               <ChevronLeft size={16} className="text-gray-500" />
             </button>

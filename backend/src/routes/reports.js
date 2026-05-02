@@ -70,7 +70,7 @@ router.get('/weekly', async (req, res) => {
       where: {
         business_id: req.businessId,
         created_at: { gte: start, lte: end },
-        NOT: { status: { in: ['draft'] } },
+        NOT: { status: { in: ['draft', 'cancelled'] } },
       },
       orderBy: { created_at: 'asc' },
     });
@@ -85,12 +85,8 @@ router.get('/weekly', async (req, res) => {
     for (const order of orders) {
       const key = new Date(order.created_at).toISOString().split('T')[0];
       if (!dailyMap[key]) continue;
-      if (order.status === 'cancelled') {
-        dailyMap[key].cancelled++;
-      } else {
-        dailyMap[key].orders++;
-        dailyMap[key].revenue += order.total || 0;
-      }
+      dailyMap[key].orders++;
+      dailyMap[key].revenue += order.total || 0;
     }
 
     const days = Object.values(dailyMap).map(d => ({
@@ -103,7 +99,7 @@ router.get('/weekly', async (req, res) => {
 
     // Item popularity across the week
     const itemCounts = {};
-    for (const order of orders.filter(o => o.status !== 'cancelled')) {
+    for (const order of orders) {
       for (const item of order.items || []) {
         const key = item.name_ar || item.menu_item_id;
         if (!itemCounts[key]) itemCounts[key] = { name_ar: key, count: 0, revenue: 0 };

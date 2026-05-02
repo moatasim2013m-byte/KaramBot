@@ -10,6 +10,10 @@ const { generateValidatedAIReply } = require('../ai/provider');
 const prisma = require('../config/prisma');
 const { isConfirmation, isCancellation } = require('./restaurant');
 
+// Prisma CUID v1 format: starts with 'c', followed by 24+ alphanumeric chars.
+// If the ID strategy changes, update this pattern accordingly.
+const PRISMA_ID_PATTERN = /\b(c[a-z0-9]{20,})\b/i;
+
 const CLINIC_STATES = {
   IDLE: 'idle',
   CHOOSING_SERVICE: 'choosing_service',
@@ -139,7 +143,7 @@ async function processClinicMessage(business, conversation, customerMessage) {
 
   // State: choosing slot — try to match a slot ID from the message
   if (state === CLINIC_STATES.CHOOSING_SLOT) {
-    const slotIdMatch = customerMessage.match(/\b(c[a-z0-9]{20,})\b/i);
+    const slotIdMatch = customerMessage.match(PRISMA_ID_PATTERN);
     if (slotIdMatch) {
       const slot = await prisma.appointmentSlot.findFirst({
         where: { id: slotIdMatch[1], business_id: business.id, is_booked: false },

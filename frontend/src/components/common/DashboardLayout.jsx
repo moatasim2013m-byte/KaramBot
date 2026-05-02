@@ -14,6 +14,8 @@ export default function DashboardLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const sseRef = useRef(null);
 
+  const calcUnread = (data) => (data?.open || 0) + (data?.human_takeover || 0);
+
   // Connect to SSE for real-time inbox badge
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -29,7 +31,7 @@ export default function DashboardLayout() {
         try {
           const data = JSON.parse(e.data);
           if (data.type === 'stats') {
-            setUnreadCount((data.data?.open || 0) + (data.data?.human_takeover || 0));
+            setUnreadCount(calcUnread(data.data));
           }
         } catch { /* ignore parse errors */ }
       };
@@ -48,7 +50,7 @@ export default function DashboardLayout() {
   // Fallback: fetch initial unread count
   useEffect(() => {
     api.get('/inbox/stats').then(res => {
-      setUnreadCount((res.data.open || 0) + (res.data.human_takeover || 0));
+      setUnreadCount(calcUnread(res.data));
     }).catch(() => {});
   }, []);
 
