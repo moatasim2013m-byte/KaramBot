@@ -57,7 +57,15 @@ function attachBusinessId(req, res, next) {
     req.businessId = req.user.business_id;
   } else if (req.params.businessId) {
     req.businessId = req.params.businessId;
+  } else if (req.query.businessId) {
+    req.businessId = req.query.businessId;
   }
+
+  // platform_admin must supply a businessId to scope queries
+  if (req.user?.role === 'platform_admin' && !req.businessId) {
+    return res.status(400).json({ error: 'platform_admin must supply businessId as query param or route param' });
+  }
+
   next();
 }
 

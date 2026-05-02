@@ -65,8 +65,8 @@ export default function StaffPage() {
   useEffect(() => { load(); }, []);
 
   const toggleActive = async (member) => {
-    if (member._id === user?.id) return alert('لا يمكنك تعطيل حسابك الخاص');
-    await api.patch(`/staff/${member._id}`, { active: !member.active });
+    if (member.id === user?.id) return alert('لا يمكنك تعطيل حسابك الخاص');
+    await api.patch(`/staff/${member.id}`, { active: !member.active });
     load();
   };
 
@@ -91,7 +91,7 @@ export default function StaffPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {staff.map((member, i) => (
-          <div key={member._id} className={`flex items-center justify-between px-5 py-4 ${i < staff.length - 1 ? 'border-b border-gray-50' : ''} hover:bg-gray-50`}>
+          <div key={member.id} className={`flex items-center justify-between px-5 py-4 ${i < staff.length - 1 ? 'border-b border-gray-50' : ''} hover:bg-gray-50`}>
             <div>
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-sm font-bold">
@@ -108,7 +108,7 @@ export default function StaffPage() {
                 {ROLE_AR[member.role] || member.role}
               </span>
               {!member.active && <span className="text-xs bg-red-100 text-red-500 px-2 py-1 rounded">معطل</span>}
-              {canManage && member._id !== user?.id && (
+              {canManage && member.id !== user?.id && (
                 <button onClick={() => toggleActive(member)} title={member.active ? 'تعطيل' : 'تفعيل'}>
                   {member.active
                     ? <ToggleRight size={22} className="text-green-500" />

@@ -84,10 +84,10 @@ export default function OrdersPage() {
 
       <div className="space-y-3">
         {orders.map(order => (
-          <div key={order._id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div key={order.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div
               className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
-              onClick={() => setExpandedId(expandedId === order._id ? null : order._id)}
+              onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}
             >
               <div className="flex items-center gap-3">
                 <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLOR[order.status] || 'bg-gray-100 text-gray-600'}`}>
@@ -106,11 +106,11 @@ export default function OrdersPage() {
                 <span className="text-xs text-gray-400">
                   {new Date(order.created_at).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}
                 </span>
-                <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedId === order._id ? 'rotate-180' : ''}`} />
+                <ChevronDown size={16} className={`text-gray-400 transition-transform ${expandedId === order.id ? 'rotate-180' : ''}`} />
               </div>
             </div>
 
-            {expandedId === order._id && (
+            {expandedId === order.id && (
               <div className="border-t border-gray-100 px-4 py-3">
                 {/* Items */}
                 <div className="mb-3">
@@ -141,7 +141,7 @@ export default function OrdersPage() {
                     {NEXT_STATUSES[order.status].map(nextStatus => (
                       <button
                         key={nextStatus}
-                        onClick={() => updateStatus(order._id, nextStatus)}
+                        onClick={() => updateStatus(order.id, nextStatus)}
                         className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                           nextStatus === 'cancelled'
                             ? 'bg-red-50 text-red-600 hover:bg-red-100'

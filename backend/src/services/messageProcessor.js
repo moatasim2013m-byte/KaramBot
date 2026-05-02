@@ -8,6 +8,8 @@ const { sendTextMessage, markAsRead, normalizePhone } = require('../services/wha
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { processRestaurantMessage } = require('../workflows/restaurant');
+const { processClinicMessage } = require('../workflows/clinic');
+const sseEmitter = require('../utils/sseEmitter');
 
 function canSendAutoReply(business, conversation, label) {
   if (isWithinServiceWindow(conversation.last_inbound_at)) return true;
@@ -120,6 +122,36 @@ async function createConfirmedOrder(business, conversation, orderData) {
   });
 }
 
+async function createConfirmedAppointment(business, conversation, appointmentData) {
+  return prisma.$transaction(async (tx) => {
+    const appt = await tx.appointment.create({
+      data: {
+        business_id: business.id,
+        conversation_id: conversation.id,
+        customer_wa_id: conversation.customer_wa_id,
+        customer_name: appointmentData.customer_name || conversation.profile_name || null,
+        customer_phone: appointmentData.customer_phone || conversation.customer_wa_id,
+        doctor_id: appointmentData.doctor_id || null,
+        service_id: appointmentData.service_id || null,
+        slot_id: appointmentData.slot_id || null,
+        scheduled_at: appointmentData.scheduled_at || null,
+        notes: appointmentData.notes || null,
+        status: 'confirmed',
+      },
+    });
+
+    if (appointmentData.slot_id) {
+      await tx.appointmentSlot.update({
+        where: { id: appointmentData.slot_id },
+        data: { is_booked: true },
+      });
+    }
+
+    return appt;
+  });
+}
+
+
 async function processInboundMessage(entry) {
   try {
     const changes = entry?.changes?.[0];
@@ -227,6 +259,8 @@ async function processInboundMessage(entry) {
       let workflowResult = null;
       if (business.business_type === 'restaurant') {
         workflowResult = await processRestaurantMessage(business, conversation, customerText);
+      } else if (business.business_type === 'clinic') {
+        workflowResult = await processClinicMessage(business, conversation, customerText);
       } else {
         workflowResult = {
           reply: (business.ai_config?.greeting_message) || 'كيف أقدر أساعدك؟',
@@ -261,6 +295,33 @@ async function processInboundMessage(entry) {
           });
         }
       }
+
+      if (workflowResult.action === 'CONFIRM_APPOINTMENT' && workflowResult.appointmentData) {
+        try {
+          await createConfirmedAppointment(business, conversation, workflowResult.appointmentData);
+        } catch (apptErr) {
+          console.error(
+            `Appointment creation failed for business=${business.id} conv=${conversation.id}:`,
+            apptErr,
+          );
+          workflowResult.reply = 'عذراً، حصل خطأ أثناء تسجيل الموعد. سيتواصل معك أحد موظفينا فوراً.';
+          conversation = await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              ai_enabled: false,
+              status: 'human_takeover',
+              current_state: null,
+            },
+          });
+        }
+      }
+
+      // Emit SSE event for real-time dashboard updates
+      sseEmitter.emit(`business:${business.id}`, {
+        type: 'new_message',
+        conversationId: conversation.id,
+        businessId: business.id,
+      });
 
       if (workflowResult.reply) {
         if (!canSendAutoReply(business, conversation, 'workflow auto-reply')) continue;

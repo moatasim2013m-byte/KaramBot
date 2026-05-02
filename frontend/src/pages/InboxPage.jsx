@@ -88,17 +88,41 @@ export default function InboxPage() {
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
-  // Poll for new conversations every 10s
+  // Use SSE for real-time conversation updates instead of polling
+  const sseRef = useRef(null);
   useEffect(() => {
-    const interval = setInterval(loadConversations, 10000);
-    return () => clearInterval(interval);
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const connect = () => {
+      const url = `/api/inbox/updates?token=${encodeURIComponent(token)}`;
+      const es = new EventSource(url);
+      sseRef.current = es;
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'new_message') {
+            loadConversations();
+          }
+        } catch { /* ignore */ }
+      };
+
+      es.onerror = () => {
+        es.close();
+        setTimeout(connect, 10000);
+      };
+    };
+
+    connect();
+    return () => sseRef.current?.close();
   }, [loadConversations]);
 
   const loadMessages = async (conv) => {
     setSelected(conv);
     setLoadingMsgs(true);
     try {
-      const res = await api.get(`/inbox/conversations/${conv._id}/messages`);
+      const res = await api.get(`/inbox/conversations/${conv.id}/messages`);
       setMessages(res.data.messages || []);
       setSelected(res.data.conversation || conv);
     } catch (e) {
@@ -116,7 +140,7 @@ export default function InboxPage() {
   useEffect(() => {
     if (!selected) return;
     const interval = setInterval(async () => {
-      const res = await api.get(`/inbox/conversations/${selected._id}/messages`);
+      const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
       setMessages(res.data.messages || []);
     }, 5000);
     return () => clearInterval(interval);
@@ -126,9 +150,9 @@ export default function InboxPage() {
     if (!replyText.trim() || !selected) return;
     setSending(true);
     try {
-      await api.post(`/inbox/conversations/${selected._id}/send`, { text: replyText });
+      await api.post(`/inbox/conversations/${selected.id}/send`, { text: replyText });
       setReplyText('');
-      const res = await api.get(`/inbox/conversations/${selected._id}/messages`);
+      const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
       setMessages(res.data.messages || []);
     } catch (err) {
       alert('فشل الإرسال: ' + (err.response?.data?.error || err.message));
@@ -139,23 +163,23 @@ export default function InboxPage() {
 
   const handleTakeover = async () => {
     if (!selected) return;
-    await api.post(`/inbox/conversations/${selected._id}/takeover`);
-    const res = await api.get(`/inbox/conversations/${selected._id}/messages`);
+    await api.post(`/inbox/conversations/${selected.id}/takeover`);
+    const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
     setSelected(res.data.conversation);
     loadConversations();
   };
 
   const handleEnableAI = async () => {
     if (!selected) return;
-    await api.post(`/inbox/conversations/${selected._id}/enable-ai`);
-    const res = await api.get(`/inbox/conversations/${selected._id}/messages`);
+    await api.post(`/inbox/conversations/${selected.id}/enable-ai`);
+    const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
     setSelected(res.data.conversation);
     loadConversations();
   };
 
   const handleResolve = async () => {
     if (!selected) return;
-    await api.post(`/inbox/conversations/${selected._id}/resolve`);
+    await api.post(`/inbox/conversations/${selected.id}/resolve`);
     loadConversations();
     setSelected(null);
     setMessages([]);
@@ -194,9 +218,9 @@ export default function InboxPage() {
           )}
           {conversations.map(conv => (
             <ConvItem
-              key={conv._id}
+              key={conv.id}
               conv={conv}
-              active={selected?._id === conv._id}
+              active={selected?.id === conv.id}
               onClick={() => loadMessages(conv)}
             />
           ))}
@@ -263,7 +287,7 @@ export default function InboxPage() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
             {loadingMsgs && <div className="text-center text-gray-400 py-8">جاري التحميل...</div>}
-            {messages.map(msg => <MessageBubble key={msg._id} msg={msg} />)}
+            {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
             <div ref={messagesEndRef} />
           </div>
 
