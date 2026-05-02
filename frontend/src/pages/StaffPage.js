@@ -117,6 +117,10 @@ export default function StaffPage() {
     try { return localStorage.getItem('staff_sound_alerts') === 'true'; } catch { return false; }
   });
   const soundBlockedWarningShownRef = useRef(false);
+  // Activation-success cue: dedup ref so the same activation never plays twice
+  // within a short window (defends against React strict-mode double-invoke,
+  // rapid re-clicks, or any future re-render of the success branch).
+  const lastActivationSoundAtRef = useRef(0);
 
   const playNotificationSound = useCallback(() => {
     if (!soundEnabled) return;
@@ -146,6 +150,52 @@ export default function StaffPage() {
       }
     }
   }, [soundEnabled]);
+
+  // Activation-success cue. Distinct from playNotificationSound (which is a
+  // single descending 880→440Hz tone for incoming bookings). This is a short
+  // ASCENDING two-note chime (~660Hz → ~990Hz) so staff can instantly tell it
+  // apart from the booking-arrival alert. Same soundEnabled gate so the
+  // existing preference toggle controls both.
+  const playActivationSuccessSound = useCallback(() => {
+    if (!soundEnabled) return;
+    let ctx;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const now = ctx.currentTime;
+      const playNote = (freq, startOffset, duration, peakGain) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + startOffset);
+        // Soft attack + exponential decay → "chime" feel, not a beep.
+        gain.gain.setValueAtTime(0.0001, now + startOffset);
+        gain.gain.exponentialRampToValueAtTime(peakGain, now + startOffset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
+        osc.start(now + startOffset);
+        osc.stop(now + startOffset + duration + 0.02);
+      };
+      // Ding-ding ascending: E5 → B5
+      playNote(659.25, 0.0,  0.22, 0.35);
+      playNote(987.77, 0.13, 0.30, 0.32);
+      const closeCtx = () => { if (ctx.state !== 'closed') ctx.close(); };
+      setTimeout(closeCtx, 700);
+    } catch {
+      if (ctx) { try { ctx.close(); } catch { /* ignore */ } }
+      // Intentionally silent on failure — the toast.success already confirms
+      // activation; we don't want to double-toast about audio every time.
+    }
+  }, [soundEnabled]);
+
+  const tryPlayActivationSuccessSound = useCallback(() => {
+    // Dedup: ignore re-entrant calls within 1500ms so a single activation
+    // never produces two cues even if the success branch re-runs.
+    const stamp = Date.now();
+    if (stamp - lastActivationSoundAtRef.current < 1500) return;
+    lastActivationSoundAtRef.current = stamp;
+    playActivationSuccessSound();
+  }, [playActivationSuccessSound]);
 
   const toggleSound = useCallback(() => {
     setSoundEnabled((prev) => {
@@ -435,6 +485,9 @@ export default function StaffPage() {
       const response = await api.post('/staff/checkin', { booking_code: bookingCode.toUpperCase().trim() });
       setScanResult({ success: true, data: response.data });
       toast.success('Check-in successful!');
+      // Success-only audio cue. Reaches here ONLY after a 2xx response from
+      // /staff/checkin (i.e. legacy manual session activation). Dedup-guarded.
+      tryPlayActivationSuccessSound();
       setBookingCode('');
       fetchActiveSessions();
       fetchPendingCheckins();
@@ -507,6 +560,9 @@ export default function StaffPage() {
         activated: true
       });
       toast.success(payload.message || 'تم تفعيل الجلسة بنجاح');
+      // Success-only audio cue. Reaches here ONLY after a 2xx response from
+      // /staff/qr/checkin (i.e. session truly activated). Dedup-guarded.
+      tryPlayActivationSuccessSound();
       fetchActiveSessions();
       fetchPendingCheckins();
     } catch (error) {
