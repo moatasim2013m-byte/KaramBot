@@ -53,7 +53,7 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.patch(`/businesses/${biz._id}`, {
+      await api.patch(`/businesses/${biz.id}`, {
         name: biz.name,
         address: biz.address,
         currency: biz.currency,

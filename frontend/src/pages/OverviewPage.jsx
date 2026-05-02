@@ -92,7 +92,7 @@ export default function OverviewPage() {
         ) : (
           <div className="divide-y divide-gray-50">
             {todayOrders.slice(0, 10).map(order => (
-              <div key={order._id} className="px-5 py-3 flex items-center justify-between">
+              <div key={order.id} className="px-5 py-3 flex items-center justify-between">
                 <div>
                   <div className="font-medium text-sm text-gray-800">
                     {order.customer_name || order.customer_wa_id}

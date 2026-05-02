@@ -5,6 +5,7 @@ const prisma = require('../config/prisma');
 const { sendTextMessage } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
+const sseEmitter = require('../utils/sseEmitter');
 
 const MAX_SEARCH_LEN = 80;
 
@@ -13,14 +14,22 @@ router.use(authenticate, attachBusinessId);
 // GET /api/inbox/conversations
 router.get('/conversations', async (req, res) => {
   try {
-    const { status, search, page = 1, limit = 30 } = req.query;
+    const { status, search, page = 1, limit = 30, date_from, date_to } = req.query;
     const where = { business_id: req.businessId };
     if (status) where.status = status;
     if (typeof search === 'string') {
       const trimmed = search.trim().slice(0, MAX_SEARCH_LEN);
       if (trimmed) {
-        where.profile_name = { contains: trimmed, mode: 'insensitive' };
+        where.OR = [
+          { profile_name: { contains: trimmed, mode: 'insensitive' } },
+          { customer_wa_id: { contains: trimmed } },
+        ];
       }
+    }
+    if (date_from || date_to) {
+      where.last_message_at = {};
+      if (date_from) where.last_message_at.gte = new Date(date_from);
+      if (date_to) where.last_message_at.lte = new Date(date_to);
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -214,25 +223,80 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /api/inbox/updates - SSE polling endpoint
-router.get('/updates', (req, res) => {
+// GET /api/inbox/updates - SSE endpoint with EventEmitter for real-time push
+// Accepts auth token via ?token= query param (EventSource doesn't support headers)
+router.get('/updates', async (req, res) => {
+  // Authenticate via query param token when Authorization header is absent
+  if (!req.headers.authorization && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+
+  // Run auth middleware inline
+  const jwt = require('jsonwebtoken');
+  const prisma = require('../config/prisma');
+  try {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+    const token = header.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, name: true, email: true, role: true, business_id: true, active: true },
+    });
+    if (!user || !user.active) return res.status(401).json({ error: 'Unauthorized' });
+    req.user = user;
+
+    // attachBusinessId logic
+    if (user.role !== 'platform_admin' && user.business_id) {
+      req.businessId = user.business_id;
+    } else if (req.query.businessId) {
+      req.businessId = req.query.businessId;
+    }
+    if (user.role === 'platform_admin' && !req.businessId) {
+      return res.status(400).json({ error: 'platform_admin must supply businessId' });
+    }
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-  const interval = setInterval(async () => {
-    try {
-      const [open, humanTakeover] = await Promise.all([
-        prisma.conversation.count({ where: { business_id: req.businessId, status: 'open' } }),
-        prisma.conversation.count({ where: { business_id: req.businessId, status: 'human_takeover' } }),
-      ]);
-      send({ type: 'stats', data: { open, human_takeover: humanTakeover } });
-    } catch {}
-  }, 5000);
+  // Heartbeat every 30s to keep connection alive through proxies
+  const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 30000);
 
-  req.on('close', () => clearInterval(interval));
+  const onEvent = async (event) => {
+    try {
+      if (event.type === 'new_message') {
+        const [open, humanTakeover] = await Promise.all([
+          prisma.conversation.count({ where: { business_id: req.businessId, status: 'open' } }),
+          prisma.conversation.count({ where: { business_id: req.businessId, status: 'human_takeover' } }),
+        ]);
+        send({ type: 'stats', data: { open, human_takeover: humanTakeover } });
+        send({ type: 'new_message', conversationId: event.conversationId });
+      }
+    } catch { /* ignore errors in SSE stream */ }
+  };
+
+  const channel = `business:${req.businessId}`;
+  sseEmitter.on(channel, onEvent);
+
+  // Send initial stats immediately on connect
+  prisma.conversation.count({ where: { business_id: req.businessId, status: 'open' } })
+    .then(async (open) => {
+      const humanTakeover = await prisma.conversation.count({ where: { business_id: req.businessId, status: 'human_takeover' } });
+      send({ type: 'stats', data: { open, human_takeover: humanTakeover } });
+    }).catch(() => {});
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseEmitter.off(channel, onEvent);
+  });
 });
 
 module.exports = router;

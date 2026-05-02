@@ -44,6 +44,8 @@ app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));
 app.use('/api/orders', apiLimiter, require('./routes/orders'));
 app.use('/api/staff', apiLimiter, require('./routes/staff'));
+app.use('/api/clinic', apiLimiter, require('./routes/clinic'));
+app.use('/api/reports', apiLimiter, require('./routes/reports'));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

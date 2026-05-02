@@ -1,24 +1,67 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../utils/api';
 import {
   LayoutDashboard, MessageSquare, ShoppingBag, UtensilsCrossed,
-  Settings, Users, LogOut, Menu, X, Bell
+  Settings, Users, LogOut, Menu, X, Bell, Stethoscope, BarChart2
 } from 'lucide-react';
-
-const navItems = [
-  { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
-  { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد' },
-  { to: '/orders', icon: ShoppingBag, label: 'الطلبات' },
-  { to: '/menu', icon: UtensilsCrossed, label: 'القائمة' },
-  { to: '/staff', icon: Users, label: 'الموظفون' },
-  { to: '/settings', icon: Settings, label: 'الإعدادات' },
-];
 
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const sseRef = useRef(null);
+
+  // Connect to SSE for real-time inbox badge
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const connect = () => {
+      // Pass auth token as query param since EventSource doesn't support headers
+      const url = `/api/inbox/updates?token=${encodeURIComponent(token)}`;
+      const es = new EventSource(url);
+      sseRef.current = es;
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === 'stats') {
+            setUnreadCount((data.data?.open || 0) + (data.data?.human_takeover || 0));
+          }
+        } catch { /* ignore parse errors */ }
+      };
+
+      es.onerror = () => {
+        es.close();
+        // Reconnect after 10s on error
+        setTimeout(connect, 10000);
+      };
+    };
+
+    connect();
+    return () => sseRef.current?.close();
+  }, []);
+
+  // Fallback: fetch initial unread count
+  useEffect(() => {
+    api.get('/inbox/stats').then(res => {
+      setUnreadCount((res.data.open || 0) + (res.data.human_takeover || 0));
+    }).catch(() => {});
+  }, []);
+
+  const navItems = [
+    { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
+    { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount },
+    { to: '/orders', icon: ShoppingBag, label: 'الطلبات' },
+    { to: '/menu', icon: UtensilsCrossed, label: 'القائمة' },
+    { to: '/clinic', icon: Stethoscope, label: 'العيادة' },
+    { to: '/reports', icon: BarChart2, label: 'التقارير' },
+    { to: '/staff', icon: Users, label: 'الموظفون' },
+    { to: '/settings', icon: Settings, label: 'الإعدادات' },
+  ];
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -44,7 +87,7 @@ export default function DashboardLayout() {
 
         {/* Nav */}
         <nav className="flex-1 py-4 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label }) => (
+          {navItems.map(({ to, icon: Icon, label, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -58,7 +101,12 @@ export default function DashboardLayout() {
               }
             >
               <Icon size={18} />
-              {label}
+              <span className="flex-1">{label}</span>
+              {badge > 0 && (
+                <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[20px] text-center font-medium">
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -88,9 +136,16 @@ export default function DashboardLayout() {
             <Menu size={22} />
           </button>
           <div className="flex items-center gap-3">
-            <button className="text-gray-400 hover:text-gray-600">
-              <Bell size={20} />
-            </button>
+            <div className="relative">
+              <button className="text-gray-400 hover:text-gray-600">
+                <Bell size={20} />
+              </button>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-medium">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </div>
             <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-bold">
               {user?.name?.[0] || 'م'}
             </div>

@@ -103,7 +103,7 @@ async function buildMenuText(businessId) {
     if (!catItems.length) continue;
     lines.push(`\n[${cat.name_ar}]`);
     for (const item of catItems) {
-      lines.push(`- ${item.name_ar}: ${item.price} ${''} (ID: ${item.id})`);
+      lines.push(`- ${item.name_ar}: ${item.price} ${business.currency || ''} (ID: ${item.id})`);
     }
   }
   return lines.join('\n') || 'القائمة فارغة حالياً';

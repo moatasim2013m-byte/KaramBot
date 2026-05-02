@@ -9,6 +9,8 @@ import OrdersPage from './pages/OrdersPage';
 import MenuPage from './pages/MenuPage';
 import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
+import ClinicPage from './pages/ClinicPage';
+import ReportsPage from './pages/ReportsPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -36,8 +38,10 @@ export default function App() {
             <Route path="inbox" element={<InboxPage />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="menu" element={<MenuPage />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="clinic" element={<ClinicPage />} />
+            <Route path="reports" element={<ReportsPage />} />
             <Route path="staff" element={<StaffPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
