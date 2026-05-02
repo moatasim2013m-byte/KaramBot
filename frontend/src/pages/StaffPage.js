@@ -13,7 +13,7 @@ import {
   Loader2, AlertTriangle, Users, RefreshCw, MessageSquare, Send,
   Plus, Edit2, Trash2, X, Filter, Megaphone, BarChart2,
   PlayCircle, PauseCircle, ChevronDown, ChevronUp, FileText,
-  Image as ImageIcon, Bot, User, Gift
+  Image as ImageIcon, Bot, User, Gift, Bell, BellOff
 } from 'lucide-react';
 import { DashboardLayout } from '../components/admin/DashboardLayout';
 import QrScanner from '../components/staff/QrScanner';
@@ -112,6 +112,48 @@ export default function StaffPage() {
   const previousConversationWaIdRef = useRef(null);
   // Track previous pending-checkins count so we can fire a toast when it grows.
   const prevPendingCountRef = useRef(null);
+  // Sound notification: stored in localStorage so preference survives reload.
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    try { return localStorage.getItem('staff_sound_alerts') === 'true'; } catch { return false; }
+  });
+  const soundBlockedWarningShownRef = useRef(false);
+
+  const playNotificationSound = useCallback(() => {
+    if (!soundEnabled) return;
+    let ctx;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
+      gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      oscillator.start(ctx.currentTime);
+      oscillator.stop(ctx.currentTime + 0.4);
+      // Close context after sound finishes; setTimeout as fallback if onended doesn't fire.
+      const closeCtx = () => { if (ctx.state !== 'closed') ctx.close(); };
+      oscillator.onended = closeCtx;
+      setTimeout(closeCtx, 600);
+    } catch {
+      if (ctx) { try { ctx.close(); } catch { /* ignore */ } }
+      if (!soundBlockedWarningShownRef.current) {
+        soundBlockedWarningShownRef.current = true;
+        toast.warning('تعذر تشغيل الصوت. تأكد من أن المتصفح يسمح بتشغيل الصوت.');
+      }
+    }
+  }, [soundEnabled]);
+
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      try { localStorage.setItem('staff_sound_alerts', String(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const [showQRManager, setShowQRManager] = useState(false);
   const [qrForm, setQrForm] = useState({ label: '', message: '', category: 'other' });
@@ -379,9 +421,10 @@ export default function StaffPage() {
     const current = pendingCheckins.length;
     if (prev !== null && current > prev) {
       toast.info(`حجز جديد بانتظار التفعيل (${current - prev} جديد)`);
+      playNotificationSound();
     }
     prevPendingCountRef.current = current;
-  }, [pendingCheckins.length]);
+  }, [pendingCheckins.length, playNotificationSound]);
 
   const handleCheckin = async (e) => {
     e.preventDefault();
@@ -1531,6 +1574,22 @@ export default function StaffPage() {
                       >
                         <RefreshCw className="h-4 w-4" />
                       </Button>
+                      <button
+                        type="button"
+                        onClick={toggleSound}
+                        title={soundEnabled ? 'إيقاف صوت التنبيهات' : 'تفعيل صوت التنبيهات'}
+                        data-testid="sound-toggle-btn"
+                        className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border transition-colors flex-shrink-0 ${
+                          soundEnabled
+                            ? 'bg-primary/10 border-primary/30 text-primary'
+                            : 'bg-muted border-muted-foreground/20 text-muted-foreground'
+                        }`}
+                      >
+                        {soundEnabled
+                          ? <><Bell className="h-3.5 w-3.5" /><span>صوت التنبيهات مفعل</span></>
+                          : <><BellOff className="h-3.5 w-3.5" /><span>صوت التنبيهات متوقف</span></>
+                        }
+                      </button>
                     </div>
                   </CardHeader>
                   <CardContent>
