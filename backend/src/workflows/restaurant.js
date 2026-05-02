@@ -356,4 +356,4 @@ async function processRestaurantMessage(business, conversation, customerMessage)
   }
 }
 
-module.exports = { processRestaurantMessage, STATES };
+module.exports = { processRestaurantMessage, STATES, isConfirmation, isCancellation };
