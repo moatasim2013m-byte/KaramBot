@@ -515,12 +515,12 @@ export default function HomePage() {
                           <div className={`absolute -top-4 ${a.strip} text-white text-sm font-extrabold w-9 h-9 rounded-full flex items-center justify-center shadow-md ring-4 ring-[#F6FBEF]`}>
                             {idx + 1}
                           </div>
-                          {/* Mascot tile — larger container, no overflow-hidden clip, centered */}
-                          <div className={`w-28 h-28 rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3`}>
+                          {/* Mascot tile — crop transparent canvas so mascot appears consistently sized */}
+                          <div className={`w-28 h-28 overflow-hidden rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3`}>
                             <Shroomi
                               pose={step.pose}
-                              size={104}
-                              style={{ objectFit: 'contain', objectPosition: 'center' }}
+                              size={138}
+                              style={{ objectFit: 'contain', objectPosition: 'center', flexShrink: 0 }}
                             />
                           </div>
                           <h3 className="font-heading font-bold text-sm md:text-[15px] text-[#2D2D2D] mb-1 leading-snug min-h-[2.6em] flex items-center justify-center px-0.5">
