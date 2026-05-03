@@ -1708,9 +1708,15 @@ button.primary,
 
 /* Wave Divider */
 .footer-wave {
-    height: 60px;
+    height: 44px;
     background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 100'%3E%3Cpath fill='%23FFFFFF' d='M0,50 C360,100 720,0 1080,50 C1260,75 1380,75 1440,50 L1440,100 L0,100 Z'/%3E%3C/svg%3E") no-repeat bottom center;
     background-size: cover;
+}
+
+@media (min-width: 768px) {
+    .footer-wave {
+        height: 60px;
+    }
 }
 
 /* Footer Card Container */
@@ -1790,8 +1796,15 @@ button.primary,
 .footer-heading {
     font-family: var(--font-heading-ar);
     font-weight: 700;
-    font-size: 1.125rem;
-    margin-bottom: 1rem;
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+@media (min-width: 768px) {
+    .footer-heading {
+        font-size: 1.125rem;
+        margin-bottom: 1rem;
+    }
 }
 
 .footer-heading-blue { color: var(--pk-blue); }
@@ -1800,12 +1813,29 @@ button.primary,
 
 .footer-description-bubbly {
     color: var(--text-secondary);
-    font-family: var(--font-heading-ar);
-    font-weight: 700;
-    font-size: clamp(1.12rem, 2.8vw, 1.35rem);
-    line-height: 1.85;
-    letter-spacing: 0.01em;
-    text-shadow: 0 1px 0 rgba(255,255,255,0.9), 0 3px 10px rgba(96, 165, 250, 0.10);
+    font-family: var(--font-body-ar, var(--font-heading-ar));
+    font-weight: 500;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    letter-spacing: 0;
+}
+
+@media (min-width: 768px) {
+    .footer-description-bubbly {
+        font-size: 1rem;
+        line-height: 1.75;
+    }
+}
+
+/* Footer logo: smaller on mobile so it doesn't dominate the column */
+.footer-logo-img {
+    height: calc(var(--footer-logo-h, 112px) * 0.62);
+}
+
+@media (min-width: 768px) {
+    .footer-logo-img {
+        height: var(--footer-logo-h, 112px);
+    }
 }
 
 /* Address Label Pill */
@@ -1825,8 +1855,15 @@ button.primary,
 /* Footer Links */
 .footer-link-new {
     color: var(--text-secondary);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
     transition: all 0.2s ease;
+}
+
+@media (min-width: 768px) {
+    .footer-link-new {
+        font-size: 0.95rem;
+    }
 }
 
 .footer-link-new:hover {

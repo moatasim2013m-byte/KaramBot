@@ -64,8 +64,9 @@ export default function FaqBotWidget() {
 
   const isSmallScreen = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
   const widgetOffsetBottom = isSmallScreen
-    ? "calc(env(safe-area-inset-bottom, 0px) + 10px)"
-    : "calc(env(safe-area-inset-bottom, 0px) + 18px)";
+    ? "calc(env(safe-area-inset-bottom, 0px) + 18px)"
+    : "calc(env(safe-area-inset-bottom, 0px) + 22px)";
+  const widgetOffsetSide = isSmallScreen ? "14px" : "20px";
 
   const askQuestion = async (questionText) => {
     if (!questionText || loading) return;
@@ -106,7 +107,7 @@ export default function FaqBotWidget() {
   };
 
   return (
-    <div style={{ position: "fixed", bottom: widgetOffsetBottom, right: isSmallScreen ? "10px" : "18px", zIndex: 900 }} dir="rtl">
+    <div style={{ position: "fixed", bottom: widgetOffsetBottom, right: widgetOffsetSide, zIndex: 900 }} dir="rtl">
       {open && (
         <div
           style={{
@@ -202,15 +203,15 @@ export default function FaqBotWidget() {
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         style={{
-          width: isSmallScreen ? "50px" : "56px",
-          height: isSmallScreen ? "50px" : "56px",
+          width: isSmallScreen ? "46px" : "54px",
+          height: isSmallScreen ? "46px" : "54px",
           borderRadius: "50%",
           border: "none",
           background: "#6d28d9",
           color: "#fff",
-          fontSize: isSmallScreen ? "22px" : "24px",
+          fontSize: isSmallScreen ? "20px" : "23px",
           cursor: "pointer",
-          boxShadow: "0 8px 20px rgba(109,40,217,0.35)"
+          boxShadow: "0 6px 16px rgba(109,40,217,0.28)"
         }}
         aria-label="فتح مساعد الأسئلة"
         title="مساعد الأسئلة"

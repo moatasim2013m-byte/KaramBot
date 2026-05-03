@@ -502,31 +502,31 @@ export default function HomePage() {
 
               {/* Mobile: horizontal snap scroll · Tablet: 3-col · Desktop: 4-col (2 rows of 4+3) */}
               <div className="relative">
-                <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-x-auto md:overflow-visible pb-6 md:pb-0 snap-x snap-mandatory peekaboo-hide-scrollbar">
+                <div className="flex md:grid md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 overflow-x-auto md:overflow-visible pb-6 md:pb-0 snap-x snap-mandatory peekaboo-hide-scrollbar -mx-4 md:mx-0 px-[max(1rem,7%)] md:px-0">
                   {journeySteps.map((step, idx) => {
                     const a = accentMap[step.color];
                     return (
                       <div
                         key={step.title}
-                        className="snap-start shrink-0 w-[78%] sm:w-[48%] md:w-auto relative"
+                        className="snap-center shrink-0 w-[86%] sm:w-[58%] md:w-auto relative"
                       >
-                        <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-4 pt-7 flex flex-col items-center text-center`}>
+                        <div className={`relative h-full bg-white rounded-3xl border ${a.border} shadow-[0_8px_24px_rgba(45,45,45,0.06)] hover:shadow-[0_14px_30px_rgba(45,45,45,0.10)] transition-shadow p-5 pt-8 flex flex-col items-center text-center`}>
                           {/* Step number */}
                           <div className={`absolute -top-4 ${a.strip} text-white text-sm font-extrabold w-9 h-9 rounded-full flex items-center justify-center shadow-md ring-4 ring-[#F6FBEF]`}>
                             {idx + 1}
                           </div>
-                          {/* Mascot tile — crop transparent canvas so mascot appears consistently sized */}
-                          <div className={`w-28 h-28 overflow-hidden rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3`}>
+                          {/* Mascot tile — fully fits the mascot using contain (no clipping). */}
+                          <div className={`w-32 h-32 rounded-2xl bg-[#FDFBF5] ring-1 ring-inset ${a.border} flex items-center justify-center mb-3 p-2`}>
                             <Shroomi
                               pose={step.pose}
-                              size={138}
-                              style={{ objectFit: 'contain', objectPosition: 'center', flexShrink: 0 }}
+                              size={112}
+                              style={{ objectFit: 'contain', objectPosition: 'center', maxWidth: '100%', maxHeight: '100%' }}
                             />
                           </div>
-                          <h3 className="font-heading font-bold text-sm md:text-[15px] text-[#2D2D2D] mb-1 leading-snug min-h-[2.6em] flex items-center justify-center px-0.5">
+                          <h3 className="font-heading font-bold text-[15px] md:text-[15px] text-[#2D2D2D] mb-1.5 leading-snug min-h-[2.6em] flex items-center justify-center px-0.5">
                             {step.title}
                           </h3>
-                          <p className="text-[11.5px] md:text-xs text-[#2D2D2D]/65 leading-relaxed">
+                          <p className="text-[12.5px] md:text-xs text-[#2D2D2D]/75 leading-relaxed">
                             {step.desc}
                           </p>
                         </div>
@@ -799,29 +799,29 @@ export default function HomePage() {
           </section>
 
           {/* ================== 8. FINAL CTA ================== */}
-          <section className="relative py-12 md:py-20 px-4 sm:px-6 lg:px-8">
+          <section className="relative py-10 md:py-20 px-4 sm:px-6 lg:px-8">
             <div className="max-w-6xl mx-auto">
-              <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-[#E63946] via-[#E8872E] to-[#FFD166] p-10 sm:p-14 md:p-20 shadow-[0_25px_60px_-20px_rgba(230,57,70,0.45)]">
+              <div className="relative overflow-hidden rounded-[2rem] md:rounded-[2.5rem] bg-gradient-to-br from-[#E63946] via-[#E8872E] to-[#FFD166] p-7 sm:p-12 md:p-20 shadow-[0_20px_50px_-22px_rgba(230,57,70,0.42)]">
                 {/* Decorative blobs */}
                 <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" aria-hidden="true" />
                 <div className="absolute -bottom-20 -left-10 w-72 h-72 rounded-full bg-white/10 blur-2xl" aria-hidden="true" />
 
-                <div className="relative z-10 grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+                <div className="relative z-10 grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-8 items-center">
                   <div className="md:col-span-8 text-right text-white">
-                    <span className="inline-block px-4 py-1.5 rounded-full bg-white/20 backdrop-blur text-white text-sm font-bold mb-4">
+                    <span className="inline-block px-4 py-1.5 rounded-full bg-white/20 backdrop-blur text-white text-xs sm:text-sm font-bold mb-3 md:mb-4">
                       جاهز للحجز
                     </span>
-                    <h2 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-extrabold mb-4 leading-tight" data-testid="cta-title">
+                    <h2 className="font-heading heading-bubble text-2xl sm:text-4xl md:text-5xl font-extrabold mb-3 md:mb-4 leading-tight" data-testid="cta-title">
                       جاهز تحجز؟ 🎉
                     </h2>
-                    <p className="text-base sm:text-lg text-white/90 max-w-xl leading-relaxed mb-7">
+                    <p className="text-sm sm:text-lg text-white/90 max-w-xl leading-relaxed mb-5 md:mb-7">
                       احجز جلسة لعب أو حفلة عيد ميلاد لطفلك اليوم — تجربة لا تُنسى بانتظاركم.
                     </p>
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
                       <Link to={heroConfig.ctaRoute || '/tickets'}>
                         <Button
                           size="lg"
-                          className="w-full sm:w-auto rounded-full bg-white text-[#E63946] hover:bg-white/95 text-base px-8 h-14 font-bold shadow-xl hover:scale-[1.02] transition-transform"
+                          className="w-full sm:w-auto rounded-full bg-white text-[#E63946] hover:bg-white/95 text-sm sm:text-base px-7 sm:px-8 h-12 sm:h-14 font-bold shadow-xl hover:scale-[1.02] transition-transform"
                           data-testid="cta-signup-btn"
                         >
                           {heroConfig.ctaText || 'احجز جلسة'}
@@ -830,7 +830,7 @@ export default function HomePage() {
                       <a href={whatsappUrl} target="_blank" rel="noreferrer">
                         <Button
                           size="lg"
-                          className="w-full sm:w-auto rounded-full bg-[#0E5C2A] hover:bg-[#0a4a22] text-white text-base px-8 h-14 font-bold shadow-xl"
+                          className="w-full sm:w-auto rounded-full bg-[#0E5C2A] hover:bg-[#0a4a22] text-white text-sm sm:text-base px-7 sm:px-8 h-12 sm:h-14 font-bold shadow-xl"
                         >
                           <MessageCircle className="h-5 w-5 ml-2" />
                           واتساب
@@ -839,9 +839,13 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  {/* Shroomi #5 — Final CTA */}
+                  {/* Shroomi #5 — Final CTA. Smaller on mobile so the block doesn't dominate. */}
                   <div className="md:col-span-4 flex justify-center md:justify-end" aria-hidden="true">
-                    <Shroomi pose="party-big" size={220} className="drop-shadow-2xl" />
+                    <Shroomi
+                      pose="party-big"
+                      size={220}
+                      className="drop-shadow-2xl !w-36 !h-36 sm:!w-48 sm:!h-48 md:!w-[220px] md:!h-[220px]"
+                    />
                   </div>
                 </div>
               </div>
