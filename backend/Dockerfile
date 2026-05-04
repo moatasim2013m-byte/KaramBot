@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY package*.json ./
 COPY prisma ./prisma
+RUN rm -rf node_modules
 RUN npm ci --only=production
 
 COPY . .
