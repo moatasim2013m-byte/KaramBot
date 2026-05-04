@@ -1,0 +1,5 @@
+node_modules
+.prisma
+node_modules/.prisma
+npm-debug.log
+.env
