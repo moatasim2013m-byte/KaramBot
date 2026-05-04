@@ -1,0 +1,68 @@
+{
+  "summary": "Mission 1 Day Care Backend Foundation: comprehensive pytest suite (16 tests) covering all 15 acceptance criteria from the review request — all 16/16 PASS. Covers /api/admin/pricing GET/PUT (with hourly_*↔daycare_* isolation), /api/slots/available branching for hourly|daycare|birthday (incl. 'no auto-seed for daycare'), /api/bookings/hourly + /hourly/offline + /hourly/guest-offline classification (PK-D-* / PK-H-* prefix + DB-level service_type stamping), birthday-slot rejection on the hourly endpoint, capacity enforcement on daycare slots, /api/payments/create-checkout type=hourly returning the expected 'manual' payload (PAYMENT_PROVIDER=manual), and birthday/subscription regression. Dev-only seed script (scripts/seed_daycare_slots.js) was exercised both --dry-run and live, and shown to be idempotent (re-run reports 0 created / 9 already existed).",
+  "verification_matrix": {
+    "1_pricing_get_returns_hourly_and_daycare_keys": "PASS (hourly_1hr/2hr/3hr/extra_hr + daycare_1hr/2hr/3hr/4hr all present, all numeric)",
+    "2_pricing_put_daycare_isolation": "PASS (PUT only daycare_* leaves hourly_* untouched, and vice-versa)",
+    "3_seed_script_dry_run_and_live_idempotent": "PASS (dry-run reports without persisting; live run on existing dates reports 0 created / 9 already existed)",
+    "4_slots_available_daycare_seeded_only": "PASS (returns only seeded daycare slots; far-future date with no seed returns empty array — NEVER auto-creates)",
+    "5_slots_available_hourly_regression_79": "PASS (79 hourly slots auto-generated)",
+    "6_slots_available_birthday_regression_6": "PASS (6 birthday slots returned)",
+    "7_hourly_endpoint_books_daycare_PKD_servicetype": "PASS (booking_code starts PK-D-, amount==daycare_<duration>hr, DB-persisted service_type='daycare')",
+    "8_hourly_endpoint_books_main_area_PKH_servicetype": "PASS (booking_code starts PK-H-, amount==hourly_<duration>hr, DB-persisted service_type='main_area')",
+    "9_hourly_offline_cash_daycare": "PASS (PK-D- prefix + DB service_type='daycare')",
+    "10_hourly_guest_offline_daycare": "PASS (no auth, payment_method=cash, PK-D- prefix + DB service_type='daycare')",
+    "11_hourly_endpoint_rejects_birthday_slot": "PASS (4xx on birthday slot_id)",
+    "12_payments_create_checkout_hourly_daycare_manual": "PASS (PAYMENT_PROVIDER=manual returns {message:'Manual payment only'})",
+    "13_capacity_enforcement_no_increment_on_overbook": "PASS (11 children on capacity-10 daycare slot rejected; booked_count unchanged)",
+    "14_birthday_booking_regression": "PASS (POST /api/bookings/birthday still creates booking)",
+    "15_subscription_plans_regression": "PASS (GET /api/subscriptions/plans returns 200 with plans field; list is empty in dev DB which is acceptable)"
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/bookings/hourly (and /offline, /guest-offline)",
+        "issue": "Successful response payload does NOT echo the new service_type field on the booking object — only booking_code (PK-D-*/PK-H-*) is returned. The field IS persisted correctly in MongoDB (verified by direct query). Frontend consumers that want service_type without re-fetching will need it added to the response shape. Non-blocking for Mission 1 since the prefix is the canonical signal."
+      },
+      {
+        "endpoint": "/api/admin/pricing (GET)",
+        "issue": "Hourly keys are exposed as hourly_1hr / hourly_2hr / hourly_3hr / hourly_extra_hr (NOT a literal hourly_4hr). The review-request phrase 'four hourly_* keys' is satisfied numerically (4 keys) but naming is asymmetric vs daycare_1hr/2hr/3hr/4hr. Cosmetic, no behavior impact since /api/bookings/hourly correctly prices 4-hour main_area bookings via getServicePrice helpers."
+      },
+      {
+        "endpoint": "/api/subscriptions/plans",
+        "issue": "Returns {plans: []} in this dev pod — no plan documents seeded. Endpoint itself works (200). Out of Mission 1 scope but worth noting if a downstream test relies on a populated plans list."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_daycare_mission1.py",
+    "/app/backend/node-app/tests/_check_booking.js",
+    "/app/test_reports/pytest/daycare_mission1.xml"
+  ],
+  "action_items": [
+    "(Optional / minor) Echo service_type on the response body of /api/bookings/hourly + /offline + /guest-offline so clients don't have to infer it from the booking_code prefix.",
+    "(Cosmetic) Consider exposing pricing as hourly_4hr in /api/admin/pricing for symmetry with daycare_4hr — or document that 4-hour main_area pricing is computed as hourly_3hr + hourly_extra_hr."
+  ],
+  "critical_code_review_comments": [
+    "Mission 1 contract is met: routes/bookings.js getServiceClassification() correctly stamps service_type and selects PK-D / PK-H from slot.slot_type for ALL three endpoints (regular, offline, guest-offline). Verified via direct MongoDB read of the persisted HourlyBooking documents.",
+    "scripts/seed_daycare_slots.js is correctly idempotent (uniqueness on date+start_time prevents duplicates), supports --dry-run, --start, --end, --capacity, and is intentionally NOT wired into any router — confirmed via grep.",
+    "Capacity enforcement on daycare slots uses slot.capacity (not the legacy hardcoded 70 for main area). Overbook attempt left booked_count unchanged.",
+    "GET /api/slots/available?slot_type=daycare correctly skips auto-generation — far-future un-seeded dates return [] instead of fabricated slots. Hourly auto-generation regression intact (79 slots)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_daycare_mission1.py (new pytest suite — 16 tests)",
+    "/app/backend/node-app/tests/_check_booking.js (helper to verify service_type persistence in MongoDB)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "skipped (backend-only request)"},
+  "test_credentials": "admin@peekaboo.com/admin123 + parent@peekaboo.com/parent123 (sourced from /app/memory/test_credentials.md, both worked first try). Guest-offline tests run without auth as required.",
+  "seed_data_creation": "Daycare slots seeded for 2026-05-15..2026-05-20 at capacity=10 (54 slots) via /app/backend/node-app/scripts/seed_daycare_slots.js. Test bookings prefixed with TEST_ to keep them identifiable. Mongo writes were not torn down to keep the audit trail; child names all start with TEST_DC_ / TEST_MA_ / TEST_BDayChild for easy cleanup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Suite location: /app/backend/tests/test_daycare_mission1.py. Re-run: `python -m pytest /app/backend/tests/test_daycare_mission1.py -v --junitxml=/app/test_reports/pytest/daycare_mission1.xml`. The suite auto-seeds daycare slots through the dev script in a session-scoped fixture; no prior setup needed. Pricing values DO drift across runs because the isolation-PUT tests bump daycare_1..4hr to 11/19/26/33 — the booking-amount assertions read live pricing dynamically, so this is safe. PAYMENT_PROVIDER=manual is the dev posture; do NOT change that. Pricing currently in DB after this run: daycare_1hr=11, daycare_2hr=19, daycare_3hr=26, daycare_4hr=33 (vs documented defaults 8/15/22/28). If a future test cares about exact defaults, reset via PUT before asserting.",
+  "rca_of_the_issue": "N/A — no functional defects found. Initial test failures were all test-script issues (response shape mismatch — endpoint returns {bookings:[...]}, pricing wrapped in {pricing:{...}}, hourly key named hourly_extra_hr not hourly_4hr, guest-offline requires payment_method); fixed in the suite. Functionality confirmed correct end-to-end including DB-level service_type persistence."
+}

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const timeSlotSchema = new mongoose.Schema({
   date: { type: String, required: true }, // YYYY-MM-DD format
   start_time: { type: String, required: true }, // HH:mm format (24h)
-  slot_type: { type: String, enum: ['hourly', 'birthday'], required: true },
+  slot_type: { type: String, enum: ['hourly', 'birthday', 'daycare'], required: true },
   capacity: { type: Number, default: 25 },
   booked_count: { type: Number, default: 0 },
   is_active: { type: Boolean, default: true },

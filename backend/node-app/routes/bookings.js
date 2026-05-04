@@ -158,6 +158,46 @@ const getHourlyPrice = async (duration_hours = 2, slot_start_time = null) => {
   }
 };
 
+// Day Care pricing — flat per-duration table, no Happy Hour modifier.
+const DAYCARE_PRICING_KEYS = ['daycare_1hr', 'daycare_2hr', 'daycare_3hr', 'daycare_4hr'];
+const DAYCARE_PRICING_DEFAULTS = {
+  daycare_1hr: 8,
+  daycare_2hr: 15,
+  daycare_3hr: 22,
+  daycare_4hr: 28
+};
+
+const getDaycarePrice = async (duration_hours = 2) => {
+  const hours = Math.max(1, Math.min(4, normalizeDurationHours(duration_hours)));
+  try {
+    const docs = await Settings.find({ key: { $in: DAYCARE_PRICING_KEYS } });
+    const prices = { ...DAYCARE_PRICING_DEFAULTS };
+    docs.forEach((p) => { prices[p.key] = parseFloat(p.value); });
+    return prices[`daycare_${hours}hr`];
+  } catch (error) {
+    console.error('Error fetching daycare pricing:', error);
+    return DAYCARE_PRICING_DEFAULTS[`daycare_${hours}hr`];
+  }
+};
+
+// Service-type-aware pricing dispatcher used by every hourly booking-creation
+// path. Daycare slots are priced flat from daycare_* keys; main-area slots
+// keep the existing Happy Hour + hourly_* table.
+const getServicePriceForSlot = async (slot, duration_hours) => {
+  if (slot?.slot_type === 'daycare') {
+    return getDaycarePrice(duration_hours);
+  }
+  return getHourlyPrice(duration_hours, slot?.start_time);
+};
+
+// Resolve booking_code prefix + service_type from a slot.
+const getServiceClassification = (slot) => {
+  if (slot?.slot_type === 'daycare') {
+    return { service_type: 'daycare', booking_code_prefix: 'PK-D' };
+  }
+  return { service_type: 'main_area', booking_code_prefix: 'PK-H' };
+};
+
 const buildLineItems = async (lineItems = []) => {
   if (!Array.isArray(lineItems) || lineItems.length === 0) {
     return { normalizedLineItems: [], productsTotal: 0 };
@@ -250,11 +290,13 @@ router.post('/hourly', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'معرّف طفل غير صالح' });
     }
     
-    // ATOMIC capacity check for all children at once
+    // ATOMIC capacity check for all children at once.
+    // Accepts both main-area ('hourly') and daycare slots — service_type
+    // is then derived from the slot itself a few lines down.
     const slot = await TimeSlot.findOneAndUpdate(
       { 
         _id: slot_id, 
-        slot_type: 'hourly',
+        slot_type: { $in: ['hourly', 'daycare'] },
         $expr: { $lte: [{ $add: ['$booked_count', effectiveCount] }, '$capacity'] }
       },
       { $inc: { booked_count: effectiveCount } },
@@ -287,7 +329,8 @@ router.post('/hourly', authMiddleware, async (req, res) => {
 
     // SECURITY: Compute price server-side using slot start_time for Happy Hour pricing
     const hours = normalizeDurationHours(duration_hours);
-    const basePrice = await getHourlyPrice(hours, slot.start_time);
+    const basePrice = await getServicePriceForSlot(slot, hours);
+    const { service_type: bookingServiceType, booking_code_prefix: bookingCodePrefix } = getServiceClassification(slot);
     const { normalizedLineItems, productsTotal } = await buildLineItems(lineItems);
     const subtotalAmount = (basePrice * effectiveCount) + productsTotal;
     let discountAmount = 0;
@@ -319,7 +362,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
 
     if (useGuestBooking) {
       // Single booking without a registered child
-      const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+      const booking_code = `${bookingCodePrefix}-${randomUUID().substring(0, 8).toUpperCase()}`;
       const { qr_token, qr_code } = await generateBookingQrPayload();
       const booking = new HourlyBooking({
         user_id: req.userId,
@@ -327,6 +370,7 @@ router.post('/hourly', authMiddleware, async (req, res) => {
         guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
         child_count: effectiveCount,
         slot_id,
+        service_type: bookingServiceType,
         duration_hours: hours,
         custom_notes: custom_notes || '',
         qr_code,
@@ -346,13 +390,14 @@ router.post('/hourly', authMiddleware, async (req, res) => {
     } else {
       // Create a booking for each registered child
       for (const cid of childIdList) {
-        const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+        const booking_code = `${bookingCodePrefix}-${randomUUID().substring(0, 8).toUpperCase()}`;
         const { qr_token, qr_code } = await generateBookingQrPayload();
         const booking = new HourlyBooking({
           user_id: req.userId,
           child_id: cid,
           child_count: 1,
           slot_id,
+          service_type: bookingServiceType,
           duration_hours: hours,
           custom_notes: custom_notes || '',
           qr_code,
@@ -469,11 +514,12 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'معرّف طفل غير صالح' });
     }
     
-    // ATOMIC capacity check for all children at once
+    // ATOMIC capacity check for all children at once.
+    // Accepts both main-area ('hourly') and daycare slots.
     const slot = await TimeSlot.findOneAndUpdate(
       { 
         _id: slot_id, 
-        slot_type: 'hourly',
+        slot_type: { $in: ['hourly', 'daycare'] },
         $expr: { $lte: [{ $add: ['$booked_count', effectiveCount] }, '$capacity'] }
       },
       { $inc: { booked_count: effectiveCount } },
@@ -506,7 +552,8 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
 
     // Calculate price on server side with Happy Hour logic
     const hours = parseInt(duration_hours) || 2;
-    const basePrice = await getHourlyPrice(hours, slot.start_time);
+    const basePrice = await getServicePriceForSlot(slot, hours);
+    const { service_type: bookingServiceType, booking_code_prefix: bookingCodePrefix } = getServiceClassification(slot);
     const { normalizedLineItems, productsTotal } = await buildLineItems(lineItems);
     const subtotalAmount = (basePrice * effectiveCount) + productsTotal;
     let discountAmount = 0;
@@ -540,7 +587,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
 
     if (useGuestBooking) {
       // Single booking without a registered child
-      const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+      const booking_code = `${bookingCodePrefix}-${randomUUID().substring(0, 8).toUpperCase()}`;
       const { qr_token, qr_code } = await generateBookingQrPayload();
       const booking = new HourlyBooking({
         user_id: req.userId,
@@ -548,6 +595,7 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
         guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
         child_count: effectiveCount,
         slot_id,
+        service_type: bookingServiceType,
         duration_hours: hours,
         custom_notes: custom_notes || '',
         qr_code,
@@ -568,13 +616,14 @@ router.post('/hourly/offline', authMiddleware, async (req, res) => {
     } else {
       // Create a booking for each registered child
       for (const cid of childIdList) {
-        const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+        const booking_code = `${bookingCodePrefix}-${randomUUID().substring(0, 8).toUpperCase()}`;
         const { qr_token, qr_code } = await generateBookingQrPayload();
         const booking = new HourlyBooking({
           user_id: req.userId,
           child_id: cid,
           child_count: 1,
           slot_id,
+          service_type: bookingServiceType,
           duration_hours: hours,
           custom_notes: custom_notes || '',
           qr_code,
@@ -704,10 +753,11 @@ router.post('/hourly/guest-offline', async (req, res) => {
     const effectiveCount = Math.max(1, Math.min(MAX_GUEST_CHILD_COUNT, parseInt(child_count) || 1));
 
     // ATOMIC capacity check — same pattern as authenticated paths.
+    // Accepts both main-area and daycare slots.
     const slot = await TimeSlot.findOneAndUpdate(
       {
         _id: slot_id,
-        slot_type: 'hourly',
+        slot_type: { $in: ['hourly', 'daycare'] },
         $expr: { $lte: [{ $add: ['$booked_count', effectiveCount] }, '$capacity'] }
       },
       { $inc: { booked_count: effectiveCount } },
@@ -729,7 +779,8 @@ router.post('/hourly/guest-offline', async (req, res) => {
     reservedCount = effectiveCount;
 
     const hours = normalizeDurationHours(duration_hours);
-    const basePrice = await getHourlyPrice(hours, slot.start_time);
+    const basePrice = await getServicePriceForSlot(slot, hours);
+    const { service_type: bookingServiceType, booking_code_prefix: bookingCodePrefix } = getServiceClassification(slot);
     const { normalizedLineItems, productsTotal } = await buildLineItems(lineItems);
     const subtotalAmount = (basePrice * effectiveCount) + productsTotal;
     let discountAmount = 0;
@@ -757,7 +808,7 @@ router.post('/hourly/guest-offline', async (req, res) => {
     }
 
     const paymentStatus = payment_method === 'cash' ? 'pending_cash' : 'pending_cliq';
-    const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+    const booking_code = `${bookingCodePrefix}-${randomUUID().substring(0, 8).toUpperCase()}`;
     const { qr_token, qr_code } = await generateBookingQrPayload();
 
     const booking = new HourlyBooking({
@@ -770,6 +821,7 @@ router.post('/hourly/guest-offline', async (req, res) => {
       guest_child_name: (guest_child_name || '').trim().slice(0, MAX_GUEST_CHILD_NAME_LENGTH),
       child_count: effectiveCount,
       slot_id,
+      service_type: bookingServiceType,
       duration_hours: hours,
       custom_notes: (custom_notes || '').trim(),
       qr_code,

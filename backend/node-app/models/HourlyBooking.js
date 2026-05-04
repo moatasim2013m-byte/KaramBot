@@ -29,6 +29,11 @@ const hourlyBookingSchema = new mongoose.Schema({
   guest_child_name: { type: String, default: '' },
   child_count: { type: Number, default: 1, min: 1, max: 20 },
   booking_source: { type: String, enum: ['website', 'whatsapp'], default: 'website', index: true },
+  // Service type — determines pricing table, capacity rules, and booking_code prefix.
+  // 'main_area'  → existing hourly play (PK-H-* booking codes, hourly_* pricing keys)
+  // 'daycare'    → day care service (PK-D-* booking codes, daycare_* pricing keys)
+  // Defaults to 'main_area' so all pre-existing bookings remain classified correctly.
+  service_type: { type: String, enum: ['main_area', 'daycare'], default: 'main_area', index: true },
   slot_id: { type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlot', required: true },
   duration_hours: { type: Number, required: true, default: 2 },
   custom_notes: { type: String, default: '' },

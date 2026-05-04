@@ -955,18 +955,27 @@ router.put('/settings', async (req, res) => {
 
 // ==================== PRICING MANAGEMENT ====================
 
+const DAYCARE_PRICING_KEYS = ['daycare_1hr', 'daycare_2hr', 'daycare_3hr', 'daycare_4hr'];
+const DAYCARE_PRICING_DEFAULTS = {
+  daycare_1hr: 8,
+  daycare_2hr: 15,
+  daycare_3hr: 22,
+  daycare_4hr: 28
+};
+
 // Get pricing configuration
 router.get('/pricing', async (req, res) => {
   try {
     const pricing = await Settings.find({ 
-      key: { $in: ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr'] } 
+      key: { $in: ['hourly_1hr', 'hourly_2hr', 'hourly_3hr', 'hourly_extra_hr', ...DAYCARE_PRICING_KEYS] } 
     });
     
     const pricingObj = {
       hourly_1hr: 7,
       hourly_2hr: 10,
       hourly_3hr: 13,
-      hourly_extra_hr: 3
+      hourly_extra_hr: 3,
+      ...DAYCARE_PRICING_DEFAULTS
     };
     
     pricing.forEach(p => { pricingObj[p.key] = parseFloat(p.value); });
@@ -980,15 +989,30 @@ router.get('/pricing', async (req, res) => {
 // Update pricing
 router.put('/pricing', async (req, res) => {
   try {
-    const { hourly_1hr, hourly_2hr, hourly_3hr, hourly_extra_hr } = req.body;
-    
+    const {
+      hourly_1hr, hourly_2hr, hourly_3hr, hourly_extra_hr,
+      daycare_1hr, daycare_2hr, daycare_3hr, daycare_4hr
+    } = req.body;
+
     const updates = [
       { key: 'hourly_1hr', value: parseFloat(hourly_1hr) || 7 },
       { key: 'hourly_2hr', value: parseFloat(hourly_2hr) || 10 },
       { key: 'hourly_3hr', value: parseFloat(hourly_3hr) || 13 },
       { key: 'hourly_extra_hr', value: parseFloat(hourly_extra_hr) || 3 }
     ];
-    
+
+    // Day Care keys are only updated when explicitly provided in the
+    // request body — keeps backward compatibility for existing admin UIs
+    // that only send the four hourly_* keys.
+    const daycareInputs = { daycare_1hr, daycare_2hr, daycare_3hr, daycare_4hr };
+    for (const key of DAYCARE_PRICING_KEYS) {
+      const raw = daycareInputs[key];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const parsed = parseFloat(raw);
+      if (!Number.isFinite(parsed) || parsed < 0) continue;
+      updates.push({ key, value: parsed });
+    }
+
     for (const update of updates) {
       await Settings.findOneAndUpdate(
         { key: update.key },

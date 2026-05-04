@@ -58,6 +58,21 @@ const BIRTHDAY_CONFIG = {
   slots: ['13:00', '15:00', '17:00', '19:00', '21:00', '23:00']
 };
 
+// DAY CARE: parallel-but-independent service from Main Area hourly.
+// Slot generation is NEVER auto-triggered from public/customer code paths —
+// daycare slots are created manually via /api/admin/slots or via the
+// dev-only seed script at /app/backend/node-app/scripts/seed_daycare_slots.js.
+// This config is the single source of truth for the seed script + admin UI.
+const DAYCARE_CONFIG = {
+  startHour: 8,            // 08:00 first drop-off
+  startMinute: 0,
+  lastEntryHour: 16,       // last entry at 16:00
+  lastEntryMinute: 0,
+  intervalMinutes: 60,     // hourly drop-off slots
+  defaultCapacity: 12,     // small group default; admin/seed can override
+  sessionDurationMinutes: 60
+};
+
 // Generate hourly slots for a date (every 10 minutes from 10:00 to 23:00)
 const generateHourlySlotsForDate = async (date) => {
   const slots = [];
@@ -132,6 +147,49 @@ const generateBirthdaySlotsForDate = async (date) => {
   return slots;
 };
 
+// MANUAL day-care slot generator. Used ONLY by:
+//   • /api/admin/slots/generate  (admin-triggered)
+//   • /app/backend/node-app/scripts/seed_daycare_slots.js  (dev-only)
+// Never invoked from /api/slots/available (no auto-seed in customer flow).
+const generateDaycareSlotsForDate = async (date, { capacity } = {}) => {
+  const slots = [];
+  const existingSlots = await TimeSlot.find({ date, slot_type: 'daycare' }).lean();
+  const existingByStartTime = new Map(existingSlots.map((slot) => [slot.start_time, slot]));
+  const slotCapacity = Number.isFinite(capacity) && capacity > 0 ? capacity : DAYCARE_CONFIG.defaultCapacity;
+  const slotsToCreate = [];
+  let hour = DAYCARE_CONFIG.startHour;
+  let minute = DAYCARE_CONFIG.startMinute;
+
+  while (hour < DAYCARE_CONFIG.lastEntryHour ||
+         (hour === DAYCARE_CONFIG.lastEntryHour && minute <= DAYCARE_CONFIG.lastEntryMinute)) {
+    const startTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+    const existing = existingByStartTime.get(startTime);
+    if (!existing) {
+      slotsToCreate.push({
+        date,
+        start_time: startTime,
+        slot_type: 'daycare',
+        capacity: slotCapacity,
+        booked_count: 0
+      });
+    } else {
+      slots.push(existing);
+    }
+
+    minute += DAYCARE_CONFIG.intervalMinutes;
+    while (minute >= 60) {
+      minute -= 60;
+      hour += 1;
+    }
+  }
+
+  if (slotsToCreate.length > 0) {
+    const createdSlots = await TimeSlot.insertMany(slotsToCreate, { ordered: false });
+    slots.push(...createdSlots);
+  }
+
+  return slots;
+};
 const buildBookingIntervals = (bookings, slotStartMinutesById) => bookings
   .map((booking) => slotStartMinutesById.get(String(booking.slot_id)))
   .filter((slotStartMinutes) => Number.isInteger(slotStartMinutes))
@@ -140,7 +198,7 @@ const buildBookingIntervals = (bookings, slotStartMinutesById) => bookings
     end: slotStartMinutes + HOURLY_CONFIG.sessionDurationMinutes
   }));
 
-const calculateAvailableCapacityFromIntervals = (startTimeStr, bookingIntervals) => {
+const calculateAvailableCapacityFromIntervals = (startTimeStr, bookingIntervals, slotCapacity = HOURLY_CONFIG.maxCapacity) => {
   const [startHour, startMinute] = startTimeStr.split(':').map(Number);
   const startTimeMinutes = startHour * 60 + startMinute;
   const endTimeMinutes = startTimeMinutes + HOURLY_CONFIG.sessionDurationMinutes;
@@ -159,7 +217,7 @@ const calculateAvailableCapacityFromIntervals = (startTimeStr, bookingIntervals)
     maxActiveKids = Math.max(maxActiveKids, activeCount);
   }
 
-  return HOURLY_CONFIG.maxCapacity - maxActiveKids;
+  return slotCapacity - maxActiveKids;
 };
 
 // Calculate active kids count at a specific time for a given date
@@ -199,7 +257,7 @@ const getActiveKidsAtTime = async (date, timeStr) => {
 };
 
 // Optimized: Calculate available capacity using pre-fetched bookings
-const calculateAvailableCapacityForSlot = (date, startTimeStr, allBookings) => {
+const calculateAvailableCapacityForSlot = (date, startTimeStr, allBookings, slotCapacity = HOURLY_CONFIG.maxCapacity) => {
   const [startHour, startMinute] = startTimeStr.split(':').map(Number);
   const startTimeMinutes = startHour * 60 + startMinute;
   const endTimeMinutes = startTimeMinutes + HOURLY_CONFIG.sessionDurationMinutes;
@@ -226,7 +284,7 @@ const calculateAvailableCapacityForSlot = (date, startTimeStr, allBookings) => {
     maxActiveKids = Math.max(maxActiveKids, activeCount);
   }
   
-  return HOURLY_CONFIG.maxCapacity - maxActiveKids;
+  return slotCapacity - maxActiveKids;
 };
 
 // Get available slots for a date (public - no auth required for viewing)
@@ -263,10 +321,14 @@ router.get('/available', async (req, res) => {
       return res.json(cachedEntry.payload);
     }
 
-    // Generate slots if they don't exist
+    // Generate slots if they don't exist.
+    // NOTE: daycare slots are NEVER auto-generated from this customer-facing
+    // endpoint. They are seeded manually via /api/admin/slots or the
+    // dev-only seed script. If no daycare slots exist for the date the
+    // response will simply be empty.
     if (slot_type === 'hourly') {
       await generateHourlySlotsForDate(date);
-    } else {
+    } else if (slot_type === 'birthday') {
       await generateBirthdaySlotsForDate(date);
     }
 
@@ -330,7 +392,7 @@ router.get('/available', async (req, res) => {
       
       if (slot_type === 'hourly') {
         // For hourly, calculate based on overlapping sessions (using cached bookings)
-        availableSpots = calculateAvailableCapacityFromIntervals(slot.start_time, bookingIntervals);
+        availableSpots = calculateAvailableCapacityFromIntervals(slot.start_time, bookingIntervals, slot.capacity);
         
         // Check if slot fits within closing time
         const fitsClosing = endMinutes <= closingMinutes;
@@ -351,7 +413,7 @@ router.get('/available', async (req, res) => {
         
         isAvailable = slot.is_active && !isPast && availableSpots > 0 && fitsClosing && matchesTimeMode;
       } else {
-        // For birthday, simple capacity check
+        // Birthday and daycare: simple per-slot capacity check.
         availableSpots = slot.capacity - slot.booked_count;
         isAvailable = slot.is_active && !isPast && availableSpots > 0;
       }
@@ -435,13 +497,18 @@ const checkHourlyCapacity = async (date, startTimeStr) => {
 router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { date, start_time, slot_type, capacity } = req.body;
-    
+
+    if (!['hourly', 'birthday', 'daycare'].includes(slot_type)) {
+      return res.status(400).json({ error: `Invalid slot_type: ${slot_type}` });
+    }
+
     const existing = await TimeSlot.findOne({ date, start_time, slot_type });
     if (existing) {
       return res.status(400).json({ error: 'Slot already exists' });
     }
 
-    const slot = new TimeSlot({ date, start_time, slot_type, capacity: capacity || 25 });
+    const fallbackCapacity = slot_type === 'daycare' ? DAYCARE_CONFIG.defaultCapacity : 25;
+    const slot = new TimeSlot({ date, start_time, slot_type, capacity: capacity || fallbackCapacity });
     await slot.save();
     
     res.status(201).json({ slot: slot.toJSON() });
@@ -475,7 +542,7 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
 // Admin: Bulk generate slots for date range
 router.post('/generate', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { start_date, end_date, slot_type = 'hourly' } = req.body;
+    const { start_date, end_date, slot_type = 'hourly', capacity } = req.body;
     
     const start = new Date(start_date);
     const end = new Date(end_date);
@@ -484,9 +551,16 @@ router.post('/generate', authMiddleware, adminMiddleware, async (req, res) => {
     let current = start;
     while (current <= end) {
       const dateStr = format(current, 'yyyy-MM-dd');
-      const slots = slot_type === 'hourly' 
-        ? await generateHourlySlotsForDate(dateStr)
-        : await generateBirthdaySlotsForDate(dateStr);
+      let slots;
+      if (slot_type === 'hourly') {
+        slots = await generateHourlySlotsForDate(dateStr);
+      } else if (slot_type === 'birthday') {
+        slots = await generateBirthdaySlotsForDate(dateStr);
+      } else if (slot_type === 'daycare') {
+        slots = await generateDaycareSlotsForDate(dateStr, { capacity: Number(capacity) });
+      } else {
+        return res.status(400).json({ error: `Unsupported slot_type: ${slot_type}` });
+      }
       generatedSlots.push(...slots);
       current = addDays(current, 1);
     }
@@ -504,3 +578,5 @@ router.post('/generate', authMiddleware, adminMiddleware, async (req, res) => {
 module.exports = router;
 module.exports.checkHourlyCapacity = checkHourlyCapacity;
 module.exports.calculateAvailableCapacityForSlot = calculateAvailableCapacityForSlot;
+module.exports.generateDaycareSlotsForDate = generateDaycareSlotsForDate;
+module.exports.DAYCARE_CONFIG = DAYCARE_CONFIG;

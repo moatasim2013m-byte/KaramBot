@@ -186,6 +186,33 @@ const resolveOrderTransaction = async (orderId, userId) => {
 };
 // Morning (Happy Hour) price: 3.5 JD per hour
 const MORNING_PRICE_PER_HOUR = 3.5;
+
+// Day Care pricing keys + safe defaults. Mirrors the main-area `hourly_*`
+// shape. Day Care has no Happy Hour modifier — pricing is flat per duration.
+const DAYCARE_PRICING_KEYS = ['daycare_1hr', 'daycare_2hr', 'daycare_3hr', 'daycare_4hr'];
+const DAYCARE_PRICING_DEFAULTS = {
+  daycare_1hr: 8,
+  daycare_2hr: 15,
+  daycare_3hr: 22,
+  daycare_4hr: 28
+};
+
+const getDaycarePrice = async (duration_hours = 2) => {
+  const hours = Math.max(1, Math.min(4, parseInt(duration_hours) || 2));
+  try {
+    const docs = await Settings.find({ key: { $in: DAYCARE_PRICING_KEYS } });
+    const prices = { ...DAYCARE_PRICING_DEFAULTS };
+    docs.forEach((p) => { prices[p.key] = parseFloat(p.value); });
+    if (hours === 1) return prices.daycare_1hr;
+    if (hours === 2) return prices.daycare_2hr;
+    if (hours === 3) return prices.daycare_3hr;
+    return prices.daycare_4hr;
+  } catch (error) {
+    console.error('Error fetching daycare pricing:', error);
+    return DAYCARE_PRICING_DEFAULTS[`daycare_${hours}hr`] || DAYCARE_PRICING_DEFAULTS.daycare_2hr;
+  }
+};
+
 // Get hourly price from Settings or use defaults
 const getHourlyPrice = async (duration_hours = 2, slot_start_time = null) => {
   const hours = parseInt(duration_hours) || 2;
@@ -233,6 +260,16 @@ const getBirthdayThemePrice = async (themeId) => {
   const Theme = require('../models/Theme');
   const theme = await Theme.findById(themeId);
   return parseFloat(theme?.price) || 100.00;
+};
+
+// Service-type-aware pricing dispatcher. Used by the create-checkout flow
+// for `type === 'hourly'` so a daycare slot is priced against the daycare_*
+// settings rather than the main-area hourly_* + Happy Hour table.
+const getServicePrice = async (serviceType, duration_hours = 2, slot_start_time = null) => {
+  if (serviceType === 'daycare') {
+    return getDaycarePrice(duration_hours);
+  }
+  return getHourlyPrice(duration_hours, slot_start_time);
 };
 const getSubscriptionPrice = async (planId) => {
   const SubscriptionPlan = require('../models/SubscriptionPlan');
@@ -356,11 +393,18 @@ const finalizePaidTransaction = async (transaction) => {
     }
 
     const slot = await TimeSlot.findOneAndUpdate(
-      { _id: slotId, slot_type: 'hourly', $expr: { $lte: [{ $add: ['$booked_count', childIds.length] }, '$capacity'] } },
+      { _id: slotId, slot_type: { $in: ['hourly', 'daycare'] }, $expr: { $lte: [{ $add: ['$booked_count', childIds.length] }, '$capacity'] } },
       { $inc: { booked_count: childIds.length } },
       { new: true }
     );
     if (!slot) throw new Error('الموعد غير متاح');
+
+    // Service type derived from the slot itself — main_area for legacy hourly
+    // slots, daycare for the new service. Booking-code prefix matches:
+    //   PK-H-*  → main_area hourly play
+    //   PK-D-*  → day care
+    const bookingServiceType = slot.slot_type === 'daycare' ? 'daycare' : 'main_area';
+    const bookingCodePrefix = bookingServiceType === 'daycare' ? 'PK-D' : 'PK-H';
 
     try {
       const validChildren = await Child.find({ _id: { $in: childIds }, parent_id: transaction.user_id });
@@ -370,12 +414,13 @@ const finalizePaidTransaction = async (transaction) => {
       const lineItems = parseLineItemsFromMetadata(metadata);
       const bookings = [];
       for (const childId of childIds) {
-        const booking_code = `PK-H-${randomUUID().substring(0, 8).toUpperCase()}`;
+        const booking_code = `${bookingCodePrefix}-${randomUUID().substring(0, 8).toUpperCase()}`;
         const { qr_token, qr_code } = await generateBookingQrPayload();
         const booking = await HourlyBooking.create({
           user_id: transaction.user_id,
           child_id: childId,
           slot_id: slotId,
+          service_type: bookingServiceType,
           duration_hours: hours,
           custom_notes: metadata.custom_notes || '',
           qr_code,
@@ -737,14 +782,20 @@ router.post('/create-checkout', authMiddleware, async (req, res) => {
         if (!slot) {
           return res.status(400).json({ error: 'الوقت غير صالح' });
         }
+        // Reject any slot that is not a bookable hourly-style service.
+        if (!['hourly', 'daycare'].includes(slot.slot_type)) {
+          return res.status(400).json({ error: 'الوقت غير صالح' });
+        }
         const availableSpots = slot.capacity - slot.booked_count;
         if (availableSpots < childCount) {
           return res.status(400).json({ error: `عذراً، المتاح ${availableSpots} مكان فقط. اخترت ${childCount} أطفال.` });
         }
-        const basePrice = await getHourlyPrice(hours, slotStartTime);
+        const checkoutServiceType = slot.slot_type === 'daycare' ? 'daycare' : 'main_area';
+        const basePrice = await getServicePrice(checkoutServiceType, hours, slotStartTime);
         amount = (basePrice * childCount) + productsTotal;
         metadata.slot_id = reference_id;
         metadata.duration_hours = hours;
+        metadata.service_type = checkoutServiceType;
         metadata.child_ids = JSON.stringify(childIds);
         if (slotStartTime) metadata.slot_start_time = slotStartTime;
         if (custom_notes) metadata.custom_notes = custom_notes;
