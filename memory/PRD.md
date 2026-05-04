@@ -82,8 +82,19 @@ Tested: 16/16 pytest pass via `testing_agent_v3_fork` (iteration_4.json). Backen
   ```
 - `utils/whatsappBookingService.js`: intentionally untouched — its `slot_type: 'hourly'` filter still keeps WhatsApp walk-in bookings out of the daycare service.
 
-### Mission 2 — Customer booking UI (NOT STARTED)
-- TicketsPage service selector + confirmation UI updates (frontend only).
+### Mission 2 — CUSTOMER BOOKING UI (DONE, Feb 2026)
+Tested: 8/8 backend pytest pass + frontend visual + code review (iteration_5.json). Mission 1 suite re-validated, no regressions.
+
+- `routes/payments.js`: extended public `GET /api/payments/hourly-pricing` to accept `?service_type=daycare` — returns a 4-entry table (1/2/3/4 hours) from `daycare_*hr` Settings, no Happy Hour. Default behaviour (no query / `?timeMode=morning|afternoon`) unchanged.
+- `pages/TicketsPage.js`:
+  - Added `serviceType` state (default `main_area`) and a top-of-page **service selector** card (Main Area vs Day Care) with `data-testid` hooks.
+  - `fetchPricing` and `fetchSlots` are service-aware: daycare uses the new pricing branch and `slot_type=daycare` (no `timeMode` query); main_area path is unchanged.
+  - Period (Step 2 — morning/afternoon) is hidden for daycare; stepper drops from 4 to 3 pills; duration card relabels to "اختر مدة الحضانة"; slot card description shows "حضانة 8 ص - 5 م"; amber palette + amber CTA for daycare.
+  - Booking summary chip (`data-testid=summary-service-badge`) shows "حضانة Day Care" or "اللعب بالساعة".
+  - Slot pills now carry `data-testid={slot-pill-${id}}` for downstream automation.
+  - `serviceType` is forwarded into `confirmationData` for both authed and guest flows.
+- `pages/BookingConfirmationPage.js`: new `inferServiceType()` helper falls back to `bookingCode` prefix (`PK-D-*` → daycare) so the legacy / Capital-Bank-redirect path still renders the right label. The "نوع الحجز" row gets `data-testid=confirmation-service-label`.
+- `pages/PaymentSuccessPage.js`: `buildConfirmationData` stamps `serviceType` from the `bookingCode` prefix when persisting the confirmation payload.
 
 ### Mission 3 — Admin + Staff visibility (NOT STARTED)
 - SettingsTab daycare pricing card; Slots editor for daycare; BookingsTab + staff list badges.

@@ -1087,6 +1087,7 @@ export default function TicketsPage() {
                         key={slot.id}
                         onClick={() => setSelectedSlot(slot)}
                         className={`slot-btn slot-pill ${selectedSlot?.id === slot.id ? (isDaycare || timeMode === 'morning' ? 'selected-yellow' : 'selected-afternoon') : ''}`}
+                        data-testid={`slot-pill-${slot.id}`}
                       >
                         <div dir="ltr" className="font-heading font-semibold">
                           {slot.start_time} → {endTime}
