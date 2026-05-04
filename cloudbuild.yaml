@@ -9,7 +9,7 @@ steps:
       - 'gcr.io/karam-bot/karambot:latest'
       - '-f'
       - 'backend/Dockerfile'
-      - 'backend'
+      - '.'
 
   # Step 2: Push both tags
   - name: 'gcr.io/cloud-builders/docker'

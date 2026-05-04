@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -46,6 +47,16 @@ app.use('/api/orders', apiLimiter, require('./routes/orders'));
 app.use('/api/staff', apiLimiter, require('./routes/staff'));
 app.use('/api/clinic', apiLimiter, require('./routes/clinic'));
 app.use('/api/reports', apiLimiter, require('./routes/reports'));
+
+// Static frontend (built SPA copied into ./public by Dockerfile stage 1)
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+app.use(express.static(PUBLIC_DIR));
+
+// SPA fallback: non-API GET requests return index.html (client-side routing)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path === '/health') return next();
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
