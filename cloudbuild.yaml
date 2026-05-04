@@ -1,0 +1,38 @@
+steps:
+  # Step 1: Build the Docker image from backend/
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/karam-bot/karambot:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/karam-bot/karambot:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - 'backend'
+
+  # Step 2: Push both tags
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/karam-bot/karambot:$COMMIT_SHA']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/karam-bot/karambot:latest']
+
+  # Step 3: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'karambot'
+      - '--image=gcr.io/karam-bot/karambot:$COMMIT_SHA'
+      - '--region=europe-west1'
+      - '--platform=managed'
+      - '--quiet'
+
+images:
+  - 'gcr.io/karam-bot/karambot:$COMMIT_SHA'
+  - 'gcr.io/karam-bot/karambot:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
