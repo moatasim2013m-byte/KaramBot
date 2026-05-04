@@ -60,3 +60,32 @@
 
 ## Backlog
 - [ ] Apply the same `DashboardLayout` shell to `AdminPage.js` (legacy, still uses Tabs + Navbar). New admin at `/app/frontend/src/pages/admin/AdminLayout.js` already uses a sidebar layout.
+
+---
+
+## Day Care service — implementation tracker
+
+### Mission 1 — BACKEND FOUNDATION (DONE, Feb 2026)
+Tested: 16/16 pytest pass via `testing_agent_v3_fork` (iteration_4.json). Backend-only; zero frontend changes.
+
+- `models/TimeSlot.js`: `slot_type` enum extended with `'daycare'`.
+- `models/HourlyBooking.js`: new `service_type` enum field `['main_area','daycare']`, default `'main_area'` (backward compatible — every existing booking is classified `main_area` automatically).
+- `routes/slots.js`: added `DAYCARE_CONFIG` (08:00..16:00 hourly, defaultCapacity=12), new `generateDaycareSlotsForDate(date, {capacity})` helper exported for the dev seed script + admin generator. `/api/slots/available?slot_type=daycare` returns seeded daycare slots only — NEVER auto-generates. Capacity helpers (`calculateAvailableCapacityFromIntervals`, `…ForSlot`) now read `slot.capacity` instead of the legacy hardcoded 70.
+- `routes/payments.js`: added `getDaycarePrice` + `getServicePrice(serviceType, …)`. `create-checkout` for `type='hourly'` rejects non-(hourly|daycare) slot_types, prices via `getServicePrice` and stamps `metadata.service_type`. The hourly finalizer accepts both slot_types, derives `service_type` from `slot.slot_type`, and uses prefix `PK-D-*` (daycare) or `PK-H-*` (main_area).
+- `routes/bookings.js`: `/hourly`, `/hourly/offline`, `/hourly/guest-offline` all relaxed to accept daycare slots; new `getServicePriceForSlot` + `getServiceClassification` helpers stamp `service_type` + correct `booking_code` prefix on every creation path.
+- `routes/admin.js`: `GET/PUT /api/admin/pricing` now expose and accept the four daycare keys with safe defaults `daycare_1hr=8, daycare_2hr=15, daycare_3hr=22, daycare_4hr=28`. Hourly-only PUTs leave daycare keys untouched, and vice-versa.
+- `scripts/seed_daycare_slots.js` (NEW, dev-only — NOT wired into startup or any router):
+  ```bash
+  cd /app/backend/node-app
+  node scripts/seed_daycare_slots.js --start=YYYY-MM-DD --end=YYYY-MM-DD --capacity=10
+  node scripts/seed_daycare_slots.js --date=YYYY-MM-DD --dry-run
+  ```
+- `utils/whatsappBookingService.js`: intentionally untouched — its `slot_type: 'hourly'` filter still keeps WhatsApp walk-in bookings out of the daycare service.
+
+### Mission 2 — Customer booking UI (NOT STARTED)
+- TicketsPage service selector + confirmation UI updates (frontend only).
+
+### Mission 3 — Admin + Staff visibility (NOT STARTED)
+- SettingsTab daycare pricing card; Slots editor for daycare; BookingsTab + staff list badges.
+
+### Mission 4 — Polish, notifications, AI prompt migration (NOT STARTED)
