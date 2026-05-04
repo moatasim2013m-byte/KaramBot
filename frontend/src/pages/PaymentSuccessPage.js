@@ -42,6 +42,10 @@ const buildConfirmationData = (result) => {
     bookingId,
     bookingCode,
     bookingType,
+    // Mission 2 — derive service_type from the booking_code prefix so the
+    // confirmation page can render the right label without an extra fetch.
+    // PK-D-* → daycare, anything else (PK-H-*, PK-B-*, …) → main_area.
+    serviceType: /^PK-D-/i.test(String(bookingCode || '')) ? 'daycare' : 'main_area',
     paymentMethod: 'card',
     amount: pickFirst(
       firstHourlyBooking?.amount,

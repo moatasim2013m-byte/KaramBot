@@ -81,7 +81,12 @@ export default function TicketsPage() {
   const { isAuthenticated, api, user } = useAuth();
   const navigate = useNavigate();
   
-  // Step 1: Time mode (morning/afternoon)
+  // Step 0: Service type — Mission 2. 'main_area' (legacy hourly play) or
+  // 'daycare' (Mission 1 backend foundation). NULL forces the user to pick
+  // before any other step renders, but defaults to main_area for users who
+  // skip the selector visually (legacy behaviour preserved).
+  const [serviceType, setServiceType] = useState('main_area');
+  // Step 1: Time mode (morning/afternoon) — only used when serviceType === 'main_area'.
   const [timeMode, setTimeMode] = useState(null); // 'morning' or 'afternoon'
   // Step 2: Date
   const [date, setDate] = useState(null);
@@ -170,35 +175,45 @@ export default function TicketsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  // Fetch pricing when timeMode changes
+  // Fetch pricing when timeMode or serviceType changes. For daycare we
+  // skip the timeMode dependency — the price table is flat per duration.
   useEffect(() => {
-    if (timeMode) {
+    if (serviceType === 'daycare') {
+      fetchPricing();
+    } else if (timeMode) {
       fetchPricing(timeMode);
+    } else {
+      setPricing([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeMode]);
+  }, [timeMode, serviceType]);
 
-  // Lazy fetch slots ONLY when all 3 selections are made
+  // Lazy fetch slots ONLY when prerequisites are met. Daycare skips the
+  // timeMode requirement (no morning/afternoon split for the daycare service).
   useEffect(() => {
-    if (!timeMode || !date || !selectedDuration) {
+    const prereqsReady = serviceType === 'daycare'
+      ? Boolean(date && selectedDuration)
+      : Boolean(timeMode && date && selectedDuration);
+
+    if (!prereqsReady) {
       setSlots([]);
       setSelectedSlot(null);
       return;
     }
-    
+
     const dateStr = format(date, 'yyyy-MM-dd');
-    const cacheKey = `${dateStr}-${selectedDuration}-${timeMode}`;
-    
+    const cacheKey = `${serviceType}-${dateStr}-${selectedDuration}-${timeMode || 'na'}`;
+
     // Check cache first
     if (slotsCache.current.has(cacheKey)) {
       setSlots(slotsCache.current.get(cacheKey));
       return;
     }
-    
-    // Fetch slots with timeMode and duration
+
+    // Fetch slots
     fetchSlots(dateStr, cacheKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeMode, date, selectedDuration]);
+  }, [timeMode, date, selectedDuration, serviceType]);
 
   // Phase 6 — loyalty redemption preview. Re-computes whenever the base
   // (post-coupon) amount or the parent's redemption choice changes. The
@@ -279,13 +294,24 @@ export default function TicketsPage() {
 
   const fetchPricing = async () => {
     try {
-      const response = await api.get(`/payments/hourly-pricing?timeMode=${timeMode}`);
+      const url = serviceType === 'daycare'
+        ? '/payments/hourly-pricing?service_type=daycare'
+        : `/payments/hourly-pricing?timeMode=${timeMode}`;
+      const response = await api.get(url);
       setPricing(response.data.pricing || []);
       setExtraHourText(response.data.extra_hour_text || '');
     } catch (error) {
       console.error('Failed to fetch pricing:', error);
       // Fallback pricing
-      if (timeMode === 'morning') {
+      if (serviceType === 'daycare') {
+        setPricing([
+          { hours: 1, price: 8,  label_ar: 'ساعة واحدة' },
+          { hours: 2, price: 15, label_ar: 'ساعتان' },
+          { hours: 3, price: 22, label_ar: '3 ساعات', best_value: true },
+          { hours: 4, price: 28, label_ar: '4 ساعات' }
+        ]);
+        setExtraHourText('');
+      } else if (timeMode === 'morning') {
         setPricing([
           { hours: 1, price: 3.5, label_ar: 'ساعة واحدة' },
           { hours: 2, price: 7, label_ar: 'ساعتان' },
@@ -397,9 +423,11 @@ export default function TicketsPage() {
     setSlotsError(null);
     setSelectedSlot(null);
     try {
-      const response = await api.get(
-        `/slots/available?date=${dateStr}&slot_type=hourly&timeMode=${timeMode}&duration=${selectedDuration}`
-      );
+      // Daycare: omit timeMode entirely (no morning/afternoon split server-side).
+      const url = serviceType === 'daycare'
+        ? `/slots/available?date=${dateStr}&slot_type=daycare&duration=${selectedDuration}`
+        : `/slots/available?date=${dateStr}&slot_type=hourly&timeMode=${timeMode}&duration=${selectedDuration}`;
+      const response = await api.get(url);
       const fetchedSlots = response.data.slots || [];
       // Cache the result
       slotsCache.current.set(cacheKey, fetchedSlots);
@@ -413,24 +441,26 @@ export default function TicketsPage() {
     }
   };
 
-  // Filter slots based on selected duration AND time mode
+  // Filter slots based on selected duration AND time mode (or none for daycare).
   const getFilteredSlots = () => {
     return slots.filter(slot => {
       const [hours, minutes] = slot.start_time.split(':').map(Number);
       const startMinutes = hours * 60 + minutes;
       const endMinutes = startMinutes + (selectedDuration * 60);
-      
+
       // Must not pass midnight (00:00)
       if (endMinutes > 1440) return false;
-      
+
+      // Daycare has no morning/afternoon split — show every backend-allowed slot.
+      if (serviceType === 'daycare') return true;
+
       // Filter by time mode
       if (timeMode === 'morning') {
         // Morning (Happy Hour): 10:00 to 13:59
         return hours >= 10 && hours < 14;
-      } else {
-        // Afternoon: 14:00 onwards
-        return hours >= 14;
       }
+      // Afternoon: 14:00 onwards
+      return hours >= 14;
     });
   };
 
@@ -539,6 +569,7 @@ export default function TicketsPage() {
           bookingId: firstBooking?.id,
           bookingCode: firstBooking?.booking_code,
           bookingType: 'hourly',
+          serviceType,
           childName: selectedChildNames,
           date: selectedSlot.date,
           time: selectedSlot.start_time,
@@ -613,6 +644,7 @@ export default function TicketsPage() {
         bookingId: firstBooking?.id,
         bookingCode: firstBooking?.booking_code,
         bookingType: 'hourly',
+        serviceType,
         childName: guestChildName.trim() || `${guestChildCount} أطفال`,
         date: selectedSlot.date,
         time: selectedSlot.start_time,
@@ -646,10 +678,17 @@ export default function TicketsPage() {
     return basePrice * getEffectiveChildCount();
   };
 
-  // Helper function for Happy Hour pricing (10:00-14:00)
+  // Helper function for Happy Hour pricing (10:00-14:00). For daycare,
+  // pricing is flat per duration — we don't apply the Happy Hour modifier
+  // and we read the price-per-hour from the daycare pricing table.
   const getSlotPrice = (startTime) => {
     if (!startTime) return null;
-    
+
+    if (serviceType === 'daycare') {
+      const selected = pricing.find((p) => p.hours === selectedDuration);
+      return selected ? selected.price / selected.hours : null;
+    }
+
     // Parse the time string (format: "HH:mm")
     const [hours] = startTime.split(':').map(Number);
     
@@ -749,15 +788,25 @@ export default function TicketsPage() {
     </div>
   );
 
-  const activeStep = !date ? 1 : !timeMode ? 2 : !selectedDuration ? 3 : 4;
-  const stepPills = [
-    { id: 1, label: '1 التاريخ', complete: Boolean(date) },
-    { id: 2, label: '2 الفترة', complete: Boolean(timeMode) },
-    { id: 3, label: '3 المدة', complete: Boolean(selectedDuration) },
-    { id: 4, label: '4 الوقت', complete: Boolean(selectedSlot) }
-  ];
+  const isDaycare = serviceType === 'daycare';
+  const activeStep = !date ? 1 : (!isDaycare && !timeMode) ? 2 : !selectedDuration ? 3 : 4;
+  const stepPills = isDaycare
+    ? [
+        { id: 1, label: '1 التاريخ', complete: Boolean(date) },
+        { id: 3, label: '2 المدة', complete: Boolean(selectedDuration) },
+        { id: 4, label: '3 الوقت', complete: Boolean(selectedSlot) }
+      ]
+    : [
+        { id: 1, label: '1 التاريخ', complete: Boolean(date) },
+        { id: 2, label: '2 الفترة', complete: Boolean(timeMode) },
+        { id: 3, label: '3 المدة', complete: Boolean(selectedDuration) },
+        { id: 4, label: '4 الوقت', complete: Boolean(selectedSlot) }
+      ];
 
-  const periodLabel = timeMode === 'morning' ? 'صباحي' : timeMode === 'afternoon' ? 'مسائي' : '---';
+  const periodLabel = isDaycare
+    ? 'حضانة'
+    : (timeMode === 'morning' ? 'صباحي' : timeMode === 'afternoon' ? 'مسائي' : '---');
+  const serviceLabel = isDaycare ? 'حضانة Day Care' : 'اللعب بالساعة';
 
   return (
     <div className="min-h-screen py-6 md:py-12 booking-mobile-page tickets-themed-page pk-booking-page" dir="rtl">
@@ -777,13 +826,15 @@ export default function TicketsPage() {
           <div className="relative z-10 max-w-2xl">
             <span className="pk-hero-eyebrow">
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              حجز سريع — 4 خطوات بسيطة
+              {isDaycare ? 'حضانة آمنة وممتعة' : 'حجز سريع — 4 خطوات بسيطة'}
             </span>
             <h1 className="font-heading heading-bubble text-3xl sm:text-4xl md:text-5xl font-bold text-foreground mt-3 mb-2">
-              احجز وقت اللعب
+              {isDaycare ? 'احجز جلسة حضانة' : 'احجز وقت اللعب'}
             </h1>
             <p className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
-              اختر التاريخ، الفترة، المدة، ثم الوقت المناسب — وشروومي يرافقك خطوة بخطوة.
+              {isDaycare
+                ? 'اختر التاريخ والمدة ثم الوقت — طاقمنا يستقبل طفلك بكل عناية.'
+                : 'اختر التاريخ، الفترة، المدة، ثم الوقت المناسب — وشروومي يرافقك خطوة بخطوة.'}
             </p>
 
             {/* Premium step pills (replaces booking-step-pills). Same data,
@@ -803,6 +854,79 @@ export default function TicketsPage() {
             </div>
           </div>
         </div>
+
+        {/* SERVICE SELECTOR — Mission 2 entry point.
+            Lets the parent choose between Main-Area hourly play (legacy
+            behaviour, includes morning/afternoon split + Happy Hour) or
+            Day Care (flat-rate per duration, no period split). Switching
+            between services resets all downstream selections so the user
+            never carries a mismatched slot or duration into the new flow. */}
+        <Card className="booking-card mb-6" data-testid="service-selector-card">
+          <CardHeader className="booking-card-header">
+            <CardTitle className="booking-card-title">
+              <span className="step-badge step-badge-complete">★</span>
+              اختر الخدمة
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="py-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  if (serviceType === 'main_area') return;
+                  setServiceType('main_area');
+                  setTimeMode(null);
+                  setSelectedDuration(null);
+                  setSelectedSlot(null);
+                  setSlots([]);
+                  setPricing([]);
+                  slotsCache.current.clear();
+                }}
+                className={`option-btn cartoon-option period-card ${serviceType === 'main_area' ? 'selected-afternoon' : ''}`}
+                data-testid="service-main-area-btn"
+              >
+                <div className="flex items-center justify-between gap-3 px-2">
+                  <span className="period-icon-circle period-icon-circle-afternoon">
+                    <Sparkles className="h-7 w-7 shrink-0 text-blue-500" />
+                  </span>
+                  <div className="flex-1 min-w-0 text-right">
+                    <div className="font-heading text-xl font-bold">اللعب بالساعة</div>
+                    <div className="text-sm text-muted-foreground">المنطقة الرئيسية · صباحي/مسائي</div>
+                  </div>
+                  {serviceType === 'main_area' && <span className="period-check"><Check className="h-4 w-4" /></span>}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (serviceType === 'daycare') return;
+                  setServiceType('daycare');
+                  setTimeMode(null);
+                  setSelectedDuration(null);
+                  setSelectedSlot(null);
+                  setSlots([]);
+                  setPricing([]);
+                  slotsCache.current.clear();
+                }}
+                className={`option-btn cartoon-option period-card morning-option ${serviceType === 'daycare' ? 'selected-yellow' : ''}`}
+                data-testid="service-daycare-btn"
+              >
+                <span className="cartoon-blob morning-blob" aria-hidden="true"></span>
+                <div className="flex items-center justify-between gap-3 pt-2 px-2">
+                  <span className="period-icon-circle period-icon-circle-morning">
+                    <Sun className="h-7 w-7 shrink-0 text-amber-500" />
+                  </span>
+                  <div className="flex-1 min-w-0 text-right">
+                    <div className="font-heading text-xl font-bold">حضانة Day Care</div>
+                    <div className="text-sm text-muted-foreground">رعاية مخصصة · سعر ثابت لكل مدة</div>
+                  </div>
+                  {serviceType === 'daycare' && <span className="period-check"><Check className="h-4 w-4" /></span>}
+                </div>
+              </button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* STEP 1: Date Selection */}
         <Card className="booking-card booking-card-calendar mb-6">
@@ -834,8 +958,8 @@ export default function TicketsPage() {
           </CardContent>
         </Card>
 
-        {/* STEP 2: Time Mode Selection */}
-        {date && (
+        {/* STEP 2: Time Mode Selection — main_area only (daycare has no morning/afternoon split) */}
+        {date && !isDaycare && (
           <Card className="booking-card mb-6">
             <CardHeader className="booking-card-header">
               <CardTitle className="booking-card-title">
@@ -884,12 +1008,12 @@ export default function TicketsPage() {
         )}
 
         {/* STEP 3: Duration Selection */}
-        {date && timeMode && (
+        {date && (isDaycare || timeMode) && (
           <Card className="booking-card mb-6">
             <CardHeader className="booking-card-header">
               <CardTitle className="booking-card-title">
-                <span className={`step-badge ${selectedDuration ? 'step-badge-complete' : ''}`}>3</span>
-                اختر مدة اللعب
+                <span className={`step-badge ${selectedDuration ? 'step-badge-complete' : ''}`}>{isDaycare ? 2 : 3}</span>
+                {isDaycare ? 'اختر مدة الحضانة' : 'اختر مدة اللعب'}
               </CardTitle>
               {extraHourText && <CardDescription className="text-sm mt-1 mr-10">{extraHourText}</CardDescription>}
             </CardHeader>
@@ -902,7 +1026,8 @@ export default function TicketsPage() {
                       setSelectedDuration(option.hours);
                       setSelectedSlot(null);
                     }}
-                    className={`option-btn duration-pill ${selectedDuration === option.hours ? (timeMode === 'morning' ? 'selected-yellow' : 'selected-afternoon') : ''}`}
+                    className={`option-btn duration-pill ${selectedDuration === option.hours ? (isDaycare || timeMode === 'morning' ? 'selected-yellow' : 'selected-afternoon') : ''}`}
+                    data-testid={`duration-${option.hours}h-btn`}
                   >
                     {option.best_value && (
                       <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-orange-400 to-orange-600 text-white text-xs">
@@ -912,7 +1037,7 @@ export default function TicketsPage() {
                     )}
                     <div className="pt-1">
                       <div className="font-heading text-2xl font-bold mb-1">{option.label_ar}</div>
-                      <div className={`text-xl font-bold ${timeMode === 'morning' ? 'text-yellow-600' : 'text-slate-600'}`}>
+                      <div className={`text-xl font-bold ${isDaycare ? 'text-amber-700' : (timeMode === 'morning' ? 'text-yellow-600' : 'text-slate-600')}`}>
                         {option.price} دينار
                       </div>
                     </div>
@@ -924,16 +1049,16 @@ export default function TicketsPage() {
         )}
 
         {/* STEP 4: Time Slots */}
-        {timeMode && date && selectedDuration && (
+        {date && (isDaycare || timeMode) && selectedDuration && (
           <Card className="booking-card mb-6">
             <CardHeader className="booking-card-header">
               <CardTitle className="booking-card-title">
-                <span className={`step-badge ${selectedSlot ? 'step-badge-complete' : ''}`}>4</span>
+                <span className={`step-badge ${selectedSlot ? 'step-badge-complete' : ''}`}>{isDaycare ? 3 : 4}</span>
                 <Clock className="h-5 w-5 text-primary" />
                 الأوقات المتاحة
               </CardTitle>
               <CardDescription className="mr-10 text-sm">
-                {format(date, 'MMMM d')} • {timeMode === 'morning' ? '10 ص - 2 م' : '2 م - 12 ص'}
+                {format(date, 'MMMM d')} • {isDaycare ? 'حضانة 8 ص - 5 م' : (timeMode === 'morning' ? '10 ص - 2 م' : '2 م - 12 ص')}
               </CardDescription>
             </CardHeader>
             <CardContent className="py-6">
@@ -961,7 +1086,7 @@ export default function TicketsPage() {
                       <button
                         key={slot.id}
                         onClick={() => setSelectedSlot(slot)}
-                        className={`slot-btn slot-pill ${selectedSlot?.id === slot.id ? (timeMode === 'morning' ? 'selected-yellow' : 'selected-afternoon') : ''}`}
+                        className={`slot-btn slot-pill ${selectedSlot?.id === slot.id ? (isDaycare || timeMode === 'morning' ? 'selected-yellow' : 'selected-afternoon') : ''}`}
                       >
                         <div dir="ltr" className="font-heading font-semibold">
                           {slot.start_time} → {endTime}
@@ -1050,18 +1175,19 @@ export default function TicketsPage() {
                     <div className="p-3 rounded-xl bg-muted text-sm">
                       <span className="font-semibold">{format(date, 'MMM d')} في {selectedSlot.start_time}</span>
                       <div className="text-muted-foreground mt-1">
-                        {timeMode === 'morning' ? '☀️ صباحية' : '🌙 مسائية'}
+                        {isDaycare ? '🧸 حضانة Day Care' : (timeMode === 'morning' ? '☀️ صباحية' : '🌙 مسائية')}
                       </div>
                     </div>
                   </div>
 
                   <div>
                     <Label className="block text-sm font-medium mb-2">المدة والسعر</Label>
-                    <div className={`p-3 rounded-xl border-2 ${timeMode === 'morning' ? 'bg-yellow-50 border-yellow-400' : 'bg-primary/10 border-primary'}`}>
-                      <div className={`font-bold text-lg ${timeMode === 'morning' ? 'text-yellow-700' : 'text-primary'}`}>
+                    <div className={`p-3 rounded-xl border-2 ${isDaycare ? 'bg-amber-50 border-amber-400' : (timeMode === 'morning' ? 'bg-yellow-50 border-yellow-400' : 'bg-primary/10 border-primary')}`}>
+                      <div className={`font-bold text-lg ${isDaycare ? 'text-amber-800' : (timeMode === 'morning' ? 'text-yellow-700' : 'text-primary')}`}>
                         {selectedDuration} ساعة - {getSelectedPrice()} د
                       </div>
-                      {timeMode === 'morning' && <div className="text-xs text-yellow-600 mt-1">عرض الصباح</div>}
+                      {isDaycare && <div className="text-xs text-amber-700 mt-1">حضانة Day Care</div>}
+                      {!isDaycare && timeMode === 'morning' && <div className="text-xs text-yellow-600 mt-1">عرض الصباح</div>}
                     </div>
                   </div>
                 </div>
@@ -1239,6 +1365,11 @@ export default function TicketsPage() {
                 {paymentMethod && (
                   <div className="booking-summary">
                     <p className="text-sm text-muted-foreground mb-1">ملخص الحجز</p>
+                    <p className="text-xs mb-2">
+                      <span className={`inline-block px-2 py-0.5 rounded-full font-bold ${isDaycare ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-blue-100 text-blue-800 border border-blue-300'}`} data-testid="summary-service-badge">
+                        {serviceLabel}
+                      </span>
+                    </p>
                     <p className="font-bold">
                       {selectedSlot 
                         ? `${selectedDuration} ساعة × ${getEffectiveChildCount()} طفل = ${(parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * getEffectiveChildCount()).toFixed(1)} دينار`
@@ -1270,7 +1401,8 @@ export default function TicketsPage() {
                     <Button
                       onClick={handleBooking}
                       disabled={!selectedSlot || loading}
-                      className={`w-full px-8 rounded-full h-12 text-base ${timeMode === 'morning' ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : 'btn-playful'}`}
+                      className={`w-full px-8 rounded-full h-12 text-base ${isDaycare ? 'bg-amber-500 hover:bg-amber-600 text-white' : (timeMode === 'morning' ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : 'btn-playful')}`}
+                      data-testid="confirm-booking-btn"
                     >
                       {loading ? (
                         <>
@@ -1451,6 +1583,11 @@ export default function TicketsPage() {
                     {/* Booking summary */}
                     <div className="booking-summary">
                       <p className="text-sm text-muted-foreground mb-1">ملخص الحجز</p>
+                      <p className="text-xs mb-2">
+                        <span className={`inline-block px-2 py-0.5 rounded-full font-bold ${isDaycare ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-blue-100 text-blue-800 border border-blue-300'}`}>
+                          {serviceLabel}
+                        </span>
+                      </p>
                       <p className="font-bold">
                         {selectedSlot
                           ? `${selectedDuration} ساعة × ${guestChildCount} طفل = ${(parseFloat(getSlotTotalPrice(selectedSlot.start_time)) * guestChildCount).toFixed(1)} دينار`
@@ -1477,7 +1614,7 @@ export default function TicketsPage() {
                         <Button
                           onClick={handleGuestBooking}
                           disabled={!selectedSlot || loading}
-                          className={`w-full px-8 rounded-full h-12 text-base ${timeMode === 'morning' ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : 'btn-playful'}`}
+                          className={`w-full px-8 rounded-full h-12 text-base ${isDaycare ? 'bg-amber-500 hover:bg-amber-600 text-white' : (timeMode === 'morning' ? 'bg-yellow-500 hover:bg-yellow-600 text-white' : 'btn-playful')}`}
                           data-testid="guest-book-btn"
                         >
                           {loading ? (

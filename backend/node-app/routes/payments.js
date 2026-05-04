@@ -682,7 +682,27 @@ const finalizeTransactionIfPaid = async (transaction) => {
 // Get hourly pricing info (public endpoint for frontend)
 router.get('/hourly-pricing', async (req, res) => {
   try {
-    const { timeMode } = req.query;
+    const { timeMode, service_type } = req.query;
+
+    // Day Care pricing — flat per-duration, no Happy Hour. Mirrors the
+    // Mission 1 backend table (daycare_1hr / 2hr / 3hr / 4hr).
+    if (service_type === 'daycare') {
+      const docs = await Settings.find({ key: { $in: DAYCARE_PRICING_KEYS } });
+      const prices = { ...DAYCARE_PRICING_DEFAULTS };
+      docs.forEach((p) => { prices[p.key] = parseFloat(p.value); });
+      return res.json({
+        pricing: [
+          { hours: 1, price: prices.daycare_1hr, label: '1 Hour',  label_ar: 'ساعة واحدة' },
+          { hours: 2, price: prices.daycare_2hr, label: '2 Hours', label_ar: 'ساعتان' },
+          { hours: 3, price: prices.daycare_3hr, label: '3 Hours', label_ar: '3 ساعات', best_value: true },
+          { hours: 4, price: prices.daycare_4hr, label: '4 Hours', label_ar: '4 ساعات' }
+        ],
+        extra_hour_price: null,
+        extra_hour_text: '',
+        currency: 'JD',
+        service_type: 'daycare'
+      });
+    }
     
     // Morning mode: flat 3.5 JD per hour
     if (timeMode === 'morning') {

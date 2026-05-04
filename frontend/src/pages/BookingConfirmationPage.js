@@ -124,9 +124,24 @@ export default function BookingConfirmationPage() {
     setTimeout(() => setRefCopied(false), 2000);
   };
 
+  // Service type lookup. Mission 2 passes confirmation.serviceType through
+  // /tickets → /booking-confirmation, but for Capital-Bank-redirect flows
+  // and legacy storage we fall back to the booking_code prefix:
+  //   PK-D-* → daycare,  PK-H-* / anything else → main_area.
+  const inferServiceType = () => {
+    if (confirmation?.serviceType === 'daycare' || confirmation?.serviceType === 'main_area') {
+      return confirmation.serviceType;
+    }
+    const code = String(confirmation?.bookingCode || '');
+    if (/^PK-D-/i.test(code)) return 'daycare';
+    return 'main_area';
+  };
+
   const getBookingTypeLabel = (type) => {
+    if (type === 'hourly') {
+      return inferServiceType() === 'daycare' ? 'حضانة Day Care' : 'جلسة بالساعة';
+    }
     switch (type) {
-      case 'hourly': return 'جلسة بالساعة';
       case 'birthday': return 'حفلة عيد ميلاد';
       case 'subscription': return 'اشتراك';
       default: return 'حجز';
@@ -238,7 +253,7 @@ export default function BookingConfirmationPage() {
                   </span>
                   نوع الحجز
                 </div>
-                <span className="value">{getBookingTypeLabel(confirmation.bookingType)}</span>
+                <span className="value" data-testid="confirmation-service-label">{getBookingTypeLabel(confirmation.bookingType)}</span>
               </div>
             )}
 
