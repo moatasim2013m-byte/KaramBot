@@ -19,6 +19,13 @@ import { DashboardLayout } from '../components/admin/DashboardLayout';
 import QrScanner from '../components/staff/QrScanner';
 import logoImg from '../assets/logo.png';
 import InstallPWAButton from '../components/InstallPWAButton';
+import {
+  playBookingArrival,
+  playScanDetected,
+  playActivationSuccess,
+  playScanError,
+  STAFF_SOUND_STORAGE_KEY
+} from '../utils/staffSounds';
 
 const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   error?.response?.data?.details ||
@@ -113,94 +120,17 @@ export default function StaffPage() {
   // Track previous pending-checkins count so we can fire a toast when it grows.
   const prevPendingCountRef = useRef(null);
   // Sound notification: stored in localStorage so preference survives reload.
+  // Web-Audio sound generators live in /app/frontend/src/utils/staffSounds.js
+  // — every cue runs through a per-event cooldown and the same toggle flag,
+  // so this component only owns the UI toggle and the call sites.
   const [soundEnabled, setSoundEnabled] = useState(() => {
-    try { return localStorage.getItem('staff_sound_alerts') === 'true'; } catch { return false; }
+    try { return localStorage.getItem(STAFF_SOUND_STORAGE_KEY) === 'true'; } catch { return false; }
   });
-  const soundBlockedWarningShownRef = useRef(false);
-  // Activation-success cue: dedup ref so the same activation never plays twice
-  // within a short window (defends against React strict-mode double-invoke,
-  // rapid re-clicks, or any future re-render of the success branch).
-  const lastActivationSoundAtRef = useRef(0);
-
-  const playNotificationSound = useCallback(() => {
-    if (!soundEnabled) return;
-    let ctx;
-    try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
-      gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      oscillator.start(ctx.currentTime);
-      oscillator.stop(ctx.currentTime + 0.4);
-      // Close context after sound finishes; setTimeout as fallback if onended doesn't fire.
-      const closeCtx = () => { if (ctx.state !== 'closed') ctx.close(); };
-      oscillator.onended = closeCtx;
-      setTimeout(closeCtx, 600);
-    } catch {
-      if (ctx) { try { ctx.close(); } catch { /* ignore */ } }
-      if (!soundBlockedWarningShownRef.current) {
-        soundBlockedWarningShownRef.current = true;
-        toast.warning('تعذر تشغيل الصوت. تأكد من أن المتصفح يسمح بتشغيل الصوت.');
-      }
-    }
-  }, [soundEnabled]);
-
-  // Activation-success cue. Distinct from playNotificationSound (which is a
-  // single descending 880→440Hz tone for incoming bookings). This is a short
-  // ASCENDING two-note chime (~660Hz → ~990Hz) so staff can instantly tell it
-  // apart from the booking-arrival alert. Same soundEnabled gate so the
-  // existing preference toggle controls both.
-  const playActivationSuccessSound = useCallback(() => {
-    if (!soundEnabled) return;
-    let ctx;
-    try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const now = ctx.currentTime;
-      const playNote = (freq, startOffset, duration, peakGain) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, now + startOffset);
-        // Soft attack + exponential decay → "chime" feel, not a beep.
-        gain.gain.setValueAtTime(0.0001, now + startOffset);
-        gain.gain.exponentialRampToValueAtTime(peakGain, now + startOffset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + duration);
-        osc.start(now + startOffset);
-        osc.stop(now + startOffset + duration + 0.02);
-      };
-      // Ding-ding ascending: E5 → B5
-      playNote(659.25, 0.0,  0.22, 0.35);
-      playNote(987.77, 0.13, 0.30, 0.32);
-      const closeCtx = () => { if (ctx.state !== 'closed') ctx.close(); };
-      setTimeout(closeCtx, 700);
-    } catch {
-      if (ctx) { try { ctx.close(); } catch { /* ignore */ } }
-      // Intentionally silent on failure — the toast.success already confirms
-      // activation; we don't want to double-toast about audio every time.
-    }
-  }, [soundEnabled]);
-
-  const tryPlayActivationSuccessSound = useCallback(() => {
-    // Dedup: ignore re-entrant calls within 1500ms so a single activation
-    // never produces two cues even if the success branch re-runs.
-    const stamp = Date.now();
-    if (stamp - lastActivationSoundAtRef.current < 1500) return;
-    lastActivationSoundAtRef.current = stamp;
-    playActivationSuccessSound();
-  }, [playActivationSuccessSound]);
 
   const toggleSound = useCallback(() => {
     setSoundEnabled((prev) => {
       const next = !prev;
-      try { localStorage.setItem('staff_sound_alerts', String(next)); } catch { /* ignore */ }
+      try { localStorage.setItem(STAFF_SOUND_STORAGE_KEY, String(next)); } catch { /* ignore */ }
       return next;
     });
   }, []);
@@ -471,10 +401,12 @@ export default function StaffPage() {
     const current = pendingCheckins.length;
     if (prev !== null && current > prev) {
       toast.info(`حجز جديد بانتظار التفعيل (${current - prev} جديد)`);
-      playNotificationSound();
+      // soundEnabled gates the cue inside the helper; passing it as a dep
+      // ensures we re-bind whenever the toggle flips.
+      playBookingArrival();
     }
     prevPendingCountRef.current = current;
-  }, [pendingCheckins.length, playNotificationSound]);
+  }, [pendingCheckins.length, soundEnabled]);
 
   const handleCheckin = async (e) => {
     e.preventDefault();
@@ -486,14 +418,18 @@ export default function StaffPage() {
       setScanResult({ success: true, data: response.data });
       toast.success('Check-in successful!');
       // Success-only audio cue. Reaches here ONLY after a 2xx response from
-      // /staff/checkin (i.e. legacy manual session activation). Dedup-guarded.
-      tryPlayActivationSuccessSound();
+      // /staff/checkin (i.e. legacy manual session activation). The helper
+      // applies a 1500 ms cooldown so the same activation can't double-play.
+      playActivationSuccess();
       setBookingCode('');
       fetchActiveSessions();
       fetchPendingCheckins();
     } catch (error) {
       setScanResult({ success: false, error: error.response?.data?.error || 'Check-in failed' });
       toast.error(error.response?.data?.error || 'Check-in failed');
+      // Error cue — low double-beep. Distinct from the success chime so
+      // staff can tell pass/fail apart even without looking at the screen.
+      playScanError();
     } finally { setScanning(false); }
   };
 
@@ -515,6 +451,10 @@ export default function StaffPage() {
         message: payload.message,
         booking: payload.booking
       });
+      // Successful read of a QR/code: short technical blip. Only fires
+      // after a 2xx response from /staff/qr/validate so polling cannot
+      // accidentally trigger it.
+      playScanDetected();
     } catch (error) {
       const data = error.response?.data || {};
       setQrValidation({
@@ -526,6 +466,8 @@ export default function StaffPage() {
         booking: data.booking || null
       });
       toast.error(data.error || 'تعذّر التحقق من الرمز');
+      // Error cue — invalid/unrecognised scan.
+      playScanError();
     } finally {
       setQrValidating(false);
     }
@@ -561,8 +503,9 @@ export default function StaffPage() {
       });
       toast.success(payload.message || 'تم تفعيل الجلسة بنجاح');
       // Success-only audio cue. Reaches here ONLY after a 2xx response from
-      // /staff/qr/checkin (i.e. session truly activated). Dedup-guarded.
-      tryPlayActivationSuccessSound();
+      // /staff/qr/checkin (i.e. session truly activated). The helper applies
+      // a 1500 ms cooldown so the same activation can't double-play.
+      playActivationSuccess();
       fetchActiveSessions();
       fetchPendingCheckins();
     } catch (error) {
@@ -576,6 +519,8 @@ export default function StaffPage() {
         booking: data.booking || qrValidation.booking
       });
       toast.error(data.error || 'فشل تفعيل الجلسة');
+      // Error cue — activation refused (wrong booking, already used, etc.).
+      playScanError();
     } finally {
       setQrCheckingIn(false);
     }
