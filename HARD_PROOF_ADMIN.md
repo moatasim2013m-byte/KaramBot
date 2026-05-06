@@ -4,22 +4,22 @@
 
 **Base URL:**
 ```
-https://presentation-patch.preview.emergentagent.com
+https://control-mode-3.preview.emergentagent.com
 ```
 
 **Login Page:**
 ```
-https://presentation-patch.preview.emergentagent.com/login
+https://control-mode-3.preview.emergentagent.com/login
 ```
 
 **Admin Panel:**
 ```
-https://presentation-patch.preview.emergentagent.com/admin
+https://control-mode-3.preview.emergentagent.com/admin
 ```
 
 **Backend API:**
 ```
-https://presentation-patch.preview.emergentagent.com/api
+https://control-mode-3.preview.emergentagent.com/api
 ```
 
 ---
@@ -79,7 +79,7 @@ DEBUG: admin@peekaboo.com | role: admin
 
 ## 4. SCREENSHOT FROM PRODUCTION URL
 
-**Test performed on:** `https://presentation-patch.preview.emergentagent.com`
+**Test performed on:** `https://control-mode-3.preview.emergentagent.com`
 
 **Steps:**
 1. Cleared localStorage and sessionStorage
@@ -87,7 +87,7 @@ DEBUG: admin@peekaboo.com | role: admin
 3. Successfully redirected to /admin
 4. Debug badge visible showing role
 
-**URL after login:** `https://presentation-patch.preview.emergentagent.com/admin`
+**URL after login:** `https://control-mode-3.preview.emergentagent.com/admin`
 
 **Screenshot shows:**
 - ✅ Yellow debug badge (partially visible, cut off but present)
@@ -105,14 +105,14 @@ You can verify from your end using these exact commands:
 
 ### Login:
 ```bash
-curl -X POST "https://presentation-patch.preview.emergentagent.com/api/auth/login" \
+curl -X POST "https://control-mode-3.preview.emergentagent.com/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@peekaboo.com","password":"admin123"}'
 ```
 
 ### Get User Info (replace TOKEN with token from login response):
 ```bash
-curl -X GET "https://presentation-patch.preview.emergentagent.com/api/auth/me" \
+curl -X GET "https://control-mode-3.preview.emergentagent.com/api/auth/me" \
   -H "Authorization: Bearer TOKEN"
 ```
 
@@ -141,7 +141,7 @@ This is the admin user ID. If you see a different ID, you're logged in as a diff
 ### Step 4: Check Current User
 ```javascript
 // In console after login:
-fetch('https://presentation-patch.preview.emergentagent.com/api/auth/me', {
+fetch('https://control-mode-3.preview.emergentagent.com/api/auth/me', {
   headers: {
     'Authorization': 'Bearer ' + localStorage.getItem('peekaboo_token')
   }
@@ -215,7 +215,7 @@ All services running with uptime > 10 minutes (fresh restart after debug changes
 **To prove environment parity, do this on iOS:**
 
 1. Open Safari on iOS
-2. Go to: `https://presentation-patch.preview.emergentagent.com/login`
+2. Go to: `https://control-mode-3.preview.emergentagent.com/login`
 3. Login with: admin@peekaboo.com / admin123
 4. **IMMEDIATELY LOOK FOR YELLOW DEBUG BADGE** in navbar
 5. Take screenshot showing:
@@ -235,7 +235,7 @@ All services running with uptime > 10 minutes (fresh restart after debug changes
 
 ## 10. SUMMARY
 
-**Tested URL:** `https://presentation-patch.preview.emergentagent.com`
+**Tested URL:** `https://control-mode-3.preview.emergentagent.com`
 
 **Backend returns:** `role: "admin"` ✅
 

@@ -7,6 +7,10 @@ import {
   CheckCircle, Home, User, Copy, Phone, MessageCircle, Building2, Clock,
   Calendar, Banknote, Baby, Tag, QrCode, Sparkles, MapPin, ShieldCheck, Check
 } from 'lucide-react';
+// Mission 4 — share the same Main Area vs Day Care label/badge helper used
+// by admin + staff so customer confirmations never disagree with the rest
+// of the app on what service was booked.
+import { getServiceMeta } from '../utils/serviceLabel';
 
 const STORAGE_KEY = 'pk_last_confirmation';
 
@@ -139,7 +143,10 @@ export default function BookingConfirmationPage() {
 
   const getBookingTypeLabel = (type) => {
     if (type === 'hourly') {
-      return inferServiceType() === 'daycare' ? 'حضانة Day Care' : 'جلسة بالساعة';
+      // Mission 4 — align main_area wording with the rest of the app
+      // (TicketsPage / serviceLabel.js use "اللعب بالساعة"). The daycare
+      // label stays as the canonical "حضانة Day Care".
+      return inferServiceType() === 'daycare' ? 'حضانة Day Care' : 'اللعب بالساعة (Main Area)';
     }
     switch (type) {
       case 'birthday': return 'حفلة عيد ميلاد';
@@ -194,6 +201,16 @@ export default function BookingConfirmationPage() {
   const isCash = confirmation.paymentMethod === 'cash';
   const isCliq = confirmation.paymentMethod === 'cliq';
   const isHourly = confirmation.bookingType === 'hourly';
+  // Mission 4 — service type drives the explicit Main Area vs Day Care
+  // wording in the hero chip, the QR card and the next-steps card.
+  const serviceTypeKey = inferServiceType();
+  const isDaycare = isHourly && serviceTypeKey === 'daycare';
+  // Verb used in QR / activation copy. Day Care reads more naturally as
+  // "تفعيل الحضانة" rather than the generic "تفعيل الجلسة".
+  const activationNoun = isDaycare ? 'الحضانة' : 'الجلسة';
+  const serviceMeta = isHourly
+    ? getServiceMeta({ service_type: serviceTypeKey, booking_code: confirmation.bookingCode })
+    : null;
   // QR is only meaningful while the booking is active and unused.
   // Backend marks paid bookings as status='confirmed' + qr_status='unused'.
   const qrStatus = confirmation.qrStatus || 'unused';
@@ -212,6 +229,20 @@ export default function BookingConfirmationPage() {
           <h1 className="font-heading text-3xl md:text-4xl font-bold text-foreground mb-2">
             تم تأكيد الحجز 🎉
           </h1>
+          {/* Mission 4 — Main Area vs Day Care service chip directly under the
+              hero title so the parent can tell at a glance which service they
+              just booked. Only renders for hourly bookings. */}
+          {isHourly && serviceMeta && (
+            <div className="flex justify-center mb-2">
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${serviceMeta.badgeClass}`}
+                data-testid="confirmation-service-chip"
+              >
+                <Tag className="h-3.5 w-3.5" />
+                {serviceMeta.label}
+              </span>
+            </div>
+          )}
           <p className="text-base md:text-lg text-muted-foreground">
             {isCash && 'استعد للاستمتاع — الدفع عند الاستقبال'}
             {isCliq && 'خطوة أخيرة عبر CliQ لتفعيل حجزك'}
@@ -358,7 +389,7 @@ export default function BookingConfirmationPage() {
             <div className="p-6 text-center">
               <div className="inline-flex items-center gap-2 mb-3 px-3 py-1.5 rounded-full bg-gradient-to-r from-[var(--pk-blue)]/15 to-[var(--pk-green)]/15 text-[var(--pk-blue)] text-sm font-bold border border-[var(--pk-blue)]/25">
                 <QrCode className="h-4 w-4" />
-                رمز QR للجلسة
+                {isDaycare ? 'رمز QR للحضانة' : 'رمز QR للجلسة'}
               </div>
               <div className="bg-white p-3 rounded-2xl inline-block border-2 border-[var(--pk-blue)]/15 shadow-sm">
                 <img
@@ -369,7 +400,7 @@ export default function BookingConfirmationPage() {
                 />
               </div>
               <p className="mt-4 text-base font-bold text-[#2D2D2D]">
-                يرجى إبراز رمز QR عند الوصول لتفعيل الجلسة
+                {`يرجى إبراز رمز QR عند الوصول لتفعيل ${activationNoun}`}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 رمز الحجز:{' '}
@@ -379,7 +410,7 @@ export default function BookingConfirmationPage() {
               </p>
               {(isCash || isCliq) && (
                 <p className="mt-3 text-xs text-[#8a6b00] bg-[var(--pk-yellow)]/20 border border-[var(--pk-yellow)]/40 rounded-lg p-2.5">
-                  سيتم تفعيل الجلسة بعد إتمام الدفع عند الوصول
+                  {`سيتم تفعيل ${activationNoun} بعد إتمام الدفع عند الوصول`}
                 </p>
               )}
             </div>
@@ -421,7 +452,7 @@ export default function BookingConfirmationPage() {
               <div className="next-step-item__num">{isCliq ? 3 : 1}</div>
               <p className="next-step-item__text">
                 {isHourly
-                  ? 'عند الوصول، أبرز رمز QR عند الاستقبال لتفعيل الجلسة.'
+                  ? `عند الوصول، أبرز رمز QR عند الاستقبال لتفعيل ${activationNoun}.`
                   : 'عند الوصول، قدّم رقم الحجز عند الاستقبال.'}
               </p>
             </div>
@@ -557,7 +588,7 @@ export default function BookingConfirmationPage() {
                   </p>
                   <p className="text-xs md:text-sm text-[#2D2D2D]/65 mt-0.5 leading-relaxed">
                     {isHourly
-                      ? 'فريق بيكابو سيفعّل الجلسة ويرحّب بكم — استمتعوا!'
+                      ? `فريق بيكابو سيفعّل ${activationNoun} ويرحّب بكم — استمتعوا!`
                       : 'فريقنا جاهز لاستقبالكم — استمتعوا بوقتكم في بيكابو!'}
                   </p>
                 </div>

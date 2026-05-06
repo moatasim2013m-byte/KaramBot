@@ -15,6 +15,10 @@ import {
   AlertTriangle, Calendar, Loader2, Phone, Settings, QrCode,
   Sparkles, Mail, TrendingUp
 } from 'lucide-react';
+// Mission 4 — share the same Main Area vs Day Care badge helper used by
+// admin/staff so the parent's booking history visibly distinguishes the
+// two services (hourly tab now contains both).
+import { getServiceMeta } from '../utils/serviceLabel';
 
 export default function ProfilePage() {
   const { user, api, logout, isAdmin } = useAuth();
@@ -474,9 +478,9 @@ export default function ProfilePage() {
                 <div>
                   <h3>
                     <Clock className="h-5 w-5 text-[var(--pk-yellow)]" style={{ color: '#c7a700' }} />
-                    حجوزات اللعب بالساعة
+                    حجوزات اللعب بالساعة وحضانة Day Care
                   </h3>
-                  <p>سجل جلسات اللعب الخاصة بك</p>
+                  <p>سجل جلسات اللعب والحضانة الخاصة بك</p>
                 </div>
                 <Button
                   onClick={() => navigate('/tickets')}
@@ -511,6 +515,8 @@ export default function ProfilePage() {
                           : booking.status === 'completed' || booking.status === 'checked_in'
                           ? 'is-done'
                           : '';
+                      // Mission 4 — explicit Main Area vs Day Care chip per row.
+                      const service = getServiceMeta(booking);
                       return (
                         <div key={booking.id} className={`booking-row ${statusClass}`}>
                           <div className="flex flex-col md:flex-row justify-between gap-4">
@@ -525,6 +531,12 @@ export default function ProfilePage() {
                                   <span className="font-heading font-bold text-foreground tracking-wide">
                                     {booking.booking_code}
                                   </span>
+                                  <Badge
+                                    className={`border ${service.badgeClass} font-bold`}
+                                    data-testid={`profile-hourly-service-badge-${booking.booking_code}`}
+                                  >
+                                    {service.label}
+                                  </Badge>
                                   <Badge className={`${getStatusBadge(booking.status)} font-bold`}>
                                     {booking.status === 'confirmed'
                                       ? 'مؤكد'

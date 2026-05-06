@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from bson import ObjectId
 
 # Configuration
-BACKEND_URL = "https://presentation-patch.preview.emergentagent.com/api"
+BACKEND_URL = "https://control-mode-3.preview.emergentagent.com/api"
 ADMIN_CREDS = {"email": "admin@peekaboo.com", "password": "admin123"}
 
 class ConfirmPaymentTester:
