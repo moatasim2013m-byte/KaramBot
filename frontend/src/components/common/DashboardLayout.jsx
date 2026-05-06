@@ -4,7 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../utils/api';
 import {
   LayoutDashboard, MessageSquare, ShoppingBag, UtensilsCrossed,
-  Settings, Users, LogOut, Menu, X, Bell, Stethoscope, BarChart2
+  Settings, Users, LogOut, Menu, X, Bell, Stethoscope, BarChart2,
+  Building2
 } from 'lucide-react';
 
 export default function DashboardLayout() {
@@ -54,16 +55,52 @@ export default function DashboardLayout() {
     }).catch(() => {});
   }, []);
 
-  const navItems = [
-    { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
-    { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount },
-    { to: '/orders', icon: ShoppingBag, label: 'الطلبات' },
-    { to: '/menu', icon: UtensilsCrossed, label: 'القائمة' },
-    { to: '/clinic', icon: Stethoscope, label: 'العيادة' },
-    { to: '/reports', icon: BarChart2, label: 'التقارير' },
-    { to: '/staff', icon: Users, label: 'الموظفون' },
-    { to: '/settings', icon: Settings, label: 'الإعدادات' },
-  ];
+  const role = user?.role;
+  const bizType = user?.business_type;
+
+  // Build nav items based on role and business_type
+  const buildNavItems = () => {
+    if (role === 'platform_admin') {
+      return [
+        { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
+        // Inbox only when scoped to a business
+        ...(user?.business_id ? [{ to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount }] : []),
+        { to: '/settings', icon: Settings, label: 'الإعدادات' },
+        { to: '/admin/businesses', icon: Building2, label: 'الشركات' },
+      ];
+    }
+
+    if (role === 'staff') {
+      return [
+        { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount },
+        { to: '/orders', icon: ShoppingBag, label: 'الطلبات' },
+      ];
+    }
+
+    // business_owner / manager — same set, owner adds Settings
+    // business_type filtering: if not present show both menu & clinic as fallback
+    const showMenu = !bizType || bizType === 'restaurant';
+    const showClinic = !bizType || bizType === 'clinic';
+
+    const dataItems = [
+      { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
+      { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount },
+      { to: '/orders', icon: ShoppingBag, label: 'الطلبات' },
+      ...(showMenu ? [{ to: '/menu', icon: UtensilsCrossed, label: 'القائمة' }] : []),
+      ...(showClinic ? [{ to: '/clinic', icon: Stethoscope, label: 'العيادة' }] : []),
+      { to: '/reports', icon: BarChart2, label: 'التقارير' },
+      { to: '/staff', icon: Users, label: 'الموظفون' },
+    ];
+
+    if (role === 'business_owner') {
+      return [...dataItems, { to: '/settings', icon: Settings, label: 'الإعدادات' }];
+    }
+
+    // manager — same as owner minus Settings
+    return dataItems;
+  };
+
+  const navItems = buildNavItems();
 
   const handleLogout = () => { logout(); navigate('/login'); };
 

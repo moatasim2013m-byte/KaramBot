@@ -1,36 +1,40 @@
 # KaramBot — Memory / PRD
 
 ## Original Problem Statement
-Create one new standalone helper script `backend/scripts/create-business.js`.
-Production bootstrap script for first Business + owner user.
-Stack: PostgreSQL + Prisma + Express + Node 20-slim.
+Business_owner dashboard fixes: every page loads with real data or shows a clean empty state.
+No broken pages, no /businesses/null calls.
 
 ## Architecture
 - PostgreSQL via Prisma ORM
-- `Business` model: id (cuid), slug (unique), business_type, wa_phone_number_id (unique), wa_access_token (null until /token endpoint), ai_config (JSON), policies (JSON)
-- `User` model: id (cuid), email (unique), role (business_owner|staff|platform_admin), business_id FK
+- Frontend: React + Vite + Tailwind
+- Auth context provides: user.role, user.business_id, user.business_type (optional), user.name
 
 ## Core Requirements (static)
-- Script is production-safe (reads DATABASE_URL from env, fails loudly if missing)
-- Idempotent on slug uniqueness (exits 0 without mutation)
-- All inputs via environment variables
-- bcrypt 12 rounds for password hashing
-- wa_access_token always left null (set later via /token endpoint)
-- Summary output never prints password or tokens
+- No backend changes, no schema changes, no new dependencies
+- Only modify SettingsPage.jsx and DashboardLayout.jsx
 
 ## What's Been Implemented
 
 ### 2026-02 — Bootstrap Script
-- Created `backend/scripts/create-business.js`
-  - Fail-fast validation for 11 required env vars + BIZ_TYPE enum check
-  - Idempotency via `prisma.business.findUnique({ where: { slug } })`
-  - Creates Business (status=active, opening_hours=[], minimal ai_config + policies)
-  - Creates User (role=business_owner, bcrypt hash 12 rounds)
-  - wa_access_token explicitly set to null
-  - Prints: business_id, business_name, owner_email, login_url
-  - node --check verified ✅
+- Created `backend/scripts/create-business.js` (see earlier session)
+
+### 2026-02 — Dashboard Fixes
+**SettingsPage.jsx**
+- Added `Link` import from react-router-dom
+- Guard: if `user?.business_id` is falsy → render Arabic notice + link to /admin/businesses
+- Existing useEffect already guards the API call; the new guard prevents the infinite "loading" state for platform_admin
+
+**DashboardLayout.jsx**
+- Added `Building2` to lucide-react imports
+- Replaced static navItems array with `buildNavItems()` function:
+  - `platform_admin` → Overview, Inbox (only if business_id), Settings, Businesses (/admin/businesses)
+  - `staff` → Inbox, Orders
+  - `business_owner` → Overview, Inbox, Orders, Menu (restaurant), Clinic (clinic), Reports, Staff, Settings
+  - `manager` → same as owner minus Settings
+  - Fallback (business_type absent) → shows both Menu and Clinic
+- `yarn build` passes ✅
 
 ## Backlog / Next Tasks
-- P0: none (script is complete per spec)
-- P1: Add `--dry-run` flag for safer pre-flight validation
-- P2: Support seeding initial menu categories for restaurant type
+- P0: none (fixes complete per spec)
+- P1: Implement /admin/businesses route for platform_admin
+- P2: Propagate business_type to user JWT/session so DashboardLayout can filter without fallback

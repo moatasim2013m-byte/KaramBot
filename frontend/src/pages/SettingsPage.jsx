@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Save } from 'lucide-react';
@@ -68,6 +69,18 @@ export default function SettingsPage() {
       setSaving(false);
     }
   };
+
+  // platform_admin (or any user) without a business scope — do not call /businesses/null
+  if (!user?.business_id) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+        <p className="text-gray-600 text-sm">تحتاج إلى اختيار عمل من لوحة الإدارة</p>
+        <Link to="/admin/businesses" className="text-green-600 hover:underline text-sm">
+          الذهاب إلى إدارة الشركات
+        </Link>
+      </div>
+    );
+  }
 
   if (!biz) return <div className="text-center py-16 text-gray-400">جاري التحميل...</div>;
 
