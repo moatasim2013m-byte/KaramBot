@@ -11,6 +11,9 @@ import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
 import ClinicPage from './pages/ClinicPage';
 import ReportsPage from './pages/ReportsPage';
+import BusinessesPage from './pages/admin/BusinessesPage';
+import CreateBusinessPage from './pages/admin/CreateBusinessPage';
+import BusinessDetailPage from './pages/admin/BusinessDetailPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -66,6 +69,21 @@ export default function App() {
             <Route path="settings" element={
               <RoleRoute roles={['platform_admin', 'business_owner']}>
                 <SettingsPage />
+              </RoleRoute>
+            } />
+            <Route path="admin/businesses" element={
+              <RoleRoute roles={['platform_admin']}>
+                <BusinessesPage />
+              </RoleRoute>
+            } />
+            <Route path="admin/businesses/new" element={
+              <RoleRoute roles={['platform_admin']}>
+                <CreateBusinessPage />
+              </RoleRoute>
+            } />
+            <Route path="admin/businesses/:id" element={
+              <RoleRoute roles={['platform_admin']}>
+                <BusinessDetailPage />
               </RoleRoute>
             } />
           </Route>

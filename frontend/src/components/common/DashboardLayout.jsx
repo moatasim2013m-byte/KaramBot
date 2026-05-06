@@ -66,7 +66,7 @@ export default function DashboardLayout() {
         // Inbox only when scoped to a business
         ...(user?.business_id ? [{ to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount }] : []),
         { to: '/settings', icon: Settings, label: 'الإعدادات' },
-        { to: '/admin/businesses', icon: Building2, label: 'الشركات' },
+        { to: '/admin/businesses', icon: Building2, label: 'الأعمال' },
       ];
     }
 
