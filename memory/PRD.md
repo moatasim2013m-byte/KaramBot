@@ -96,7 +96,16 @@ Tested: 8/8 backend pytest pass + frontend visual + code review (iteration_5.jso
 - `pages/BookingConfirmationPage.js`: new `inferServiceType()` helper falls back to `bookingCode` prefix (`PK-D-*` → daycare) so the legacy / Capital-Bank-redirect path still renders the right label. The "نوع الحجز" row gets `data-testid=confirmation-service-label`.
 - `pages/PaymentSuccessPage.js`: `buildConfirmationData` stamps `serviceType` from the `bookingCode` prefix when persisting the confirmation payload.
 
-### Mission 3 — Admin + Staff visibility (NOT STARTED)
-- SettingsTab daycare pricing card; Slots editor for daycare; BookingsTab + staff list badges.
+### Mission 3 — ADMIN + STAFF VISIBILITY (DONE, Feb 2026)
+Tested: 8/8 backend pytest pass + 21/21 frontend visibility checks via `testing_agent_v3_fork` (`/app/test_reports/iteration_7.json`). Mission 1, Mission 2, and sound-system regressions all green. Existing `daycarePackages` admin section verified untouched per user's hard rule (session pricing ≠ packages).
+
+- **Backend visibility-only** (no business-logic changes):
+  - `routes/staff.js` — added `service_type` + `slot_type` fields to `getActiveSessionsPayload`, `/pending-checkins`, and `summarizeBooking` (used by `/qr/validate` + `/qr/checkin`). The `pending-checkins` `slot_type` filter widened from `'hourly'` → `{ $in: ['hourly', 'daycare'] }` so daycare bookings now appear in the staff queue.
+  - `routes/slots.js` — defensive `typeof s.toJSON === 'function' ? s.toJSON() : s` normaliser on `/generate` so idempotent re-runs return the existing 9 rows instead of an empty array.
+- **Shared frontend helper** `/app/frontend/src/utils/serviceLabel.js` — single source of truth: `getServiceMeta` (label + amber/blue chip class) with `booking_code` prefix fallback, `matchesServiceFilter` predicate, `SERVICE_FILTER_OPTIONS` for filter pills.
+- **AdminLayout** — `pricing` state extended with `daycare_*hr` defaults so PUT `/api/admin/pricing` persists hourly + daycare in one round-trip; new `handleGenerateSlots` posts to the canonical `/slots/generate` (admin-gated).
+- **SettingsTab** — new `data-testid=daycare-pricing-section` card titled "أسعار جلسات الحضانة / Day Care Session Pricing" with an inline Arabic note explicitly pointing admins to the existing `daycarePackages` section for multi-day plans. Slot manager `Select` extended with daycare option + a one-click "إنشاء" generate button.
+- **BookingsTab** — 3-way "All / Main / Daycare" filter pill row + per-row `booking-service-badge-*` chip (amber for daycare, blue for main_area). Existing WhatsApp / status / running badges still render alongside.
+- **StaffPage** — service badge on pending check-ins (`activation-queue-service-*`), active sessions (`active-session-service-*`), and the QR validation panel (`qr-validation-service-badge`).
 
 ### Mission 4 — Polish, notifications, AI prompt migration (NOT STARTED)
