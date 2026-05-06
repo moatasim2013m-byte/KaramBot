@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
@@ -9,6 +9,7 @@ import { Textarea } from '../../../components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../../components/ui/dialog';
 import { Loader2, Edit, Trash2, Plus } from 'lucide-react';
 import { format } from 'date-fns';
+import { getServiceMeta, matchesServiceFilter, SERVICE_FILTER_OPTIONS } from '../../../utils/serviceLabel';
 
 export default function BookingsTab(props) {
   const {
@@ -35,6 +36,14 @@ export default function BookingsTab(props) {
   } = props;
 
   const [subTab, setSubTab] = useState('hourly');
+  // Mission 3 — Day Care visibility filter on the hourly bookings list.
+  // Defaults to 'all' so the existing admin workflow is unchanged. Filter
+  // is purely client-side over the list returned by getFilteredHourlyBookings,
+  // so no admin API calls are altered.
+  const [serviceFilter, setServiceFilter] = useState('all');
+  const visibleHourlyBookings = useMemo(() => (
+    getFilteredHourlyBookings().filter((b) => matchesServiceFilter(b, serviceFilter))
+  ), [getFilteredHourlyBookings, serviceFilter]);
 
   return (
     <div>
@@ -65,14 +74,33 @@ export default function BookingsTab(props) {
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle>Hourly Bookings {activeFilter === 'today' && <Badge className="ml-2 bg-blue-500">Today</Badge>}</CardTitle>
+            {/* Mission 3 — Service filter pills. All / Main / Daycare. */}
+            <div className="flex gap-2 mt-3 flex-wrap" data-testid="bookings-service-filter">
+              {SERVICE_FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setServiceFilter(opt.value)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${serviceFilter === opt.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted hover:bg-muted/70 border-transparent'}`}
+                  data-testid={`bookings-service-filter-${opt.value}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {getFilteredHourlyBookings().map((booking) => (
+              {visibleHourlyBookings.map((booking) => {
+                const service = getServiceMeta(booking);
+                return (
                 <div key={booking.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/50">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">{booking.booking_code}</span>
+                      <Badge className={`border ${service.badgeClass}`} data-testid={`booking-service-badge-${booking.booking_code}`}>
+                        {service.label}
+                      </Badge>
                       <Badge className={getStatusBadge(booking.status)}>{booking.status}</Badge>
                       {booking.booking_source === 'whatsapp' && (
                         <Badge className="bg-emerald-600 text-white" data-testid="booking-source-whatsapp-badge">
@@ -133,7 +161,8 @@ export default function BookingsTab(props) {
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>

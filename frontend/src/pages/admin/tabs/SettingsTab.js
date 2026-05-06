@@ -36,6 +36,7 @@ export default function SettingsTab(props) {
     loadingSlotControls,
     updatingSlotId,
     handleToggleSlotAvailability,
+    handleGenerateSlots,
     fetchSlotControls,
     passwordForm,
     setPasswordForm,
@@ -272,8 +273,86 @@ export default function SettingsTab(props) {
                     />
                   </div>
                 </div>
-                <Button type="submit" className="rounded-full px-8">
+                <Button type="submit" className="rounded-full px-8" data-testid="save-hourly-pricing-btn">
                   حفظ الأسعار / Save Pricing
+                </Button>
+              </form>
+            </div>
+
+            {/* MISSION 3 — Day Care SESSION pricing (the bookable hourly
+                Day Care service introduced in Missions 1–2). This is the
+                price-per-duration for individual session bookings created
+                through /tickets and the Mission 1 backend.
+                IMPORTANT — this is NOT the same as the "Day Care packages"
+                section further down on this tab (multi-day plans owned by
+                handleAddDaycarePackage / handleSaveDaycarePackage). The two
+                systems are intentionally independent: this card writes to
+                the Settings collection (daycare_*hr keys); the packages
+                section writes to its own Mongo collection and stays
+                untouched here. */}
+            <div data-testid="daycare-pricing-section">
+              <h3 className="font-heading text-xl font-bold mb-4 flex items-center gap-2">
+                <Star className="h-5 w-5 text-amber-500" />
+                أسعار جلسات الحضانة / Day Care Session Pricing
+              </h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Flat per-duration rates for bookable Day Care sessions (Main Area is priced separately above with Happy-Hour logic).
+                <br />
+                هذه أسعار الحجز للجلسات الفردية للحضانة. الباقات (Packages) تُدار في قسم منفصل أسفل هذه الصفحة.
+              </p>
+              <form onSubmit={handleUpdatePricing} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <Label htmlFor="daycare_1hr">ساعة واحدة / 1 Hour (JD)</Label>
+                    <Input
+                      id="daycare_1hr"
+                      data-testid="daycare-1hr-input"
+                      type="number"
+                      step="0.01"
+                      value={pricing.daycare_1hr ?? ''}
+                      onChange={(e) => setPricing({ ...pricing, daycare_1hr: parseFloat(e.target.value) })}
+                      className="rounded-xl mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="daycare_2hr">ساعتان / 2 Hours (JD)</Label>
+                    <Input
+                      id="daycare_2hr"
+                      data-testid="daycare-2hr-input"
+                      type="number"
+                      step="0.01"
+                      value={pricing.daycare_2hr ?? ''}
+                      onChange={(e) => setPricing({ ...pricing, daycare_2hr: parseFloat(e.target.value) })}
+                      className="rounded-xl mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="daycare_3hr">3 ساعات / 3 Hours (JD)</Label>
+                    <Input
+                      id="daycare_3hr"
+                      data-testid="daycare-3hr-input"
+                      type="number"
+                      step="0.01"
+                      value={pricing.daycare_3hr ?? ''}
+                      onChange={(e) => setPricing({ ...pricing, daycare_3hr: parseFloat(e.target.value) })}
+                      className="rounded-xl mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="daycare_4hr">4 ساعات / 4 Hours (JD)</Label>
+                    <Input
+                      id="daycare_4hr"
+                      data-testid="daycare-4hr-input"
+                      type="number"
+                      step="0.01"
+                      value={pricing.daycare_4hr ?? ''}
+                      onChange={(e) => setPricing({ ...pricing, daycare_4hr: parseFloat(e.target.value) })}
+                      className="rounded-xl mt-1"
+                    />
+                  </div>
+                </div>
+                <Button type="submit" className="rounded-full px-8" data-testid="save-daycare-pricing-btn">
+                  حفظ أسعار الحضانة / Save Day Care Pricing
                 </Button>
               </form>
             </div>
@@ -735,25 +814,47 @@ export default function SettingsTab(props) {
                 <div>
                   <Label>نوع الموعد</Label>
                   <Select value={slotControlType} onValueChange={setSlotControlType}>
-                    <SelectTrigger className="rounded-xl mt-2">
+                    <SelectTrigger className="rounded-xl mt-2" data-testid="slot-control-type-trigger">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="hourly">بالساعة</SelectItem>
-                      <SelectItem value="birthday">عيد ميلاد</SelectItem>
+                      <SelectItem value="hourly" data-testid="slot-control-type-hourly">بالساعة / Main Area</SelectItem>
+                      <SelectItem value="daycare" data-testid="slot-control-type-daycare">حضانة / Day Care</SelectItem>
+                      <SelectItem value="birthday" data-testid="slot-control-type-birthday">عيد ميلاد</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="md:col-span-2 flex items-end">
+                <div className="md:col-span-2 flex items-end gap-2">
                   <Button
                     type="button"
-                    className="rounded-full w-full"
+                    className="rounded-full flex-1"
                     onClick={() => fetchSlotControls(slotControlDate, slotControlType)}
                     disabled={loadingSlotControls}
+                    data-testid="load-slots-btn"
                   >
                     {loadingSlotControls ? <Loader2 className="h-4 w-4 animate-spin ml-2" /> : null}
                     تحميل الأوقات
                   </Button>
+                  {/* MISSION 3 — One-click slot generation for the selected
+                      date + type. Posts to /api/admin/slots/generate which
+                      already supports daycare since Mission 1 backend. The
+                      handler is a thin idempotent wrapper around the
+                      existing endpoint — does not bypass any capacity or
+                      uniqueness rules. */}
+                  {handleGenerateSlots && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => handleGenerateSlots(slotControlDate, slotControlType)}
+                      disabled={loadingSlotControls}
+                      data-testid="generate-slots-btn"
+                      title="إنشاء جميع المواعيد لهذا التاريخ تلقائياً"
+                    >
+                      <Plus className="h-4 w-4 ml-1" />
+                      إنشاء
+                    </Button>
+                  )}
                 </div>
               </div>
 

@@ -45,6 +45,12 @@ const getActiveSessionsPayload = async () => {
       return {
         id: session._id.toString(),
         booking_code: session.booking_code,
+        // Mission 3 — operational visibility. service_type comes from the
+        // HourlyBooking schema (Mission 1); slot_type is the underlying
+        // TimeSlot type. Both are exposed so the staff UI can render a
+        // service badge without any client-side string parsing.
+        service_type: session.service_type || 'main_area',
+        slot_type: session.slot_id?.slot_type || null,
         child_name: session.child_id?.name || 'Unknown',
         slot_time: session.slot_id?.start_time || 'N/A',
         check_in_time: session.check_in_time,
@@ -88,10 +94,13 @@ router.get('/pending-checkins', async (req, res) => {
   try {
     const today = getJordanTodayString();
     
-    // Get today's slots
-    const todaySlots = await TimeSlot.find({ date: today, slot_type: 'hourly' });
+    // Get today's slots — Mission 3: include daycare slots so day-care
+    // bookings appear in the staff activation queue alongside main-area
+    // hourly bookings. Birthday slots remain handled by their own list.
+    const todaySlots = await TimeSlot.find({ date: today, slot_type: { $in: ['hourly', 'daycare'] } });
     const slotIds = todaySlots.map(s => s._id);
-    
+    const slotById = new Map(todaySlots.map((s) => [String(s._id), s]));
+
     const pendingBookings = await HourlyBooking.find({
       slot_id: { $in: slotIds },
       status: 'confirmed',
@@ -104,17 +113,23 @@ router.get('/pending-checkins', async (req, res) => {
     .populate('child_id')
     .populate('slot_id');
 
-    const bookings = pendingBookings.map(booking => ({
-      id: booking._id.toString(),
-      booking_code: booking.booking_code,
-      child_name: booking.child_id?.name || 'Unknown',
-      slot_time: booking.slot_id?.start_time || 'N/A',
-      qr_code: booking.qr_code,
-      qr_token: booking.qr_token || null,
-      qr_status: booking.qr_status || 'unused',
-      payment_status: booking.payment_status || null,
-      payment_method: booking.payment_method || null
-    }));
+    const bookings = pendingBookings.map(booking => {
+      const slot = booking.slot_id || slotById.get(String(booking.slot_id));
+      return {
+        id: booking._id.toString(),
+        booking_code: booking.booking_code,
+        // Mission 3 — operational visibility. See active-sessions handler.
+        service_type: booking.service_type || 'main_area',
+        slot_type: slot?.slot_type || null,
+        child_name: booking.child_id?.name || 'Unknown',
+        slot_time: slot?.start_time || 'N/A',
+        qr_code: booking.qr_code,
+        qr_token: booking.qr_token || null,
+        qr_status: booking.qr_status || 'unused',
+        payment_status: booking.payment_status || null,
+        payment_method: booking.payment_method || null
+      };
+    });
 
     bookings.sort((a, b) => {
       if (a.slot_time < b.slot_time) return -1;
@@ -501,6 +516,11 @@ const findBookingByScannedToken = async (scanned) => {
 const summarizeBooking = (booking) => ({
   booking_id: booking._id.toString(),
   booking_code: booking.booking_code,
+  // Mission 3 — operational visibility. Lets the staff UI tag every
+  // validated/checked-in card with the right service badge without
+  // parsing the booking_code prefix on the client.
+  service_type: booking.service_type || 'main_area',
+  slot_type: booking.slot_id?.slot_type || null,
   child_name: booking.child_id?.name || booking.guest_child_name || 'Unknown',
   child_count: booking.child_count || 1,
   date: booking.slot_id?.date || null,

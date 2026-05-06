@@ -26,6 +26,7 @@ import {
   playScanError,
   STAFF_SOUND_STORAGE_KEY
 } from '../utils/staffSounds';
+import { getServiceMeta } from '../utils/serviceLabel';
 
 const getApiErrorMessage = (error, fallback = 'حدث خطأ') =>
   error?.response?.data?.details ||
@@ -1398,11 +1399,25 @@ export default function StaffPage() {
                                   : qrValidation.message || 'الرمز غير صالح'}
                               </p>
                               {qrValidation.booking?.booking_code && (
-                                <p className="text-xs mt-1 text-muted-foreground">
-                                  رمز الحجز:{' '}
+                                <p className="text-xs mt-1 text-muted-foreground flex items-center gap-1 flex-wrap">
+                                  <span>رمز الحجز:</span>
                                   <code className="font-mono bg-white px-1 rounded">
                                     {qrValidation.booking.booking_code}
                                   </code>
+                                  {/* Mission 3 — service tag on the validation panel so
+                                      staff know whether the kid is going to Main Area
+                                      or Day Care before they tap activate. */}
+                                  {(() => {
+                                    const svc = getServiceMeta(qrValidation.booking);
+                                    return (
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full font-bold border ${svc.badgeClass}`}
+                                        data-testid="qr-validation-service-badge"
+                                      >
+                                        {svc.label}
+                                      </span>
+                                    );
+                                  })()}
                                 </p>
                               )}
                             </div>
@@ -1607,7 +1622,9 @@ export default function StaffPage() {
                       </div>
                     ) : (
                       <div className="space-y-3" data-testid="activation-queue">
-                        {pendingCheckins.map((booking) => (
+                        {pendingCheckins.map((booking) => {
+                          const service = getServiceMeta(booking);
+                          return (
                           <button
                             key={booking.id}
                             type="button"
@@ -1620,9 +1637,17 @@ export default function StaffPage() {
                               <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
                                 <Clock className="h-3.5 w-3.5" /> {booking.slot_time || '—'}
                               </p>
-                              <code className="text-xs bg-white px-2 py-0.5 rounded mt-1 inline-block">
-                                {booking.booking_code}
-                              </code>
+                              <div className="flex flex-wrap items-center gap-1 mt-1">
+                                <code className="text-xs bg-white px-2 py-0.5 rounded">
+                                  {booking.booking_code}
+                                </code>
+                                <span
+                                  className={`text-[11px] px-2 py-0.5 rounded-full font-bold border ${service.badgeClass}`}
+                                  data-testid={`activation-queue-service-${booking.booking_code}`}
+                                >
+                                  {service.label}
+                                </span>
+                              </div>
                               {(booking.payment_status === 'pending_cash' || booking.payment_status === 'pending_cliq') && (
                                 <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold mt-0.5 inline-block">
                                   {booking.payment_status === 'pending_cash' ? 'دفع نقدي مطلوب' : 'دفعة CliQ مطلوبة'}
@@ -1652,7 +1677,8 @@ export default function StaffPage() {
                               <span className="text-xs text-primary font-semibold">ابدأ التفعيل ←</span>
                             </div>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </CardContent>
@@ -1925,12 +1951,22 @@ export default function StaffPage() {
                   <p className="text-muted-foreground text-center py-12">لا توجد جلسات نشطة حالياً</p>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {activeSessions.map((session) => (
+                    {activeSessions.map((session) => {
+                      const service = getServiceMeta(session);
+                      return (
                       <Card key={session.id} className={`rounded-xl ${session.warning ? 'border-2 border-destructive' : ''}`}>
                         <CardContent className="p-4">
                           <div className="flex justify-between items-start">
                             <div>
-                              <p className="font-semibold">{session.child_name}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-semibold">{session.child_name}</p>
+                                <span
+                                  className={`text-[11px] px-2 py-0.5 rounded-full font-bold border ${service.badgeClass}`}
+                                  data-testid={`active-session-service-${session.booking_code}`}
+                                >
+                                  {service.label}
+                                </span>
+                              </div>
                               <p className="text-sm text-muted-foreground">بدأت: {session.slot_time}</p>
                             </div>
                             <div className={`text-right ${session.warning ? 'text-destructive' : ''}`}>
@@ -1945,7 +1981,8 @@ export default function StaffPage() {
                           )}
                         </CardContent>
                       </Card>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

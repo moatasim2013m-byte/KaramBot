@@ -89,7 +89,15 @@ export default function AdminLayout() {
     hourly_1hr: 7,
     hourly_2hr: 10,
     hourly_3hr: 13,
-    hourly_extra_hr: 3
+    hourly_extra_hr: 3,
+    // Mission 3 — Day Care pricing keys live alongside the hourly_*
+    // keys in the same Settings collection. AdminLayout owns the merged
+    // form state; `handleUpdatePricing` PUTs the entire object so a save
+    // on either pricing card persists both tables in one round-trip.
+    daycare_1hr: 8,
+    daycare_2hr: 15,
+    daycare_3hr: 22,
+    daycare_4hr: 28
   });
   const [autoReplyConfig, setAutoReplyConfig] = useState({
     enabled: false,
@@ -1230,6 +1238,37 @@ export default function AdminLayout() {
     }
   };
 
+  // Mission 3 — Admin slot generation. Idempotent: the backend's
+  // generators (Mission 1) skip rows that already exist for the same
+  // (date, start_time, slot_type) so calling this repeatedly is safe.
+  // Used by the SettingsTab "إنشاء" button so admins can spin up daycare
+  // (or hourly / birthday) slots without running the dev seed script.
+  //
+  // NOTE: the admin-only endpoint lives at POST /api/slots/generate — it's
+  // already gated by authMiddleware + adminMiddleware inside routes/slots.js.
+  // There is no /api/admin/slots mount, so we call the canonical path.
+  const handleGenerateSlots = async (date = slotControlDate, type = slotControlType) => {
+    if (!date) {
+      toast.error('اختر التاريخ أولاً');
+      return;
+    }
+    setLoadingSlotControls(true);
+    try {
+      const response = await api.post('/slots/generate', {
+        start_date: date,
+        end_date: date,
+        slot_type: type
+      });
+      const generated = response.data?.slots?.length ?? 0;
+      toast.success(`تم تجهيز ${generated} موعداً`);
+      await fetchSlotControls(date, type);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'فشل إنشاء المواعيد');
+    } finally {
+      setLoadingSlotControls(false);
+    }
+  };
+
   const handleSaveDaycarePackage = async (pkg) => {
     setSavingDaycarePackage(true);
     try {
@@ -1518,7 +1557,7 @@ export default function AdminLayout() {
     handleCreatePlan, handleEditPlan, handleDeletePlan, handleExpandParent,
     handleGalleryFileChange, handleAddMedia, handleDeleteMedia, handleAdjustPoints,
     handleUpdateSettings, handleUpdatePricing, handleUpdatePlayPricing, handleUpdateBusinessInfo,
-    fetchBusinessHours, handleSaveBusinessHours, fetchSlotControls, handleToggleSlotAvailability,
+    fetchBusinessHours, handleSaveBusinessHours, fetchSlotControls, handleToggleSlotAvailability, handleGenerateSlots,
     handleSaveDaycarePackage, handleAddDaycarePackage, handleSaveBirthdayPackage,
     handleAddBirthdayPackage, handleHeroImageChange, handleSaveHero, getStatusBadge,
     getFilteredHourlyBookings, getFilteredBirthdayBookings, getFilteredSubscriptions,

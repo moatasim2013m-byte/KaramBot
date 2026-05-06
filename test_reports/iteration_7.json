@@ -1,0 +1,52 @@
+{
+  "summary": "Mission 3 Day Care admin+staff visibility — backend 8/8 PASS (previously-failing TestSlotGenerate now green after switching to canonical POST /api/slots/generate and asserting 9 slots + identical idempotent response). Frontend verified live via Playwright: daycare-pricing-section with the new header 'أسعار جلسات الحضانة / Day Care Session Pricing' + note pointing to packages section + 4 inputs (daycare-1hr..4hr) + save-daycare-pricing-btn fires PUT /admin/pricing 200. Slot manager has slot-control-type-daycare option, generate-slots-btn, load-slots-btn. Bookings → Hourly sub-tab shows all 3 filter pills; filtering by daycare returns 14/14 PK-D-* rows, by main_area returns 6/6 PK-H-* rows. Per-row booking-service-badge-* chips: amber 'حضانة Day Care' for PK-D, blue 'اللعب بالساعة' for PK-H. Staff page activation-queue-service-* badges render (3 amber daycare chips visible on live pending queue). Sound suite 13/13 PASS. Daycare packages admin section code untouched (20 refs in SettingsTab + 16 in AdminLayout preserved).",
+  "verification_matrix": {
+    "1_slot_generate_9_fresh": "PASS (POST /api/slots/generate slot_type=daycare for 2026-07-15 → 200, 9 slots, message 'Generated 9 slots')",
+    "2_slot_generate_idempotent": "PASS (2nd call returns 200 + same 9 slot ids; defensive .toJSON()/POJO normaliser works — no dupes)",
+    "3_admin_pricing_get_put": "PASS (GET returns hourly_*+daycare_* merged; PUT persists and round-trips)",
+    "4_staff_pending_checkins_fields": "PASS (every row has service_type + slot_type)",
+    "5_staff_active_sessions_fields": "PASS (schema exposes both fields)",
+    "6_qr_validate_pkd": "PASS (service_type='daycare' + slot_type in response.booking)",
+    "7_qr_validate_pkh": "PASS (service_type='main_area' + slot_type)",
+    "8_m1_regression_pkd_prefix": "PASS",
+    "9_daycare_pricing_section_testid": "PASS (daycare-pricing-section rendered below hourly card with correct heading + Arabic note)",
+    "10_daycare_pricing_4_inputs": "PASS (daycare-1hr/2hr/3hr/4hr-input populated from GET /admin/pricing)",
+    "11_save_daycare_pricing_puts": "PASS (save-daycare-pricing-btn → PUT /admin/pricing → 200)",
+    "12_slot_control_daycare_option": "PASS (slot-control-type-trigger → slot-control-type-daycare visible + selectable)",
+    "13_generate_slots_btn_present": "PASS (generate-slots-btn + load-slots-btn testids present)",
+    "14_bookings_service_filter_pills": "PASS (all 3 pills + wrapper testid render in Hourly sub-tab)",
+    "15_bookings_service_filter_filters": "PASS (daycare→14/14 PK-D-*; main_area→6/6 PK-H-*)",
+    "16_booking_service_badge_per_row": "PASS (20 badges; amber 'حضانة Day Care' for PK-D, blue 'اللعب بالساعة' for PK-H)",
+    "17_existing_whatsapp_status_badges_coexist": "PASS (other badges still visible alongside new service chip)",
+    "18_bot_data_daycare_packages_unchanged": "PASS via code review (daycarePackages/handleAddDaycarePackage/handleSaveDaycarePackage/editingDaycarePackage/newDaycarePackage refs: 20 in SettingsTab + 16 in AdminLayout — identical prop surface)",
+    "19_staff_activation_queue_badges": "PASS (3 amber 'حضانة Day Care' badges visible on live /staff pending queue for PK-D-59819558, PK-D-7CD0D73D, PK-D-F2627B32)",
+    "20_staff_active_session_badges_code": "PASS via code (data-testid=active-session-service-{booking_code} at StaffPage.js line 1965; no active sessions on live pod to screenshot)",
+    "21_qr_validation_service_badge_code": "PASS via code (data-testid=qr-validation-service-badge at StaffPage.js line 1415 — only renders on successful validate; invalid PK-D-TESTINVALID correctly returned 'رمز الحجز غير صالح' so badge hidden as designed)",
+    "22_sound_smoke": "PASS 13/13 (node /app/frontend/__tests__/staffSounds.smoke.cjs)",
+    "23_m1_m2_regressions": "PASS (PK-D-*/PK-H- still classified correctly; test_daycare_mission3.TestMission1Regression green)"
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_daycare_mission3.py",
+    "/app/test_reports/pytest/mission3.xml",
+    "/app/frontend/__tests__/staffSounds.smoke.cjs"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/slots.js line 573 defensive normaliser `typeof s.toJSON === 'function' ? s.toJSON() : s` correctly handles the mixed-array case (newly-inserted Mongoose Documents + .lean() POJOs from existing-row path). Idempotency confirmed: re-run returns the same 9 ids with no DB dupes.",
+    "SettingsTab.js daycare-pricing-section is visually distinct: separate Card with 🌟 Day Care Session Pricing heading + explicit Arabic note 'الباقات (Packages) تُدار في قسم منفصل أسفل هذه الصفحة' — eliminates ambiguity with the existing daycarePackages section per user's hard rule.",
+    "BookingsTab.js service filter pills + per-row badge use single-source-of-truth /utils/serviceLabel.js getServiceMeta — badge color (amber/blue) + label ('حضانة Day Care' / 'اللعب بالساعة') consistent across admin + staff surfaces.",
+    "StaffPage.js exposes all three testids (activation-queue-service-*, active-session-service-*, qr-validation-service-badge). QR badge only renders after successful /staff/qr/validate — this is correct behaviour (hidden on invalid codes)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_daycare_mission3.py (TestSlotGenerate rewritten to hit canonical /api/slots/generate and assert 9-slot idempotent re-run with identical id set; all 8 tests now pass)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% of live-verifiable items + code-reviewed QR success badge and empty active-sessions"},
+  "test_credentials": "admin@peekaboo.com / admin123 and parent@peekaboo.com / parent123 — both worked first try.",
+  "seed_data_creation": "Cleaned pre-existing 2026-07-15 daycare slots before the generate test so it hits the fresh-date path. Reused Mission 1/2 seeded 2026-05-15..05-20 slots and ~20 live bookings (mix of PK-D-* + PK-H-*) for filter + badge verification. One regression PK-D-* cash booking on 2026-05-18 created with child name prefix TEST_M3R_* (auto-cleanable).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Mission 3 complete. Backend regression suite: `REACT_APP_BACKEND_URL=<url> python -m pytest /app/backend/tests/test_daycare_mission3.py -v`. Frontend hooks stable — data-testids: daycare-pricing-section, daycare-{1..4}hr-input, save-daycare-pricing-btn, slot-control-type-trigger, slot-control-type-daycare, generate-slots-btn, load-slots-btn, bookings-service-filter{,-all,-main_area,-daycare}, booking-service-badge-{code}, activation-queue-service-{code}, active-session-service-{code}, qr-validation-service-badge. PAYMENT_PROVIDER=manual (Capital Bank MOCKED/disabled). Daycare pricing currently 8/15/22/28 on this pod (was updated during PUT round-trip test).",
+  "rca_of_the_issue": "Iteration 6 failure root cause: previous test was hitting /api/admin/slots/generate — this path does not exist. The canonical admin-gated endpoint is /api/slots/generate (slots router mounted at /api/slots in index.js:321 → router.post('/generate', adminMiddleware, ...) at routes/slots.js:543). Frontend fix (AdminLayout.handleGenerateSlots calling /slots/generate) + backend .toJSON() defensive normaliser (routes/slots.js:573) together ensure idempotent re-runs return all 9 existing slots with no duplication. Re-pointed test to the correct endpoint + asserted the exact 9-slot idempotent contract the user specified — all green."
+}

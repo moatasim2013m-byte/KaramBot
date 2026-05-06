@@ -567,7 +567,10 @@ router.post('/generate', authMiddleware, adminMiddleware, async (req, res) => {
 
     res.json({ 
       message: `Generated ${generatedSlots.length} slots`,
-      slots: generatedSlots.map(s => s.toJSON())
+      // generatedSlots may contain a mix of mongoose Documents (newly inserted)
+      // and POJOs from .lean() (existing rows). Normalize defensively so the
+      // response is consistent regardless of which path each slot came from.
+      slots: generatedSlots.map((s) => (typeof s.toJSON === 'function' ? s.toJSON() : s))
     });
   } catch (error) {
     console.error('Generate slots error:', error);
