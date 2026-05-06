@@ -22,6 +22,12 @@ function ProtectedRoute({ children }) {
   return user ? children : <Navigate to="/login" replace />;
 }
 
+function RoleRoute({ roles, children }) {
+  const { user } = useAuth();
+  if (!user || !roles.includes(user.role)) return <Navigate to="/overview" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -37,11 +43,31 @@ export default function App() {
             <Route path="overview" element={<OverviewPage />} />
             <Route path="inbox" element={<InboxPage />} />
             <Route path="orders" element={<OrdersPage />} />
-            <Route path="menu" element={<MenuPage />} />
-            <Route path="clinic" element={<ClinicPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route path="staff" element={<StaffPage />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="menu" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>
+                <MenuPage />
+              </RoleRoute>
+            } />
+            <Route path="clinic" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>
+                <ClinicPage />
+              </RoleRoute>
+            } />
+            <Route path="reports" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>
+                <ReportsPage />
+              </RoleRoute>
+            } />
+            <Route path="staff" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>
+                <StaffPage />
+              </RoleRoute>
+            } />
+            <Route path="settings" element={
+              <RoleRoute roles={['platform_admin', 'business_owner']}>
+                <SettingsPage />
+              </RoleRoute>
+            } />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

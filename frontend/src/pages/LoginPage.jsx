@@ -91,10 +91,6 @@ export default function LoginPage() {
               {loading ? 'جاري الدخول...' : 'دخول'}
             </button>
           </form>
-
-          <p className="text-center text-gray-400 text-xs mt-6">
-            بيانات التجربة: staff@demo.com / Staff@123
-          </p>
         </div>
       </div>
     </div>
