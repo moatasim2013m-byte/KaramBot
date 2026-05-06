@@ -271,8 +271,15 @@ export default function HomePage() {
   const journeySteps = [
     { pose: 'wave',            title: 'الاستقبال',                         desc: 'نستقبل الطفل بحب ونبدأ تجربة بيكابو بابتسامة',           color: 'red'    },
     { pose: 'paws-up',         title: 'اللعب',                             desc: 'يلعب الطفل ويستمتع في مناطق اللعب المختلفة داخل بيكابو', color: 'yellow' },
-    { pose: 'jump-cheer',      title: 'الاحتفال مع الشخصيات الكرتونية',    desc: 'شخصيات كرتونية وأجواء احتفالية تصنع لحظات لا تُنسى',      color: 'orange' },
-    { pose: 'gold-run', title: 'مسابقات وفعاليات طوال اليوم',       desc: 'مسابقات وفعاليات مستمرة طوال ساعات العمل',                color: 'red'    },
+    // Mission journey-bugfix: step 3 was 'jump-cheer' but that pose's
+    // content is intrinsically wide (1.6:1) so it read as clipped inside a
+    // square tile. Swapped to 'party-big' which is square (1.03:1) and
+    // semantically matches "celebration with cartoon characters".
+    { pose: 'party-big',       title: 'الاحتفال مع الشخصيات الكرتونية',    desc: 'شخصيات كرتونية وأجواء احتفالية تصنع لحظات لا تُنسى',      color: 'orange' },
+    // Step 4 was 'gold-run' (0.77:1 tall + had bleed fragments from a
+    // sprite-sheet export). Swapped to 'thumbs-up-big' (1.13:1, square)
+    // which still reads as success / celebration for "contests & activities".
+    { pose: 'thumbs-up-big',   title: 'مسابقات وفعاليات طوال اليوم',       desc: 'مسابقات وفعاليات مستمرة طوال ساعات العمل',                color: 'red'    },
     { pose: 'clipboard-write', title: 'نشاط فني أو حسي',                   desc: 'كل يوم نشاط مختلف: فني أو حسي أو تفاعلي',                 color: 'green'  },
     { pose: 'gift-magic',      title: 'هديتك معك',                         desc: 'كل طفل لازم يطلع بهديته — الهدايا جزء أساسي من معايير بيكابو', color: 'blue' },
     { pose: 'wave2',           title: 'مع السلامة',                        desc: 'نودّع الطفل بابتسامة وننتظره في الزيارة القادمة',         color: 'yellow' },
