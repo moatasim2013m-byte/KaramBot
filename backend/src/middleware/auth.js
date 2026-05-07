@@ -22,7 +22,20 @@ async function authenticate(req, res, next) {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
 
-    req.user = user;
+    let business_type = null;
+    if (user.business_id) {
+      try {
+        const business = await prisma.business.findUnique({
+          where: { id: user.business_id },
+          select: { business_type: true },
+        });
+        business_type = business ? business.business_type : null;
+      } catch (e) {
+        business_type = null;
+      }
+    }
+
+    req.user = { ...user, business_type };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
