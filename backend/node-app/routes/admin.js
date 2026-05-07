@@ -1217,7 +1217,7 @@ router.get('/customers', async (req, res) => {
     }
 
     const customers = await User.find(query)
-      .select('name email phone loyalty_points is_disabled created_at')
+      .select('name email phone loyalty_points is_disabled created_at is_prospect prospect_source')
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
       .sort({ created_at: -1 });
