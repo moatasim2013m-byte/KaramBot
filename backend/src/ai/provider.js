@@ -6,10 +6,13 @@
 async function callGemini(systemPrompt, userMessage) {
   const { GoogleGenerativeAI } = require('@google/generative-ai');
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
 
   const prompt = `${systemPrompt}\n\nرسالة العميل: ${userMessage}`;
-  const result = await model.generateContent(prompt);
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Gemini timeout after 15s')), 15000)
+  );
+  const result = await Promise.race([model.generateContent(prompt), timeoutPromise]);
   return result.response.text();
 }
 
@@ -42,7 +45,7 @@ async function generateAIReply(systemPrompt, userMessage, history = []) {
     if (provider === 'openai') return await callOpenAI(systemPrompt, userMessage, history);
     return await callGemini(systemPrompt, userMessage);
   } catch (err) {
-    console.error(`AI [${provider}] error:`, err.message);
+    console.error(`[AI][${provider}] Call failed:`, err.message);
     throw err;
   }
 }
@@ -131,6 +134,7 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [])
     console.error('AI retry failed:', err.message);
   }
 
+  console.error(`[AI] Both attempts failed for message: "${userMessage.slice(0, 50)}"`);
   return null; // caller must trigger human handoff
 }
 
