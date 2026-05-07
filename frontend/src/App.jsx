@@ -14,6 +14,7 @@ import ReportsPage from './pages/ReportsPage';
 import BusinessesPage from './pages/admin/BusinessesPage';
 import CreateBusinessPage from './pages/admin/CreateBusinessPage';
 import BusinessDetailPage from './pages/admin/BusinessDetailPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -37,6 +38,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/" element={
             <ProtectedRoute>
               <DashboardLayout />
