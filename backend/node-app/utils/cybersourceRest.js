@@ -60,6 +60,12 @@ const getCapitalBankEnv = () => {
   return configuredEnv === 'test' ? 'test' : 'prod';
 };
 
+// Warn loudly at module load time if payment gateway is in test mode.
+// Test mode on a live system sends real customers to the sandbox gateway.
+if ((String(process.env.CAPITAL_BANK_ENV || '').trim().toLowerCase()) === 'test') {
+  console.warn('CAPITAL_BANK_TEST_MODE_ACTIVE: CAPITAL_BANK_ENV=test is set. All payments are routed to the CyberSource TEST gateway. Set CAPITAL_BANK_ENV=prod before accepting real transactions.');
+}
+
 const CYBERSOURCE_PAY_PATH = '/pay';
 
 const normalizeConfiguredPaymentEndpoint = (endpoint) => {

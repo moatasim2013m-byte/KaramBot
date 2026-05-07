@@ -21,6 +21,14 @@ const ALLOWED_TOPICS = [
 const OUT_OF_SCOPE_TOPIC = 'out_of_scope';
 const MAX_MODEL_JSON_CHARS = 4000;
 const MEDIA_SAFE_FALLBACK_REPLY = 'وصلتنا رسالتك الصوتية 💛 ممكن توضحي طلبك بكلمات قليلة أو تعيدي إرسالها؟';
+
+// Minimal keyword list for conservative plain-text fallback.
+// If Gemini returns plain Arabic text instead of JSON, only use it if the
+// text contains at least one of these in-scope keywords. No keyword → return null.
+const PLAIN_TEXT_FALLBACK_SCOPE_KEYWORDS = [
+  'بيكابو', 'peekaboo', 'لعب', 'جلسات', 'حجز', 'عيد ميلاد', 'داي كير', 'حضانة', 'حضانه',
+  'اشتراك', 'زيارة', 'مرافق', 'ساعات', 'دوام', 'رمل', 'توصيل', 'سعر', 'اسعار', 'موقع'
+];
 const logAutoReplyAi = (event, payload = {}) => {
   console.log(event, payload);
 };
@@ -306,13 +314,32 @@ const createOrRefreshGeminiCache = async () => {
   }
 };
 
-const parseStrictJsonObject = (rawText) => {
-  const text = String(rawText || '').trim();
+// Strip leading prose ("Here is the JSON requested:"), markdown code fences,
+// and return the raw JSON candidate string. Returns null if no { found.
+const sanitizeGeminiJsonCandidate = (rawText) => {
+  let text = String(rawText || '').trim();
   if (!text) return null;
-  if (text.length > MAX_MODEL_JSON_CHARS) return null;
-  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+  // Strip markdown code fences at start (```json ... or ``` ...)
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  // Strip any leading prose before the first {
+  const jsonStart = text.indexOf('{');
+  if (jsonStart === -1) return null;
+  if (jsonStart > 0) {
+    text = text.slice(jsonStart);
+  }
+  // Strip trailing content after the last }
+  const jsonEnd = text.lastIndexOf('}');
+  if (jsonEnd === -1) return null;
+  text = text.slice(0, jsonEnd + 1).trim();
+  return text || null;
+};
+
+const parseStrictJsonObject = (rawText) => {
+  const candidate = sanitizeGeminiJsonCandidate(rawText);
+  if (!candidate) return null;
+  if (candidate.length > MAX_MODEL_JSON_CHARS) return null;
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(candidate);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     return parsed;
   } catch (error) {
@@ -816,6 +843,25 @@ const getScopedAiFallbackReply = async ({ userText, maxChars = 500, conversation
       // Text calls return JSON
       const parsed = parseStrictJsonObject(raw);
       if (!parsed || typeof parsed !== 'object') {
+        // Conservative plain-text fallback: only if Gemini returned plain Arabic text
+        // containing at least one in-scope keyword. Confidence 0.5 keeps it below the
+        // normal confidence threshold so it falls through to the ai_scope_override path
+        // in the caller rather than being auto-accepted. If no keyword matches, return null.
+        const rawTrimmed = String(raw || '').trim();
+        const hasArabic = rawTrimmed && /[\u0600-\u06FF]/.test(rawTrimmed);
+        if (hasArabic) {
+          const hasKeyword = PLAIN_TEXT_FALLBACK_SCOPE_KEYWORDS.some(kw => rawTrimmed.includes(kw));
+          if (hasKeyword) {
+            const fallbackReply = sanitizeArabicReply(rawTrimmed, maxChars);
+            if (fallbackReply) {
+              logAutoReplyAi('WA_BOT_AI_ROUTE', {
+                route: 'ai_plain_text_fallback',
+                rawSnippet: rawTrimmed.slice(0, 100)
+              });
+              return { in_scope: true, topic: 'general', confidence: 0.5, reply_ar: fallbackReply };
+            }
+          }
+        }
         logAutoReplyAi('WA_BOT_AI_ROUTE', {
           route: 'ai_call_failed',
           reason: 'invalid_json_payload',
@@ -928,8 +974,14 @@ const BOOKING_KEYWORDS_WEAK = [
   'ساعة', 'ساعه', 'دخول', 'لعب', 'اللعب', 'باللعب', 'العب', 'عيد',
   // Day-name follow-ups
   'بكرا', 'اليوم', 'الجمعة', 'السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس',
-  // Number follow-ups — only useful inside an active booking conversation
-  'واحد', 'اثنين', 'ثلاثة', 'اربعة', 'خمسة', '١', '٢', '٣', '٤', '٥', '1', '2', '3', '4', '5'
+  // Number follow-ups — Eastern Arabic digits, Western digits, and number words
+  // These are weak/contextual: only count inside an active booking conversation
+  'واحد', 'اثنين', 'ثلاثة', 'اربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة', 'عشره',
+  'خمستعش', 'خمسطعش', 'خمسة عشر', 'عشرين',
+  '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩',
+  '١٠', '١١', '١٢', '١٣', '١٤', '١٥', '١٦', '١٧', '١٨', '١٩', '٢٠',
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15',
+  '16', '17', '18', '19', '20'
 ];
 
 const BOOKING_TOOLS = [
@@ -1032,6 +1084,12 @@ const hasBookingIntent = (text, bookingState) => {
   return BOOKING_KEYWORDS_STRONG.some(kw => normalized.includes(kw));
 };
 
+// Normalize Eastern Arabic digits (٠-٩) → Western digits (0-9) in user text.
+// Applied to the latest user message before sending to the booking Gemini call
+// so the model reliably parses numbers like ١٥ طفل as child_count=15.
+const normalizeDigitsForBooking = (text) =>
+  String(text || '').replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660));
+
 const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, bookingState, maxChars }) => {
   if (!process.env.GEMINI_API_KEY) return null;
 
@@ -1067,7 +1125,21 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
   const timeoutHandle = setTimeout(() => controller.abort(), 15000);
 
   try {
-    let currentContents = [...contents];
+    // Normalize Arabic digits in the final user turn for reliable child_count/duration parsing
+    const normalizedContents = contents.map((turn, idx) => {
+      if (idx === contents.length - 1 && turn.role === 'user') {
+        return {
+          ...turn,
+          parts: (turn.parts || []).map(p =>
+            typeof p.text === 'string'
+              ? { ...p, text: normalizeDigitsForBooking(p.text) }
+              : p
+          )
+        };
+      }
+      return turn;
+    });
+    let currentContents = [...normalizedContents];
     let maxToolRounds = 3;
 
     while (maxToolRounds > 0) {
@@ -1118,6 +1190,21 @@ const runBookingGeminiCall = async ({ systemInstruction, contents, senderWaId, b
           };
         }
         if (textReply) {
+          // Before blocking, try to salvage reply_ar from structured JSON
+          // (e.g. Gemini returned full scoped JSON instead of plain Arabic)
+          try {
+            const candidate = sanitizeGeminiJsonCandidate(textReply);
+            if (candidate) {
+              const parsedStructured = JSON.parse(candidate);
+              if (parsedStructured && typeof parsedStructured.reply_ar === 'string') {
+                const salvaged = sanitizeArabicReply(parsedStructured.reply_ar, maxChars || 500);
+                if (salvaged) {
+                  console.log('BOOKING_GEMINI_STRUCTURED_REPLY_SALVAGED', { snippet: textReply.slice(0, 80) });
+                  return { in_scope: true, topic: 'booking_help', confidence: 0.9, reply_ar: salvaged };
+                }
+              }
+            }
+          } catch (_err) { /* parse failed, fall through to block */ }
           console.warn('BOOKING_GEMINI_STRUCTURED_REPLY_BLOCKED', { snippet: textReply.slice(0, 80) });
         }
         return null;

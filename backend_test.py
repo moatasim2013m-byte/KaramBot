@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from bson import ObjectId
 
 # Configuration
-BACKEND_URL = "https://control-mode-3.preview.emergentagent.com/api"
+BACKEND_URL = "https://whatsapp-backend-ops.preview.emergentagent.com/api"
 ADMIN_CREDS = {"email": "admin@peekaboo.com", "password": "admin123"}
 PARENT_CREDS = {"email": "parent@peekaboo.com", "password": "parent123"}
 

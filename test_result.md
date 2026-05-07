@@ -102,7 +102,117 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "PHASE 3 — Loyalty earn foundation. Award points exactly once on successful hourly QR check-in. Reuse existing LoyaltyBalance / LoyaltyLedger / awardPoints helper. Move earn moment from booking-creation to check-in. Configurable Settings policy: enabled/earn_mode/points_per_jd/fixed_points_per_visit. Default: enabled=true, earn_mode='per_jd', points_per_jd=1."
+user_problem_statement: "CREDIT CONTROL MODE - Production fixes: (1) Fix Gemini structured JSON replies breaking due to prose prefix / code fences / structured-payload blocker. (2) Capital Bank prod env warning for test mode. (3) Marketing/follow-up cron: FOLLOWUP_CRON_CONFIG_ERROR on missing template. (4) Better Arabic numeric booking capture (خمستعش, ١٥ طفل, etc.). (5) SSE reconnect ops note."
+
+backend:
+  - task: "Fix 1 - Gemini JSON sanitization: sanitizeGeminiJsonCandidate + parseStrictJsonObject"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/utils/autoReplyAi.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added sanitizeGeminiJsonCandidate() that strips prose prefix (Here is the JSON requested:), markdown code fences (```json...```), extracts first {...} block. Updated parseStrictJsonObject() to use it. Now handles Gemini prose-decorated JSON correctly."
+        - working: true
+          agent: "testing"
+          comment: "✅ TESTED: All 4 test cases PASSED. (1) Prose prefix 'Here is the JSON requested: {\"in_scope\":true,\"reply_ar\":\"مرحبا\"}' → Parsed correctly ✅. (2) Fenced code block ```json\n{...}\n``` → Parsed cleanly ✅. (3) Plain JSON {\"in_scope\":true} → Works unchanged ✅. (4) Plain Arabic 'مرحباً' (no JSON) → Returns null ✅. Functions working correctly at lines 319-335 (sanitizeGeminiJsonCandidate) and 337-348 (parseStrictJsonObject)."
+
+  - task: "Fix 1b - Booking path: salvage reply_ar from structured JSON before blocking"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/utils/autoReplyAi.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "In runBookingGeminiCall text reply path: before BOOKING_GEMINI_STRUCTURED_REPLY_BLOCKED, now tries sanitizeGeminiJsonCandidate + JSON.parse to salvage reply_ar. Logs BOOKING_GEMINI_STRUCTURED_REPLY_SALVAGED if successful."
+        - working: true
+          agent: "testing"
+          comment: "✅ VERIFIED: BOOKING_GEMINI_STRUCTURED_REPLY_SALVAGED path exists at line 1202. Salvage logic implemented at lines 1193-1207 in runBookingGeminiCall. Before blocking structured JSON, attempts to extract reply_ar field. Logs 'BOOKING_GEMINI_STRUCTURED_REPLY_SALVAGED' on success. Code structure correct."
+
+  - task: "Fix 1c - Plain-text fallback: conservative scope check before using raw Arabic text"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/utils/autoReplyAi.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added PLAIN_TEXT_FALLBACK_SCOPE_KEYWORDS. When JSON parse fails but raw text is Arabic, only use as fallback if text contains at least one in-scope keyword. Confidence set to 0.5 (below confidence floor) so handled via ai_scope_override path. If no keyword matches, returns null (not sent to customer)."
+        - working: true
+          agent: "testing"
+          comment: "✅ VERIFIED: PLAIN_TEXT_FALLBACK_SCOPE_KEYWORDS defined at lines 28-31 with 19 keywords (بيكابو, peekaboo, لعب, جلسات, حجز, عيد ميلاد, داي كير, حضانة, حضانه, اشتراك, زيارة, مرافق, ساعات, دوام, رمل, توصيل, سعر, اسعار, موقع). Plain-text fallback logic at lines 850-863. Confidence set to 0.5 at line 861. Keyword check at line 853. Returns null if no keyword matches. Implementation correct."
+
+  - task: "Fix 2 - Capital Bank test-mode startup warning"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/utils/cybersourceRest.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added module-load-time console.warn CAPITAL_BANK_TEST_MODE_ACTIVE when CAPITAL_BANK_ENV=test. The actual fix is an ops change (set CAPITAL_BANK_ENV=prod). The code already defaults to prod when env var is not set."
+        - working: true
+          agent: "testing"
+          comment: "✅ TESTED: All 4 test cases PASSED. (1) No env vars → Defaults to 'prod' ✅. (2) CAPITAL_BANK_ENV=test → Returns 'test' ✅. (3) CAPITAL_BANK_ENV=prod → Returns 'prod' ✅. (4) CAPITAL_BANK_ENV=staging → Defaults to 'prod' ✅. Warning exists at line 66: 'CAPITAL_BANK_TEST_MODE_ACTIVE: CAPITAL_BANK_ENV=test is set. All payments are routed to the CyberSource TEST gateway. Set CAPITAL_BANK_ENV=prod before accepting real transactions.' getCapitalBankEnv() at lines 53-61 defaults to 'prod' when env var absent."
+
+  - task: "Fix 3 - Marketing cron: FOLLOWUP_CRON_CONFIG_ERROR on missing template"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/routes/adminCron.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Changed from FOLLOWUP_CRON_SKIPPED+200 to FOLLOWUP_CRON_CONFIG_ERROR+500 when whatsapp_followup_template_name setting is missing. Makes the absence of config visible in monitoring instead of silently skipping."
+        - working: true
+          agent: "testing"
+          comment: "✅ VERIFIED: FOLLOWUP_CRON_CONFIG_ERROR exists at lines 121, 127. Returns status 500 when template missing (line 126). Missing template check at line 120: 'if (!templateName)'. Error response structure includes: error='FOLLOWUP_CRON_CONFIG_ERROR', reason='missing_template_setting', setting_key='whatsapp_followup_template_name'. Implementation correct - returns 500 instead of silently skipping."
+
+  - task: "Fix 4 - Arabic numeric booking: ARABIC_NUMBER_WORDS map + extended extractChildCount"
+    implemented: true
+    working: true
+    file: "/app/backend/node-app/utils/autoReplyBot.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Added ARABIC_NUMBER_WORDS map (1-20) covering dialect forms like خمستعش, خمسطعش. Updated extractChildCount to try number-word lookup (sorted by length desc to prevent substring matches) after digit normalization. normalizeDigitsForBooking applied to last user turn in runBookingGeminiCall."
+        - working: true
+          agent: "testing"
+          comment: "✅ TESTED: All 10 test cases PASSED. (1) '١٥ طفل' → 15 (Eastern Arabic digits) ✅. (2) '15 طفل' → 15 (Western digits) ✅. (3) 'خمستعش' → 15 (dialect) ✅. (4) 'خمسطعش طفل' → 15 ✅. (5) 'خمسة عشر' → 15 (فصحى) ✅. (6) 'عشرين طفل' → 20 ✅. (7) 'ثلاثة اطفال' → 3 ✅. (8) 'واحد' → 1 ✅. (9) 'شو الاسعار' → null ✅. (10) 'hello' → null ✅. ARABIC_NUMBER_WORDS map at lines 238-259 includes 21 number words (1-20). extractChildCount at lines 269-286. Sorted by length descending at line 279. normalizeDigitsForBooking applied in runBookingGeminiCall at lines 1129-1141."
+
+test_plan:
+  current_focus:
+    - "Fix 1 - Gemini JSON sanitization: sanitizeGeminiJsonCandidate + parseStrictJsonObject"
+    - "Fix 1b - Booking path: salvage reply_ar from structured JSON before blocking"
+    - "Fix 1c - Plain-text fallback: conservative scope check before using raw Arabic text"
+    - "Fix 2 - Capital Bank test-mode startup warning"
+    - "Fix 3 - Marketing cron: FOLLOWUP_CRON_CONFIG_ERROR on missing template"
+    - "Fix 4 - Arabic numeric booking: ARABIC_NUMBER_WORDS map + extended extractChildCount"
+  stuck_tasks: []
+  test_all: true
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+      message: "Implemented all 5 production fixes. Fix 1: sanitizeGeminiJsonCandidate strips prose/fences before JSON parsing, booking salvage path extracts reply_ar from structured JSON, conservative plain-text fallback with keyword check. Fix 2: CAPITAL_BANK_TEST_MODE_ACTIVE warning at startup. Fix 3: FOLLOWUP_CRON_CONFIG_ERROR+500 when template missing. Fix 4: extractChildCount extended with ARABIC_NUMBER_WORDS (verified all 11 test cases pass). Fix 5: SSE heartbeat already at 25s, ops recommendation only (Cloud Run timeout). Please test Fix 1, 3, 4 especially as these have direct logic changes."
+    - agent: "testing"
+      message: "✅ ALL PRODUCTION FIXES TESTED AND VERIFIED. Executed inline node -e tests as requested. Results: Fix 1 (Gemini JSON sanitization) - 4/4 tests PASSED, all code paths verified. Fix 1b (Booking salvage) - VERIFIED, log marker exists at line 1202. Fix 1c (Plain-text fallback) - VERIFIED, 19 keywords defined, confidence 0.5 logic correct. Fix 2 (Capital Bank warning) - 4/4 tests PASSED, warning exists, defaults to prod. Fix 3 (Marketing cron) - VERIFIED, returns 500 on missing template. Fix 4 (Arabic numeric) - 10/10 tests PASSED, all number forms working (Eastern Arabic digits, Western digits, dialect words, فصحى forms). Total: 28/28 checks PASSED. All fixes ready for production deployment."
+
 
 backend:
   - task: "(Phase 3) Loyalty earn policy settings reader with safe defaults"
@@ -1622,4 +1732,111 @@ test_plan:
 
 agent_communication:
     -agent: "testing"
-    -message: "CRITICAL BLOCKER: Backend service completely down with 503 errors on https://control-mode-3.preview.emergentagent.com. All API endpoints failing (/api/auth/login, /api/settings, /api/gallery, etc.). Visual smoke test attempted for /profile and /booking/confirmation pages but cannot complete authentication flow. Frontend loads correctly with proper Arabic/RTL layout visible in screenshots. UI polish verification shows: Arabic text rendering correctly, RTL layout working, responsive design elements visible. Backend must be restored before any functional testing can proceed. 14 screenshots captured showing static UI elements only."
+    -message: "CRITICAL BLOCKER: Backend service completely down with 503 errors on https://whatsapp-backend-ops.preview.emergentagent.com. All API endpoints failing (/api/auth/login, /api/settings, /api/gallery, etc.). Visual smoke test attempted for /profile and /booking/confirmation pages but cannot complete authentication flow. Frontend loads correctly with proper Arabic/RTL layout visible in screenshots. UI polish verification shows: Arabic text rendering correctly, RTL layout working, responsive design elements visible. Backend must be restored before any functional testing can proceed. 14 screenshots captured showing static UI elements only."
+
+# Testing Agent Report - Production Fixes Testing
+
+## Test Execution Summary
+
+All 4 production fixes have been tested via inline node -e tests as requested. All tests PASSED.
+
+### Fix 1 - Gemini JSON Sanitization (autoReplyAi.js)
+
+**Functions Tested:**
+- `sanitizeGeminiJsonCandidate()` - lines 319-335
+- `parseStrictJsonObject()` - lines 337-348
+
+**Test Results:**
+✅ Test 1 - Prose prefix: Input "Here is the JSON requested: {\"in_scope\":true,\"reply_ar\":\"مرحبا\"}" → Parsed correctly, returned object with reply_ar
+✅ Test 2 - Fenced code block: Input ```json\n{...}\n``` → Parsed cleanly
+✅ Test 3 - Plain JSON: Input {"in_scope":true} → Works unchanged
+✅ Test 4 - Plain Arabic: Input "مرحباً" (no JSON) → Returns null as expected
+
+**Code Verification:**
+✅ BOOKING_GEMINI_STRUCTURED_REPLY_SALVAGED path exists at line 1202
+✅ PLAIN_TEXT_FALLBACK_SCOPE_KEYWORDS defined at lines 28-31 with 19 keywords
+✅ Plain-text fallback with confidence 0.5 exists at line 861
+✅ Salvage logic in runBookingGeminiCall at lines 1193-1207
+
+**Status:** ✅ PASS - All 4 test cases passed. Gemini JSON sanitization working correctly.
+
+---
+
+### Fix 2 - Capital Bank Test-Mode Warning (cybersourceRest.js)
+
+**Test Results:**
+✅ Test 1 - No env vars set → Defaults to 'prod' ✅
+✅ Test 2 - CAPITAL_BANK_ENV=test → Returns 'test' ✅
+✅ Test 3 - CAPITAL_BANK_ENV=prod → Returns 'prod' ✅
+✅ Test 4 - CAPITAL_BANK_ENV=staging → Defaults to 'prod' ✅
+
+**Code Verification:**
+✅ CAPITAL_BANK_TEST_MODE_ACTIVE warning exists at line 66
+✅ Warning message: "CAPITAL_BANK_TEST_MODE_ACTIVE: CAPITAL_BANK_ENV=test is set. All payments are routed to the CyberSource TEST gateway. Set CAPITAL_BANK_ENV=prod before accepting real transactions."
+✅ getCapitalBankEnv() function at lines 53-61 defaults to 'prod' when env var absent
+
+**Status:** ✅ PASS - Warning added correctly. Default behavior verified.
+
+---
+
+### Fix 3 - Marketing Cron Config Error (adminCron.js)
+
+**Code Verification:**
+✅ FOLLOWUP_CRON_CONFIG_ERROR exists at lines 121, 127
+✅ Returns status 500 when template missing (line 126)
+✅ Missing template check at line 120: `if (!templateName)`
+✅ Error response structure includes:
+  - error: 'FOLLOWUP_CRON_CONFIG_ERROR'
+  - reason: 'missing_template_setting'
+  - setting_key: 'whatsapp_followup_template_name'
+
+**Status:** ✅ PASS - Config error handling implemented correctly. Returns 500 on missing template.
+
+---
+
+### Fix 4 - Arabic Numeric Booking (autoReplyBot.js)
+
+**Functions Tested:**
+- `extractChildCount()` - lines 269-286
+- `ARABIC_NUMBER_WORDS` map - lines 238-259 (21 number words covering 1-20)
+
+**Test Results (All 10 test cases from review request):**
+✅ Test 1 - "١٥ طفل" → 15 (Eastern Arabic digits)
+✅ Test 2 - "15 طفل" → 15 (Western digits)
+✅ Test 3 - "خمستعش" → 15 (Arabic dialect number word)
+✅ Test 4 - "خمسطعش طفل" → 15 (Variant spelling)
+✅ Test 5 - "خمسة عشر" → 15 (فصحى form)
+✅ Test 6 - "عشرين طفل" → 20 (Twenty)
+✅ Test 7 - "ثلاثة اطفال" → 3 (Three children)
+✅ Test 8 - "واحد" → 1 (One)
+✅ Test 9 - "شو الاسعار" → null (No number)
+✅ Test 10 - "hello" → null (English no number)
+
+**Code Verification:**
+✅ ARABIC_NUMBER_WORDS map includes all required forms (خمستعش, خمسطعش, خمسة عشر, عشرين, etc.)
+✅ Sorted by length descending to prevent substring matches (line 279)
+✅ normalizeDigitsForBooking applied in runBookingGeminiCall (lines 1129-1141)
+
+**Status:** ✅ PASS - All 10 test cases passed. Arabic number extraction working correctly.
+
+---
+
+## Overall Test Summary
+
+**Total Fixes Tested:** 4
+**Total Test Cases:** 28 (4 + 4 + 3 + 10 + 7 verification checks)
+**Passed:** 28/28 ✅
+**Failed:** 0/28
+
+**All production fixes are working correctly and ready for deployment.**
+
+---
+
+## Testing Methodology
+
+All tests were executed as inline node -e scripts as requested in the review request. No server startup required. Tests verified:
+1. Function behavior with various inputs
+2. Code structure and log markers via grep
+3. Default behavior and edge cases
+4. Integration points (salvage paths, fallback logic)
+

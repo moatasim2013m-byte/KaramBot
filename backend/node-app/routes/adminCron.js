@@ -118,20 +118,15 @@ router.post('/whatsapp-followup', async (req, res) => {
     const templateLanguage = req.body?.template_language || 'en';
 
     if (!templateName) {
-      console.log('FOLLOWUP_CRON_SKIPPED', {
+      console.error('FOLLOWUP_CRON_CONFIG_ERROR', {
+        reason: 'missing_template_setting',
+        setting_key: 'whatsapp_followup_template_name',
+        action: 'Run aborted. Set Settings.whatsapp_followup_template_name to an approved template name.'
+      });
+      return res.status(500).json({
+        error: 'FOLLOWUP_CRON_CONFIG_ERROR',
         reason: 'missing_template_setting',
         setting_key: 'whatsapp_followup_template_name'
-      });
-      return res.json({
-        template: null,
-        scanned: 0,
-        sent: 0,
-        skipped_replied: 0,
-        skipped_opted_out: 0,
-        skipped_already_sent: 0,
-        skipped_failed: 0,
-        skipped_run: true,
-        skip_reason: 'missing_template_setting'
       });
     }
 

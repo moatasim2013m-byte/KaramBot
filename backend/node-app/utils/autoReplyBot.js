@@ -233,6 +233,31 @@ const normalizeText = (value) =>
 const normalizeArabicDigits = (value) =>
   String(value || '').replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632));
 
+// Map of pre-normalized Arabic number-words (key already in normalizeText form: ة→ه, أإآ→ا, etc.)
+// to their integer values. Used by extractChildCount to handle replies like "خمستعش طفل".
+const ARABIC_NUMBER_WORDS = {
+  'واحد': 1, 'وحده': 1, 'واحده': 1,
+  'اثنان': 2, 'اثنين': 2, 'ثنتين': 2,
+  'ثلاثه': 3, 'ثلاث': 3,
+  'اربعه': 4, 'اربع': 4,
+  'خمسه': 5, 'خمس': 5,
+  'سته': 6, 'ست': 6,
+  'سبعه': 7, 'سبع': 7,
+  'ثمانيه': 8, 'ثماني': 8, 'تمانيه': 8,
+  'تسعه': 9, 'تسع': 9,
+  'عشره': 10, 'عشر': 10,
+  'احداعش': 11, 'احدعش': 11,
+  'اثناعش': 12, 'اثنعش': 12,
+  'ثلتعش': 13,
+  'اربعتعش': 14,
+  'خمسه عشر': 15, 'خمستعش': 15, 'خمسطعش': 15,
+  'سته عشر': 16, 'ستتعش': 16,
+  'سبعتعش': 17,
+  'ثمانتعش': 18, 'تمانتعش': 18,
+  'تسعتعش': 19,
+  'عشرين': 20, 'عشرون': 20
+};
+
 const tokenize = (value) => normalizeText(value).split(' ').filter(Boolean);
 const MAX_SUPPORTED_CHILD_COUNT = 200;
 const BIRTHDAY_PACKAGE_INCLUDED_CHILDREN = 10;
@@ -244,11 +269,20 @@ const BIRTHDAY_VIP_BASE_PRICE = 250;
 const extractChildCount = (textBody) => {
   const withNormalizedDigits = normalizeArabicDigits(textBody);
   const numericMatch = withNormalizedDigits.match(/(\d{1,3})/);
-  if (!numericMatch) return null;
-
-  const count = Number(numericMatch[1]);
-  if (!Number.isInteger(count) || count <= 0 || count > MAX_SUPPORTED_CHILD_COUNT) return null;
-  return count;
+  if (numericMatch) {
+    const count = Number(numericMatch[1]);
+    if (Number.isInteger(count) && count > 0 && count <= MAX_SUPPORTED_CHILD_COUNT) return count;
+  }
+  // Try Arabic number-word forms — sorted by word length descending so compound
+  // forms like "خمستعش" (15) match before their substrings like "خمس" (5).
+  const normalizedText = normalizeText(textBody);
+  const sortedEntries = Object.entries(ARABIC_NUMBER_WORDS).sort((a, b) => b[0].length - a[0].length);
+  for (const [word, num] of sortedEntries) {
+    if (normalizedText.includes(word) && num > 0 && num <= MAX_SUPPORTED_CHILD_COUNT) {
+      return num;
+    }
+  }
+  return null;
 };
 
 const isBirthdayChildCountFollowUp = (lastBotReplyText, userText) => {
