@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 const WhatsAppMessage = require('../models/WhatsAppMessage');
 const User = require('../models/User');
 const { authMiddleware, adminMiddleware } = require('../middleware/auth');
@@ -172,6 +173,37 @@ const normalizePhoneForLookup = (waId) => {
   return formats;
 };
 
+const ensureProspectParentForSender = async (senderWaId, profileName = '') => {
+  const phoneFormats = normalizePhoneForLookup(senderWaId);
+  if (!phoneFormats.length) return null;
+
+  const cleanPhone = String(phoneFormats[0] || '').replace(/[^\d]/g, '');
+  const normalizedPhone = senderWaId.startsWith('+') ? senderWaId : `+${cleanPhone}`;
+  const safeName = String(profileName || '').trim().slice(0, 80) || 'عميل واتساب';
+  const guestEmail = `wa-${cleanPhone}@guest.peekaboo.local`;
+  const randomSecret = `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`;
+  const hash = await bcrypt.hash(randomSecret, 10);
+
+  try {
+    const created = await User.create({
+      email: guestEmail,
+      password_hash: hash,
+      name: safeName,
+      phone: normalizedPhone,
+      role: 'parent',
+      is_prospect: true,
+      prospect_source: 'whatsapp_inbound'
+    });
+    return created;
+  } catch (err) {
+    if (err?.code === 11000) {
+      return User.findOne({ phone: { $in: phoneFormats } }).lean();
+    }
+    console.error('WHATSAPP_PROSPECT_CREATE_ERROR', err?.message || err);
+    return null;
+  }
+};
+
 // Persist inbound message to database
 const persistInboundMessage = async (message, profileName, changeValue = {}, webhookObject = '') => {
   try {
@@ -250,6 +282,9 @@ const persistInboundMessage = async (message, profileName, changeValue = {}, web
 
         if (existingUser?._id) {
           linkedUserId = existingUser._id;
+        } else {
+          const prospectParent = await ensureProspectParentForSender(senderWaId, profileName);
+          if (prospectParent?._id) linkedUserId = prospectParent._id;
         }
       } catch (lookupError) {
         console.warn('WHATSAPP_USER_LOOKUP_SKIPPED', {
