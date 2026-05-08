@@ -70,17 +70,27 @@ function WhatsAppTab({ biz }) {
 
   const hasIds = biz.wa_phone_number_id && biz.wa_business_account_id;
 
+  // Status: RED = IDs missing | GREEN = IDs + token saved this session | YELLOW = IDs only
+  const statusBox = !hasIds ? (
+    <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm text-red-700">
+      <span className="mt-0.5 text-base leading-none">&#9888;</span>
+      <span>WhatsApp غير مكتمل — أدخل Phone Number ID و WABA ID</span>
+    </div>
+  ) : savedToken ? (
+    <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-4 text-sm text-green-700">
+      <span className="mt-0.5 text-base leading-none">&#10003;</span>
+      <span>واتساب مهيأ — تأكد أن Webhook مشترك في Meta</span>
+    </div>
+  ) : (
+    <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-700">
+      <span className="mt-0.5 text-base leading-none">&#9432;</span>
+      <span>تم إدخال أرقام واتساب. إذا لم تكن متأكدًا من التوكن، أعد حفظ Access Token.</span>
+    </div>
+  );
+
   return (
     <div>
-      {!hasIds && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-700">
-          لم يتم إعداد بيانات واتساب بعد.{' '}
-          <a href="/docs/whatsapp-setup.md" target="_blank" rel="noreferrer"
-            className="underline font-medium hover:text-amber-900">
-            راجع دليل الإعداد
-          </a>
-        </div>
-      )}
+      {statusBox}
 
       <Section title="معرّفات واتساب">
         <Field label="Phone Number ID">

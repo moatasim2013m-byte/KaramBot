@@ -88,7 +88,7 @@ ${menuText}
 }`;
 }
 
-async function buildMenuText(businessId) {
+async function buildMenuText(businessId, business) {
   const categories = await prisma.category.findMany({
     where: { business_id: businessId, active: true },
     orderBy: { sort_order: 'asc' },
@@ -272,7 +272,7 @@ async function processRestaurantMessage(business, conversation, customerMessage)
   }
 
   try {
-    const menuText = await buildMenuText(business.id);
+    const menuText = await buildMenuText(business.id, business);
     const systemPrompt = buildSystemPrompt(business, menuText);
     const contextMsg = state !== STATES.IDLE && cart.length
       ? `[حالة الطلب: ${cart.length} صنف في السلة]\nرسالة العميل: ${customerMessage}`
