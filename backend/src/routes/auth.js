@@ -37,6 +37,20 @@ router.post('/login', async (req, res) => {
     });
 
     const token = signToken(user.id);
+
+    let business_type = null;
+    if (user.business_id) {
+      try {
+        const business = await prisma.business.findUnique({
+          where: { id: user.business_id },
+          select: { business_type: true },
+        });
+        business_type = business ? business.business_type : null;
+      } catch (e) {
+        business_type = null;
+      }
+    }
+
     res.json({
       token,
       user: {
@@ -45,6 +59,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
         business_id: user.business_id,
+        business_type,
       },
     });
   } catch (err) {
@@ -92,6 +107,7 @@ router.get('/me', authenticate, (req, res) => {
     email: req.user.email,
     role: req.user.role,
     business_id: req.user.business_id,
+    business_type: req.user.business_type,
   });
 });
 

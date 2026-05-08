@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../utils/api';
@@ -13,46 +13,29 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const sseRef = useRef(null);
 
   const calcUnread = (data) => (data?.open || 0) + (data?.human_takeover || 0);
 
-  // Connect to SSE for real-time inbox badge
+  // Poll inbox stats for unread badge (SSE disabled to avoid token in URL logs)
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    let cancelled = false;
 
-    const connect = () => {
-      // Pass auth token as query param since EventSource doesn't support headers
-      const url = `/api/inbox/updates?token=${encodeURIComponent(token)}`;
-      const es = new EventSource(url);
-      sseRef.current = es;
-
-      es.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (data.type === 'stats') {
-            setUnreadCount(calcUnread(data.data));
-          }
-        } catch { /* ignore parse errors */ }
-      };
-
-      es.onerror = () => {
-        es.close();
-        // Reconnect after 10s on error
-        setTimeout(connect, 10000);
-      };
+    const loadUnread = async () => {
+      try {
+        const res = await api.get('/inbox/stats');
+        if (!cancelled) setUnreadCount(calcUnread(res.data));
+      } catch (_) {
+        // ignore polling errors
+      }
     };
 
-    connect();
-    return () => sseRef.current?.close();
-  }, []);
+    loadUnread();
+    const interval = setInterval(loadUnread, 10000);
 
-  // Fallback: fetch initial unread count
-  useEffect(() => {
-    api.get('/inbox/stats').then(res => {
-      setUnreadCount(calcUnread(res.data));
-    }).catch(() => {});
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const role = user?.role;

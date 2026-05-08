@@ -48,6 +48,28 @@ app.use('/api/staff', apiLimiter, require('./routes/staff'));
 app.use('/api/clinic', apiLimiter, require('./routes/clinic'));
 app.use('/api/reports', apiLimiter, require('./routes/reports'));
 
+
+// Block suspicious probe paths before static/spa handling
+const blockedPrefixes = [
+  '/.git',
+  '/.env',
+  '/config/.env',
+  '/app/.env',
+  '/api/env',
+  '/api/config/env',
+  '/api/templates',
+  '/api/v1/templates',
+  '/api/v1/env',
+  '/inngest',
+];
+app.use((req, res, next) => {
+  const path = (req.path || '').toLowerCase();
+  if (blockedPrefixes.some((prefix) => path.startsWith(prefix))) {
+    return res.status(404).json({ error: 'Route not found' });
+  }
+  next();
+});
+
 // Static frontend (built SPA copied into ./public by Dockerfile stage 1)
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 app.use(express.static(PUBLIC_DIR));

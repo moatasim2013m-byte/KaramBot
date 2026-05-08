@@ -88,34 +88,12 @@ export default function InboxPage() {
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
-  // Use SSE for real-time conversation updates instead of polling
-  const sseRef = useRef(null);
+  // Poll conversation list for updates (SSE disabled to avoid token in URL logs)
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const connect = () => {
-      const url = `/api/inbox/updates?token=${encodeURIComponent(token)}`;
-      const es = new EventSource(url);
-      sseRef.current = es;
-
-      es.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (data.type === 'new_message') {
-            loadConversations();
-          }
-        } catch { /* ignore */ }
-      };
-
-      es.onerror = () => {
-        es.close();
-        setTimeout(connect, 10000);
-      };
-    };
-
-    connect();
-    return () => sseRef.current?.close();
+    const interval = setInterval(() => {
+      loadConversations();
+    }, 10000);
+    return () => clearInterval(interval);
   }, [loadConversations]);
 
   const loadMessages = async (conv) => {
