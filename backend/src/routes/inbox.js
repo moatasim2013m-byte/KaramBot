@@ -224,13 +224,7 @@ router.get('/stats', async (req, res) => {
 });
 
 // GET /api/inbox/updates - SSE endpoint with EventEmitter for real-time push
-// Accepts auth token via ?token= query param (EventSource doesn't support headers)
 router.get('/updates', async (req, res) => {
-  // Authenticate via query param token when Authorization header is absent
-  if (!req.headers.authorization && req.query.token) {
-    req.headers.authorization = `Bearer ${req.query.token}`;
-  }
-
   // Run auth middleware inline
   const jwt = require('jsonwebtoken');
   const prisma = require('../config/prisma');
