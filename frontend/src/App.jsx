@@ -15,6 +15,7 @@ import BusinessesPage from './pages/admin/BusinessesPage';
 import CreateBusinessPage from './pages/admin/CreateBusinessPage';
 import BusinessDetailPage from './pages/admin/BusinessDetailPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import DataDeletionPage from './pages/DataDeletionPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -39,6 +40,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/data-deletion" element={<DataDeletionPage />} />
           <Route path="/" element={
             <ProtectedRoute>
               <DashboardLayout />
