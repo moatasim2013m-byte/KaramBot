@@ -17,18 +17,10 @@ const AI_KEYS = {
 
 function validateEnv() {
   const isProd = process.env.NODE_ENV === 'production';
-  const isPreview = process.env.SKIP_DB_CONNECT === 'true';
   const errors = [];
   const warnings = [];
 
-  // DATABASE_URL is not required in preview mode
   for (const key of REQUIRED_ALWAYS) {
-    if (key === 'DATABASE_URL' && isPreview) {
-      if (!process.env[key]) {
-        warnings.push(`${key} (not required in SKIP_DB_CONNECT=true preview mode)`);
-      }
-      continue;
-    }
     if (!process.env[key]) {
       errors.push(key);
     }
