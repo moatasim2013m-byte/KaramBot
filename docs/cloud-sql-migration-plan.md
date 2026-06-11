@@ -3,9 +3,13 @@
 > **Status: Completed**
 > The backend has been migrated from MongoDB/Mongoose to PostgreSQL via Prisma ORM.
 > This document describes the migration approach that was followed and serves as a reference
-> for the schema design decisions made. The Cloud SQL instance still needs to be provisioned
-> in GCP and `DATABASE_URL` set to a real PostgreSQL connection string before the app can run
-> in production with a live database.
+> for the schema design decisions made.
+>
+> **Hosting update (June 2026):** the production database is hosted on **Neon**
+> (managed serverless PostgreSQL) instead of Cloud SQL. Set `DATABASE_URL` to the Neon
+> **pooled** connection string (host contains `-pooler`) for the running app, and use the
+> **direct** endpoint (same host without `-pooler`) when running `prisma migrate deploy`.
+> See `backend/.env.example`.
 
 ---
 

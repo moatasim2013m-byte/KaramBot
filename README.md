@@ -6,7 +6,7 @@ A full-stack SaaS platform for local businesses to run customer interactions thr
 
 ## Stack
 
-- **Backend:** Node.js + Express + MongoDB + Mongoose
+- **Backend:** Node.js + Express + PostgreSQL (hosted on [Neon](https://neon.tech)) + Prisma ORM
 - **Frontend:** React + Vite + Tailwind CSS (RTL Arabic)
 - **WhatsApp:** Meta WhatsApp Cloud API
 - **AI:** Gemini 1.5 Flash (default) or GPT-4o-mini
@@ -19,7 +19,7 @@ A full-stack SaaS platform for local businesses to run customer interactions thr
 ```
 /backend
   /src
-    /models        - Mongoose schemas (Business, User, Conversation, Message, Order, Menu, Clinic)
+    /prisma        - Prisma schema & migrations (Business, User, Conversation, Message, Order, Menu, Clinic)
     /routes        - Express routes (auth, whatsapp, inbox, businesses, menu, orders, staff)
     /services      - WhatsApp API client, message processor
     /ai            - Provider adapter (Gemini / OpenAI)
@@ -54,7 +54,7 @@ A full-stack SaaS platform for local businesses to run customer interactions thr
 ### Prerequisites
 
 - Node.js 20+
-- MongoDB Atlas (or local MongoDB)
+- PostgreSQL database (Neon recommended, or local PostgreSQL)
 - Meta Developer App with WhatsApp product
 - Gemini API key (or OpenAI)
 
@@ -67,26 +67,29 @@ cd backend
 cp .env.example .env
 ```
 
-Edit `.env` and fill in all values:
+Edit `.env` and fill in all values (see `.env.example` for the full list):
 
 ```env
 PORT=8080
-MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net
-DB_NAME=whatsapp_saas
+# Neon pooled connection string (host contains "-pooler"); for migrations use
+# the direct endpoint (same host without "-pooler") — see .env.example
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require
 JWT_SECRET=your_long_random_secret_here
 META_APP_SECRET=your_meta_app_secret
 WHATSAPP_WEBHOOK_VERIFY_TOKEN=your_custom_verify_token
+TOKEN_ENCRYPTION_KEY=64_hex_chars_here
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key
-FRONTEND_URL=http://localhost:5173
-CORS_ORIGINS=http://localhost:5173
+FRONTEND_URL=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000
 ```
 
-Install and run seed:
+Install dependencies, apply the database schema, then (optionally) seed demo data:
 
 ```bash
 npm install
-npm run seed
+npx prisma migrate deploy   # run against the DIRECT (non-pooler) endpoint
+npm run seed                # optional demo data
 ```
 
 Seed output will show:
@@ -251,7 +254,7 @@ IDLE → COLLECTING_ITEMS → ASKING_ORDER_TYPE → COLLECTING_ADDRESS → CONFI
 ```
 
 - AI does NLP (intent + item matching) using Gemini/OpenAI
-- All prices come from MongoDB — AI never invents prices
+- All prices come from the database — AI never invents prices
 - Order only confirmed on explicit customer word (تمام, اه, نعم, yes, ok...)
 - Handoff to human on keywords (مشكلة, مدير, موظف...)
 
