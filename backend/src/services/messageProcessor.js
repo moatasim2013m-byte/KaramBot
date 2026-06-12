@@ -3,6 +3,7 @@
  * Handles inbound WhatsApp messages: saves to DB, runs workflow, sends reply.
  */
 
+const axios = require('axios');
 const prisma = require('../config/prisma');
 const { sendTextMessage, markAsRead, normalizePhone } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
@@ -186,6 +187,48 @@ async function processInboundMessage(entry) {
       return;
     }
     if (business.status !== 'active') return;
+
+    // External reply mode: an outside automation (e.g. Make + Voiceflow) owns
+    // the conversation. KaramBot stores inbound messages for the Inbox and
+    // forwards the payload untouched; replies are reported back by the
+    // automation via POST /api/ingest/outbound.
+    if (business.ai_config?.reply_mode === 'external') {
+      let anyCreated = false;
+      for (const waMsg of messages) {
+        const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
+        const customerWaId = normalizePhone(waMsg.from);
+        const conversation = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
+        const { created } = await saveInboundMessage(business.id, conversation.id, waMsg, customerWaId);
+        if (!created) continue;
+        anyCreated = true;
+        const now = new Date();
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { last_message_at: now, last_inbound_at: now, unread_count: { increment: 1 } },
+        });
+        sseEmitter.emit(`business:${business.id}`, {
+          type: 'new_message',
+          conversationId: conversation.id,
+          businessId: business.id,
+        });
+      }
+
+      const forwardUrl = business.ai_config?.forward_url;
+      if (anyCreated && forwardUrl) {
+        try {
+          await axios.post(
+            forwardUrl,
+            { object: 'whatsapp_business_account', entry: [entry] },
+            { timeout: 10000 },
+          );
+        } catch (fwdErr) {
+          console.error(`Forward to external webhook failed for business ${business.id}:`, fwdErr.message);
+        }
+      } else if (anyCreated && !forwardUrl) {
+        console.warn(`Business ${business.id} is in external reply_mode but has no ai_config.forward_url`);
+      }
+      return;
+    }
 
     let accessToken;
     try {

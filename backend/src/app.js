@@ -40,6 +40,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
+app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
 app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));
