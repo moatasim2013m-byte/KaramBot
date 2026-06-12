@@ -216,11 +216,11 @@ async function processInboundMessage(entry) {
       const forwardUrl = business.ai_config?.forward_url;
       if (anyCreated && forwardUrl) {
         try {
-          await axios.post(
-            forwardUrl,
-            { object: 'whatsapp_business_account', entry: [entry] },
-            { timeout: 10000 },
-          );
+          // Forward the unwrapped change `value` (messages/contacts/metadata at
+          // top level) — matches what Make's WhatsApp trigger used to output, so
+          // existing {{1.messages[]...}} mappings keep working behind a custom
+          // webhook trigger.
+          await axios.post(forwardUrl, value, { timeout: 10000 });
         } catch (fwdErr) {
           console.error(`Forward to external webhook failed for business ${business.id}:`, fwdErr.message);
         }
