@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Deploy ./site to Firebase Hosting site `shifts-ai-site` via the REST API.
+Auth: gcloud user credentials (`gcloud auth print-access-token`). No firebase-tools needed."""
+import gzip, hashlib, io, json, os, subprocess, sys, urllib.request, urllib.error
+
+SITE    = "shifts-ai-site"
+PROJECT = "karam-bot"
+ROOT    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
+BASE    = "https://firebasehosting.googleapis.com/v1beta1"
+APP     = "https://app.shifts-ai.store"
+
+TOKEN = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
+
+def req(method, url, body=None, ctype="application/json", raw=False):
+    data = body if raw else (json.dumps(body).encode() if body is not None else None)
+    r = urllib.request.Request(url, data=data, method=method)
+    r.add_header("Authorization", "Bearer " + TOKEN)
+    r.add_header("x-goog-user-project", PROJECT)
+    if data is not None: r.add_header("Content-Type", ctype)
+    try:
+        with urllib.request.urlopen(r) as resp: b = resp.read()
+    except urllib.error.HTTPError as e:
+        sys.exit(f"HTTP {e.code} {method} {url}\n{e.read().decode()}")
+    return json.loads(b) if b and not raw else b
+
+NO_CACHE = {"Cache-Control": "public, max-age=0, must-revalidate"}
+SECURITY = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+CONFIG = {"config": {
+    "cleanUrls": True,
+    # dashboard routes live on the app subdomain
+    "redirects": [{"glob": p, "location": APP + p, "statusCode": 302} for p in
+                  ["/login", "/overview", "/inbox", "/orders", "/menu",
+                   "/clinic", "/reports", "/staff", "/settings"]],
+    "headers": [
+        {"glob": "**",              "headers": SECURITY},
+        {"regex": "^/([^.]*)$",     "headers": NO_CACHE},   # "/" and clean URLs (/privacy …)
+        {"glob": "**/*.html",       "headers": NO_CACHE},
+        {"glob": "/assets/**",      "headers": {"Cache-Control": "public, max-age=31536000, immutable"}},
+    ],
+}}
+
+ver = req("POST", f"{BASE}/sites/{SITE}/versions", CONFIG)["name"]
+print("version:", ver)
+
+files, blobs = {}, {}
+for dirpath, _, names in os.walk(ROOT):
+    for n in sorted(names):
+        full = os.path.join(dirpath, n)
+        path = "/" + os.path.relpath(full, ROOT).replace(os.sep, "/")
+        buf = io.BytesIO()
+        with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as gz: gz.write(open(full, "rb").read())
+        gzb = buf.getvalue(); h = hashlib.sha256(gzb).hexdigest()
+        files[path] = h; blobs[h] = gzb
+        print(f"  {path:22s} {h[:12]}  {len(gzb):>7} B gz")
+
+pop = req("POST", f"{BASE}/{ver}:populateFiles", {"files": files})
+for h in pop.get("uploadRequiredHashes", []):
+    req("PUT", f"{pop['uploadUrl']}/{h}", blobs[h], ctype="application/octet-stream", raw=True)
+    print("  uploaded", h[:12])
+
+print("finalize:", req("PATCH", f"{BASE}/{ver}?updateMask=status", {"status": "FINALIZED"})["status"])
+print("released:", req("POST", f"{BASE}/sites/{SITE}/releases?versionName={ver}", {})["name"])
