@@ -1,0 +1,241 @@
+/* =============================================================================
+   #karam — the WhatsApp phone (component `phone`) — premium direction «أ · فخامة هادئة»
+   Every selector is scoped under #karam. Tokens and shared classes come from base.css
+   (.sec-head, .chips-label, .chip, .card, .ic-holder, .shadow-card, .link-quiet, .btn-wa,
+   .badge-example--glass). The ONLY local literals are the product's real chat colours:
+   wallpaper #EFE9E1, incoming bubble #FFFFFF, outgoing bubble #D9FDD3 — kept on purpose.
+   No gold, no green outside the WhatsApp CTA, one shadow (the phone, via .shadow-card).
+   Motion: opacity/transform only; the typing dots pulse ONCE (no infinite loop).
+   ============================================================================= */
+
+/* ---- layout: chips → phone → foot on mobile; text column + phone on ≥900px --- */
+#karam .karam-grid{
+  display:grid;
+  gap:24px;
+  grid-template-areas:"top" "phone" "foot";
+}
+#karam .karam-top{ grid-area:top; display:grid; gap:10px; }
+#karam .phone{ grid-area:phone; }
+#karam .karam-foot{ grid-area:foot; display:grid; gap:14px; }
+@media (min-width:900px){
+  #karam .karam-grid{
+    grid-template-columns:minmax(0,1fr) 380px;
+    grid-template-areas:"top phone" "foot phone";
+    column-gap:64px;
+    row-gap:28px;
+    align-items:start;
+    align-content:start;
+  }
+}
+
+/* ---- sector chips: ONE row of three 44px pills, never a second row --------------------
+   The page's ONE sector-chip recipe (identical in #top, #karam, #cases, #contact), sized with the
+   real fonts: «مطعم أو كافيه» alone is 76px at 14px, so on phones (<480) three equal pills hold the
+   labels on ONE line only as text pills — glyph and check are hidden there and the ink fill alone
+   marks the selection; a label that still cannot fit (EN «Restaurant & café» at 360) wraps INSIDE
+   its pill instead of spilling over the neighbours. ≥480: natural-width pills with the 15px glyph
+   (+ check when selected), nowrap — both languages fit in one row from there. */
+#karam .karam-chips-label{ margin:0; }
+#karam .karam-chips{ display:flex; flex-wrap:nowrap; gap:8px; }
+#karam .karam-chips .chip{ flex:1 1 0; min-width:0; padding:0 8px; white-space:normal; text-align:center; line-height:1.25; }
+#karam .karam-chips .chip .ic{ display:none; }
+@media (min-width:480px){
+  #karam .karam-chips .chip{ flex:0 0 auto; padding:0 14px; white-space:nowrap; }
+  #karam .karam-chips .chip .ic{ display:inline-block; }
+  #karam .karam-chips .chip .chip-check{ display:none; }
+  #karam .karam-chips .chip.is-on .chip-check{ display:inline-block; }
+}
+@media (min-width:768px){ #karam .karam-chips{ gap:10px; } #karam .karam-chips .chip{ padding:0 22px; } }
+#karam .karam-hint{ margin:2px 0 0; }
+
+/* ---- phone frame: ink, radius --r-panel, the shadow comes from .shadow-card --- */
+#karam .phone{
+  width:100%;
+  max-width:380px;
+  margin-inline:auto;
+  padding:10px;
+  background:var(--ink);
+  border:1px solid var(--ink-2);
+  border-radius:var(--r-panel);
+}
+#karam .phone-screen{
+  display:flex;
+  flex-direction:column;
+  height:580px;
+  overflow:hidden;
+  border-radius:16px;                  /* 24px frame − 10px bezel ≈ concentric */
+  background:#EFE9E1;                  /* WhatsApp chat wallpaper — the product's real look */
+  color:var(--text);
+}
+
+/* status bar: the visitor's real time + «مثال توضيحي» (glass badge on ink) */
+#karam .phone-status{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  min-height:30px; padding:6px 14px 0;
+  background:var(--ink); color:#fff;
+  font-size:12px; font-weight:500; line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+#karam .phone-badge{ min-height:20px; padding:2px 8px; }
+
+/* chat header: avatar letter · editable name · «حساب أعمال» — ink, no gold */
+#karam .phone-head{
+  display:flex; align-items:center; gap:10px;
+  padding:8px 14px 10px;
+  background:var(--ink); color:#fff;
+}
+#karam .phone-avatar{
+  flex:none; width:40px; height:40px; border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.14); color:#fff;
+  font-family:var(--font-display); font-size:17px; font-weight:600; line-height:1;
+}
+#karam .phone-id{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+#karam .phone-name-btn{
+  display:inline-flex; align-items:center; gap:6px;
+  min-height:44px; max-width:100%;
+  color:#fff; font-size:15px; font-weight:600; line-height:1.3; text-align:start;
+  border-radius:8px;
+}
+#karam .phone-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#karam .phone-name-btn .ic{ width:14px; height:14px; flex:none; color:var(--on-ink-muted); }
+#karam .phone-sub{ font-size:12px; line-height:1.3; color:var(--on-ink-muted); margin-top:-6px; }
+
+/* name editor (input 16px → no iOS zoom; ✓ 44px) */
+#karam .phone-name-form{ display:flex; align-items:center; gap:6px; padding-block:2px; }
+#karam .phone-name-input{
+  flex:1 1 auto; min-width:0; min-height:44px; padding:6px 12px;
+  border:1px solid var(--chip-line); border-radius:var(--r-sm);
+  background:var(--surface); color:var(--ink);
+  font-size:16px; line-height:1.3;
+  transition:border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+#karam .phone-name-input::placeholder{ color:var(--muted); opacity:.8; }
+#karam .phone-name-input:focus{ outline:none; border-color:var(--electric); box-shadow:0 0 0 3px var(--electric-soft); }
+#karam .phone-name-save{
+  flex:none; width:44px; height:44px; border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.14); color:#fff;
+  transition:background-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+#karam .phone-name-save:active{ transform:scale(.98); }
+
+/* chat log */
+#karam .phone-chat{
+  flex:1 1 auto; min-height:0;
+  display:flex; flex-direction:column; gap:6px;
+  padding:14px 12px;
+  overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+}
+#karam .phone-day{ align-self:center; margin-bottom:6px; }
+#karam .phone-day > span{
+  display:inline-block; padding:3px 10px; border-radius:var(--r-pill);
+  background:var(--surface); color:var(--muted);
+  font-size:12px; font-weight:500; line-height:1.5;
+}
+#karam .phone-msgs{ display:flex; flex-direction:column; gap:6px; }
+
+/* bubbles: body font, radius 16px with a 4px corner on the sender's side.
+   Sides follow the sender — customer (incoming, white) at inline-start; Karam (outgoing, #D9FDD3) at inline-end. */
+#karam .bub{
+  position:relative;
+  max-width:84%;
+  padding:8px 11px 6px;
+  border-radius:16px;
+  font-family:var(--font-body);
+  font-size:14px; line-height:1.55;
+  color:var(--ink-2);
+  opacity:0; transform:translateY(4px);
+  transition:opacity 200ms var(--ease),transform 200ms var(--ease);
+}
+#karam .bub.is-in{ opacity:1; transform:none; }
+#karam .bub-customer{ align-self:flex-start; background:#FFFFFF; border-start-start-radius:4px; }
+#karam .bub-karam{ align-self:flex-end; background:#D9FDD3; border-start-end-radius:4px; }
+#karam .bub-book{
+  align-self:stretch; max-width:100%;
+  display:flex; align-items:flex-start; gap:10px;
+  padding:10px 12px;
+  background:var(--surface); border:1px solid var(--line); color:var(--ink);
+  font-weight:500;
+}
+#karam .bub-book > .ic{ flex:none; width:16px; height:16px; margin-top:3px; color:var(--ink); }
+#karam .bub-book .bub-text{ flex:1 1 auto; min-width:0; }
+#karam .bub-system{
+  align-self:center; max-width:100%;
+  padding:4px 10px; border-radius:var(--r-pill);
+  background:rgba(15,30,56,.06); color:var(--muted);
+  font-size:12.5px; line-height:1.5; text-align:center;
+}
+#karam .bub-label{ font-weight:500; margin-inline-end:6px; }
+#karam .bub-label::after{ content:"·"; margin-inline-start:6px; }
+#karam .bub-text{ white-space:pre-wrap; overflow-wrap:anywhere; }
+/* The time floats to inline-END. Physical fallback first (RTL page → left), then the logical value
+   for engines that support it; the LTR page gets the mirrored fallback. */
+#karam .bub-time{
+  float:left; float:inline-end;
+  margin-inline-start:8px; margin-top:9px;
+  font-size:11px; line-height:1; color:var(--muted);
+  font-variant-numeric:tabular-nums; white-space:nowrap; unicode-bidi:isolate;
+}
+[dir="ltr"] #karam .bub-time{ float:right; float:inline-end; }
+#karam .bub-system .bub-time{ float:none; margin:0 0 0 6px; margin-inline-start:6px; }
+#karam .bub-book .bub-time{ float:none; margin:0; align-self:flex-end; }
+#karam .bub-karam.is-typing .bub-text{ display:inline-flex; min-height:22px; align-items:center; }
+
+/* typing indicator (Karam's side) — the dots pulse once per appearance, never loop */
+#karam .phone-typing{
+  align-self:flex-end;
+  display:inline-flex; align-items:center;
+  min-height:34px; padding:8px 12px;
+  border-radius:16px; border-start-end-radius:4px;
+  background:#D9FDD3;
+}
+#karam .typing{ display:inline-flex; align-items:center; gap:4px; height:14px; }
+#karam .typing i{
+  width:6px; height:6px; border-radius:50%;
+  background:var(--muted); opacity:.35;
+  animation:karam-dot 600ms var(--ease) 1 both;
+}
+#karam .typing i:nth-child(2){ animation-delay:120ms; }
+#karam .typing i:nth-child(3){ animation-delay:240ms; }
+@keyframes karam-dot{ 0%{ opacity:.35; } 50%{ opacity:1; } 100%{ opacity:.35; } }
+
+/* foot: quiet replay link (44px) on the wallpaper; reserved height so the layout never jumps */
+#karam .phone-foot{
+  display:flex; align-items:center; justify-content:center;
+  min-height:48px; padding:2px 12px;
+  background:#EFE9E1;
+  border-top:1px solid rgba(15,30,56,.06);
+}
+#karam .phone-replay{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-height:44px; padding:0 12px;
+  font-size:14px;
+  transition:transform var(--fast) var(--ease), color var(--fast) var(--ease), text-decoration-color var(--fast) var(--ease);
+}
+#karam .phone-replay:active{ transform:scale(.98); }
+
+/* ---- under the phone: caption · honest time line (hairline card) · WhatsApp pill --- */
+#karam .karam-caption{ margin:0; max-width:520px; }
+#karam .karam-hours{
+  display:flex; align-items:flex-start; gap:12px;
+  max-width:520px;
+  padding:14px 16px;
+}
+#karam .karam-hours .ic-holder{ margin-top:2px; }
+#karam .karam-hours-text{ margin:0; flex:1 1 auto; min-width:0; font-size:14.5px; line-height:1.6; color:var(--ink-2); }
+#karam .karam-cta{ width:100%; min-width:0; min-height:48px; white-space:normal; text-align:center; }   /* a long EN label wraps inside the pill; never widens the page */
+@media (min-width:768px){ #karam .karam-cta{ width:auto; justify-self:start; padding-inline:28px; } }
+
+/* ---- hover (pointer devices only) ---------------------------------------- */
+@media (hover:hover){
+  #karam .phone-name-btn:hover .ic{ color:#fff; }
+  #karam .phone-name-save:hover{ background:rgba(255,255,255,.22); }
+}
+
+/* ---- reduced motion: base.css collapses transitions/animations; keep the
+   typing dots visible at full opacity so nothing looks broken -------------- */
+@media (prefers-reduced-motion:reduce){
+  #karam .typing i{ opacity:.7; }
+  #karam .phone-chat{ scroll-behavior:auto; }
+}

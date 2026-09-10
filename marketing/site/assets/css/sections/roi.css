@@ -1,0 +1,95 @@
+/* =============================================================================
+   #roi — ROI calculator (premium direction «أ · فخامة هادئة», 2026-09-10)
+   RESULT FIRST: light result card (--surface, hairline, radius 20, the ONE
+   shadowed piece in this section: --shadow-card) · 40px Alexandria 700 number in
+   deep gold (#B8791A, 3.6:1 on white — the bright --gold alone is 1.9:1) on a 3px
+   --gold rule + 16px unit · assumptions 13px muted right under it · hours line behind
+   a --line-2 hairline. Then the inputs card: sliders as in #loyalty (13px muted
+   label + tabular ink value over the base 44px .range: 6px --line track, 24px ink
+   thumb; --line-2 hairline between fields), «تعديل الافتراضات» <details> behind a
+   hairline, then the green 48px WhatsApp pill + ghost reset.
+   Scoped under #roi; tokens/classes from base.css (card, shadow-card, badge,
+   range, btn, ic-holder).
+   Mobile-first (360): result → inputs stacked, the result sticky under the nav;
+   ≥1024: result in the start column (sticky), inputs in the end column.
+   Gold: ONLY the result number (gold place 3 of 4). Green: ONLY the WhatsApp CTA.
+   Motion: one 160 ms chevron rotate (transform); no animations, no counters.
+   ============================================================================= */
+
+/* ---- Layout ---------------------------------------------------------------- */
+#roi .roi-grid{ display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }   /* minmax(0): a nowrap child never widens the track past the viewport */
+@media (min-width:1024px){
+  #roi .roi-grid{ grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); column-gap:32px; }
+}
+
+/* ---- Result card: light surface + --shadow-card, sticky within the section --- */
+#roi .roi-result{
+  position:sticky; top:calc(var(--nav-h) + 8px); z-index:2;
+  display:grid; gap:12px;
+  padding:18px;
+}
+@media (min-width:768px){ #roi .roi-result{ padding:20px; } }
+@media (min-width:1024px){ #roi .roi-result{ top:calc(var(--nav-h) + 16px); } }
+/* Short landscape phones: a stuck card would cover the sliders — let it scroll. */
+@media (max-width:1023px) and (max-height:560px){ #roi .roi-result{ position:static; } }
+
+#roi .roi-result-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px 12px; }
+#roi .roi-result-label{ margin:0; font-size:13px; line-height:1.5; font-weight:500; color:var(--muted); }
+#roi .roi-num-row{ margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
+#roi .roi-num{
+  font-family:var(--font-display);
+  font-size:40px; line-height:1.1; font-weight:700; letter-spacing:0;
+  color:#B8791A;                                       /* gold spot 3 of 4 — deep gold digits (3.6:1 large-text pass) … */
+  padding-bottom:2px; border-bottom:3px solid var(--gold);   /* … with the bright --gold as the rule beneath the number */
+  font-variant-numeric:tabular-nums; unicode-bidi:isolate;
+}
+#roi .roi-unit{ font-size:16px; line-height:1.5; font-weight:500; color:var(--ink-2); }
+#roi .roi-assume{ margin:0; font-size:13px; line-height:1.6; color:var(--muted); }
+#roi .roi-hours{
+  margin:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;
+  padding-top:12px; border-top:1px solid var(--line-2);
+  font-size:14px; line-height:1.6; color:var(--ink-2);
+}
+#roi .roi-hours-label{ flex:1 1 auto; min-width:0; }
+#roi .roi-hours-val{ font-weight:600; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; unicode-bidi:isolate; }
+
+/* ---- Inputs card ------------------------------------------------------------ */
+#roi .roi-inputs{ display:grid; gap:12px; }
+#roi .roi-defaults{ margin:0; }
+
+/* Sliders as in #loyalty: 13px muted label + tabular ink value over the base
+   44px .range (6px --line track, 24px ink thumb); --line-2 hairline between fields */
+#roi .roi-fields{ display:grid; gap:0; }
+#roi .roi-field{ display:grid; gap:0; padding-block:6px; }
+#roi .roi-field + .roi-field{ border-top:1px solid var(--line-2); }
+#roi .roi-field-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+#roi .roi-field-head label{ font-size:13px; line-height:1.5; font-weight:500; color:var(--muted); }
+#roi .roi-field-val{
+  font-size:13px; line-height:1.5; font-weight:500; color:var(--ink);
+  font-variant-numeric:tabular-nums; white-space:nowrap; unicode-bidi:isolate;
+}
+
+/* ---- «تعديل الافتراضات» details: hairline above, 44px summary, values visible while closed */
+#roi .roi-details{ border-top:1px solid var(--line); }
+#roi .roi-summary{
+  display:flex; align-items:center; gap:8px 12px;
+  min-height:44px; padding:8px 0;
+  cursor:pointer; list-style:none; user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+#roi .roi-summary::-webkit-details-marker{ display:none; }
+#roi .roi-summary-text{ flex:1 1 auto; min-width:0; display:grid; gap:0; }
+#roi .roi-summary-label{ font-size:15px; line-height:1.5; font-weight:500; color:var(--ink); }
+#roi .roi-summary-vals{ font-size:13px; line-height:1.5; color:var(--muted); }
+#roi .roi-summary > .ic{ flex:none; width:20px; height:20px; color:var(--muted); transition:transform var(--fast) var(--ease); }
+#roi .roi-details[open] > .roi-summary > .ic{ transform:rotate(180deg); }
+#roi .roi-details > .roi-fields{ padding-bottom:4px; }
+
+/* ---- Actions: green 48px WhatsApp pill (the only --wa use here) + ghost reset --- */
+#roi .roi-actions{ display:flex; flex-wrap:wrap; gap:8px; padding-top:4px; }
+#roi .roi-cta{ flex:1 1 240px; min-width:0; min-height:48px; white-space:normal; text-align:center; }   /* the EN label wraps inside the pill at 360 instead of widening the page */
+#roi .roi-reset{ flex:0 0 auto; min-height:48px; }
+
+@media (hover:hover){
+  #roi .roi-summary:hover .roi-summary-label{ color:var(--electric); }
+}

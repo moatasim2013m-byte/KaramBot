@@ -1,0 +1,203 @@
+/* =============================================================================
+   #team    — 5 persona cards (tabs) + one tabpanel: 5-marker step line (hairline connectors, current = gold),
+              step label 13px, 5 step rows on hairlines, quiet replay link
+   #builder — progress «N من 4 · label» 13px muted + 2px ink progress bar, 4 chip-group questions (44px pills, revealed
+              one by one), summary = light card with hairline rows + green pill CTA
+   Both rendered by sections/team.js. Scoped under #team / #builder; tokens & shared classes (chip, badge, btn, sec-head,
+   eyebrow) come from base.css. Premium direction («أ · فخامة هادئة»): light cards on hairlines, no shadows, no fills
+   except ink (structure) and the single gold current-step marker (gold place 4 of 4: logo · flagship · ROI · this).
+   Mobile-first (360): cards 3 + 2 with icon holder + short label; ≥768: one row of 5 full cards.
+   Motion: opacity/transform only, ≤ 240 ms, one-shot; hover only under (hover:hover); reduced-motion opt-out at the end.
+   ============================================================================= */
+
+/* ---- #team: persona cards (role=tab) — light cards (1px --line hairline, radius --r-card), selected = ink border + check ---- */
+#team .team-tabs{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:8px; }
+#team .team-card{
+  position:relative; grid-column:span 2;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+  min-height:76px; padding:10px 6px;
+  border:1px solid var(--line); border-radius:var(--r-card);
+  background:var(--surface); color:var(--ink);
+  font-family:var(--font-body); font-size:13px; font-weight:500; line-height:1.3; text-align:center;
+  cursor:pointer; user-select:none;
+  transition:transform var(--fast) var(--ease), border-color var(--fast) var(--ease);
+  -webkit-tap-highlight-color:transparent;
+}
+/* Row 2 (cards 4 and 5) sits centred under the row of three. */
+#team .team-card:nth-child(4){ grid-column:2 / span 2; }
+#team .team-card:nth-child(5){ grid-column:4 / span 2; }
+#team .team-card:active{ transform:scale(.98); }
+#team .team-card.is-on{ border-color:var(--ink); }
+/* Icon holder: 32px circle #F1F3F7 with ink strokes (the light-card icon holder). */
+#team .team-card-ic{
+  display:inline-flex; align-items:center; justify-content:center; flex:none;
+  width:32px; height:32px; border-radius:50%;
+  background:#F1F3F7; color:var(--ink);
+}
+#team .team-card-ic .ic{ width:16px; height:16px; }
+#team .team-card-short{ display:block; max-width:100%; color:var(--ink-2); }
+#team .team-card.is-on .team-card-short{ color:var(--ink); }
+#team .team-card-name,#team .team-card-role{ display:none; }
+/* The check sits in the top-end corner so selecting never reflows the label. */
+#team .team-card-check{ display:none; position:absolute; top:8px; inset-inline-end:8px; width:14px; height:14px; color:var(--ink); }
+#team .team-card.is-on .team-card-check{ display:inline-block; }
+@media (min-width:768px){
+  #team .team-tabs{ grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+  #team .team-card,#team .team-card:nth-child(4),#team .team-card:nth-child(5){ grid-column:auto; }
+  #team .team-card{ align-items:flex-start; justify-content:flex-start; gap:10px; min-height:148px; padding:18px 16px 16px; text-align:start; }
+  #team .team-card-short{ display:none; }
+  #team .team-card-name{ display:block; font-family:var(--font-display); font-size:16px; font-weight:600; line-height:1.45; color:var(--ink); letter-spacing:0; }
+  #team .team-card-role{ display:block; font-size:13px; font-weight:400; line-height:1.6; color:var(--muted); }
+  #team .team-card-check{ top:14px; inset-inline-end:14px; width:16px; height:16px; }
+}
+
+/* ---- #team: the selected persona's panel (swapped in place) — a light card ------ */
+#team .team-panel{
+  margin-top:16px; padding:16px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card);
+  transition:opacity var(--fast) var(--ease),transform var(--fast) var(--ease);
+}
+#team .team-panel.is-new{ opacity:0; transform:translateY(4px); }
+@media (min-width:768px){ #team .team-panel{ margin-top:24px; padding:20px 24px 16px; max-width:760px; } }
+#team .team-panel-head{ display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:8px 16px; }
+#team .team-panel-titles{ min-width:0; }
+#team .team-panel-name{ font-size:16px; }
+#team .team-panel-role{ margin-top:2px; }
+@media (min-width:768px){ #team .team-panel-role{ display:none; } }   /* the card already shows the role line */
+
+/* Step line: 5 markers joined by a 1px hairline; the ink fill runs up to the current marker.
+   done = ink fill + check · current = GOLD (the section's only gold) · next = hairline ring. */
+#team .team-bar{
+  position:relative; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); align-items:center;
+  margin-top:18px; min-height:28px;
+}
+#team .team-bar-track{
+  position:absolute; top:50%; inset-inline:10%;          /* from the centre of marker 1 to the centre of marker 5 */
+  height:1px; margin-top:-.5px; background:var(--line); overflow:hidden;
+}
+#team .team-bar-fill{
+  position:absolute; inset:0; background:var(--ink);
+  transform:scaleX(0); transform-origin:left center;
+  transition:transform var(--base) var(--ease);
+}
+[dir="rtl"] #team .team-bar-fill{ transform-origin:right center; }
+#team .team-bar.is-at-2 .team-bar-fill{ transform:scaleX(.25); }
+#team .team-bar.is-at-3 .team-bar-fill{ transform:scaleX(.5); }
+#team .team-bar.is-at-4 .team-bar-fill{ transform:scaleX(.75); }
+#team .team-bar.is-at-5 .team-bar-fill{ transform:scaleX(1); }
+#team .team-mark{
+  position:relative; z-index:1; justify-self:center;
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:50%;
+  border:1px solid var(--chip-line); background:var(--surface); color:var(--muted);
+  font-size:12px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums;
+  transition:background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+#team .team-mark-check{ display:none; width:13px; height:13px; }
+#team .team-mark.is-done{ background:var(--ink); border-color:var(--ink); color:#fff; }
+#team .team-mark.is-done .team-mark-n{ display:none; }
+#team .team-mark.is-done .team-mark-check{ display:inline-block; }
+#team .team-mark.is-current{ background:var(--gold); border-color:var(--gold); color:var(--ink); font-weight:600; }
+
+/* Text label «الخطوة N من 5 — …» 13px + the 5 step rows on hairlines */
+#team .team-step-label{
+  margin-top:14px; font-size:13px; font-weight:500; line-height:1.5; color:var(--ink-2);
+  transition:opacity var(--fast) var(--ease),transform var(--fast) var(--ease);
+}
+#team .team-step-label.is-new{ opacity:0; transform:translateY(2px); }
+#team .team-steps{ display:grid; margin-top:8px; }
+#team .team-step{ border-top:1px solid var(--line-2); }
+#team .team-step-btn{
+  display:flex; align-items:flex-start; gap:12px;
+  width:100%; min-height:44px; padding:9px 2px;
+  border-radius:0;
+  font-size:15px; line-height:1.6; color:var(--text);
+  transition:color var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+#team .team-step-btn:active{ transform:scale(.99); }
+#team .team-step-n{ flex:none; min-width:18px; padding-top:1px; font-size:12px; font-weight:500; color:var(--muted); font-variant-numeric:tabular-nums; }
+#team .team-step-text{ flex:1 1 auto; min-width:0; }
+#team .team-step.is-done .team-step-btn{ color:var(--muted); }
+#team .team-step.is-current .team-step-btn{ color:var(--ink); font-weight:500; }
+#team .team-step.is-current .team-step-n{ color:var(--ink); font-weight:600; }
+/* Quiet replay link (the «شاهد كرم يردّ ↓» pattern): ink, hairline underline. */
+#team .team-replay{
+  display:inline-flex; align-items:center; min-height:44px; margin-top:4px; padding:0 2px;
+  color:var(--ink); font-size:14px; font-weight:500;
+  text-decoration:underline; text-underline-offset:6px; text-decoration-color:var(--hair); text-decoration-thickness:1px;
+  transition:color var(--fast) var(--ease), text-decoration-color var(--fast) var(--ease);
+}
+
+/* ---- #builder: progress «N من 4 · label» 13px muted + 2px ink bar ---------------- */
+#builder .builder-progress-wrap{ display:grid; gap:10px; max-width:760px; }
+#builder .builder-progress{ font-size:13px; line-height:1.5; font-weight:500; color:var(--muted); font-variant-numeric:tabular-nums; }
+#builder .builder-bar{ display:block; height:2px; background:var(--line); overflow:hidden; }
+#builder .builder-bar-fill{
+  display:block; height:100%; background:var(--ink);
+  transform:scaleX(0); transform-origin:left center;
+  transition:transform var(--base) var(--ease);
+}
+[dir="rtl"] #builder .builder-bar-fill{ transform-origin:right center; }
+#builder .builder-bar.is-at-1 .builder-bar-fill{ transform:scaleX(.25); }
+#builder .builder-bar.is-at-2 .builder-bar-fill{ transform:scaleX(.5); }
+#builder .builder-bar.is-at-3 .builder-bar-fill{ transform:scaleX(.75); }
+#builder .builder-bar.is-at-4 .builder-bar-fill{ transform:scaleX(1); }
+
+/* ---- #builder: questions (revealed one by one) — 44px pill chips from base.css ---- */
+#builder .builder-qs{ display:grid; gap:24px; margin-top:24px; max-width:760px; }
+#builder .builder-q{ transition:opacity var(--fast) var(--ease),transform var(--fast) var(--ease); }
+#builder .builder-q.is-new{ opacity:0; transform:translateY(4px); }
+#builder .builder-q-title{ display:flex; align-items:center; gap:10px; margin-bottom:12px; font-size:16px; font-weight:600; line-height:1.45; }
+#builder .builder-q-n{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:24px; height:24px; border-radius:50%;
+  background:#F1F3F7; color:var(--ink);
+  font-family:var(--font-body); font-size:12px; font-weight:600; line-height:1; font-variant-numeric:tabular-nums;
+}
+#builder .builder-chip .ic{ width:15px; height:15px; }
+
+/* ---- #builder: summary card (only once all four answers exist) — light card, hairline rows ---- */
+#builder .builder-card{
+  margin-top:24px; padding:16px; max-width:760px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card);
+  transition:opacity var(--fast) var(--ease),transform var(--fast) var(--ease);
+}
+#builder .builder-card.is-new{ opacity:0; transform:translateY(4px); }
+@media (min-width:768px){ #builder .builder-card{ padding:20px 24px 24px; } }
+#builder .builder-card-head{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; }
+#builder .builder-card-title{ font-size:16px; }
+#builder .builder-card-meta{ margin-top:4px; }
+#builder .builder-card-summary{ margin-top:12px; font-size:16px; line-height:1.8; color:var(--text); }
+/* Rows: role / tasks / impact, each on its own hairline (mobile); three hairline-separated columns ≥768. */
+#builder .builder-card-grid{ display:grid; margin-top:16px; border-top:1px solid var(--line-2); }
+#builder .builder-card-sec{ padding:14px 0; border-top:1px solid var(--line-2); }
+#builder .builder-card-sec:first-child{ border-top:0; }
+@media (min-width:768px){
+  #builder .builder-card-grid{ grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,1fr); }
+  #builder .builder-card-sec{ padding:16px 20px; border-top:0; border-inline-start:1px solid var(--line-2); }
+  #builder .builder-card-sec:first-child{ padding-inline-start:0; border-inline-start:0; }
+  #builder .builder-card-sec:last-child{ padding-inline-end:0; }
+}
+#builder .builder-card-label{ margin-bottom:6px; font-family:var(--font-body); font-size:12.5px; line-height:1.5; font-weight:500; color:var(--muted); }
+#builder .builder-card-role{ font-weight:600; color:var(--ink); }
+#builder .builder-tasks{ display:grid; gap:8px; }
+#builder .builder-task{ display:flex; align-items:flex-start; gap:8px; font-size:14.5px; line-height:1.6; color:var(--ink-2); }
+#builder .builder-task .ic{ flex:none; width:16px; height:16px; margin-top:4px; color:var(--ink); }
+#builder .builder-card-impact{ font-weight:600; color:var(--ink); }
+#builder .builder-cta{ width:100%; margin-top:20px; }
+@media (min-width:768px){ #builder .builder-cta{ width:auto; } }
+
+/* ---- Hover (pointer devices only) -------------------------------------------- */
+@media (hover:hover){
+  #team .team-card:hover{ border-color:var(--hair); }
+  #team .team-card.is-on:hover{ border-color:var(--ink); }
+  #team .team-step-btn:hover{ color:var(--ink); }
+  #team .team-replay:hover{ color:var(--electric); text-decoration-color:var(--electric); }
+}
+
+/* ---- Reduced motion: base.css zeroes durations; make sure nothing lingers hidden. */
+@media (prefers-reduced-motion:reduce){
+  #team .team-panel.is-new,#team .team-step-label.is-new{ opacity:1; transform:none; }
+  #team .team-bar-fill,#builder .builder-bar-fill{ transition:none; }
+  #builder .builder-q.is-new,#builder .builder-card.is-new{ opacity:1; transform:none; }
+}

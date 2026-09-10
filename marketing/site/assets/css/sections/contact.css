@@ -1,0 +1,125 @@
+/* =============================================================================
+   #contact — premium restyle («أ · فخامة هادئة», 2026-09-10)
+   chips (sector · need) → two optional fields → WhatsApp-style preview bubble
+   → ONE green 52px CTA → helper.
+   Look: light .card (hairline, radius --r-card, NO shadow); chips = 44px pills,
+   selected = --ink fill; inputs 52px, 1px hairline, radius 12px, focus = 1.5px
+   ink; preview = one outgoing WhatsApp bubble (#D9FDD3) on the #EFE9E1 chat
+   wallpaper strip, radius 20px; helper 13px muted; the CTA is the only green.
+   Every selector is scoped under #contact; tokens/classes from base.css.
+   Mobile-first (360): one column; ≥900: form + sticky preview column.
+   Motion: none of its own — the preview typewriter is textContent only
+   (contact.js); chips/buttons use base.css transitions.
+   ============================================================================= */
+
+/* ---- Layout ---------------------------------------------------------------- */
+#contact .contact-grid{ display:grid; grid-template-columns:minmax(0,1fr); gap:20px; }   /* minmax(0): a nowrap child never widens the track */
+#contact .contact-side{ display:grid; gap:12px; align-content:start; }
+@media (min-width:900px){
+  #contact .contact-grid{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:32px; align-items:start; }
+  #contact .contact-side{ position:sticky; top:calc(var(--nav-h) + 16px); }
+}
+
+/* ---- Form card: chips first, then the two fields --------------------------- */
+#contact .contact-form{ display:grid; gap:24px; }
+#contact .contact-group{ display:grid; gap:10px; }
+/* Label above a chip row: 12.5px/500 muted (the direction's chips label). */
+#contact .contact-group-label{ margin:0; font-size:12.5px; line-height:1.5; font-weight:500; color:var(--muted); }
+
+/* Sector chips: one row of three 44px pills, never scrolls.
+   The page's ONE sector-chip recipe (identical in #top, #karam, #cases, #contact), sized with the
+   real fonts: «مطعم أو كافيه» alone is 76px at 14px, so on phones (<480) three equal pills hold the
+   labels on ONE line only as text pills — glyph and check are hidden there and the ink fill alone
+   marks the selection; a label that still cannot fit (EN «Restaurant & café» at 360) wraps INSIDE
+   its pill instead of spilling over the neighbours. ≥480: natural-width pills with the 15px glyph
+   (+ check when selected), nowrap — both languages fit in one row from there.
+   Inside the 16px card the pills are 90px at 360, so the phone gap/padding are 6px here, and the
+   natural-width mode starts at 520 (at 480–519 the EN row with its check would outgrow the card). */
+#contact .contact-chips-sector{ display:flex; flex-wrap:nowrap; gap:6px; }
+#contact .contact-chip-sector{
+  flex:1 1 0; min-width:0;
+  min-height:44px; padding:0 6px;
+  gap:6px;
+  text-align:center; white-space:normal;
+  font-size:14px; line-height:1.25;
+}
+#contact .contact-chip-sector .ic{ display:none; width:15px; height:15px; }
+#contact .contact-chip-label{ min-width:0; }
+@media (min-width:520px){
+  #contact .contact-chips-sector{ gap:8px; }
+  #contact .contact-chip-sector{ flex:0 0 auto; padding:0 14px; white-space:nowrap; }
+  #contact .contact-chip-sector .ic{ display:inline-block; }
+  #contact .contact-chip-sector .chip-check{ display:none; }
+  #contact .contact-chip-sector.is-on .chip-check{ display:inline-block; }
+}
+@media (min-width:768px){
+  #contact .contact-chip-sector{ padding:0 22px; }
+}
+
+/* Need chips: wrap freely, 44px pills, multi-select (ink fill + check from base). */
+#contact .contact-chips-need{ gap:8px; }
+#contact .contact-chips-need .chip{ min-height:44px; }
+
+/* Fields: 52px, 1px hairline, radius 12px; focus = 1.5px ink (drawn inside, no layout shift).
+   Stacked on mobile, side by side from 560px. */
+#contact .contact-fields{ display:grid; gap:14px; }
+@media (min-width:560px){ #contact .contact-fields{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+#contact .field > label{ font-size:13px; line-height:1.5; font-weight:500; color:var(--ink-2); }
+#contact .input{
+  min-height:52px; padding:12px 16px;
+  border:1px solid var(--chip-line); border-radius:12px;
+  background:var(--surface); color:var(--ink);
+  box-shadow:none;
+}
+#contact .input:focus,
+#contact .input:focus-visible{
+  border-color:var(--ink);
+  outline:1.5px solid var(--ink); outline-offset:-1.5px;
+  box-shadow:none;
+}
+#contact .contact-privacy{ margin:0; font-size:13px; line-height:1.6; color:var(--muted); }
+
+/* ---- Preview card: title + «معاينة» badge + one outgoing bubble on the chat strip */
+#contact .contact-preview{ display:grid; gap:12px; }
+#contact .contact-preview-head{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+  gap:8px 16px;
+}
+/* Card title: Alexandria 16/600 ink (the direction's card-title scale). */
+#contact .contact-preview-label{
+  margin:0;
+  font-family:var(--font-display); font-size:16px; line-height:1.45; font-weight:600; letter-spacing:0;
+  color:var(--ink);
+}
+/* Chat wallpaper strip — the product's real WhatsApp look (#EFE9E1, same as the #karam phone). */
+#contact .contact-pane{
+  display:flex; flex-direction:column; justify-content:flex-end;
+  min-height:140px; padding:14px 12px;
+  border-radius:20px;
+  background:#EFE9E1;
+}
+/* Outgoing bubble (#D9FDD3): sits at inline-end (the sender's side), 4px corner at the top-end. No shadow. */
+#contact .contact-bubble{
+  position:relative;
+  align-self:flex-end;
+  max-width:92%;
+  padding:8px 12px;
+  border-radius:16px; border-start-end-radius:4px;
+  background:#D9FDD3; color:var(--ink-2);
+  font-family:var(--font-body);
+  font-size:14.5px; line-height:1.6;
+}
+#contact .contact-msg-size,
+#contact .contact-msg{
+  display:block;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+  text-align:start;
+}
+/* Sizer = accessible full text; invisible but keeps the bubble's height while the visible copy types. */
+#contact .contact-msg-size{ color:transparent; user-select:none; -webkit-user-select:none; }
+#contact .contact-msg{ position:absolute; top:8px; right:12px; bottom:8px; left:12px; overflow:hidden; }
+
+/* ---- CTA (52px green pill, the only green in the section) + helper + «opening…» status */
+#contact .contact-cta{ min-height:52px; min-width:0; white-space:normal; text-align:center; }   /* a long EN label wraps inside the pill; never widens the page */
+#contact .contact-helper{ margin:0; text-align:center; font-size:13px; line-height:1.6; color:var(--muted); }
+#contact .contact-opening{ margin:0; text-align:center; font-size:13px; line-height:1.6; font-weight:500; color:var(--ink-2); }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Deploy ./site to Firebase Hosting site `shifts-ai-site` via the REST API.
 Auth: gcloud user credentials (`gcloud auth print-access-token`). No firebase-tools needed."""
-import gzip, hashlib, io, json, os, subprocess, sys, urllib.request, urllib.error
+import gzip, hashlib, io, json, os, subprocess, sys, urllib.request, urllib.error, argparse
 
 SITE    = "shifts-ai-site"
 PROJECT = "karam-bot"
@@ -9,6 +9,10 @@ ROOT    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
 BASE    = "https://firebasehosting.googleapis.com/v1beta1"
 APP     = "https://app.shifts-ai.store"
 
+ap = argparse.ArgumentParser(description="Deploy ./site to Firebase Hosting (live by default).")
+ap.add_argument("--channel", help="deploy to a preview channel id (e.g. preview) instead of live; prints its URL")
+ap.add_argument("--expires", default="7d", help="preview channel TTL (default 7d)")
+ARGS = ap.parse_args()
 TOKEN = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
 
 def req(method, url, body=None, ctype="application/json", raw=False):
@@ -64,4 +68,14 @@ for h in pop.get("uploadRequiredHashes", []):
     print("  uploaded", h[:12])
 
 print("finalize:", req("PATCH", f"{BASE}/{ver}?updateMask=status", {"status": "FINALIZED"})["status"])
-print("released:", req("POST", f"{BASE}/sites/{SITE}/releases?versionName={ver}", {})["name"])
+if ARGS.channel:
+    ch = f"{BASE}/sites/{SITE}/channels/{ARGS.channel}"
+    try:
+        info = req("GET", ch)
+    except SystemExit:
+        info = req("POST", f"{BASE}/sites/{SITE}/channels?channelId={ARGS.channel}", {"ttl": ARGS.expires.replace("d", "") and str(int(ARGS.expires.rstrip("d")) * 86400) + "s"})
+    rel = req("POST", f"{ch}/releases?versionName={ver}", {})
+    print("released to channel:", rel["name"])
+    print("PREVIEW URL:", info.get("url"))
+else:
+    print("released LIVE:", req("POST", f"{BASE}/sites/{SITE}/releases?versionName={ver}", {})["name"])

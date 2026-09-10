@@ -1,0 +1,1749 @@
+{
+  "$meta": {
+    "file": "marketing/content/demos.json",
+    "extractedFrom": "marketing/reference/bundle.pretty.js (old React bundle) + DESIGN-CONTRACT.md",
+    "sectors": [
+      "clinic",
+      "restaurant",
+      "store"
+    ],
+    "illustrativeLabel": {
+      "ar": "مثال توضيحي",
+      "en": "Illustrative example"
+    },
+    "tokenSyntax": "{{token}} — replaced at render time; sector-dependent values always come from SHIFT_CONTENT.sectors[SHIFT.state.sector]"
+  },
+  "loyalty": {
+    "source": "bundle.pretty.js ah() L6822-7057, R.loy L4805-4891, ja L6708-6780",
+    "illustrativeLabel": {
+      "ar": "مثال توضيحي",
+      "en": "Illustrative example"
+    },
+    "eyebrow": {
+      "ar": "نقاط الولاء · المنتج 02",
+      "en": "Loyalty Points · product 02"
+    },
+    "title": {
+      "ar": "خلّي كل زيارة سببًا لزيارة ثانية.",
+      "en": "Give every visit a reason to come back."
+    },
+    "sub": {
+      "ar": "اضبط القواعد كما تريدها، ثم اضغط \"زيارة جديدة\" وشاهد ما يصل عميلك على واتساب.",
+      "en": "Set the rules, then tap \"New visit\" to see what the customer receives on WhatsApp."
+    },
+    "rules": {
+      "pointsPerJOD": {
+        "id": "l-rate",
+        "label": {
+          "ar": "نقاط لكل دينار",
+          "en": "Points per JD spent"
+        },
+        "min": 1,
+        "max": 10,
+        "step": 1,
+        "default": 1,
+        "unit": {
+          "ar": "نقطة",
+          "en": "pts"
+        },
+        "defaultSource": "sectors[sector].pointsPerJOD — sectors.json: 1 for all three",
+        "defaultBySector": {
+          "clinic": 1,
+          "restaurant": 1,
+          "store": 1
+        }
+      },
+      "rewardAt": {
+        "id": "l-thr",
+        "label": {
+          "ar": "المكافأة عند",
+          "en": "Reward at"
+        },
+        "min": 50,
+        "max": 500,
+        "step": 25,
+        "default": 100,
+        "unit": {
+          "ar": "نقطة",
+          "en": "pts"
+        },
+        "defaultSource": "sectors[sector].rewardAt — sectors.json: clinic 200, restaurant 100, store 100",
+        "defaultBySector": {
+          "clinic": 200,
+          "restaurant": 100,
+          "store": 100
+        }
+      },
+      "avgTicket": {
+        "id": "l-ticket",
+        "label": {
+          "ar": "متوسط الفاتورة (دينار)",
+          "en": "Average bill (JD)"
+        },
+        "min": 3,
+        "max": 100,
+        "step": 1,
+        "default": 12,
+        "unit": {
+          "ar": "دينار",
+          "en": "JD"
+        },
+        "defaultSource": "sectors[sector].avgTicketJOD — contract: clinic 35, restaurant 12, store 25",
+        "defaultBySector": {
+          "clinic": 35,
+          "restaurant": 12,
+          "store": 25
+        }
+      }
+    },
+    "formula": {
+      "pointsPerVisit": "points = round(avgTicket * pointsPerJOD)",
+      "balanceAfterVisit": "balance = balance + points",
+      "remaining": "remaining = max(0, rewardAt - balance)",
+      "progressPercent": "progress = min(100, round(balance / rewardAt * 100))",
+      "unlocked": "unlocked = balance >= rewardAt   // unlock event fires once, when balance crosses rewardAt",
+      "redeem": "balance = balance - rewardAt; redeemed = redeemed + 1",
+      "lifetime": "lifetime = lifetime + points   // never decreases on redeem",
+      "tier": "tier = lifetime >= rewardAt * 5 ? 'gold' : lifetime >= rewardAt * 2 ? 'silver' : 'bronze'",
+      "eventsKept": 6
+    },
+    "tiers": [
+      {
+        "key": "bronze",
+        "label": {
+          "ar": "برونزي",
+          "en": "Bronze"
+        },
+        "lifetimeAtLeast": "0"
+      },
+      {
+        "key": "silver",
+        "label": {
+          "ar": "فضي",
+          "en": "Silver"
+        },
+        "lifetimeAtLeast": "rewardAt * 2"
+      },
+      {
+        "key": "gold",
+        "label": {
+          "ar": "ذهبي",
+          "en": "Gold"
+        },
+        "lifetimeAtLeast": "rewardAt * 5"
+      }
+    ],
+    "initialState": {
+      "visits": 0,
+      "balance": 0,
+      "lifetime": 0,
+      "issued": 0,
+      "redeemed": 0,
+      "events": []
+    },
+    "card": {
+      "businessNameSource": "state.bizName || sectors[sector].exampleName",
+      "member": {
+        "ar": "بطاقة العضوية",
+        "en": "Member card"
+      },
+      "memberName": {
+        "ar": "سارة",
+        "en": "Sara"
+      },
+      "balance": {
+        "ar": "رصيد النقاط",
+        "en": "Points balance"
+      },
+      "toReward": {
+        "ar": "حتى المكافأة",
+        "en": "to your reward"
+      },
+      "toRewardLine": {
+        "ar": "{{remaining}} حتى المكافأة: {{reward}}",
+        "en": "{{remaining}} to your reward: {{reward}}"
+      },
+      "unlocked": {
+        "ar": "المكافأة جاهزة",
+        "en": "Reward unlocked"
+      },
+      "unlockedLine": {
+        "ar": "🎁 المكافأة جاهزة: {{reward}}",
+        "en": "🎁 Reward unlocked: {{reward}}"
+      },
+      "tier": {
+        "ar": "المستوى",
+        "en": "Tier"
+      },
+      "visits": {
+        "ar": "الزيارات",
+        "en": "Visits"
+      },
+      "visitsLine": {
+        "ar": "{{name}} · {{visits}} زيارات",
+        "en": "{{name}} · {{visits}} visits"
+      },
+      "issued": {
+        "ar": "نقاط صادرة",
+        "en": "Points issued"
+      },
+      "redeemed": {
+        "ar": "مكافآت مستبدلة",
+        "en": "Rewards redeemed"
+      },
+      "chatHeader": {
+        "ar": "{{business}} · الولاء",
+        "en": "{{business}} · Loyalty"
+      },
+      "chatChannel": "WhatsApp",
+      "progressAria": {
+        "min": 0,
+        "max": "rewardAt",
+        "now": "min(rewardAt, balance)"
+      }
+    },
+    "buttons": {
+      "visit": {
+        "ar": "زيارة جديدة",
+        "en": "New visit"
+      },
+      "visitWithPoints": {
+        "ar": "زيارة جديدة · +{{points}}",
+        "en": "New visit · +{{points}}"
+      },
+      "redeem": {
+        "ar": "استبدل المكافأة",
+        "en": "Redeem reward"
+      },
+      "reset": {
+        "ar": "إعادة",
+        "en": "Reset"
+      },
+      "businessType": {
+        "ar": "نوع النشاط",
+        "en": "Business type"
+      }
+    },
+    "emptyState": {
+      "ar": "اضغط \"زيارة جديدة\" لبدء التجربة",
+      "en": "Tap \"New visit\" to start"
+    },
+    "whatsappTemplates": {
+      "tokens": [
+        "{{name}}",
+        "{{points}}",
+        "{{business}}",
+        "{{balance}}",
+        "{{remaining}}",
+        "{{reward}}"
+      ],
+      "earn": {
+        "ar": "{{name}}، كسبت {{points}} نقطة في {{business}}. رصيدك {{balance}} نقطة، وبقي {{remaining}} نقطة حتى {{reward}}.",
+        "en": "{{name}}, you earned {{points}} points at {{business}}. Balance: {{balance}}. {{remaining}} points to {{reward}}."
+      },
+      "unlock": {
+        "ar": "🎁 {{name}}، مكافأتك جاهزة: {{reward}}. ردّ بكلمة «استبدال» لاستخدامها.",
+        "en": "🎁 {{name}}, your reward is ready: {{reward}}. Reply “redeem” to use it."
+      },
+      "redeem": {
+        "ar": "{{name}}، تم استبدال {{reward}}. نقاطك تستمر بالتراكم.",
+        "en": "{{name}}, {{reward}} redeemed. Your points keep adding up."
+      },
+      "bubbleSide": {
+        "earn": "in",
+        "unlock": "owner",
+        "redeem": "book"
+      }
+    },
+    "note": {
+      "ar": "تُضبط النقاط والمستويات والمكافآت لكل منشأة. تُرسل الإشعارات على واتساب عبر كرم بوت أو رقم الولاء.",
+      "en": "Points, tiers and rewards are configured per business. Notifications go out on WhatsApp through Karam Bot or the loyalty number."
+    }
+  },
+  "attendance": {
+    "source": "bundle.pretty.js ch() L7150-7430, R.att L4893-5031, sh/ih/oh/uh L7059-7100",
+    "illustrativeLabel": {
+      "ar": "مثال توضيحي",
+      "en": "Illustrative example"
+    },
+    "eyebrow": {
+      "ar": "نظام الدوام · المنتج 03",
+      "en": "Attendance System · product 03"
+    },
+    "title": {
+      "ar": "اعرف من حضر، ومن تأخّر، وكم يستحق كل موظف، بلا جداول يدوية.",
+      "en": "Know who is in, who is late, and what payroll owes — without a spreadsheet."
+    },
+    "sub": {
+      "ar": "اختر قواعد الوردية، ثم شغّل صباحًا كاملًا. المتأخر والغائب يُعلَّمان فورًا، والمدير يصله التنبيه على واتساب.",
+      "en": "Choose the shift rules, then run a morning. Late and absent staff are flagged and the manager is told on WhatsApp."
+    },
+    "rules": {
+      "shiftStart": {
+        "label": {
+          "ar": "بداية الوردية",
+          "en": "Shift starts"
+        },
+        "options": [
+          "08:00",
+          "09:00",
+          "10:00"
+        ],
+        "default": "09:00",
+        "defaultSource": "sectors[sector].hours.open when it is one of the options, else 09:00"
+      },
+      "grace": {
+        "id": "a-grace",
+        "label": {
+          "ar": "فترة السماح",
+          "en": "Grace period"
+        },
+        "min": 0,
+        "max": 30,
+        "step": 5,
+        "default": 10,
+        "unit": {
+          "ar": "دقيقة",
+          "en": "min"
+        }
+      },
+      "staffCount": {
+        "id": "a-staff",
+        "label": {
+          "ar": "موظفون في الوردية",
+          "en": "Staff on shift"
+        },
+        "min": 4,
+        "max": 12,
+        "step": 1,
+        "default": 6
+      },
+      "method": {
+        "label": {
+          "ar": "طريقة التسجيل",
+          "en": "Check-in method"
+        },
+        "default": "finger",
+        "options": [
+          {
+            "key": "finger",
+            "icon": "ShieldCheck",
+            "label": {
+              "ar": "بصمة",
+              "en": "Fingerprint"
+            }
+          },
+          {
+            "key": "qr",
+            "icon": "Tag",
+            "label": {
+              "ar": "رمز QR",
+              "en": "QR code"
+            }
+          },
+          {
+            "key": "app",
+            "icon": "MapPin",
+            "label": {
+              "ar": "الجوال مع الموقع",
+              "en": "Mobile + location"
+            }
+          }
+        ]
+      }
+    },
+    "roster": [
+      {
+        "name": {
+          "ar": "أحمد",
+          "en": "Ahmad"
+        },
+        "arrivalOffsetMin": -12
+      },
+      {
+        "name": {
+          "ar": "سارة",
+          "en": "Sara"
+        },
+        "arrivalOffsetMin": -4
+      },
+      {
+        "name": {
+          "ar": "عمر",
+          "en": "Omar"
+        },
+        "arrivalOffsetMin": 6
+      },
+      {
+        "name": {
+          "ar": "لينا",
+          "en": "Lina"
+        },
+        "arrivalOffsetMin": 18
+      },
+      {
+        "name": {
+          "ar": "يوسف",
+          "en": "Yousef"
+        },
+        "arrivalOffsetMin": 27
+      },
+      {
+        "name": {
+          "ar": "ريم",
+          "en": "Reem"
+        },
+        "arrivalOffsetMin": null
+      },
+      {
+        "name": {
+          "ar": "خالد",
+          "en": "Khaled"
+        },
+        "arrivalOffsetMin": -2
+      },
+      {
+        "name": {
+          "ar": "دانا",
+          "en": "Dana"
+        },
+        "arrivalOffsetMin": 41
+      },
+      {
+        "name": {
+          "ar": "علي",
+          "en": "Ali"
+        },
+        "arrivalOffsetMin": 3
+      },
+      {
+        "name": {
+          "ar": "نور",
+          "en": "Noor"
+        },
+        "arrivalOffsetMin": -8
+      },
+      {
+        "name": {
+          "ar": "هالة",
+          "en": "Hala"
+        },
+        "arrivalOffsetMin": 14
+      },
+      {
+        "name": {
+          "ar": "طارق",
+          "en": "Tariq"
+        },
+        "arrivalOffsetMin": null
+      }
+    ],
+    "rosterRule": "visible staff = roster.slice(0, staffCount); role label per row = sectors[sector].staffRoles[i % staffRoles.length]; arrivalOffsetMin is minutes relative to shiftStart, null = never checks in",
+    "clock": {
+      "startOffsetMin": -15,
+      "endOffsetMin": 45,
+      "absentAfterMin": 30,
+      "tickMs": 95,
+      "reducedMotion": "jump straight to endOffsetMin",
+      "displayTime": "shiftStart + clockOffset, HH:MM, dir=ltr, Latin digits"
+    },
+    "statusRule": {
+      "idle": "clock === null || clock < arrival (or arrival === null && clock < absentAfterMin)",
+      "absent": "arrival === null && clock >= absentAfterMin",
+      "late": "clock >= arrival && arrival > grace",
+      "ontime": "clock >= arrival && arrival <= grace"
+    },
+    "statuses": {
+      "idle": {
+        "label": {
+          "ar": "لم يسجّل",
+          "en": "not yet"
+        },
+        "icon": "Clock"
+      },
+      "ontime": {
+        "label": {
+          "ar": "في الوقت",
+          "en": "On time"
+        },
+        "icon": "CheckCircle2"
+      },
+      "late": {
+        "label": {
+          "ar": "متأخر",
+          "en": "Late"
+        },
+        "lateByLine": {
+          "ar": "تأخر {{minutes}} دقيقة",
+          "en": "late by {{minutes}} min"
+        },
+        "icon": "AlertTriangle"
+      },
+      "absent": {
+        "label": {
+          "ar": "غائب",
+          "en": "Absent"
+        },
+        "icon": "UserX"
+      },
+      "present": {
+        "ar": "حاضر",
+        "en": "Present"
+      },
+      "lateBy": {
+        "ar": "تأخر",
+        "en": "late by"
+      },
+      "min": {
+        "ar": "دقيقة",
+        "en": "min"
+      },
+      "noTime": "—"
+    },
+    "board": {
+      "title": {
+        "ar": "لوحة الحضور",
+        "en": "Attendance board"
+      },
+      "counters": [
+        {
+          "key": "present",
+          "label": {
+            "ar": "حاضر",
+            "en": "Present"
+          },
+          "formula": "count(ontime) + count(late)",
+          "tone": "ok"
+        },
+        {
+          "key": "late",
+          "label": {
+            "ar": "متأخر",
+            "en": "Late"
+          },
+          "formula": "count(late)",
+          "tone": "warn"
+        },
+        {
+          "key": "absent",
+          "label": {
+            "ar": "غائب",
+            "en": "Absent"
+          },
+          "formula": "count(absent)",
+          "tone": "danger"
+        }
+      ]
+    },
+    "buttons": {
+      "run": {
+        "ar": "شغّل الصباح",
+        "en": "Run the morning"
+      },
+      "running": {
+        "ar": "جارٍ التسجيل…",
+        "en": "Checking in…"
+      },
+      "replay": {
+        "ar": "شغّل مرة أخرى",
+        "en": "Run again"
+      }
+    },
+    "managerAlerts": {
+      "title": {
+        "ar": "تنبيهات المدير",
+        "en": "Manager alerts"
+      },
+      "channel": {
+        "ar": "واتساب",
+        "en": "WhatsApp"
+      },
+      "previewBadge": {
+        "ar": "معاينة",
+        "en": "Preview"
+      },
+      "empty": {
+        "ar": "لا تنبيهات بعد. شغّل الصباح لتراها تصل.",
+        "en": "No alerts yet. Run the morning to see them arrive."
+      },
+      "tokens": [
+        "{{name}}",
+        "{{minutes}}",
+        "{{time}}"
+      ],
+      "late": {
+        "ar": "{{name}} متأخر {{minutes}} دقيقة · {{time}}",
+        "en": "{{name}} is late by {{minutes}} min · {{time}}"
+      },
+      "absent": {
+        "ar": "{{name}} لم يسجّل حضوره. تم تسجيله غائبًا. · {{time}}",
+        "en": "{{name}} has not checked in. Marked absent. · {{time}}"
+      },
+      "timeRule": "late: time = shiftStart + arrivalOffsetMin; absent: time = shiftStart + absentAfterMin; alerts sorted by that offset; alert appears when clock reaches it",
+      "sentState": {
+        "ar": "أُرسل للمدير · معاينة",
+        "en": "Sent to the manager · preview"
+      }
+    },
+    "month": {
+      "title": {
+        "ar": "ملخص الشهر",
+        "en": "Month at a glance"
+      },
+      "hours": {
+        "label": {
+          "ar": "ساعات العمل",
+          "en": "Hours worked"
+        },
+        "formula": "present * 8 * 22",
+        "assumption": {
+          "ar": "8 ساعات × 22 يوم عمل",
+          "en": "8 h × 22 working days"
+        },
+        "derivable": true
+      },
+      "overtime": {
+        "label": {
+          "ar": "عمل إضافي (ساعة)",
+          "en": "Overtime (h)"
+        },
+        "formula": "round(present * 2.5)",
+        "derivable": false,
+        "why": "2.5 h per present employee is not visible anywhere in the inputs"
+      },
+      "incidents": {
+        "label": {
+          "ar": "حالات تأخير",
+          "en": "Late incidents"
+        },
+        "formula": "late * 4 + absent * 2",
+        "derivable": false,
+        "why": "×4 / ×2 month multipliers are not visible anywhere in the inputs"
+      }
+    },
+    "export": {
+      "button": {
+        "ar": "تصدير كشف الرواتب",
+        "en": "Export payroll sheet"
+      },
+      "previewLabel": {
+        "ar": "كشف الرواتب جاهز (<bdi>Excel</bdi>) · معاينة",
+        "en": "Payroll sheet ready (<bdi>Excel</bdi>) · preview"
+      }
+    },
+    "note": {
+      "ar": "بيانات تجريبية. في التركيب الفعلي تتم المزامنة من جهاز البصمة أو QR أو تطبيق الموظفين، بقواعد لكل فرع.",
+      "en": "Demo data. Real installs sync from your fingerprint device, QR or the staff app, with rules per branch."
+    }
+  },
+  "roi": {
+    "source": "bundle.pretty.js ph() L7478-7700, R.roi L5033-5069, N.roi L2300-2334",
+    "illustrativeLabel": {
+      "ar": "مثال توضيحي",
+      "en": "Illustrative example"
+    },
+    "eyebrow": {
+      "ar": "قيمة الأتمتة",
+      "en": "Return on automation"
+    },
+    "title": {
+      "ar": "كم توفّر عليك شِفت كل شهر؟",
+      "en": "What would SHIFT give back to your month?"
+    },
+    "inputs": [
+      {
+        "id": "msgsPerDay",
+        "label": {
+          "ar": "رسائل العملاء يوميًا",
+          "en": "Customer messages per day"
+        },
+        "min": 10,
+        "max": 400,
+        "step": 10,
+        "default": 60,
+        "unit": {
+          "ar": "رسالة",
+          "en": "msgs"
+        }
+      },
+      {
+        "id": "replyMinutes",
+        "label": {
+          "ar": "دقائق لكل ردّ",
+          "en": "Minutes per reply"
+        },
+        "min": 1,
+        "max": 10,
+        "step": 1,
+        "default": 3,
+        "unit": {
+          "ar": "دقيقة",
+          "en": "min"
+        }
+      },
+      {
+        "id": "missedPerWeek",
+        "label": {
+          "ar": "عملاء ضائعون أسبوعيًا",
+          "en": "Missed leads per week"
+        },
+        "min": 0,
+        "max": 40,
+        "step": 1,
+        "default": 5,
+        "unit": {
+          "ar": "عميل",
+          "en": "leads"
+        },
+        "warning": "COUNT per week (from the old bundle). sectors.json roiDefaults.missedRate is a FRACTION (0.15/0.2) — not the same quantity; do not map one onto the other without an owner decision"
+      },
+      {
+        "id": "avgTicketJOD",
+        "label": {
+          "ar": "متوسط الفاتورة (دينار)",
+          "en": "Average bill (JD)"
+        },
+        "min": 3,
+        "max": 200,
+        "step": 1,
+        "default": 12,
+        "unit": {
+          "ar": "دينار",
+          "en": "JD"
+        }
+      },
+      {
+        "id": "staffCostPerHour",
+        "label": {
+          "ar": "تكلفة الموظف بالساعة (دينار)",
+          "en": "Staff cost per hour (JD)"
+        },
+        "min": 2,
+        "max": 20,
+        "step": 1,
+        "default": 4,
+        "unit": {
+          "ar": "دينار",
+          "en": "JD"
+        }
+      }
+    ],
+    "defaultsBySector": {
+      "clinic": {
+        "msgsPerDay": 40,
+        "replyMinutes": 3,
+        "missedPerWeek": 4,
+        "avgTicketJOD": 35,
+        "staffCostPerHour": 4
+      },
+      "restaurant": {
+        "msgsPerDay": 80,
+        "replyMinutes": 2,
+        "missedPerWeek": 5,
+        "avgTicketJOD": 12,
+        "staffCostPerHour": 4
+      },
+      "store": {
+        "msgsPerDay": 60,
+        "replyMinutes": 3,
+        "missedPerWeek": 5,
+        "avgTicketJOD": 25,
+        "staffCostPerHour": 4
+      }
+    },
+    "defaultsSource": "sectors[sector].roiDefaults wins for msgsPerDay, replyMinutes, avgTicketJOD; msgsPerDay/replyMinutes/avgTicketJOD above already mirror sectors.json; missedPerWeek and staffCostPerHour come only from this file (sectors.json missedRate is a fraction, see inputs[].warning)",
+    "constants": {
+      "daysPerMonth": 30,
+      "weeksPerMonth": 4,
+      "routineShare": 0.8,
+      "recoveredShare": 0.6
+    },
+    "formula": "hoursSaved = round(msgsPerDay * replyMinutes * 30 / 60 * 0.8);\nleadsRecovered = round(missedPerWeek * 4 * 0.6);\ntimeValue = hoursSaved * staffCostPerHour;\nextraRevenue = leadsRecovered * avgTicketJOD;\ntotal = timeValue + extraRevenue",
+    "outputs": [
+      {
+        "id": "total",
+        "primary": true,
+        "label": {
+          "ar": "القيمة الشهرية الإجمالية",
+          "en": "Total monthly value"
+        },
+        "unit": {
+          "ar": "دينار / شهريًا",
+          "en": "JD / month"
+        },
+        "formula": "timeValue + extraRevenue"
+      },
+      {
+        "id": "timeValue",
+        "label": {
+          "ar": "قيمة هذا الوقت",
+          "en": "Value of that time"
+        },
+        "unit": {
+          "ar": "دينار",
+          "en": "JD"
+        },
+        "formula": "hoursSaved * staffCostPerHour"
+      },
+      {
+        "id": "extraRevenue",
+        "label": {
+          "ar": "إيراد إضافي شهريًا",
+          "en": "Extra revenue per month"
+        },
+        "unit": {
+          "ar": "دينار",
+          "en": "JD"
+        },
+        "formula": "leadsRecovered * avgTicketJOD"
+      },
+      {
+        "id": "hoursSaved",
+        "label": {
+          "ar": "ساعات موفَّرة شهريًا",
+          "en": "Hours saved per month"
+        },
+        "unit": {
+          "ar": "ساعة",
+          "en": "h"
+        },
+        "formula": "round(msgsPerDay * replyMinutes * 30 / 60 * 0.8)"
+      },
+      {
+        "id": "leadsRecovered",
+        "label": {
+          "ar": "عملاء مستعادون شهريًا",
+          "en": "Leads recovered per month"
+        },
+        "unit": {
+          "ar": "عميل",
+          "en": "leads"
+        },
+        "formula": "round(missedPerWeek * 4 * 0.6)"
+      }
+    ],
+    "breakdownLine": {
+      "ar": "قيمة هذا الوقت: {{timeValue}} دينار · إيراد إضافي شهريًا: {{extraRevenue}} دينار",
+      "en": "Value of that time: {{timeValue}} JD · Extra revenue per month: {{extraRevenue}} JD"
+    },
+    "assumptions": {
+      "ar": "تقديرات: كرم يتولّى نحو 80% من الرسائل الروتينية ويستعيد نحو 60% من العملاء الضائعين. الشهر 30 يومًا وأربعة أسابيع. التدقيق يستخدم أرقامك الفعلية.",
+      "en": "Estimates: Karam handles ~80% of routine messages and recovers ~60% of missed leads. A month is 30 days and four weeks. Your audit uses your real numbers."
+    },
+    "messageFragment": {
+      "ar": "عندي ~{{msgsPerDay}} رسالة/يوم وأخسر ~{{total}} دينار/شهر حسب الحاسبة.",
+      "en": "I get ~{{msgsPerDay}} messages/day and lose ~{{total}} JD/month according to the calculator."
+    },
+    "legacy": {
+      "note": "Old page had product toggles (karam/loyalty/attend) and two extra inputs; dropped because the contract's roiDefaults has no such inputs. Kept here only for reference.",
+      "extraInputs": [
+        {
+          "id": "customersPerMonth",
+          "label": {
+            "ar": "عملاء شهريًا",
+            "en": "Customers per month"
+          },
+          "min": 50,
+          "max": 3000,
+          "step": 50,
+          "default": 400
+        },
+        {
+          "id": "staffOnPayroll",
+          "label": {
+            "ar": "موظفون على الرواتب",
+            "en": "Staff on payroll"
+          },
+          "min": 2,
+          "max": 60,
+          "step": 1,
+          "default": 6
+        }
+      ],
+      "formula": "hoursKaram = karam ? msgs*reply*30/60*0.8 : 0; hoursAttend = attend ? staff*0.75*4 : 0; hours = round(hoursKaram+hoursAttend); leads = karam ? round(missed*4*0.6) : 0; visits = loyalty ? round(customers*0.12) : 0; revenue = (leads+visits)*ticket; value = hours*cost; total = revenue+value",
+      "toggleLabel": {
+        "ar": "احسب لي",
+        "en": "Include in the estimate"
+      },
+      "extraRepeatVisits": {
+        "ar": "زيارة متكررة إضافية",
+        "en": "extra repeat visits"
+      }
+    }
+  },
+  "builder": {
+    "source": "bundle.pretty.js Zm() L6000-6120, Dm() L4264-4288, N.steps L2183-2198, Ce L1276-1366, mr L1367-1433, hr L1434-1469, xs L1470-1600, Sp L1603-1664",
+    "eyebrow": {
+      "ar": "ابنِ وكيلك في أربع خطوات",
+      "en": "Build your agent in four steps"
+    },
+    "title": {
+      "ar": "أربعة اختيارات، ووكيل جاهز يعرّف عن نفسه.",
+      "en": "Four choices. One agent, ready to describe itself."
+    },
+    "progressLabel": {
+      "ar": "{{n}} من 4 · {{step}}",
+      "en": "{{n}} of 4 · {{step}}"
+    },
+    "questions": [
+      {
+        "key": "business",
+        "label": {
+          "ar": "نشاطك",
+          "en": "Your business"
+        },
+        "prompt": {
+          "ar": "نوع النشاط",
+          "en": "Business type"
+        },
+        "defaultSource": "state.sector (default restaurant)",
+        "options": [
+          {
+            "key": "clinic",
+            "icon": "Stethoscope",
+            "label": {
+              "ar": "عيادة",
+              "en": "Clinic"
+            },
+            "noun": {
+              "ar": "المواعيد",
+              "en": "appointments"
+            },
+            "unit": {
+              "ar": "موعد",
+              "en": "appointment"
+            }
+          },
+          {
+            "key": "restaurant",
+            "icon": "UtensilsCrossed",
+            "label": {
+              "ar": "مطعم أو كافيه",
+              "en": "Restaurant & café"
+            },
+            "noun": {
+              "ar": "الطلبات",
+              "en": "orders"
+            },
+            "unit": {
+              "ar": "طلب",
+              "en": "order"
+            }
+          },
+          {
+            "key": "store",
+            "icon": "ShoppingBag",
+            "label": {
+              "ar": "متجر إلكتروني",
+              "en": "Online store"
+            },
+            "noun": {
+              "ar": "الطلبات",
+              "en": "orders"
+            },
+            "unit": {
+              "ar": "طلب",
+              "en": "order"
+            }
+          }
+        ]
+      },
+      {
+        "key": "role",
+        "label": {
+          "ar": "دور الوكيل",
+          "en": "Agent role"
+        },
+        "prompt": {
+          "ar": "الدور",
+          "en": "Role"
+        },
+        "default": "receptionist",
+        "options": [
+          {
+            "key": "receptionist",
+            "icon": "Headphones",
+            "label": {
+              "ar": "موظف استقبال ذكي",
+              "en": "AI Receptionist"
+            },
+            "does": {
+              "ar": "يجيب عن الأسئلة الشائعة فورًا ويوجّه كل عميل إلى المكان الصحيح.",
+              "en": "answers common questions instantly and routes each customer to the right place."
+            },
+            "tasks": [
+              {
+                "ar": "الردّ على \"فاتحين؟\" والموقع والأسعار خلال ثوانٍ",
+                "en": "Answer \"are you open?\", location, and prices in seconds"
+              },
+              {
+                "ar": "تحويل الشكوى أو الطلب الخاص إلى موظف",
+                "en": "Route a complaint or a special request to a human"
+              },
+              {
+                "ar": "تسجيل اسم العميل وسبب التواصل قبل التحويل",
+                "en": "Collect the caller's name and reason before handoff"
+              }
+            ]
+          },
+          {
+            "key": "sales",
+            "icon": "TrendingUp",
+            "label": {
+              "ar": "وكيل مبيعات ذكي",
+              "en": "AI Sales Agent"
+            },
+            "does": {
+              "ar": "يردّ على كل عميل محتمل، يجيب عن الأسعار، يقيس الاهتمام، ويتابع حتى القرار.",
+              "en": "replies to every lead, answers pricing, qualifies interest, and follows up until they decide."
+            },
+            "tasks": [
+              {
+                "ar": "الإجابة عن الأسعار من قائمتك الفعلية",
+                "en": "Answer pricing questions with your real price list"
+              },
+              {
+                "ar": "طرح السؤالين اللذين يميّزان العميل الجاد",
+                "en": "Ask the two questions that qualify a serious lead"
+              },
+              {
+                "ar": "المتابعة بعد 24 ساعة إذا صمت العميل",
+                "en": "Follow up after 24 hours if the lead goes quiet"
+              },
+              {
+                "ar": "إرسال تقرير يومي بالعملاء المحتملين",
+                "en": "Send you a daily lead report"
+              }
+            ]
+          },
+          {
+            "key": "booking",
+            "icon": "CalendarCheck",
+            "label": {
+              "ar": "وكيل حجوزات ذكي",
+              "en": "AI Booking Agent"
+            },
+            "does": {
+              "ar": "يعرض الأوقات المتاحة، يثبّت الحجز، ويرسل تذكيرًا قبله.",
+              "en": "offers available times, confirms the booking, and sends reminders before it."
+            },
+            "tasks": [
+              {
+                "ar": "عرض أقرب الأوقات المتاحة لـ{{unit}}",
+                "en": "Offer the next available slots for a {{unit}}"
+              },
+              {
+                "ar": "تثبيت الحجز وإضافته إلى تقويمك",
+                "en": "Confirm the booking and add it to your calendar"
+              },
+              {
+                "ar": "إرسال تذكير قبل الموعد بساعة",
+                "en": "Send a reminder one hour before"
+              },
+              {
+                "ar": "تعديل المواعيد دون مكالمة",
+                "en": "Handle reschedules without a phone call"
+              }
+            ]
+          },
+          {
+            "key": "ops",
+            "icon": "ClipboardList",
+            "label": {
+              "ar": "مساعد عمليات ذكي",
+              "en": "AI Operations Assistant"
+            },
+            "does": {
+              "ar": "يحوّل المحادثات إلى مهام، يوزّعها على الفريق، ويتابع المتأخر منها.",
+              "en": "turns conversations into tasks, assigns them to staff, and chases what is late."
+            },
+            "tasks": [
+              {
+                "ar": "تحويل \"المكيّف معطّل\" إلى مهمة للصيانة",
+                "en": "Turn \"the AC is broken\" into a task for maintenance"
+              },
+              {
+                "ar": "إسناد {{noun}} إلى الموظف المناسب",
+                "en": "Assign {{noun}} to the right staff member"
+              },
+              {
+                "ar": "متابعة كل ما بقي مفتوحًا نهاية اليوم",
+                "en": "Chase anything still open at end of day"
+              }
+            ]
+          },
+          {
+            "key": "reporting",
+            "icon": "BarChart3",
+            "label": {
+              "ar": "مساعد تقارير ذكي",
+              "en": "AI Reporting Assistant"
+            },
+            "does": {
+              "ar": "يرسل لك ملخصًا واضحًا كل يوم: العملاء، الحجوزات، الإيراد، وما يحتاج تدخّلك.",
+              "en": "sends you a clear summary every day: leads, bookings, revenue, and what needs you."
+            },
+            "tasks": [
+              {
+                "ar": "ملخص يومي: العملاء، {{noun}}، الإيراد، والرسائل الفائتة",
+                "en": "Daily summary: leads, {{noun}}, revenue, and missed messages"
+              },
+              {
+                "ar": "إبراز ثلاثة أمور تحتاج قرارك",
+                "en": "Flag the three things that need your decision"
+              },
+              {
+                "ar": "اتجاه أسبوعي: ما نما وما تراجع",
+                "en": "Weekly trend: what grew and what slipped"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "channel",
+        "label": {
+          "ar": "القناة الرئيسية",
+          "en": "Main channel"
+        },
+        "prompt": {
+          "ar": "القناة",
+          "en": "Channel"
+        },
+        "default": "whatsapp",
+        "options": [
+          {
+            "key": "whatsapp",
+            "icon": "MessageCircle",
+            "label": {
+              "ar": "واتساب",
+              "en": "WhatsApp"
+            }
+          },
+          {
+            "key": "instagram",
+            "icon": "Instagram",
+            "label": {
+              "ar": "رسائل إنستغرام",
+              "en": "Instagram DM"
+            }
+          },
+          {
+            "key": "web",
+            "icon": "Globe",
+            "label": {
+              "ar": "دردشة الموقع",
+              "en": "Website chat"
+            }
+          },
+          {
+            "key": "multi",
+            "icon": "Layers",
+            "label": {
+              "ar": "كل القنوات",
+              "en": "Multi-channel"
+            }
+          }
+        ]
+      },
+      {
+        "key": "pain",
+        "label": {
+          "ar": "أكبر مشكلة",
+          "en": "Biggest pain"
+        },
+        "prompt": {
+          "ar": "أكبر مشكلة",
+          "en": "Biggest pain"
+        },
+        "default": "slow",
+        "options": [
+          {
+            "key": "slow",
+            "icon": "Clock",
+            "label": {
+              "ar": "ردود بطيئة",
+              "en": "Slow replies"
+            },
+            "impact": {
+              "ar": "زمن الردّ: من ساعات إلى ثوانٍ",
+              "en": "Reply time: hours → seconds"
+            }
+          },
+          {
+            "key": "missed",
+            "icon": "UserX",
+            "label": {
+              "ar": "عملاء ضائعون",
+              "en": "Missed leads"
+            },
+            "impact": {
+              "ar": "كل عميل يُجاب ويُسجَّل، على مدار الساعة",
+              "en": "Every lead answered and logged, 24/7"
+            }
+          },
+          {
+            "key": "manual",
+            "icon": "PenLine",
+            "label": {
+              "ar": "حجوزات يدوية",
+              "en": "Manual bookings"
+            },
+            "impact": {
+              "ar": "أغلب الحجوزات تُثبَّت دون تدخّل الموظفين",
+              "en": "Most bookings confirmed with no staff involved"
+            }
+          },
+          {
+            "key": "nofollow",
+            "icon": "BellOff",
+            "label": {
+              "ar": "لا متابعة",
+              "en": "No follow-up"
+            },
+            "impact": {
+              "ar": "متابعة لكل عميل يصمت",
+              "en": "A follow-up for every lead that goes quiet"
+            }
+          },
+          {
+            "key": "overload",
+            "icon": "Users",
+            "label": {
+              "ar": "ضغط على الفريق",
+              "en": "Staff overload"
+            },
+            "impact": {
+              "ar": "الأسئلة الروتينية خارج جدول فريقك",
+              "en": "Routine questions off your team's plate"
+            }
+          },
+          {
+            "key": "noreports",
+            "icon": "FileBarChart",
+            "label": {
+              "ar": "لا تقارير واضحة",
+              "en": "No clear reports"
+            },
+            "impact": {
+              "ar": "ملخص يومي، كل مساء",
+              "en": "A daily summary, every evening"
+            }
+          }
+        ]
+      }
+    ],
+    "buttons": {
+      "next": {
+        "ar": "التالي",
+        "en": "Next"
+      },
+      "back": {
+        "ar": "رجوع",
+        "en": "Back"
+      },
+      "restart": {
+        "ar": "ابدأ من جديد",
+        "en": "Start over"
+      },
+      "generate": {
+        "ar": "أنشئ وكيلي",
+        "en": "Generate my agent"
+      }
+    },
+    "card": {
+      "revealRule": "render the card only after all 4 answers exist; before that show progressLabel, no placeholder box",
+      "role": {
+        "ar": "الدور",
+        "en": "Role"
+      },
+      "tasks": {
+        "ar": "أمثلة على المهام",
+        "en": "Example tasks"
+      },
+      "impact": {
+        "ar": "الأثر المتوقّع",
+        "en": "Estimated impact"
+      },
+      "typical": {
+        "ar": "نموذجي لمنشآت مشابهة",
+        "en": "typical for similar businesses"
+      },
+      "summary": {
+        "ar": "تعرّف على كرم، {{role}} لـ{{business}}. {{does}} {{channelPhrase}}، ويعالج مشكلة «{{pain}}» أولًا.",
+        "en": "Meet Karam, your {{role}} for {{business}}. It {{does}} It works {{channelPhrase}} and tackles \"{{pain}}\" first."
+      },
+      "channelPhrase": {
+        "multi": {
+          "ar": "عبر كل قنواتك",
+          "en": "across every channel you use"
+        },
+        "single": {
+          "ar": "عبر {{channel}}",
+          "en": "on {{channel}}"
+        }
+      },
+      "taskTokens": "replace {{unit}} / {{noun}} in role.tasks with the chosen business option's unit / noun",
+      "summaryRows": [
+        "business",
+        "role",
+        "channel",
+        "pain"
+      ],
+      "messageFragment": {
+        "ar": "أريد خطة كرم بوت لوكيل: {{role}} لـ{{business}} عبر {{channel}}. أكبر مشكلة: {{pain}}.",
+        "en": "I want a Karam Bot plan for: {{role}} for a {{business}} on {{channel}}. Biggest pain: {{pain}}."
+      },
+      "cta": {
+        "ar": "أرسل لي خطة وكيلي",
+        "en": "Get My AI Agent Plan"
+      }
+    }
+  },
+  "team": {
+    "source": "bundle.pretty.js va L1722-1815, nh() L6456-6550, N.team* L2265-2299; step lists are authored",
+    "eyebrow": {
+      "ar": "فريقك الذكي",
+      "en": "Your AI team"
+    },
+    "title": {
+      "ar": "كرم ليس بوتًا واحدًا، بل فريق تختاره أنت.",
+      "en": "Karam is not one bot. It is a team you assemble."
+    },
+    "stepLabel": {
+      "ar": "الخطوة {{n}} من 5 — {{step}}",
+      "en": "Step {{n}} of 5 — {{step}}"
+    },
+    "stepsTitle": {
+      "ar": "كيف يعمل",
+      "en": "How it works"
+    },
+    "buttons": {
+      "add": {
+        "ar": "أضف إلى فريقي",
+        "en": "Add to my AI team"
+      },
+      "added": {
+        "ar": "في فريقي",
+        "en": "On my team"
+      },
+      "tray": {
+        "ar": "وكلاء في فريقك",
+        "en": "agents on your team"
+      },
+      "trayCta": {
+        "ar": "خطّط فريقي",
+        "en": "Plan my team"
+      }
+    },
+    "messageFragment": {
+      "ar": "أريد فريق كرم بوت من: {{agents}}",
+      "en": "I'd like a Karam Bot team of: {{agents}}"
+    },
+    "defaultSelected": [
+      "receptionist",
+      "reporting"
+    ],
+    "agents": [
+      {
+        "key": "receptionist",
+        "icon": "Headphones",
+        "short": {
+          "ar": "استقبال",
+          "en": "Reception"
+        },
+        "name": {
+          "ar": "موظف الاستقبال الذكي",
+          "en": "AI Receptionist"
+        },
+        "role": {
+          "ar": "يجيب عن الأسئلة الشائعة ويوجّه العملاء.",
+          "en": "Answers common questions and routes customers."
+        },
+        "steps": [
+          {
+            "ar": "رسالة جديدة تصل على واتساب",
+            "en": "A new WhatsApp message arrives"
+          },
+          {
+            "ar": "يفهم السؤال: الأوقات، الموقع، الأسعار",
+            "en": "Understands the question: hours, location, prices"
+          },
+          {
+            "ar": "يردّ فورًا من معلوماتك أنت",
+            "en": "Replies right away from your own information"
+          },
+          {
+            "ar": "يسجّل اسم العميل وسبب التواصل",
+            "en": "Records the customer's name and reason"
+          },
+          {
+            "ar": "يحوّل الشكوى أو الطلب الخاص إلى موظف",
+            "en": "Hands a complaint or special request to a staff member"
+          }
+        ]
+      },
+      {
+        "key": "sales",
+        "icon": "TrendingUp",
+        "short": {
+          "ar": "مبيعات",
+          "en": "Sales"
+        },
+        "name": {
+          "ar": "وكيل المبيعات الذكي",
+          "en": "AI Sales Agent"
+        },
+        "role": {
+          "ar": "يقيس جدية العميل ويتابعه حتى القرار.",
+          "en": "Qualifies leads and follows up until they decide."
+        },
+        "steps": [
+          {
+            "ar": "عميل يسأل عن السعر",
+            "en": "A customer asks about a price"
+          },
+          {
+            "ar": "يجيب من قائمة أسعارك الفعلية",
+            "en": "Answers from your real price list"
+          },
+          {
+            "ar": "يطرح سؤالين يميّزان العميل الجاد",
+            "en": "Asks the two questions that qualify a serious lead"
+          },
+          {
+            "ar": "يتابع بعد 24 ساعة إذا صمت العميل",
+            "en": "Follows up after 24 hours if the lead goes quiet"
+          },
+          {
+            "ar": "يرسل لك تقريرًا يوميًا بالعملاء المحتملين",
+            "en": "Sends you a daily lead report"
+          }
+        ]
+      },
+      {
+        "key": "booking",
+        "icon": "CalendarCheck",
+        "short": {
+          "ar": "حجوزات",
+          "en": "Bookings"
+        },
+        "name": {
+          "ar": "وكيل الحجوزات الذكي",
+          "en": "AI Booking Agent"
+        },
+        "role": {
+          "ar": "يتولّى المواعيد والتأكيدات والتذكيرات.",
+          "en": "Handles appointments, confirmations, and reminders."
+        },
+        "steps": [
+          {
+            "ar": "عميل يطلب حجزًا",
+            "en": "A customer asks to book"
+          },
+          {
+            "ar": "يعرض أقرب الأوقات المتاحة من تقويمك",
+            "en": "Offers the next free slots from your calendar"
+          },
+          {
+            "ar": "يثبّت الحجز ويضيفه إلى تقويمك",
+            "en": "Confirms it and adds it to your calendar"
+          },
+          {
+            "ar": "يرسل تذكيرًا قبل الموعد بساعة",
+            "en": "Sends a reminder an hour before"
+          },
+          {
+            "ar": "يعدّل الموعد أو يلغيه دون مكالمة",
+            "en": "Reschedules or cancels without a phone call"
+          }
+        ]
+      },
+      {
+        "key": "ops",
+        "icon": "ClipboardList",
+        "short": {
+          "ar": "عمليات",
+          "en": "Operations"
+        },
+        "name": {
+          "ar": "وكيل العمليات الذكي",
+          "en": "AI Ops Agent"
+        },
+        "role": {
+          "ar": "ينشئ المهام والتذكيرات من المحادثات.",
+          "en": "Creates tasks and reminders from conversations."
+        },
+        "steps": [
+          {
+            "ar": "طلب أو شكوى تظهر في المحادثة",
+            "en": "A request or complaint shows up in a chat"
+          },
+          {
+            "ar": "يحوّلها إلى مهمة واضحة",
+            "en": "Turns it into a clear task"
+          },
+          {
+            "ar": "يسندها إلى الموظف المناسب",
+            "en": "Assigns it to the right staff member"
+          },
+          {
+            "ar": "يتابع ما بقي مفتوحًا قبل نهاية اليوم",
+            "en": "Chases whatever is still open before the day ends"
+          },
+          {
+            "ar": "يبلّغك بما تأخّر",
+            "en": "Tells you what slipped"
+          }
+        ]
+      },
+      {
+        "key": "reporting",
+        "icon": "BarChart3",
+        "short": {
+          "ar": "تقارير",
+          "en": "Reports"
+        },
+        "name": {
+          "ar": "وكيل التقارير الذكي",
+          "en": "AI Report Agent"
+        },
+        "role": {
+          "ar": "يرسل ملخصًا يوميًا تقرؤه في دقيقة.",
+          "en": "Sends a daily business summary you can read in a minute."
+        },
+        "steps": [
+          {
+            "ar": "يجمع نشاط اليوم: محادثات، حجوزات، مدفوعات",
+            "en": "Collects the day's activity: chats, bookings, payments"
+          },
+          {
+            "ar": "يحسب الإيراد والرسائل الفائتة",
+            "en": "Totals revenue and missed messages"
+          },
+          {
+            "ar": "يبرز ثلاثة أمور تحتاج قرارك",
+            "en": "Flags the three things that need your decision"
+          },
+          {
+            "ar": "يرسل لك الملخص كل مساء على واتساب",
+            "en": "Sends you the summary every evening on WhatsApp"
+          },
+          {
+            "ar": "يرسل اتجاهًا أسبوعيًا: ما نما وما تراجع",
+            "en": "Sends a weekly trend: what grew and what slipped"
+          }
+        ]
+      }
+    ]
+  },
+  "contact": {
+    "source": "bundle.pretty.js hh() L7737-7960, N.form L2510-2545, R.finalTitle/finalSub/formProducts L5071-5081; chips + helper texts follow the contract",
+    "title": {
+      "ar": "جاهز تشغّل عملك على شِفت؟",
+      "en": "Ready to run your business on SHIFT?"
+    },
+    "sub": {
+      "ar": "ابدأ بمنتج واحد وأضف الباقي متى شئت. الفريق نفسه، والرقم نفسه، وبلا تعقيد.",
+      "en": "Start with one product. Add the rest when you are ready — same team, same WhatsApp number."
+    },
+    "chips": [
+      {
+        "key": "sector",
+        "label": {
+          "ar": "نوع النشاط",
+          "en": "Business type"
+        },
+        "multi": false,
+        "required": false,
+        "stateKey": "sector",
+        "defaultSource": "state.sector",
+        "options": [
+          {
+            "key": "clinic",
+            "label": {
+              "ar": "عيادة",
+              "en": "Clinic"
+            }
+          },
+          {
+            "key": "restaurant",
+            "label": {
+              "ar": "مطعم أو كافيه",
+              "en": "Restaurant & café"
+            }
+          },
+          {
+            "key": "store",
+            "label": {
+              "ar": "متجر إلكتروني",
+              "en": "Online store"
+            }
+          }
+        ]
+      },
+      {
+        "key": "need",
+        "label": {
+          "ar": "المنتجات التي تهمّني",
+          "en": "Products I am interested in"
+        },
+        "multi": true,
+        "required": false,
+        "stateKey": "need",
+        "defaultSource": "state.bundle (products toggled in #products)",
+        "optionsSource": "products.json → products[].key + name",
+        "options": [
+          {
+            "key": "karam",
+            "label": {
+              "ar": "كرم بوت",
+              "en": "Karam Bot"
+            }
+          },
+          {
+            "key": "loyalty",
+            "label": {
+              "ar": "نقاط الولاء",
+              "en": "Loyalty Points"
+            }
+          },
+          {
+            "key": "attend",
+            "label": {
+              "ar": "نظام الدوام",
+              "en": "Attendance System"
+            }
+          },
+          {
+            "key": "booking",
+            "label": {
+              "ar": "الحجوزات والمواعيد",
+              "en": "Bookings & Appointments"
+            }
+          },
+          {
+            "key": "subs",
+            "label": {
+              "ar": "الاشتراكات والباقات",
+              "en": "Subscriptions & Packages"
+            }
+          },
+          {
+            "key": "marketing",
+            "label": {
+              "ar": "التسويق الآلي",
+              "en": "Marketing Automation"
+            }
+          },
+          {
+            "key": "erp",
+            "label": {
+              "ar": "نظام إدارة الأعمال",
+              "en": "Business ERP"
+            }
+          },
+          {
+            "key": "custom",
+            "label": {
+              "ar": "أتمتة مخصّصة",
+              "en": "Custom Automation"
+            }
+          }
+        ],
+        "emptyValue": {
+          "ar": "لم أحدد بعد",
+          "en": "not sure yet"
+        }
+      }
+    ],
+    "fields": [
+      {
+        "key": "name",
+        "id": "f-name",
+        "type": "text",
+        "required": false,
+        "autocomplete": "name",
+        "dir": "auto",
+        "label": {
+          "ar": "اسمك",
+          "en": "Your name"
+        },
+        "optional": {
+          "ar": "(اختياري)",
+          "en": "(optional)"
+        }
+      },
+      {
+        "key": "phone",
+        "id": "f-phone",
+        "type": "tel",
+        "required": false,
+        "autocomplete": "tel",
+        "dir": "ltr",
+        "inputmode": "tel",
+        "label": {
+          "ar": "الهاتف / واتساب",
+          "en": "Phone / WhatsApp"
+        },
+        "optional": {
+          "ar": "(اختياري)",
+          "en": "(optional)"
+        },
+        "placeholder": "07x xxx xxxx"
+      }
+    ],
+    "preview": {
+      "label": {
+        "ar": "معاينة الرسالة",
+        "en": "Message preview"
+      },
+      "typewriterMs": 600,
+      "template": {
+        "ar": "مرحبًا شِفت 👋 عندي {{business}}. يهمّني: {{needs}}. {{roiFragment}} متى نحكي؟",
+        "en": "Hi SHIFT 👋 I run {{business}}. I'm interested in: {{needs}}. {{roiFragment}} When can we talk?"
+      },
+      "parts": {
+        "business": "state.bizName || sectors[sector].exampleName (falls back to the sector label when no sector)",
+        "needs": "product names joined with «، » / ', '; empty → chips[need].emptyValue",
+        "roiFragment": "roi.messageFragment when the ROI section has been touched or has defaults; otherwise omitted",
+        "name": {
+          "ar": "الاسم: {{name}}",
+          "en": "Name: {{name}}"
+        },
+        "phone": {
+          "ar": "الهاتف: {{phone}}",
+          "en": "Phone: {{phone}}"
+        },
+        "rule": "append name/phone lines only when filled; total ≤ 700 chars; built by SHIFT.composeMessage()"
+      }
+    },
+    "cta": {
+      "ar": "متابعة إلى واتساب",
+      "en": "Continue to WhatsApp"
+    },
+    "helper": {
+      "ar": "ستراجع الرسالة قبل إرسالها",
+      "en": "You'll review the message before it is sent"
+    },
+    "sent": {
+      "ar": "يتم فتح واتساب مع طلبك…",
+      "en": "Opening WhatsApp with your request…"
+    },
+    "privacy": {
+      "ar": "لا نستخدم رقمك إلا للردّ على طلبك.",
+      "en": "We only use your number to reply to this request."
+    },
+    "legacyWantField": {
+      "label": {
+        "ar": "ما الذي تريد أتمتته؟",
+        "en": "What do you want to automate?"
+      },
+      "placeholder": {
+        "ar": "مثال: ردود واتساب وحجوزات الطاولات",
+        "en": "e.g. WhatsApp replies and table bookings"
+      },
+      "note": "textarea from the old form; replaced by the need chips per contract"
+    }
+  }
+}

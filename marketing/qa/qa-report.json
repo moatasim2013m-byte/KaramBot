@@ -1,0 +1,119 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "notes": [
+    {
+      "shot": "mobile-top",
+      "lang": "ar",
+      "dir": "rtl",
+      "sector": "restaurant",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 360,
+      "innerW": 360,
+      "h1": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "opsRows": 9,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    },
+    {
+      "shot": "mobile-full",
+      "lang": "ar",
+      "dir": "rtl",
+      "sector": "restaurant",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 360,
+      "innerW": 360,
+      "h1": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "opsRows": 15,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    },
+    {
+      "shot": "desktop-top",
+      "lang": "ar",
+      "dir": "rtl",
+      "sector": "restaurant",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 1280,
+      "innerW": 1280,
+      "h1": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "opsRows": 9,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    },
+    {
+      "shot": "desktop-full",
+      "lang": "ar",
+      "dir": "rtl",
+      "sector": "restaurant",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 1280,
+      "innerW": 1280,
+      "h1": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "opsRows": 17,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    },
+    {
+      "shot": "mobile-clinic",
+      "lang": "ar",
+      "dir": "rtl",
+      "sector": "clinic",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 360,
+      "innerW": 360,
+      "h1": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "opsRows": 9,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    },
+    {
+      "shot": "mobile-store",
+      "lang": "ar",
+      "dir": "rtl",
+      "sector": "store",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 360,
+      "innerW": 360,
+      "h1": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "opsRows": 9,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    },
+    {
+      "shot": "mobile-en",
+      "lang": "en",
+      "dir": "ltr",
+      "sector": "restaurant",
+      "url": "http://127.0.0.1:4173/",
+      "scrollW": 360,
+      "innerW": 360,
+      "h1": "A customer messages you at 11 pm. Karam replies, books, and tells you in the morning.",
+      "opsRows": 9,
+      "stickyRole": null,
+      "fonts": [
+        "Alexandria",
+        "IBM Plex Sans Arabic"
+      ]
+    }
+  ]
+}

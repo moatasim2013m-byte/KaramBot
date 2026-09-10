@@ -1,0 +1,183 @@
+/* =============================================================================
+   #loyalty — loyalty demo (premium direction «أ · فخامة هادئة», 2026-09-10)
+   rules card (3 sliders + actions) · preview (member card + WhatsApp-style
+   notification log) · 3 stat tiles · note.
+   Scoped under #loyalty; tokens/classes from base.css (card, btn, range, badge,
+   ic-holder, shadow-card).
+   Mobile-first (360): rules → preview → stats → note stacked; ≥1024: rules/stats/note
+   in the start column, the preview sticky in the end column.
+   Surfaces: hairlines everywhere, NO shadow (the page's three shadows are the ops
+   panel, the phone and the ROI result). The member card is a LIGHT card — the dark
+   glass style belongs to the ops panel only and gold is spent elsewhere — so the tier
+   lives in the .loy-tier badge (bronze = hairline outline · silver = ink outline ·
+   gold = ink fill). The notification log borrows the phone's real WhatsApp look
+   (white bubbles on the #EFE9E1 wallpaper). No green outside WhatsApp CTAs.
+   Motion: opacity/transform only (bubble fade-in 200 ms, progress bar scaleX 220 ms);
+   no loops.
+   ============================================================================= */
+
+/* ---- Layout ---------------------------------------------------------------- */
+#loyalty .loy-grid{
+  display:grid; gap:16px;
+  grid-template-columns:minmax(0,1fr);       /* never let a nowrap child widen the track past the viewport */
+  grid-template-areas:"rules" "preview" "stats" "note";
+}
+@media (min-width:1024px){
+  #loyalty .loy-grid{
+    grid-template-columns:minmax(0,1fr) minmax(0,.95fr);
+    grid-template-areas:"rules preview" "stats preview" "note preview";
+    align-items:start; column-gap:32px;
+  }
+  #loyalty .loy-preview{ position:sticky; top:calc(var(--nav-h) + 16px); }
+}
+#loyalty .loy-rules{ grid-area:rules; display:grid; gap:16px; }
+#loyalty .loy-preview{ grid-area:preview; min-width:0; }
+#loyalty .loy-stats{ grid-area:stats; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+#loyalty .loy-note{ grid-area:note; margin:0; max-width:640px; }
+
+/* ---- Rules: 13px muted label + tabular ink value over a 44px range (base .range,
+        6px hairline track, 24px ink thumb); hairline between rules ---------------- */
+#loyalty .loy-rule-list{ display:grid; gap:0; }
+#loyalty .loy-rule{ display:grid; gap:0; padding-block:6px; }
+#loyalty .loy-rule + .loy-rule{ border-top:1px solid var(--line-2); }
+#loyalty .loy-rule-head{
+  display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+}
+#loyalty .loy-rule-head label{ font-size:13px; line-height:1.5; font-weight:500; color:var(--muted); }
+#loyalty .loy-rule-val{
+  font-size:13px; line-height:1.5; font-weight:500; color:var(--ink);
+  font-variant-numeric:tabular-nums; white-space:nowrap; unicode-bidi:isolate;
+}
+
+/* ---- Actions --------------------------------------------------------------- */
+#loyalty .loy-actions{ display:flex; flex-wrap:wrap; gap:8px; }
+#loyalty .loy-visit,#loyalty .loy-redeem{ flex:1 1 200px; min-height:48px; }
+#loyalty .loy-reset{ flex:0 0 auto; min-height:48px; }
+
+/* ---- Preview panel --------------------------------------------------------- */
+#loyalty .loy-preview-head{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+  gap:8px 16px; margin-bottom:12px;
+}
+#loyalty .loy-preview-title{ margin:0; }              /* base h3: Alexandria 16px/600 ink */
+#loyalty .loy-phone{ display:grid; gap:12px; }        /* no wrapper surface — card + log stand on the ground */
+
+/* ---- Member card: bronze → silver → gold ------------------------------------
+   A light card (--surface, 1px --line, radius 20px, NO shadow, ink text) — never a
+   dark or gold surface. The tier is expressed only by the .loy-tier badge and its
+   label: bronze = 1px --chip-line outline · silver = 1px --ink outline ·
+   gold = --ink fill with white text. */
+#loyalty .loy-card{
+  position:relative; display:grid; gap:12px; padding:18px 18px 16px;
+  border:1px solid var(--line); border-radius:var(--r-card);
+  background:var(--surface);
+  color:var(--ink);
+}
+#loyalty .loy-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+#loyalty .loy-card-id{ min-width:0; }
+#loyalty .loy-card-label{ margin:0; font-size:12.5px; line-height:1.5; font-weight:500; color:var(--muted); }
+#loyalty .loy-card-name{
+  margin:0; font-family:var(--font-display); font-size:18px; line-height:1.4; font-weight:600;
+  letter-spacing:0; color:var(--ink); overflow-wrap:anywhere;
+}
+#loyalty .loy-tier{
+  flex:none; display:inline-flex; align-items:center; gap:6px;
+  min-height:26px; padding:2px 10px; border-radius:var(--r-pill);
+  font-size:12px; line-height:1.5; font-weight:500; white-space:nowrap;
+  background:transparent; border:1px solid var(--chip-line); color:var(--ink);
+  transition:background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+#loyalty .loy-tier .ic{ width:14px; height:14px; }
+#loyalty .is-silver .loy-tier{ border-color:var(--ink); }
+#loyalty .is-gold .loy-tier{ background:var(--ink); border-color:var(--ink); color:#fff; }
+#loyalty .loy-card-mid{ display:flex; align-items:flex-end; justify-content:space-between; gap:12px; }
+#loyalty .loy-balance{
+  margin:0; font-family:var(--font-display); font-size:36px; line-height:1.1; font-weight:700;
+  letter-spacing:0; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+#loyalty .loy-card-visits{ margin:0; text-align:end; color:var(--muted); }
+#loyalty .loy-bar{ height:6px; border-radius:var(--r-pill); background:var(--line-2); overflow:hidden; }
+#loyalty .loy-bar > i{
+  display:block; width:100%; height:100%; border-radius:var(--r-pill);
+  background:var(--ink);
+  transform:scaleX(var(--p,0)); transform-origin:0 50%;
+  transition:transform var(--base) var(--ease);
+}
+[dir="rtl"] #loyalty .loy-bar > i{ transform-origin:100% 50%; }
+#loyalty .loy-card-line{ margin:0; font-size:14px; line-height:1.6; font-weight:500; color:var(--ink-2); }
+#loyalty .loy-card-line.is-ready{
+  justify-self:start; display:inline-block;
+  padding:4px 12px; border-radius:var(--r-pill);
+  background:var(--ink); color:#fff;
+}
+
+/* ---- Chat: light header + WhatsApp wallpaper log (same look as the #karam phone) */
+#loyalty .loy-chat{ border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--surface); }
+#loyalty .loy-chat-head{
+  display:flex; align-items:center; gap:10px;
+  padding:10px 12px; background:var(--surface); border-bottom:1px solid var(--line-2);
+}
+#loyalty .loy-chat-avatar{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; border-radius:50%;
+  background:#F1F3F7; color:var(--ink);
+}
+#loyalty .loy-chat-avatar .ic{ width:16px; height:16px; }
+#loyalty .loy-chat-id{ min-width:0; }
+#loyalty .loy-chat-name{ margin:0; font-size:14px; line-height:1.4; font-weight:500; color:var(--ink); overflow-wrap:anywhere; }
+#loyalty .loy-chat-sub{ margin:0; font-size:12px; line-height:1.4; color:var(--muted); }
+#loyalty .loy-msgs{
+  display:flex; flex-direction:column; gap:6px;
+  min-height:200px; max-height:320px; padding:12px 10px;
+  background:#EFE9E1;                  /* WhatsApp chat wallpaper — the product's real look */
+  overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+}
+#loyalty .loy-empty{ margin:auto; text-align:center; max-width:260px; }
+
+/* bubbles: incoming (from the business) at inline-start, white with a 4px corner on the sender's side;
+   the redeem receipt spans the row as a light hairline card */
+#loyalty .loy-bub{
+  position:relative; max-width:84%;
+  padding:8px 11px 6px; border-radius:16px;
+  font-family:var(--font-body); font-size:14px; line-height:1.55; color:var(--ink-2);
+  opacity:0; transform:translateY(4px);
+  transition:opacity 200ms var(--ease),transform 200ms var(--ease);
+}
+#loyalty .loy-bub.is-in{ opacity:1; transform:none; }
+#loyalty .loy-bub-in{ align-self:flex-start; background:#FFFFFF; border-start-start-radius:4px; }
+#loyalty .loy-bub-in[data-kind="unlock"]{ font-weight:500; color:var(--ink); }
+#loyalty .loy-bub-book{
+  align-self:stretch; max-width:100%;
+  display:flex; align-items:flex-start; gap:10px;
+  padding:10px 12px;
+  background:var(--surface); border:1px solid var(--line); color:var(--ink); font-weight:500;
+}
+#loyalty .loy-bub-book > .ic{ flex:none; width:16px; height:16px; margin-top:3px; color:var(--ink); }
+#loyalty .loy-bub-book .loy-bub-text{ flex:1 1 auto; min-width:0; }
+#loyalty .loy-bub-text{ white-space:pre-wrap; overflow-wrap:anywhere; }
+/* The time floats to inline-END. Physical fallback first (RTL page → left), then the logical value
+   for engines that support it; the LTR page gets the mirrored fallback. */
+#loyalty .loy-time{
+  float:left; float:inline-end;
+  margin-inline-start:8px; margin-top:9px;
+  font-size:11px; line-height:1; color:var(--muted);
+  font-variant-numeric:tabular-nums; white-space:nowrap; unicode-bidi:isolate;
+}
+[dir="ltr"] #loyalty .loy-time{ float:right; float:inline-end; }
+#loyalty .loy-bub-book .loy-time{ float:none; margin:0; align-self:flex-end; }
+
+/* ---- Stat tiles: light hairline cards, Alexandria 22px numbers ---------------- */
+#loyalty .loy-stat{
+  display:grid; gap:6px; align-content:start; padding:12px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+}
+#loyalty .loy-stat-num{
+  margin:0; font-family:var(--font-display); font-size:22px; line-height:1.2; font-weight:600;
+  letter-spacing:0; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+#loyalty .loy-stat-label{ margin:0; font-size:13px; line-height:1.5; color:var(--muted); }
+
+/* ---- Reduced motion: base.css collapses transitions; keep the log's scroll instant */
+@media (prefers-reduced-motion:reduce){
+  #loyalty .loy-msgs{ scroll-behavior:auto; }
+}
