@@ -51,13 +51,33 @@ CONFIG = {"config": {
 ver = req("POST", f"{BASE}/sites/{SITE}/versions", CONFIG)["name"]
 print("version:", ver)
 
+import re as _re
+
+# /assets/** is served "immutable" for a year, but file names carry no hash. So every HTML file is uploaded with
+# its local asset references rewritten to ?v=<content hash>: a changed CSS/JS file gets a new URL, an unchanged
+# one keeps its cache. The files on disk are not modified.
+def _asset_hash(rel):
+    fp = os.path.join(ROOT, rel.lstrip("/").split("?")[0])
+    return hashlib.sha256(open(fp, "rb").read()).hexdigest()[:10] if os.path.isfile(fp) else None
+
+def stamp_assets(html):
+    def sub(m):
+        attr, q, url = m.group(1), m.group(2), m.group(3)
+        h = _asset_hash(url)
+        return f'{attr}={q}{url}?v={h}{q}' if h else m.group(0)
+    return _re.sub(r'(src|href)=(["\'])(/?assets/[^"\'?#]+\.(?:css|js|png|svg|webp|jpg))\2', sub, html)
+
 files, blobs = {}, {}
 for dirpath, _, names in os.walk(ROOT):
     for n in sorted(names):
         full = os.path.join(dirpath, n)
         path = "/" + os.path.relpath(full, ROOT).replace(os.sep, "/")
         buf = io.BytesIO()
-        with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as gz: gz.write(open(full, "rb").read())
+        data = open(full, "rb").read()
+        if full.endswith(".html"):
+            data = stamp_assets(data.decode("utf-8")).encode("utf-8")
+        with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0) as gz:
+            gz.write(data)
         gzb = buf.getvalue(); h = hashlib.sha256(gzb).hexdigest()
         files[path] = h; blobs[h] = gzb
         print(f"  {path:22s} {h[:12]}  {len(gzb):>7} B gz")
