@@ -1,6 +1,7 @@
 # روابط الإعلانات — shifts-ai.store
 
-كل رابط يفتح الصفحة على قطاع الإعلان مباشرة (`?b=`) ويحمل مصدر الحملة (`utm_*`).
+كل رابط يفتح **صفحة القطاع نفسه** (`/clinics` · `/restaurants` · `/online-stores`) بعنوانها ونصّها الخاصّين، ويحمل مصدر الحملة (`utm_*`).
+صفحة مطابقة لنصّ الإعلان تعني تقييم جودة أعلى في Meta وGoogle، أي سعر نقرة أقل. (الروابط القديمة `?b=clinic` ما زالت تعمل.)
 عند ضغط زر واتساب يُضاف إلى نهاية الرسالة سطر قصير مثل «(المصدر: fb/karam-clinics)»،
 فتعرف من المحادثة نفسها أي إعلان جلبها — حتى قبل أن تنظر إلى لوحة الإعلانات.
 
@@ -14,22 +15,22 @@
 
 | القطاع | الرابط |
 |---|---|
-| العيادات | `https://shifts-ai.store/?b=clinic&utm_source=fb&utm_medium=paid&utm_campaign=karam-clinics` |
-| المطاعم والكافيهات | `https://shifts-ai.store/?b=restaurant&utm_source=fb&utm_medium=paid&utm_campaign=karam-restaurants` |
-| المتاجر الإلكترونية | `https://shifts-ai.store/?b=store&utm_source=fb&utm_medium=paid&utm_campaign=karam-stores` |
+| العيادات | `https://shifts-ai.store/clinics?utm_source=fb&utm_medium=paid&utm_campaign=karam-clinics` |
+| المطاعم والكافيهات | `https://shifts-ai.store/restaurants?utm_source=fb&utm_medium=paid&utm_campaign=karam-restaurants` |
+| المتاجر الإلكترونية | `https://shifts-ai.store/online-stores?utm_source=fb&utm_medium=paid&utm_campaign=karam-stores` |
 
 في Meta Ads Manager يمكنك بدل كتابة `utm_content` يدويًّا وضع هذا في حقل **URL parameters** للإعلان:
 `utm_source=fb&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.name}}`
-(مع إبقاء `?b=<sector>` في رابط الموقع نفسه). وسمِّ الحملات في Ads Manager بالأسماء أعلاه
+(مع إبقاء رابط صفحة القطاع نفسه كرابط الموقع). وسمِّ الحملات في Ads Manager بالأسماء أعلاه
 (`karam-clinics` …) حتى تبقى الرسائل والتقارير متطابقة.
 
 ## Google Ads
 
 | القطاع | الرابط النهائي (Final URL) |
 |---|---|
-| العيادات | `https://shifts-ai.store/?b=clinic` |
-| المطاعم والكافيهات | `https://shifts-ai.store/?b=restaurant` |
-| المتاجر الإلكترونية | `https://shifts-ai.store/?b=store` |
+| العيادات | `https://shifts-ai.store/clinics` |
+| المطاعم والكافيهات | `https://shifts-ai.store/restaurants` |
+| المتاجر الإلكترونية | `https://shifts-ai.store/online-stores` |
 
 وفي إعدادات الحملة ← **Final URL suffix**:
 `utm_source=google&utm_medium=paid&utm_campaign={_campaign}&utm_content={creative}`
@@ -40,9 +41,9 @@
 
 | القطاع | الرابط |
 |---|---|
-| العيادات | `https://shifts-ai.store/?b=clinic&utm_source=fb&utm_medium=post&utm_campaign=karam-clinics` |
-| المطاعم والكافيهات | `https://shifts-ai.store/?b=restaurant&utm_source=fb&utm_medium=post&utm_campaign=karam-restaurants` |
-| المتاجر الإلكترونية | `https://shifts-ai.store/?b=store&utm_source=fb&utm_medium=post&utm_campaign=karam-stores` |
+| العيادات | `https://shifts-ai.store/clinics?utm_source=fb&utm_medium=post&utm_campaign=karam-clinics` |
+| المطاعم والكافيهات | `https://shifts-ai.store/restaurants?utm_source=fb&utm_medium=post&utm_campaign=karam-restaurants` |
+| المتاجر الإلكترونية | `https://shifts-ai.store/online-stores?utm_source=fb&utm_medium=post&utm_campaign=karam-stores` |
 
 ## ما يُقاس (بعد إضافة معرّفات Pixel وGA4)
 
@@ -65,3 +66,6 @@
 2. اضغط زر واتساب ← تأكّد أن الرسالة تنتهي بـ «(المصدر: fb/karam-…)».
 3. في Meta Events Manager ← Test events: يجب أن يظهر PageView ثم Lead.
 4. في GA4 ← Realtime: يجب أن يظهر generate_lead.
+
+## الإنجليزية
+للإعلانات الموجّهة بالإنجليزية استخدم: `https://shifts-ai.store/en/clinics` · `/en/restaurants` · `/en/online-stores` · `/en`

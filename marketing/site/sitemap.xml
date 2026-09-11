@@ -1,6 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://shifts-ai.store/</loc><lastmod>2026-09-10</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://shifts-ai.store/privacy</loc><lastmod>2026-09-10</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
-  <url><loc>https://shifts-ai.store/data-deletion</loc><lastmod>2026-09-10</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://shifts-ai.store/</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/en</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/clinics</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/clinics"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en/clinics"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/clinics"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/en/clinics</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/clinics"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en/clinics"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/clinics"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/restaurants</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/restaurants"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en/restaurants"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/restaurants"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/en/restaurants</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/restaurants"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en/restaurants"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/restaurants"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/online-stores</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/online-stores"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en/online-stores"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/online-stores"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/en/online-stores</loc>
+    <lastmod>2026-09-11</lastmod>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://shifts-ai.store/online-stores"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://shifts-ai.store/en/online-stores"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://shifts-ai.store/online-stores"/>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/privacy</loc>
+    <lastmod>2026-09-11</lastmod>
+  </url>
+  <url>
+    <loc>https://shifts-ai.store/data-deletion</loc>
+    <lastmod>2026-09-11</lastmod>
+  </url>
 </urlset>

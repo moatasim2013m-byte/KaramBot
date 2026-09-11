@@ -107,3 +107,8 @@ Demos, use cases, chat scripts, ops rows, loyalty, attendance, ROI defaults and 
 - `store` chat scripts: order status by number, size/colour availability, delivery time to Amman/other governorates, return policy, payment (cash on delivery / CliQ transfer), abandoned-cart reminder. `store` ops rows: «طلب جديد #4821 · توصيل عمّان», «سؤال عن المقاس — أُجيب من الكتالوج», «تذكير بسلة متروكة أُرسل», «تحويل CliQ مؤكّد», «شكوى تأخير حُوّلت إلى موظف».
 - Salon / kids / real-estate content is **removed from every demo**. It may appear only as one plain line in `#about`: «نخدم أيضًا: الصالونات، مراكز الأطفال، والعقارات — اسألنا.»
 - Default sector when nothing is chosen and no `?b=`: `restaurant` (the most visual scripts). `?b=` accepts `clinic|restaurant|store` only; anything else is ignored.
+
+## Weight budget revised — pre-rendered pages (2026-09-11)
+Pages are now built by `tools/build-pages.js` and ship their full text in the HTML for search engines. The original
+≤ 120 KB gz budget now applies to **assets** (app.css + all JS), unchanged. Each built **HTML page** has its own cap of
+≤ 25 KB gz. `tools/size.js` enforces both; `deploy.py` runs it before every upload.

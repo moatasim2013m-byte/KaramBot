@@ -6,6 +6,7 @@ window.SHIFT_CONTENT = {
     "brand": { "ar": "شِفت", "en": "SHIFT" },
     "brand_full": { "ar": "شِفت للذكاء الاصطناعي والأتمتة", "en": "SHIFT AI & Automation" },
     "brand_location": { "ar": "إربد، الأردن", "en": "Irbid, Jordan" },
+    "footer_sectors_aria": { "ar": "حلول حسب القطاع", "en": "Solutions by sector" },
     "skip_to_content": { "ar": "تخطَّ إلى المحتوى", "en": "Skip to content" },
     "nav_aria": { "ar": "أقسام الصفحة", "en": "Page sections" },
     "nav_karam": { "ar": "كرم", "en": "Karam" },
@@ -197,27 +198,27 @@ window.SHIFT_CONTENT = {
     },
     "karam": {
       "eyebrow": { "ar": "كرم بوت · المنتج الرئيسي", "en": "Karam Bot · the flagship" },
-      "title": { "ar": "كرم يردّ عنك، وبقواعدك.", "en": "Karam replies for you, by your rules." },
+      "title": { "ar": "كرم، بوت واتساب يردّ عنك وبقواعدك.", "en": "Karam, a WhatsApp agent that replies for you, by your rules." },
       "intro": { "ar": "هذا ما يصل عميلك على واتساب في وقتٍ مثل الآن. غيّر اسم المنشأة وشاهد الردّ الأول يتغيّر.", "en": "This is what your customer gets on WhatsApp at a time like right now. Change the business name and watch the first reply update." }
     },
     "cases": {
       "eyebrow": { "ar": "القطاعات", "en": "Sectors" },
-      "title": { "ar": "مبنيّ على عملك أنت، وليس بوتًا جاهزًا للجميع.", "en": "Built around your business, not a generic chatbot." },
+      "title": { "ar": "للعيادات والمطاعم والمتاجر الإلكترونية: مبنيّ على عملك أنت.", "en": "For clinics, restaurants and online stores: built around your business." },
       "intro": { "ar": "اختر قطاعك، وكل ما في الصفحة يتحدث بلغته: المثال، الأرقام، والرسالة التي سترسلها.", "en": "Pick your sector and the whole page speaks its language — the example, the numbers, and the message you'll send." }
     },
     "products": {
       "eyebrow": { "ar": "منتجات شِفت", "en": "SHIFT products" },
-      "title": { "ar": "اختر ما يحتاجه عملك. كل نظام يعمل وحده، ومعًا يعملون أفضل.", "en": "Pick the systems you need. They work alone or together." },
+      "title": { "ar": "بوت واتساب، نقاط ولاء، ودوام موظفين: اختر ما يحتاجه عملك.", "en": "WhatsApp agent, loyalty points, staff attendance: pick what your business needs." },
       "intro": { "ar": "اضغط على أي منتج لترى ماذا يفعل، وأضف ما يناسبك إلى باقتك، ليصلك عرض سعر واحد لكل ما اخترته.", "en": "Tap a product to see what it does. Add the ones you want to your bundle and we'll quote it as one plan." }
     },
     "loyalty": {
       "eyebrow": { "ar": "نقاط الولاء · المنتج 02", "en": "Loyalty Points · product 02" },
-      "title": { "ar": "خلّي كل زيارة سببًا لزيارة ثانية.", "en": "Give every visit a reason to come back." },
+      "title": { "ar": "نظام نقاط ولاء على واتساب: خلّي كل زيارة سببًا لزيارة ثانية.", "en": "Loyalty points on WhatsApp: give every visit a reason to come back." },
       "intro": { "ar": "اضبط القواعد كما تريدها، ثم اضغط «زيارة جديدة» وشاهد ما يصل عميلك على واتساب.", "en": "Set the rules, then tap “New visit” to see what the customer receives on WhatsApp." }
     },
     "attendance": {
       "eyebrow": { "ar": "نظام الدوام · المنتج 03", "en": "Attendance System · product 03" },
-      "title": { "ar": "اعرف من حضر، ومن تأخّر، وكم يستحق كل موظف، بلا جداول يدوية.", "en": "Know who is in, who is late, and what payroll owes — without a spreadsheet." },
+      "title": { "ar": "نظام دوام الموظفين: اعرف من حضر ومن تأخّر، بلا جداول يدوية.", "en": "Staff attendance system: know who is in and who is late, without a spreadsheet." },
       "intro": { "ar": "اختر قواعد الوردية، ثم شغّل صباحًا كاملًا. المتأخر والغائب يُعلَّمان فورًا، والمدير يصله التنبيه على واتساب.", "en": "Choose the shift rules, then run a morning. Late and absent staff are flagged and the manager is told on WhatsApp." }
     },
     "roi": {
@@ -1012,5 +1013,117 @@ window.SHIFT_CONTENT = {
     "opening": { "ar": "يتم فتح واتساب مع رسالتك…", "en": "Opening WhatsApp with your message…" },
     "privacy": { "ar": "لا نستخدم رقمك إلا للردّ على طلبك.", "en": "We only use your number to reply to this request." },
     "facebookUrl": "https://www.facebook.com/profile.php?id=61593849817699"
+  },
+
+  "seo": {
+    "home": {
+      "path": {
+        "ar": "/",
+        "en": "/en"
+      },
+      "title": {
+        "ar": "كرم بوت — بوت واتساب يردّ ويحجز لعملائك | شِفت، الأردن",
+        "en": "Karam Bot — a WhatsApp AI agent that replies and books | SHIFT, Jordan"
+      },
+      "description": {
+        "ar": "كرم بوت يردّ على واتساب من أسعارك ومواعيدك، يحجز لعملائك، ويحوّل الحالات الصعبة إلى موظف — للعيادات والمطاعم والكافيهات والمتاجر الإلكترونية. شِفت للذكاء الاصطناعي والأتمتة، إربد، الأردن.",
+        "en": "Karam answers WhatsApp from your prices and schedule, books for your customers, and hands hard cases to a person — for clinics, restaurants, cafés and online stores. SHIFT AI & Automation, Irbid, Jordan."
+      }
+    },
+    "pages": {
+      "clinic": {
+        "path": {
+          "ar": "/clinics",
+          "en": "/en/clinics"
+        },
+        "link": {
+          "ar": "بوت واتساب للعيادات",
+          "en": "WhatsApp agent for clinics"
+        },
+        "audience": "Clinics",
+        "title": {
+          "ar": "بوت واتساب للعيادات — حجز المواعيد والتذكير تلقائيًا | شِفت",
+          "en": "WhatsApp agent for clinics — automatic booking & reminders | SHIFT"
+        },
+        "description": {
+          "ar": "كرم يردّ على مرضى عيادتك على واتساب، يعرض الأوقات المتاحة فعليًا من تقويمك، يثبّت الموعد ويذكّر به ويعدّله، ويحوّل الاستثناءات إلى الاستقبال. للعيادات في الأردن.",
+          "en": "Karam answers your patients on WhatsApp, offers the slots that are actually free in your calendar, confirms, reminds and reschedules, and passes exceptions to the front desk. For clinics in Jordan."
+        },
+        "eyebrow": {
+          "ar": "بوت واتساب للعيادات · إربد، الأردن",
+          "en": "WhatsApp agent for clinics · Irbid, Jordan"
+        },
+        "h1": {
+          "ar": "مريض يراسل عيادتك الساعة 11 ليلًا. كرم يعرض الأوقات المتاحة ويثبّت الموعد.",
+          "en": "A patient messages your clinic at 11 pm. Karam offers the free slots and books."
+        },
+        "intro": {
+          "ar": "يحجز من تقويمك الفعلي، يذكّر قبل الموعد ويعدّله بلا مكالمة، والاستقبال يرى الاستثناءات فقط.",
+          "en": "It books from your real calendar, reminds before the appointment and reschedules without a call — the front desk only sees exceptions."
+        }
+      },
+      "restaurant": {
+        "path": {
+          "ar": "/restaurants",
+          "en": "/en/restaurants"
+        },
+        "link": {
+          "ar": "بوت واتساب للمطاعم والكافيهات",
+          "en": "WhatsApp agent for restaurants & cafés"
+        },
+        "audience": "Restaurants and cafés",
+        "title": {
+          "ar": "بوت واتساب للمطاعم والكافيهات — طلبات التوصيل وحجز الطاولات | شِفت",
+          "en": "WhatsApp agent for restaurants & cafés — delivery orders & table bookings | SHIFT"
+        },
+        "description": {
+          "ar": "كرم يجيب زبائن مطعمك على واتساب من قائمتك وأسعارك، يأخذ طلب التوصيل ويسجّل العنوان ويرسله للمطبخ، ويثبّت حجز الطاولة. للمطاعم والكافيهات في الأردن.",
+          "en": "Karam answers your customers on WhatsApp from your menu and prices, takes the delivery order with the address, sends it to the kitchen, and confirms table bookings. For restaurants and cafés in Jordan."
+        },
+        "eyebrow": {
+          "ar": "بوت واتساب للمطاعم والكافيهات · إربد، الأردن",
+          "en": "WhatsApp agent for restaurants & cafés · Irbid, Jordan"
+        },
+        "h1": {
+          "ar": "زبون يراسل مطعمك وقت الذروة. كرم يأخذ الطلب بالعنوان ويرسله للمطبخ.",
+          "en": "A customer messages your restaurant at rush hour. Karam takes the order with the address and sends it to the kitchen."
+        },
+        "intro": {
+          "ar": "يجيب من قائمتك وأسعارك، يثبّت حجز الطاولة، ويحوّل الشكاوى إلى المدير — والفريق يطبخ بدل أن يكتب.",
+          "en": "It answers from your menu and prices, confirms table bookings, and hands complaints to the manager — so your team cooks instead of typing."
+        }
+      },
+      "store": {
+        "path": {
+          "ar": "/online-stores",
+          "en": "/en/online-stores"
+        },
+        "link": {
+          "ar": "بوت واتساب للمتاجر الإلكترونية",
+          "en": "WhatsApp agent for online stores"
+        },
+        "audience": "Online stores",
+        "title": {
+          "ar": "بوت واتساب للمتاجر الإلكترونية — حالة الطلب والمقاسات والتوصيل | شِفت",
+          "en": "WhatsApp agent for online stores — order status, sizes & delivery | SHIFT"
+        },
+        "description": {
+          "ar": "كرم يردّ على عملاء متجرك على واتساب من الكتالوج ونظام الطلبات: حالة الطلب برقمه، المقاسات المتوفرة، وقت التوصيل وطريقة الدفع، ويذكّر بالسلال المتروكة. للمتاجر الإلكترونية في الأردن.",
+          "en": "Karam answers your store's customers on WhatsApp from your catalogue and order system: order status by number, sizes in stock, delivery window and payment method, plus abandoned-cart reminders. For online stores in Jordan."
+        },
+        "eyebrow": {
+          "ar": "بوت واتساب للمتاجر الإلكترونية · إربد، الأردن",
+          "en": "WhatsApp agent for online stores · Irbid, Jordan"
+        },
+        "h1": {
+          "ar": "«طلبي وين صار؟» الساعة 10 ليلًا. كرم يجيب برقم الطلب ووقت التوصيل.",
+          "en": "“Where is my order?” at 10 pm. Karam answers with the order number and delivery time."
+        },
+        "intro": {
+          "ar": "يجيب عن المقاسات المتوفرة وطريقة الدفع من الكتالوج، يذكّر بالسلال المتروكة، ويحوّل الشكاوى إلى موظف.",
+          "en": "It answers sizes in stock and payment options from your catalogue, nudges abandoned carts, and hands complaints to an employee."
+        }
+      }
+    }
   }
 };

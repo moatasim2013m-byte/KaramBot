@@ -12,7 +12,17 @@ APP     = "https://app.shifts-ai.store"
 ap = argparse.ArgumentParser(description="Deploy ./site to Firebase Hosting (live by default).")
 ap.add_argument("--channel", help="deploy to a preview channel id (e.g. preview) instead of live; prints its URL")
 ap.add_argument("--expires", default="7d", help="preview channel TTL (default 7d)")
+ap.add_argument("--skip-build", action="store_true", help="upload site/ as it is, without rebuilding CSS/pages or running the gates")
 ARGS = ap.parse_args()
+# Build and gate before anything is uploaded: generated CSS and pre-rendered pages must match the source.
+if not ARGS.skip_build:
+    TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    for step in ["build-css.js", "check-consistency.js", "build-pages.js", "size.js"]:
+        print(f"== {step}")
+        r = subprocess.run(["node", os.path.join(TOOLS, step)])
+        if r.returncode != 0:
+            sys.exit(f"deploy aborted: {step} failed")
+
 TOKEN = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
 
 def req(method, url, body=None, ctype="application/json", raw=False):
@@ -39,7 +49,8 @@ CONFIG = {"config": {
     # dashboard routes live on the app subdomain
     "redirects": [{"glob": p, "location": APP + p, "statusCode": 302} for p in
                   ["/login", "/overview", "/inbox", "/orders", "/menu",
-                   "/clinic", "/reports", "/staff", "/settings"]],
+                   "/clinic", "/reports", "/staff", "/settings"]] +
+                 [{"glob": "/en/", "location": "/en", "statusCode": 301}],   # English home lives at /en
     "headers": [
         {"glob": "**",              "headers": SECURITY},
         {"regex": "^/([^.]*)$",     "headers": NO_CACHE},   # "/" and clean URLs (/privacy …)

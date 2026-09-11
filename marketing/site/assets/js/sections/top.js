@@ -134,16 +134,18 @@
     if (S.shown >= list.length) S.done = true;
 
     var now = new Date();
-    var lines = titleLines(SHIFT.t('sections.top.title')).map(function (l) {
+    // On a sector page (/clinics …) the opening speaks to that sector; the home page keeps the general promise.
+    var sp = typeof SHIFT.seoPage === 'function' ? SHIFT.seoPage() : null;
+    var lines = titleLines(sp ? SHIFT.tx(sp.h1) : SHIFT.t('sections.top.title')).map(function (l) {
       return '<span class="top-h1-line">' + SHIFT.rich(l) + '</span>';
     }).join(' ');
 
     el.innerHTML =
       '<div class="wrap top-in">' +
         '<div class="top-text">' +
-          '<p class="eyebrow top-eyebrow">' + SHIFT.rich(SHIFT.t('sections.top.eyebrow')) + '</p>' +
+          '<p class="eyebrow top-eyebrow">' + SHIFT.rich(sp ? SHIFT.tx(sp.eyebrow) : SHIFT.t('sections.top.eyebrow')) + '</p>' +
           '<h1 class="top-h1">' + lines + '</h1>' +
-          '<p class="top-proof">' + SHIFT.rich(SHIFT.t('sections.top.intro')) + '</p>' +
+          '<p class="top-proof">' + SHIFT.rich(sp ? SHIFT.tx(sp.intro) : SHIFT.t('sections.top.intro')) + '</p>' +
           '<div class="top-actions">' +
             '<a class="btn btn-wa btn-lg top-cta" href="' + SHIFT.esc(SHIFT.waUrl()) + '" data-wa="top" data-cta="top" target="_blank" rel="noopener">' +
               SHIFT.icon('whatsapp', { size: 20 }) +
@@ -282,6 +284,8 @@
     },
     update: function (el, reason) {
       if (reason === 'sector') {
+        // On a sector page the H1/eyebrow/intro belong to the sector too: re-render the whole opening.
+        if (typeof SHIFT.seoPage === 'function' && SHIFT.seoPage()) { stopStream(); render(el); return; }
         // core did NOT re-render on 'sector': swap the feed for the new sector and let it stream again (once).
         stopStream();
         var list = rows();

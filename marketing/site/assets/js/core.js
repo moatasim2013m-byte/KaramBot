@@ -119,8 +119,12 @@
   'use strict';
 
   var C = w.SHIFT_CONTENT || {};
+  // Static pages (built by tools/build-pages.js) declare what they are: { lang, sector|null, home, alternates:{ar,en} }.
+  // The page's language and sector win over storage so the prerendered HTML, the URL and the live render agree.
+  var PAGE = (w.SHIFT_PAGE && typeof w.SHIFT_PAGE === 'object') ? w.SHIFT_PAGE : null;
   var SECTOR_DATA = C.sectors || {};
   var SHIFT = w.SHIFT = w.SHIFT || {};
+  SHIFT.page = PAGE;
 
   SHIFT.WA = '962776788972';
   SHIFT.content = C;
@@ -348,6 +352,7 @@
     if (!state.bizName) { var n = sGet(KEY_NAME); if (n) state.bizName = String(n).trim().slice(0, NAME_MAX); }
     var lang = sGet(KEY_LANG);
     if (lang === 'ar' || lang === 'en') state.lang = lang;
+    if (PAGE && (PAGE.lang === 'ar' || PAGE.lang === 'en')) state.lang = PAGE.lang;
   }
 
   // ?b=clinic|restaurant|store wins over storage and is removed; utm_*/fbclid/gclid are captured (and left in the URL for the vendors).
@@ -456,6 +461,12 @@
   SHIFT.setLang = function (l) {
     if (l !== 'ar' && l !== 'en') return false;
     if (l === state.lang && SHIFT.mounted) return false;
+    // Each language has its own URL: go there instead of re-rendering in place (keeps utm_* and the hash).
+    if (SHIFT.mounted && PAGE && PAGE.alternates && PAGE.alternates[l]) {
+      sSet(KEY_LANG, l);
+      w.location.href = PAGE.alternates[l] + w.location.search + w.location.hash;
+      return true;
+    }
     state.lang = l;
     applyLang();
     sSet(KEY_LANG, l);
@@ -471,9 +482,21 @@
     return true;
   };
 
+  function seoPage(k) { return path(C, 'seo.pages.' + k) || null; }
+  SHIFT.seoPage = function (k) { return PAGE && PAGE.sector ? seoPage(k || state.sector) : null; };
+  function syncSectorUrl(k) {
+    var sp = seoPage(k);
+    if (!PAGE || !PAGE.sector || !sp || !sp.path) return;
+    PAGE.sector = k;
+    PAGE.alternates = { ar: sp.path.ar, en: sp.path.en };
+    try { w.history.replaceState(null, '', sp.path[state.lang] + w.location.search + w.location.hash); } catch (e) { /* noop */ }
+    if (sp.title) d.title = SHIFT.tx(sp.title);
+  }
+
   SHIFT.setSector = function (k) {
     if (!validSector(k) || k === state.sector) return false;
     state.sector = k;
+    syncSectorUrl(k);
     if (!state.roiTouched) state.roi = roiDefaults(k);
     SHIFT.save();
     propagate('sector', k);
@@ -714,7 +737,7 @@
       '<a class="skip" href="#main">' + SHIFT.esc(SHIFT.t('skip_to_content')) + '</a>' +
       '<div class="wrap nav-in">' +
         '<div class="nav-start">' +
-          '<a class="nav-logo" href="#top" aria-label="' + SHIFT.esc(SHIFT.t('brand_full')) + '">' +
+          '<a class="nav-logo" href="' + SHIFT.esc(PAGE && PAGE.sector && PAGE.home ? PAGE.home : '#top') + '" aria-label="' + SHIFT.esc(SHIFT.t('brand_full')) + '">' +
             '<span class="nav-mark" aria-hidden="true"></span>' +
             '<span class="nav-word">' + SHIFT.esc(SHIFT.t('brand')) + '</span>' +
           '</a>' +
@@ -756,8 +779,20 @@
           (fb ? '<a href="' + SHIFT.esc(fb) + '" target="_blank" rel="noopener">' + SHIFT.esc(SHIFT.t('footer_facebook')) + '</a>' : '') +
           waAnchor('footer', '', SHIFT.icon('whatsapp', { size: 18 }) + SHIFT.esc(SHIFT.t('footer_whatsapp'))) +
         '</nav>' +
+        sectorLinks() +
         '<div class="footer-copy">' + SHIFT.rich(SHIFT.t('footer_copyright')) + '</div>' +
       '</div>';
+  }
+  function sectorLinks() {
+    var pages = path(C, 'seo.pages');
+    if (!pages) return '';
+    var links = Object.keys(pages).map(function (k) {
+      var sp = pages[k];
+      if (!sp || !sp.path || !sp.link) return '';
+      var cur = PAGE && PAGE.sector === k ? ' aria-current="page"' : '';
+      return '<a href="' + SHIFT.esc(sp.path[state.lang]) + '"' + cur + '>' + SHIFT.esc(SHIFT.tx(sp.link)) + '</a>';
+    }).join('');
+    return '<nav class="footer-links footer-sectors" aria-label="' + SHIFT.esc(SHIFT.t('footer_sectors_aria')) + '">' + links + '</nav>';
   }
   function renderSticky() {
     var el = byId('sticky');
@@ -913,5 +948,10 @@
   /* ------------------------------------------------------------------ boot */
   restore();
   if (readUrl()) SHIFT.save();
+  if (PAGE && validSector(PAGE.sector) && state.sector !== PAGE.sector) {
+    state.sector = PAGE.sector;
+    if (!state.roiTouched) state.roi = roiDefaults(PAGE.sector);
+    SHIFT.save();
+  }
   applyLang();
 })(window, document);
