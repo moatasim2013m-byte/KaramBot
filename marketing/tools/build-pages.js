@@ -24,6 +24,17 @@ const ORIGIN = 'https://shifts-ai.store';
 const TEMPLATE = fs.readFileSync(path.join(M, 'src/page.template.html'), 'utf8');
 const BUILD_TIME = '2026-09-15T13:30:00+03:00';
 const TODAY = new Date().toISOString().slice(0, 10);
+const crypto = require('crypto');
+// src/lastmod.json: { "/clinics": { "hash": "<sha256 of built HTML>", "lastmod": "YYYY-MM-DD" }, … } — committed.
+// A URL's lastmod only moves when its built HTML actually changes, so sitemap dates stay trustworthy.
+const LASTMOD_FILE = path.join(M, 'src/lastmod.json');
+const lastmodState = fs.existsSync(LASTMOD_FILE) ? JSON.parse(fs.readFileSync(LASTMOD_FILE, 'utf8')) : {};
+function stamp(urlPath, file) {
+  const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  const prev = lastmodState[urlPath];
+  lastmodState[urlPath] = prev && prev.hash === hash ? prev : { hash, lastmod: TODAY };
+  return lastmodState[urlPath].lastmod;
+}
 
 const ctx = { window: {} }; vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(SITE, 'assets/js/content.js'), 'utf8'), ctx);
@@ -54,7 +65,10 @@ function jsonLd(pg) {
       url: ORIGIN + '/', logo: ORIGIN + '/assets/logo.png',
       sameAs: [C.contact.facebookUrl].filter(Boolean),
       address: { '@type': 'PostalAddress', addressLocality: 'Irbid', addressCountry: 'JO' },
-      contactPoint: { '@type': 'ContactPoint', telephone: '+962776788972', contactType: 'sales', areaServed: 'JO', availableLanguage: ['ar', 'en'] }
+      contactPoint: [
+        { '@type': 'ContactPoint', telephone: '+962776788972', contactType: 'customer service', areaServed: 'JO', availableLanguage: ['ar', 'en'] },
+        { '@type': 'ContactPoint', telephone: '+962776788972', contactType: 'sales', areaServed: 'JO', availableLanguage: ['ar', 'en'] }
+      ]
     },
     { '@type': 'WebSite', '@id': site, url: ORIGIN + '/', name: L === 'ar' ? 'شِفت' : 'SHIFT', inLanguage: ['ar', 'en'], publisher: { '@id': org } },
     {
@@ -225,12 +239,14 @@ function bake(html, rawParts) {
   const urls = [];
   const groups = [SEO.home.path, ...Object.values(SEO.pages).map(p => p.path)];
   for (const g of groups) for (const L of ['ar', 'en']) {
-    urls.push(`  <url>\n    <loc>${abs(g[L])}</loc>\n    <lastmod>${TODAY}</lastmod>\n` +
+    const lm = stamp(g[L], path.join(SITE, fileFor(g[L])));
+    urls.push(`  <url>\n    <loc>${abs(g[L])}</loc>\n    <lastmod>${lm}</lastmod>\n` +
       `    <xhtml:link rel="alternate" hreflang="ar" href="${abs(g.ar)}"/>\n` +
       `    <xhtml:link rel="alternate" hreflang="en" href="${abs(g.en)}"/>\n` +
       `    <xhtml:link rel="alternate" hreflang="x-default" href="${abs(g.ar)}"/>\n  </url>`);
   }
-  for (const p of ['/privacy', '/data-deletion']) urls.push(`  <url>\n    <loc>${abs(p)}</loc>\n    <lastmod>${TODAY}</lastmod>\n  </url>`);
+  for (const p of ['/privacy', '/data-deletion']) urls.push(`  <url>\n    <loc>${abs(p)}</loc>\n    <lastmod>${stamp(p, path.join(SITE, fileFor(p)))}</lastmod>\n  </url>`);
+  if (!failed) fs.writeFileSync(LASTMOD_FILE, JSON.stringify(lastmodState, null, 2) + '\n');
   fs.writeFileSync(path.join(SITE, 'sitemap.xml'),
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' + urls.join('\n') + '\n</urlset>\n');
   console.log(`sitemap.xml: ${urls.length} urls`);

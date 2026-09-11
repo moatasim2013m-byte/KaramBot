@@ -118,5 +118,9 @@ function set(l){h.lang=l;h.dir=l==="ar"?"rtl":"ltr";b.forEach(function(x){x.clas
 var s="ar";try{s=localStorage.getItem("shift-lang")||"ar"}catch(e){}
 b.forEach(function(x){x.addEventListener("click",function(){set(x.dataset.set)})});set(s);})();
 </script>
+<script src="/assets/js/config.js"></script>
+<script>window.SHIFT = window.SHIFT || {};</script>
+<script src="/assets/js/analytics.js"></script>
+<script>SHIFT.track && SHIFT.track('page_view', {});</script>
 </body>
 </html>

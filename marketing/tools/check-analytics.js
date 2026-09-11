@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Dry-run the ads/analytics layer in a real browser without sending anything to Meta or Google.
- * Serves ./site locally, injects test IDs into SHIFT_CONFIG (or the IDs already in index.html with --real),
+ * Serves ./site locally, injects test IDs via assets/js/config.js (or the committed IDs with --real),
  * stubs the vendor scripts, clicks through the page and asserts which fbq/gtag calls fire.
  *   node marketing/tools/check-analytics.js          # fake IDs
  *   node marketing/tools/check-analytics.js --real   # use the IDs committed in index.html
@@ -18,7 +18,8 @@ const srv = http.createServer((req, res) => {
   const f = path.join(ROOT, u);
   if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
   let body = fs.readFileSync(f);
-  if (u === '/index.html' && !REAL) body = Buffer.from(body.toString('utf8').replace(/window\.SHIFT_CONFIG=\{[^<]*\}/, 'window.SHIFT_CONFIG=' + FAKE));
+  // IDs live in assets/js/config.js; swap in test IDs there unless --real.
+  if (u === '/assets/js/config.js' && !REAL) body = Buffer.from('window.SHIFT_CONFIG=' + FAKE + ';');
   res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' }); res.end(body);
 });
 

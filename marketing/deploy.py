@@ -59,6 +59,39 @@ CONFIG = {"config": {
     ],
 }}
 
+# IndexNow (Bing, Yandex, …): after a LIVE release, tell search engines which URLs changed. "Changed" means the
+# page's built-HTML hash in src/lastmod.json differs from the hash last pinged (src/indexnow.json). The key file
+# site/<key>.txt ships with the site. A failed ping never fails the deploy; unpinged URLs are retried next time.
+def indexnow_ping():
+    here = os.path.dirname(os.path.abspath(__file__))
+    state_f, lastmod_f = os.path.join(here, "src/indexnow.json"), os.path.join(here, "src/lastmod.json")
+    try:
+        state = json.load(open(state_f, encoding="utf-8"))
+        lastmod = json.load(open(lastmod_f, encoding="utf-8"))
+    except Exception as e:
+        print("indexnow: skipped —", e); return
+    key, pinged = state.get("key"), state.setdefault("pinged", {})
+    changed = [p for p, v in sorted(lastmod.items()) if pinged.get(p) != v.get("hash")]
+    if not key or not changed:
+        print("indexnow: nothing changed"); return
+    body = {"host": "shifts-ai.store", "key": key, "keyLocation": f"https://shifts-ai.store/{key}.txt",
+            "urlList": [("https://shifts-ai.store" + p) for p in changed]}
+    r = urllib.request.Request("https://api.indexnow.org/indexnow", data=json.dumps(body).encode(), method="POST",
+                               headers={"Content-Type": "application/json; charset=utf-8"})
+    try:
+        with urllib.request.urlopen(r, timeout=30) as resp:
+            code = resp.status
+    except urllib.error.HTTPError as e:
+        code = e.code
+    except Exception as e:
+        print("indexnow: ping failed —", e); return
+    if code in (200, 202):
+        for p in changed: pinged[p] = lastmod[p]["hash"]
+        json.dump(state, open(state_f, "w", encoding="utf-8"), indent=2); open(state_f, "a").write("\n")
+        print(f"indexnow: {code} accepted — {len(changed)} URL(s): {', '.join(changed)}")
+    else:
+        print(f"indexnow: HTTP {code} — not recorded, will retry on next live deploy")
+
 ver = req("POST", f"{BASE}/sites/{SITE}/versions", CONFIG)["name"]
 print("version:", ver)
 
@@ -110,3 +143,4 @@ if ARGS.channel:
     print("PREVIEW URL:", info.get("url"))
 else:
     print("released LIVE:", req("POST", f"{BASE}/sites/{SITE}/releases?versionName={ver}", {})["name"])
+    indexnow_ping()
