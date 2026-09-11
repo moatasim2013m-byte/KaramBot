@@ -245,7 +245,7 @@ function bake(html, rawParts) {
       `    <xhtml:link rel="alternate" hreflang="en" href="${abs(g.en)}"/>\n` +
       `    <xhtml:link rel="alternate" hreflang="x-default" href="${abs(g.ar)}"/>\n  </url>`);
   }
-  for (const p of ['/privacy', '/data-deletion']) urls.push(`  <url>\n    <loc>${abs(p)}</loc>\n    <lastmod>${stamp(p, path.join(SITE, fileFor(p)))}</lastmod>\n  </url>`);
+  for (const p of ['/privacy', '/data-deletion', '/terms']) urls.push(`  <url>\n    <loc>${abs(p)}</loc>\n    <lastmod>${stamp(p, path.join(SITE, fileFor(p)))}</lastmod>\n  </url>`);
   if (!failed) fs.writeFileSync(LASTMOD_FILE, JSON.stringify(lastmodState, null, 2) + '\n');
   fs.writeFileSync(path.join(SITE, 'sitemap.xml'),
     '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' + urls.join('\n') + '\n</urlset>\n');

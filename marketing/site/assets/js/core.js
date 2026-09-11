@@ -776,6 +776,7 @@
         '<nav class="footer-links" aria-label="' + SHIFT.esc(SHIFT.t('nav_aria')) + '">' +
           '<a href="/privacy">' + SHIFT.esc(SHIFT.t('footer_privacy')) + '</a>' +
           '<a href="/data-deletion">' + SHIFT.esc(SHIFT.t('footer_data_deletion')) + '</a>' +
+          '<a href="/terms">' + SHIFT.esc(SHIFT.t('footer_terms')) + '</a>' +
           (fb ? '<a href="' + SHIFT.esc(fb) + '" target="_blank" rel="noopener">' + SHIFT.esc(SHIFT.t('footer_facebook')) + '</a>' : '') +
           waAnchor('footer', '', SHIFT.icon('whatsapp', { size: 18 }) + SHIFT.esc(SHIFT.t('footer_whatsapp'))) +
         '</nav>' +

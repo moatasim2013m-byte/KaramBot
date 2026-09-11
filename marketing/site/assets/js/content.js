@@ -179,6 +179,7 @@ window.SHIFT_CONTENT = {
     "footer_brand": { "ar": "شِفت للذكاء الاصطناعي والأتمتة · إربد، الأردن", "en": "SHIFT AI & Automation · Irbid, Jordan" },
     "footer_line": { "ar": "كرم بوت، نقاط الولاء، الدوام، الحجوزات، الاشتراكات، التسويق الآلي، نظام الإدارة، والأتمتة المخصّصة للمنشآت في الأردن.", "en": "Karam Bot, Loyalty Points, Attendance, Bookings, Subscriptions, Marketing Automation, ERP and custom automation for businesses in Jordan." },
     "footer_privacy": { "ar": "سياسة الخصوصية", "en": "Privacy policy" },
+    "footer_terms": { "ar": "شروط الخدمة", "en": "Terms of Service" },
     "footer_data_deletion": { "ar": "حذف البيانات", "en": "Data deletion" },
     "footer_facebook": { "ar": "شِفت على فيسبوك", "en": "SHIFT on Facebook" },
     "footer_whatsapp": { "ar": "واتساب", "en": "WhatsApp" },
