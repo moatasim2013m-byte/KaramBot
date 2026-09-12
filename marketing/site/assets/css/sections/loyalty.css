@@ -132,7 +132,7 @@
   background:#EFE9E1;                  /* WhatsApp chat wallpaper — the product's real look */
   overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
 }
-#loyalty .loy-empty{ margin:auto; text-align:center; max-width:260px; }
+#loyalty .loy-empty{ margin:auto; text-align:center; max-width:260px;color:var(--muted-chat); }
 
 /* bubbles: incoming (from the business) at inline-start, white with a 4px corner on the sender's side;
    the redeem receipt spans the row as a light hairline card */

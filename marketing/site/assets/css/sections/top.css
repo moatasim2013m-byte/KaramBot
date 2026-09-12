@@ -61,6 +61,10 @@
 /* Feed: glass rows, 8px apart; icon 32px square (#9CC0FF strokes), text 14.5px, time 12px tabular at the end */
 #top .ops-feed{ display:flex; flex-direction:column; gap:8px; margin:0; padding:0; list-style:none; }
 #top .ops-row{ min-height:56px; }                           /* 32px icon + 12px padding each side */
+/* Not streamed in yet: invisible but holding its space, so the feed never grows and pushes the page (CLS). */
+#top .ops-row.is-pending{ visibility:hidden; }
+/* The "stream finished" line is present from the start (empty) so revealing its text adds no height. */
+#top .ops-done{ min-height:1.7em; }
 #top .ops-text{ color:var(--glass-text); }
 #top .ops-time{ margin-inline-start:auto; direction:ltr; }
 

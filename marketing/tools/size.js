@@ -26,6 +26,20 @@ console.log("-".repeat(58));
 if (sum > ASSET_BUDGET) { console.error(`assets: FAIL — ${(sum / 1024).toFixed(1)} KB gz, over 120 KB by ${sum - ASSET_BUDGET} B`); fail = true; }
 else console.log(`assets: OK — ${(sum / 1024).toFixed(1)} KB gz (${ASSET_BUDGET - sum} B under 120 KB)`);
 
+// Self-hosted fonts: first visit only, cached for a year afterwards. Reported, with a cap, but kept out of the
+// asset budget — they replace the same bytes previously fetched from Google Fonts.
+const FONT_DIR = path.join(SITE, "assets/fonts");
+const FONT_BUDGET = 340 * 1024;
+let fontTotal = 0;
+if (fs.existsSync(FONT_DIR)) {
+  console.log("");
+  const files = fs.readdirSync(FONT_DIR).filter((f) => f.endsWith(".woff2")).sort();
+  for (const f of files) { const n = fs.statSync(path.join(FONT_DIR, f)).size; fontTotal += n; }
+  const ar = files.filter((f) => f.includes("arabic")).reduce((a, f) => a + fs.statSync(path.join(FONT_DIR, f)).size, 0);
+  console.log(`fonts: ${files.length} woff2 · ${(fontTotal / 1024).toFixed(0)} KB total (already compressed) · Arabic subsets ${(ar / 1024).toFixed(0)} KB`);
+  if (fontTotal > FONT_BUDGET) { console.error(`fonts: FAIL — over ${FONT_BUDGET / 1024} KB by ${fontTotal - FONT_BUDGET} B`); fail = true; }
+}
+
 const pages = [];
 (function walk(dir) {
   for (const n of fs.readdirSync(dir)) {

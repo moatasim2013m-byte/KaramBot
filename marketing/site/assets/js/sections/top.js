@@ -76,24 +76,28 @@
     return m ? [m[1], m[2]] : [String(str || '')];
   }
 
-  function rowHtml(row, i, isNew, isHot) {
+  function rowHtml(row, i, isNew, isHot, isPending) {
     var kind = String((row && row.kind) || '').toLowerCase();
     var icon = ICON_BY_KIND[kind] || 'message';
     var min = rowMinute(i);
-    return '<li class="glass-row ops-row ops-row-' + SHIFT.esc(kind || 'other') + (isNew ? ' is-new' : '') + (isHot ? ' is-hot' : '') + '" data-i="' + i + '">' +
+    return '<li class="glass-row ops-row ops-row-' + SHIFT.esc(kind || 'other') + (isNew ? ' is-new' : '') + (isHot ? ' is-hot' : '') + (isPending ? ' is-pending' : '') + '" data-i="' + i + '">' +
       '<span class="glass-icon ops-ic" aria-hidden="true">' + SHIFT.icon(icon, { size: 16 }) + '</span>' +
       '<span class="glass-row-text ops-text">' + SHIFT.rich(SHIFT.tx(row && row.text)) + '</span>' +
       '<time class="glass-time ops-time" datetime="09:' + pad2(min) + '">9:' + pad2(min) + '</time>' +
     '</li>';
   }
+  // Every row is rendered from the start; the ones that have not streamed in yet are .is-pending
+  // (visibility:hidden), so they already hold their space and streaming never pushes the page down (CLS).
   function feedHtml(count) {
     var list = rows(), out = '', n = Math.min(count, list.length);
-    for (var i = 0; i < n; i++) out += rowHtml(list[i], i, false, i === n - 1);
+    for (var i = 0; i < list.length; i++) out += rowHtml(list[i], i, false, i === n - 1, i >= n);
     return out;
   }
-  function doneHtml() {
-    // role="status" = an implicit polite live region: the ONE announcement when the stream finishes.
-    return '<p class="ops-done small" role="status">' + SHIFT.rich(SHIFT.t('ops_done')) + '</p>';
+  function doneText() { return SHIFT.t('ops_done'); }
+  function doneHtml(filled) {
+    // role="status" = an implicit polite live region: the ONE announcement when the stream finishes. The element
+    // is rendered from the start (empty, with a reserved min-height in CSS) so filling it never shifts the page.
+    return '<p class="ops-done small" role="status">' + (filled ? SHIFT.rich(doneText()) : '') + '</p>';
   }
   function countText(n) { return SHIFT.t('ops_count', { n: String(n) }); }
   // «تحديث {{time}}» → the text around the token goes through rich(); the token becomes a real <time> element.
@@ -166,7 +170,7 @@
           '<ol class="ops-feed" data-sector="' + SHIFT.esc(SHIFT.state.sector) + '" aria-label="' + SHIFT.esc(SHIFT.t('ops_feed_aria')) + '">' +
             feedHtml(S.shown) +
           '</ol>' +
-          (S.done ? doneHtml() : '') +
+          doneHtml(S.done) +
           footHtml(now, S.shown) +
         '</div>' +
         '<div class="top-sectors">' +
@@ -213,19 +217,24 @@
   function finish(el) {
     S.done = true;
     var panel = el.querySelector('.ops');
-    if (!panel || panel.querySelector('.ops-done')) return;
+    if (!panel) return;
+    var done = panel.querySelector('.ops-done');
+    if (done) { if (!done.textContent.trim()) done.innerHTML = SHIFT.rich(doneText()); return; }
     var foot = panel.querySelector('.ops-foot');
-    if (foot) foot.insertAdjacentHTML('beforebegin', doneHtml());
-    else panel.insertAdjacentHTML('beforeend', doneHtml());
+    if (foot) foot.insertAdjacentHTML('beforebegin', doneHtml(true));
+    else panel.insertAdjacentHTML('beforeend', doneHtml(true));
   }
   function appendRow(el, i) {
     var feed = el.querySelector('.ops-feed'), list = rows();
     if (!feed || !list[i]) return false;
-    // The newest row is the only hot one: hand the class over before the new row lands.
+    // The row is already in the DOM holding its space: reveal it instead of inserting one.
+    var li = feed.querySelector('.ops-row[data-i="' + i + '"]');
+    if (!li) return false;
+    // The newest row is the only hot one: hand the class over before this one appears.
     var prevHot = feed.querySelector('.is-hot');
     if (prevHot) prevHot.classList.remove('is-hot');
-    feed.insertAdjacentHTML('beforeend', rowHtml(list[i], i, true, true));
-    var li = feed.lastElementChild;
+    li.classList.add('is-new', 'is-hot');
+    li.classList.remove('is-pending');
     if (li) {
       // Two frames so the initial opacity:0 / translateY(4px) is committed before the 200 ms transition.
       w.requestAnimationFrame(function () {
@@ -293,7 +302,7 @@
         S.shown = S.done ? list.length : Math.min(FIRST_PAINT, list.length);
         var feed = el.querySelector('.ops-feed');
         var old = el.querySelector('.ops-done');
-        if (old) old.parentNode.removeChild(old);
+        if (old) old.innerHTML = '';   // keep the element (and its reserved height); it refills when the stream ends
         if (feed) {
           feed.setAttribute('data-sector', SHIFT.state.sector);
           feed.innerHTML = feedHtml(S.shown);

@@ -157,7 +157,7 @@
   background:#EFE9E1;                  /* WhatsApp chat wallpaper — the product's real look */
   overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
 }
-#attendance .att-empty{ margin:auto; text-align:center; max-width:260px; }
+#attendance .att-empty{ margin:auto; text-align:center; max-width:260px;color:var(--muted-chat); }
 /* alert bubble: incoming (from Karam to the manager) at inline-start, white, 4px corner on the sender's side */
 #attendance .att-bub{
   align-self:flex-start; display:flex; align-items:flex-start; gap:8px;

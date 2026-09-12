@@ -14,12 +14,27 @@ ap.add_argument("--channel", help="deploy to a preview channel id (e.g. preview)
 ap.add_argument("--expires", default="7d", help="preview channel TTL (default 7d)")
 ap.add_argument("--skip-build", action="store_true", help="upload site/ as it is, without rebuilding CSS/pages or running the gates")
 ARGS = ap.parse_args()
+# Node is not always on PATH (nvm shells, fresh sessions), so resolve it before the build steps run.
+def node_bin():
+    import glob, shutil
+    found = shutil.which("node")
+    if found:
+        return found
+    cands = sorted(glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/node")) +
+                   glob.glob("/usr/local/nvm/versions/node/*/bin/node") +
+                   glob.glob("/usr/local/bin/node") + glob.glob("/usr/bin/node"), reverse=True)
+    if not cands:
+        sys.exit("deploy aborted: node not found — needed by the build steps (or pass --skip-build)")
+    return cands[0]
+
 # Build and gate before anything is uploaded: generated CSS and pre-rendered pages must match the source.
 if not ARGS.skip_build:
+    NODE = node_bin()
     TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools")
+    print(f"== node: {NODE}")
     for step in ["build-css.js", "check-consistency.js", "build-pages.js", "size.js"]:
         print(f"== {step}")
-        r = subprocess.run(["node", os.path.join(TOOLS, step)])
+        r = subprocess.run([NODE, os.path.join(TOOLS, step)])
         if r.returncode != 0:
             sys.exit(f"deploy aborted: {step} failed")
 

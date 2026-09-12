@@ -22,6 +22,19 @@ const M = path.join(__dirname, '..');
 const SITE = path.join(M, 'site');
 const ORIGIN = 'https://shifts-ai.store';
 const TEMPLATE = fs.readFileSync(path.join(M, 'src/page.template.html'), 'utf8');
+// Fonts are self-hosted (tools/fetch-fonts.js). Preload only the two faces the first screen needs in this page's
+// language — the H1 (display 600) and body text (400) — so they are already there when the page first paints.
+const FONTS = JSON.parse(fs.readFileSync(path.join(M, 'src/fonts.json'), 'utf8'));
+// PRELOAD is measured, not assumed: preloading the two first-screen faces (~74 KB) delayed first paint on a
+// throttled 4G connection, because it competes with the HTML/CSS. Fonts are discovered from app.css instead and
+// text paints immediately in the metric-matched fallback. Set PRELOAD_FONTS=1 to re-test the other way.
+const PRELOAD_FONTS = process.env.PRELOAD_FONTS === '1';
+function preloadFor(lang) {
+  if (!PRELOAD_FONTS) return '';
+  const subset = lang === 'ar' ? 'arabic' : 'latin';
+  return FONTS.filter(f => f.subset === subset && ((f.family === 'Alexandria' && f.weight === '600') || (f.family === 'IBM Plex Sans Arabic' && f.weight === '400')))
+    .map(f => `<link rel="preload" as="font" type="font/woff2" href="/assets/fonts/${f.file}" crossorigin>`).join('\n');
+}
 const BUILD_TIME = '2026-09-15T13:30:00+03:00';
 const TODAY = new Date().toISOString().slice(0, 10);
 const crypto = require('crypto');
@@ -124,6 +137,7 @@ function shellFor(pg) {
   const page = { lang: pg.lang, sector: pg.sector, home: SEO.home.path[pg.lang], alternates: { ar: pg.alternates.ar, en: pg.alternates.en } };
   return TEMPLATE
     .replace('{{lang}}', pg.lang).replace('{{dir}}', pg.lang === 'ar' ? 'rtl' : 'ltr')
+    .replace('{{preload}}', preloadFor(pg.lang))
     .replace('{{head}}', headFor(pg))
     .replace('{{page_script}}', `<script>window.SHIFT_PAGE=${JSON.stringify(page)}</script>`);
 }
