@@ -1,0 +1,685 @@
+{
+  "labels": {
+    "eyebrow": {
+      "ar": "منتجات شِفت",
+      "en": "SHIFT products"
+    },
+    "title": {
+      "ar": "اختر ما يحتاجه عملك. كل نظام يعمل وحده، ومعًا يعملون أفضل.",
+      "en": "Pick the systems you need. They work alone or together."
+    },
+    "note": {
+      "ar": "اضغط على أي منتج لترى ماذا يفعل، وأضف ما يناسبك إلى باقتك، ليصلك عرض سعر واحد لكل ما اخترته.",
+      "en": "Tap a product to see what it does. Add the ones you want to your stack and we will quote it as one plan."
+    },
+    "productLabel": {
+      "ar": "المنتج",
+      "en": "Product"
+    },
+    "flagship": {
+      "ar": "المنتج الرئيسي",
+      "en": "Flagship"
+    },
+    "addStack": {
+      "ar": "أضِفه لباقتي",
+      "en": "Add to my stack"
+    },
+    "inStack": {
+      "ar": "في باقتي",
+      "en": "In my stack"
+    },
+    "whatItDoes": {
+      "ar": "ماذا يفعل",
+      "en": "What it does"
+    },
+    "bestFor": {
+      "ar": "الأنسب لـ",
+      "en": "Best for"
+    },
+    "worksWith": {
+      "ar": "يعمل مع",
+      "en": "Works with"
+    },
+    "seeDemo": {
+      "ar": "جرّبه الآن",
+      "en": "See it in action"
+    },
+    "askAbout": {
+      "ar": "اسأل عن",
+      "en": "Ask about"
+    },
+    "stackCta": {
+      "ar": "أرسل لي عرض الباقة",
+      "en": "Quote my stack"
+    },
+    "stackEmpty": {
+      "ar": "أضف منتجًا واحدًا على الأقل ليصلك عرض السعر.",
+      "en": "Add at least one product to get a quote."
+    }
+  },
+  "products": [
+    {
+      "id": "01",
+      "key": "karam",
+      "icon": "Bot",
+      "flagship": true,
+      "demo": "karam",
+      "name": {
+        "ar": "كرم بوت",
+        "en": "Karam Bot"
+      },
+      "short": {
+        "ar": "وكلاء ذكاء اصطناعي على واتساب",
+        "en": "WhatsApp AI agents"
+      },
+      "tagline": {
+        "ar": "وكلاء ذكاء اصطناعي يردّون ويبيعون ويحجزون ويتابعون على واتساب على مدار الساعة.",
+        "en": "AI agents that answer, sell, book and follow up on WhatsApp — 24/7."
+      },
+      "intro": {
+        "ar": "كرم بوت أول منتجات شِفت، ومنه تتحدث بقية الأنظمة مع عملائك على واتساب.",
+        "en": "Karam Bot is the first SHIFT product, and the one every other product talks through."
+      },
+      "does": [
+        {
+          "ar": "يردّ من قائمتك وأسعارك وأوقاتك، ليلًا ونهارًا",
+          "en": "Replies from your menu, prices and hours, day and night"
+        },
+        {
+          "ar": "يستقبل الطلبات ويحجز المواعيد في تقويمك",
+          "en": "Takes orders and books appointments into your calendar"
+        },
+        {
+          "ar": "يقيس جدية العملاء ويتابعهم تلقائيًا",
+          "en": "Qualifies leads and follows up automatically"
+        },
+        {
+          "ar": "يحوّل لموظف مع السياق كاملًا",
+          "en": "Hands off to a human with full context"
+        },
+        {
+          "ar": "تقرير يومي للمالك على واتساب",
+          "en": "Daily report to the owner on WhatsApp"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "restaurant",
+          "ar": "مطعم أو كافيه",
+          "en": "Restaurant & café"
+        },
+        {
+          "key": "clinic",
+          "ar": "عيادة",
+          "en": "Clinic"
+        },
+        {
+          "key": "store",
+          "ar": "متجر إلكتروني",
+          "en": "Online store"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "loyalty",
+          "ar": "نقاط الولاء",
+          "en": "Loyalty Points"
+        },
+        {
+          "key": "booking",
+          "ar": "الحجوزات والمواعيد",
+          "en": "Bookings & Appointments"
+        },
+        {
+          "key": "marketing",
+          "ar": "التسويق الآلي",
+          "en": "Marketing Automation"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن كرم بوت",
+        "en": "Ask about Karam Bot"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن كرم بوت",
+        "en": "Hi SHIFT, I want to know more about Karam Bot"
+      }
+    },
+    {
+      "id": "02",
+      "key": "loyalty",
+      "icon": "Trophy",
+      "flagship": false,
+      "demo": "loyalty",
+      "name": {
+        "ar": "نقاط الولاء",
+        "en": "Loyalty Points"
+      },
+      "short": {
+        "ar": "نقاط ومستويات ومكافآت",
+        "en": "Points, tiers, rewards"
+      },
+      "tagline": {
+        "ar": "نقاط على كل عملية شراء، ومستويات ومكافآت تعيد العملاء إليك.",
+        "en": "Points on every purchase, tiers and rewards that bring customers back."
+      },
+      "intro": {
+        "ar": "تُضبط النقاط والمستويات والمكافآت لكل منشأة. تُرسل الإشعارات على واتساب عبر كرم بوت أو رقم الولاء.",
+        "en": "Points, tiers and rewards are configured per business. Notifications go out on WhatsApp through Karam Bot or the loyalty number."
+      },
+      "does": [
+        {
+          "ar": "ينضم العميل برقم هاتفه أو برمز QR",
+          "en": "Customers join with their phone number or a QR code"
+        },
+        {
+          "ar": "نقاط لكل دينار، نقاط إضافية، ونقاط عيد الميلاد",
+          "en": "Points per JD, bonus points and birthday points"
+        },
+        {
+          "ar": "مستويات برونزي وفضي وذهبي بمزايا خاصة",
+          "en": "Bronze, Silver and Gold tiers with their own perks"
+        },
+        {
+          "ar": "إشعار واتساب بعد كل زيارة ومكافأة",
+          "en": "WhatsApp notification after every visit and reward"
+        },
+        {
+          "ar": "تقارير: أفضل العملاء، الاستبدالات، العملاء الخاملون",
+          "en": "Reports: top customers, redemptions, inactive customers"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "restaurant",
+          "ar": "مطعم أو كافيه",
+          "en": "Restaurant & café"
+        },
+        {
+          "key": "clinic",
+          "ar": "عيادة",
+          "en": "Clinic"
+        },
+        {
+          "key": "store",
+          "ar": "متجر إلكتروني",
+          "en": "Online store"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "karam",
+          "ar": "كرم بوت",
+          "en": "Karam Bot"
+        },
+        {
+          "key": "marketing",
+          "ar": "التسويق الآلي",
+          "en": "Marketing Automation"
+        },
+        {
+          "key": "erp",
+          "ar": "نظام إدارة الأعمال",
+          "en": "Business ERP"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن نقاط الولاء",
+        "en": "Ask about Loyalty Points"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن نقاط الولاء",
+        "en": "Hi SHIFT, I want to know more about Loyalty Points"
+      }
+    },
+    {
+      "id": "03",
+      "key": "attend",
+      "icon": "Clock",
+      "flagship": false,
+      "demo": "attendance",
+      "name": {
+        "ar": "نظام الدوام",
+        "en": "Attendance System"
+      },
+      "short": {
+        "ar": "حضور وورديات ورواتب",
+        "en": "Check-ins, shifts, payroll"
+      },
+      "tagline": {
+        "ar": "تسجيل حضور، ورديات، تنبيهات تأخير، وتقارير جاهزة لكشف الرواتب.",
+        "en": "Check-ins, shifts, lateness alerts and payroll-ready reports for your staff."
+      },
+      "intro": null,
+      "does": [
+        {
+          "ar": "تسجيل بالبصمة أو QR أو الجوال مع الموقع",
+          "en": "Fingerprint, QR or mobile check-in with location"
+        },
+        {
+          "ar": "جداول ورديات مع فترة سماح لكل فرع",
+          "en": "Shift schedules with grace periods per branch"
+        },
+        {
+          "ar": "تنبيهات التأخير والغياب للمدير على واتساب",
+          "en": "Late and absence alerts to the manager on WhatsApp"
+        },
+        {
+          "ar": "طلبات الإجازة والعمل الإضافي والخصومات",
+          "en": "Leave requests, overtime and deductions"
+        },
+        {
+          "ar": "تصدير شهري جاهز للرواتب (Excel)",
+          "en": "Monthly export ready for payroll (Excel)"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "restaurant",
+          "ar": "مطعم أو كافيه",
+          "en": "Restaurant & café"
+        },
+        {
+          "key": "clinic",
+          "ar": "عيادة",
+          "en": "Clinic"
+        },
+        {
+          "key": "store",
+          "ar": "متجر إلكتروني",
+          "en": "Online store"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "erp",
+          "ar": "نظام إدارة الأعمال",
+          "en": "Business ERP"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن نظام الدوام",
+        "en": "Ask about Attendance System"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن نظام الدوام",
+        "en": "Hi SHIFT, I want to know more about Attendance System"
+      }
+    },
+    {
+      "id": "04",
+      "key": "booking",
+      "icon": "CalendarCheck",
+      "flagship": false,
+      "demo": null,
+      "name": {
+        "ar": "الحجوزات والمواعيد",
+        "en": "Bookings & Appointments"
+      },
+      "short": {
+        "ar": "تقويم وعربون وتذكيرات",
+        "en": "Calendar, deposits, reminders"
+      },
+      "tagline": {
+        "ar": "حجز إلكتروني بالتوفر الفعلي، مع عربون وتذكيرات تلقائية.",
+        "en": "Online booking with real availability, deposits and automatic reminders."
+      },
+      "intro": null,
+      "does": [
+        {
+          "ar": "صفحة حجز وحجز عبر واتساب من التقويم نفسه",
+          "en": "Booking page and WhatsApp booking from the same calendar"
+        },
+        {
+          "ar": "الموظفون أو الغرف أو الطاولات أو الباقات كموارد",
+          "en": "Staff, rooms, tables or packages as resources"
+        },
+        {
+          "ar": "عربون ودفع إلكتروني لتقليل الغياب",
+          "en": "Deposits and online payment to cut no-shows"
+        },
+        {
+          "ar": "تذكير قبل 24 ساعة وقبل ساعتين مع رابط لتعديل الموعد",
+          "en": "Reminders 24h and 2h before, with reschedule links"
+        },
+        {
+          "ar": "قائمة انتظار تملأ الإلغاءات تلقائيًا",
+          "en": "Waitlist that fills cancellations automatically"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "clinic",
+          "ar": "عيادة",
+          "en": "Clinic"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "karam",
+          "ar": "كرم بوت",
+          "en": "Karam Bot"
+        },
+        {
+          "key": "marketing",
+          "ar": "التسويق الآلي",
+          "en": "Marketing Automation"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن الحجوزات والمواعيد",
+        "en": "Ask about Bookings & Appointments"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن الحجوزات والمواعيد",
+        "en": "Hi SHIFT, I want to know more about Bookings & Appointments"
+      }
+    },
+    {
+      "id": "05",
+      "key": "subs",
+      "icon": "Repeat",
+      "flagship": false,
+      "demo": null,
+      "name": {
+        "ar": "الاشتراكات والباقات",
+        "en": "Subscriptions & Packages"
+      },
+      "short": {
+        "ar": "إيراد متكرّر",
+        "en": "Recurring revenue"
+      },
+      "tagline": {
+        "ar": "بِع الخطط الشهرية وباقات الجلسات، ولا تفوّت أي تجديد.",
+        "en": "Sell monthly plans and session packages, and never miss a renewal."
+      },
+      "intro": null,
+      "does": [
+        {
+          "ar": "خطط، باقات جلسات، وعضويات عائلية",
+          "en": "Plans, session bundles and family memberships"
+        },
+        {
+          "ar": "عدّاد جلسات يُخصم مع كل زيارة",
+          "en": "Session counter that deducts on every visit"
+        },
+        {
+          "ar": "تذكير بالتجديد على واتساب قبل الانتهاء",
+          "en": "Renewal reminders on WhatsApp before expiry"
+        },
+        {
+          "ar": "قواعد التجميد والترقية والتحويل",
+          "en": "Freeze, upgrade and transfer rules"
+        },
+        {
+          "ar": "تقارير الإيراد والانسحاب لكل خطة",
+          "en": "Revenue and churn reports per plan"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "clinic",
+          "ar": "عيادة",
+          "en": "Clinic"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "karam",
+          "ar": "كرم بوت",
+          "en": "Karam Bot"
+        },
+        {
+          "key": "booking",
+          "ar": "الحجوزات والمواعيد",
+          "en": "Bookings & Appointments"
+        },
+        {
+          "key": "erp",
+          "ar": "نظام إدارة الأعمال",
+          "en": "Business ERP"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن الاشتراكات والباقات",
+        "en": "Ask about Subscriptions & Packages"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن الاشتراكات والباقات",
+        "en": "Hi SHIFT, I want to know more about Subscriptions & Packages"
+      }
+    },
+    {
+      "id": "06",
+      "key": "marketing",
+      "icon": "Zap",
+      "flagship": false,
+      "demo": null,
+      "name": {
+        "ar": "التسويق الآلي",
+        "en": "Marketing Automation"
+      },
+      "short": {
+        "ar": "حملات وعروض وأعياد ميلاد",
+        "en": "Campaigns, offers, birthdays"
+      },
+      "tagline": {
+        "ar": "حملات واتساب وكوبونات وعروض أعياد ميلاد تُرسل من تلقاء نفسها.",
+        "en": "WhatsApp campaigns, coupons and birthday offers that send themselves."
+      },
+      "intro": null,
+      "does": [
+        {
+          "ar": "شرائح: جدد، أوفياء، خاملون، كبار المنفقين",
+          "en": "Segments: new, loyal, inactive, big spenders"
+        },
+        {
+          "ar": "كوبونات بتاريخ انتهاء وحدود وتتبّع",
+          "en": "Coupons with expiry, limits and tracking"
+        },
+        {
+          "ar": "رسائل تلقائية لأعياد الميلاد والمناسبات",
+          "en": "Automatic birthday and anniversary messages"
+        },
+        {
+          "ar": "مسارات استعادة للعملاء الذين توقفوا عن الزيارة",
+          "en": "Win-back flows for customers who stopped coming"
+        },
+        {
+          "ar": "استوديو بوسترات للعروض بألوان علامتك",
+          "en": "Poster studio for offers in your brand colors"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "restaurant",
+          "ar": "مطعم أو كافيه",
+          "en": "Restaurant & café"
+        },
+        {
+          "key": "store",
+          "ar": "متجر إلكتروني",
+          "en": "Online store"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "loyalty",
+          "ar": "نقاط الولاء",
+          "en": "Loyalty Points"
+        },
+        {
+          "key": "karam",
+          "ar": "كرم بوت",
+          "en": "Karam Bot"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن التسويق الآلي",
+        "en": "Ask about Marketing Automation"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن التسويق الآلي",
+        "en": "Hi SHIFT, I want to know more about Marketing Automation"
+      }
+    },
+    {
+      "id": "07",
+      "key": "erp",
+      "icon": "BarChart3",
+      "flagship": false,
+      "demo": null,
+      "name": {
+        "ar": "نظام إدارة الأعمال",
+        "en": "Business ERP"
+      },
+      "short": {
+        "ar": "نقطة بيع ومتجر ومالية",
+        "en": "POS, store, finance"
+      },
+      "tagline": {
+        "ar": "نقطة بيع، متجر إلكتروني، مخزون، وتقارير مالية في مكان واحد.",
+        "en": "Point of sale, online store, inventory and finance reports in one place."
+      },
+      "intro": null,
+      "does": [
+        {
+          "ar": "نقطة بيع للكاشير ومتجر إلكتروني للتوصيل",
+          "en": "POS for the counter and an online store for delivery"
+        },
+        {
+          "ar": "مخزون مع تنبيهات انخفاض الكمية",
+          "en": "Inventory with low-stock alerts"
+        },
+        {
+          "ar": "فواتير ومصاريف وإقفال يومي",
+          "en": "Invoices, expenses and daily closing"
+        },
+        {
+          "ar": "تقارير الأرباح والمبيعات والموظفين",
+          "en": "Profit, sales and staff reports"
+        },
+        {
+          "ar": "فروع متعددة بلوحة تحكم واحدة",
+          "en": "Multi-branch with one dashboard"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "restaurant",
+          "ar": "مطعم أو كافيه",
+          "en": "Restaurant & café"
+        },
+        {
+          "key": "store",
+          "ar": "متجر إلكتروني",
+          "en": "Online store"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "loyalty",
+          "ar": "نقاط الولاء",
+          "en": "Loyalty Points"
+        },
+        {
+          "key": "attend",
+          "ar": "نظام الدوام",
+          "en": "Attendance System"
+        },
+        {
+          "key": "subs",
+          "ar": "الاشتراكات والباقات",
+          "en": "Subscriptions & Packages"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن نظام إدارة الأعمال",
+        "en": "Ask about Business ERP"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن نظام إدارة الأعمال",
+        "en": "Hi SHIFT, I want to know more about Business ERP"
+      }
+    },
+    {
+      "id": "08",
+      "key": "custom",
+      "icon": "Workflow",
+      "flagship": false,
+      "demo": null,
+      "name": {
+        "ar": "أتمتة مخصّصة",
+        "en": "Custom Automation"
+      },
+      "short": {
+        "ar": "تكاملات ومسارات عمل",
+        "en": "Integrations & workflows"
+      },
+      "tagline": {
+        "ar": "نربط نقطة البيع وجداولك وتطبيقاتك، ونبني المسارات التي يكرّرها فريقك يدويًا.",
+        "en": "We connect your POS, sheets and apps and build the workflows your team repeats by hand."
+      },
+      "intro": null,
+      "does": [
+        {
+          "ar": "واتساب Cloud API، جداول جوجل، التقويمات، أنظمة CRM",
+          "en": "WhatsApp Cloud API, Google Sheets, calendars, CRMs"
+        },
+        {
+          "ar": "تكامل مع أنظمة نقاط البيع وربط محلي",
+          "en": "POS integrations and on-premises bridges"
+        },
+        {
+          "ar": "مسارات Make وZapier وn8n مبنيّة لأجلك",
+          "en": "Make, Zapier and n8n workflows built for you"
+        },
+        {
+          "ar": "لوحات وتنبيهات للأرقام التي تتابعها",
+          "en": "Dashboards and alerts for the numbers you watch"
+        },
+        {
+          "ar": "تدقيق أتمتة مجاني قبل أي بناء",
+          "en": "Free automation audit before any build"
+        }
+      ],
+      "bestFor": [
+        {
+          "key": "restaurant",
+          "ar": "مطعم أو كافيه",
+          "en": "Restaurant & café"
+        },
+        {
+          "key": "clinic",
+          "ar": "عيادة",
+          "en": "Clinic"
+        },
+        {
+          "key": "store",
+          "ar": "متجر إلكتروني",
+          "en": "Online store"
+        }
+      ],
+      "worksWith": [
+        {
+          "key": "karam",
+          "ar": "كرم بوت",
+          "en": "Karam Bot"
+        },
+        {
+          "key": "erp",
+          "ar": "نظام إدارة الأعمال",
+          "en": "Business ERP"
+        }
+      ],
+      "askText": {
+        "ar": "اسأل عن أتمتة مخصّصة",
+        "en": "Ask about Custom Automation"
+      },
+      "askMessage": {
+        "ar": "مرحبًا شِفت، أريد معرفة المزيد عن أتمتة مخصّصة",
+        "en": "Hi SHIFT, I want to know more about Custom Automation"
+      }
+    }
+  ]
+}

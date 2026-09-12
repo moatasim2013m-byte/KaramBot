@@ -1,0 +1,11 @@
+{
+  "projects": { "default": "karam-bot" },
+  "targets": {
+    "karam-bot": {
+      "hosting": {
+        "site": ["shifts-ai-site"],
+        "app":  ["shifts-ai-app"]
+      }
+    }
+  }
+}

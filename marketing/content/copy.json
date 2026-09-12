@@ -1,0 +1,1328 @@
+{
+  "_meta": {
+    "purpose": "All non-sector UI copy for shifts-ai.store v2: nav, opening, section heads, CTA labels, demo chrome, empty states, form, footer, sticky bar, and message templates. Sector-specific text lives ONLY in content/sectors.json; per-product text in content/products.json.",
+    "contract": "marketing/DESIGN-CONTRACT.md — 'Copy rules (Arabic)', 'Page order', 'Live ops card', 'Phone', 'State & message composer', 'Sector focus — exactly three'",
+    "sources": "Extracted from marketing/reference/bundle.pretty.js (objects N and R, JSX literals) on 2026-09-10; rewritten where the contract's copy rules or the reviewers' dossier require it; authored strings are listed in the subagent notes.",
+    "tokens": "{{name}} business name (state.bizName || sector.exampleName) · {{sector}} sector label · {{bundle}} joined product names · {{msgs}} messages/day · {{loss}} ROI monthly estimate (JOD, integer) · {{attribution}} traffic source tag · {{time}} formatted clock · {{n}} {{total}} {{label}} step counters · {{product}} product name · {{points}} {{balance}} {{remaining}} {{reward}} loyalty arithmetic · {{min}} minutes · {{unit}} sector unit",
+    "joiners": {
+      "ar": "، ",
+      "en": ", "
+    },
+    "facebook_url": "https://www.facebook.com/profile.php?id=61593849817699",
+    "banned": [
+      "بدلًا منك",
+      "صندوق أسود",
+      "60 ثانية",
+      "مباشر",
+      "Live",
+      "LIVE"
+    ]
+  },
+  "ui": {
+    "brand": {
+      "ar": "شِفت",
+      "en": "SHIFT"
+    },
+    "brand_full": {
+      "ar": "شِفت للذكاء الاصطناعي والأتمتة",
+      "en": "SHIFT AI & Automation"
+    },
+    "brand_location": {
+      "ar": "إربد، الأردن",
+      "en": "Irbid, Jordan"
+    },
+    "skip_to_content": {
+      "ar": "تخطَّ إلى المحتوى",
+      "en": "Skip to content"
+    },
+    "nav_aria": {
+      "ar": "أقسام الصفحة",
+      "en": "Page sections"
+    },
+    "nav_karam": {
+      "ar": "كرم",
+      "en": "Karam"
+    },
+    "nav_sectors": {
+      "ar": "القطاعات",
+      "en": "Sectors"
+    },
+    "nav_products": {
+      "ar": "المنتجات",
+      "en": "Products"
+    },
+    "nav_roi": {
+      "ar": "العائد",
+      "en": "ROI"
+    },
+    "nav_contact": {
+      "ar": "تواصل",
+      "en": "Contact"
+    },
+    "nav_whatsapp_aria": {
+      "ar": "راسلنا على واتساب",
+      "en": "Message us on WhatsApp"
+    },
+    "lang_toggle_aria": {
+      "ar": "اللغة / Language",
+      "en": "اللغة / Language"
+    },
+    "lang_ar": {
+      "ar": "عربي",
+      "en": "عربي"
+    },
+    "lang_en": {
+      "ar": "EN",
+      "en": "EN"
+    },
+    "lang_switch_to": {
+      "ar": "English",
+      "en": "العربية"
+    },
+    "cta_whatsapp": {
+      "ar": "راسلنا على واتساب",
+      "en": "Message us on WhatsApp"
+    },
+    "illustrative": {
+      "ar": "مثال توضيحي",
+      "en": "Illustrative example"
+    },
+    "preview": {
+      "ar": "معاينة",
+      "en": "Preview"
+    },
+    "replay": {
+      "ar": "▶ أعد التشغيل",
+      "en": "▶ Replay"
+    },
+    "run_again": {
+      "ar": "شغّل مرة أخرى",
+      "en": "Run again"
+    },
+    "reset": {
+      "ar": "إعادة",
+      "en": "Reset"
+    },
+    "next": {
+      "ar": "التالي",
+      "en": "Next"
+    },
+    "back": {
+      "ar": "رجوع",
+      "en": "Back"
+    },
+    "start_over": {
+      "ar": "ابدأ من جديد",
+      "en": "Start over"
+    },
+    "done": {
+      "ar": "تم",
+      "en": "Done"
+    },
+    "close": {
+      "ar": "إغلاق",
+      "en": "Close"
+    },
+    "optional": {
+      "ar": "اختياري",
+      "en": "optional"
+    },
+    "currency_jod": {
+      "ar": "دينار",
+      "en": "JD"
+    },
+    "per_month": {
+      "ar": "شهريًا",
+      "en": "per month"
+    },
+    "per_day": {
+      "ar": "يوميًا",
+      "en": "per day"
+    },
+    "minutes": {
+      "ar": "دقيقة",
+      "en": "min"
+    },
+    "hours": {
+      "ar": "ساعة",
+      "en": "h"
+    },
+    "points": {
+      "ar": "نقطة",
+      "en": "pts"
+    },
+    "and_more": {
+      "ar": "وأكثر",
+      "en": "and more"
+    },
+    "top_eyebrow": {
+      "ar": "وكيل واتساب ذكي للمنشآت · إربد، الأردن",
+      "en": "A WhatsApp AI agent for local businesses · Irbid, Jordan"
+    },
+    "top_h1": {
+      "ar": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+      "en": "A customer messages you at 11 pm. Karam replies, books, and tells you in the morning."
+    },
+    "top_proof": {
+      "ar": "يردّ من أسعارك ومواعيدك، ويحوّل الحالات الصعبة إلى موظف — وأنت تتحكّم بكل شيء.",
+      "en": "It answers from your prices and schedule, hands the hard cases to a person — and you stay in control of everything."
+    },
+    "top_cta": {
+      "ar": "راسلنا على واتساب",
+      "en": "Message us on WhatsApp"
+    },
+    "ops_title": {
+      "ar": "يوم عادي في منشأة واحدة",
+      "en": "A normal day at one business"
+    },
+    "ops_subtitle": {
+      "ar": "ما يصل صاحب العمل بين الساعة 9 و10 صباحًا",
+      "en": "What reaches the owner between 9 and 10 am"
+    },
+    "ops_clock_aria": {
+      "ar": "الوقت الحالي",
+      "en": "Current time"
+    },
+    "ops_feed_aria": {
+      "ar": "ما يصل صاحب العمل",
+      "en": "What reaches the owner"
+    },
+    "ops_done": {
+      "ar": "انتهى الصباح. الباقي يصلك على واتساب.",
+      "en": "That was the morning. The rest reaches you on WhatsApp."
+    },
+    "phone_aria": {
+      "ar": "محاكاة محادثة واتساب",
+      "en": "WhatsApp conversation simulation"
+    },
+    "phone_business_account": {
+      "ar": "حساب أعمال",
+      "en": "Business account"
+    },
+    "phone_edit_name_aria": {
+      "ar": "تعديل اسم المنشأة",
+      "en": "Edit business name"
+    },
+    "phone_name_placeholder": {
+      "ar": "اسم منشأتك",
+      "en": "Your business name"
+    },
+    "phone_name_hint": {
+      "ar": "اضغط على الاسم لتغييره",
+      "en": "Tap the name to change it"
+    },
+    "phone_typing": {
+      "ar": "يكتب…",
+      "en": "typing…"
+    },
+    "phone_customer": {
+      "ar": "العميل",
+      "en": "Customer"
+    },
+    "phone_karam": {
+      "ar": "كرم",
+      "en": "Karam"
+    },
+    "phone_system_label": {
+      "ar": "إجراء",
+      "en": "Action"
+    },
+    "phone_caption": {
+      "ar": "الردود هنا محاكاة تعمل داخل متصفحك. كرم الحقيقي يتدرّب على أسعارك ومواعيدك.",
+      "en": "The replies here are a simulation running in your browser. The real Karam is trained on your prices and schedule."
+    },
+    "phone_scenario_night": {
+      "ar": "خارج الدوام",
+      "en": "After hours"
+    },
+    "phone_scenario_morning": {
+      "ar": "قبل الفتح",
+      "en": "Before opening"
+    },
+    "phone_scenario_peak": {
+      "ar": "وقت الذروة",
+      "en": "Peak hours"
+    },
+    "phone_scenario_friday": {
+      "ar": "يوم الجمعة",
+      "en": "Friday"
+    },
+    "phone_scenario_ramadan": {
+      "ar": "رمضان",
+      "en": "Ramadan"
+    },
+    "phone_scenario_promo": {
+      "ar": "ليلة عرض",
+      "en": "Promo night"
+    },
+    "hours_line_night": {
+      "ar": "الآن الساعة {{time}} — فريقك نايم. اترك رسالتك، ونتواصل معك الصباح.",
+      "en": "It's {{time}} — your team is asleep. Leave your message and we'll get back to you in the morning."
+    },
+    "hours_line_morning": {
+      "ar": "الآن الساعة {{time}} — الدوام لم يبدأ بعد. اترك رسالتك، ونردّ عليك مع بداية اليوم.",
+      "en": "It's {{time}} — the day hasn't started yet. Leave your message and we'll reply as the day begins."
+    },
+    "hours_line_peak": {
+      "ar": "الآن الساعة {{time}} — فريقنا موجود. راسلنا وسنردّ في أقرب وقت.",
+      "en": "It's {{time}} — the team is in. Message us and we'll reply as soon as we can."
+    },
+    "karam_cta": {
+      "ar": "أريد كرم لمنشأتي",
+      "en": "I want Karam for my business"
+    },
+    "cases_pick_aria": {
+      "ar": "اختر قطاعك",
+      "en": "Choose your sector"
+    },
+    "cases_selected": {
+      "ar": "مختار",
+      "en": "Selected"
+    },
+    "cases_problem": {
+      "ar": "المشكلة",
+      "en": "The problem"
+    },
+    "cases_karam": {
+      "ar": "ما يفعله كرم",
+      "en": "What Karam does"
+    },
+    "cases_result": {
+      "ar": "النتيجة",
+      "en": "The result"
+    },
+    "cases_example": {
+      "ar": "مثال",
+      "en": "Example"
+    },
+    "flagship": {
+      "ar": "المنتج الرئيسي",
+      "en": "Flagship"
+    },
+    "product_label": {
+      "ar": "المنتج",
+      "en": "Product"
+    },
+    "add_to_bundle": {
+      "ar": "أضِفه لباقتي",
+      "en": "Add to my bundle"
+    },
+    "in_bundle": {
+      "ar": "في باقتي",
+      "en": "In my bundle"
+    },
+    "remove_from_bundle": {
+      "ar": "أزِله من باقتي",
+      "en": "Remove from my bundle"
+    },
+    "what_it_does": {
+      "ar": "ماذا يفعل",
+      "en": "What it does"
+    },
+    "best_for": {
+      "ar": "الأنسب لـ",
+      "en": "Best for"
+    },
+    "works_with": {
+      "ar": "يعمل مع",
+      "en": "Works with"
+    },
+    "see_demo": {
+      "ar": "جرّبه الآن",
+      "en": "Try it now"
+    },
+    "ask_about": {
+      "ar": "اسأل عن",
+      "en": "Ask about"
+    },
+    "ask_about_product": {
+      "ar": "اسأل عن {{product}}",
+      "en": "Ask about {{product}}"
+    },
+    "show_details": {
+      "ar": "التفاصيل",
+      "en": "Details"
+    },
+    "hide_details": {
+      "ar": "إخفاء",
+      "en": "Hide"
+    },
+    "bundle_count_zero": {
+      "ar": "باقتك فارغة",
+      "en": "Your bundle is empty"
+    },
+    "bundle_count_one": {
+      "ar": "منتج واحد في باقتك",
+      "en": "1 product in your bundle"
+    },
+    "bundle_count_two": {
+      "ar": "منتجان في باقتك",
+      "en": "2 products in your bundle"
+    },
+    "bundle_count_many": {
+      "ar": "{{n}} منتجات في باقتك",
+      "en": "{{n}} products in your bundle"
+    },
+    "bundle_cta": {
+      "ar": "أرسل لي عرض الباقة",
+      "en": "Quote my bundle"
+    },
+    "bundle_empty": {
+      "ar": "أضف منتجًا واحدًا على الأقل ليصلك عرض السعر.",
+      "en": "Add at least one product to get a quote."
+    },
+    "bundle_hint": {
+      "ar": "من ثلاثة منتجات فأكثر، السعر سعر باقة.",
+      "en": "Three or more products get bundle pricing."
+    },
+    "loy_points_per_jod": {
+      "ar": "نقاط لكل دينار",
+      "en": "Points per JD spent"
+    },
+    "loy_reward_at": {
+      "ar": "المكافأة عند",
+      "en": "Reward at"
+    },
+    "loy_avg_ticket": {
+      "ar": "متوسط الفاتورة (دينار)",
+      "en": "Average bill (JD)"
+    },
+    "loy_new_visit": {
+      "ar": "زيارة جديدة",
+      "en": "New visit"
+    },
+    "loy_redeem": {
+      "ar": "استبدل المكافأة",
+      "en": "Redeem reward"
+    },
+    "loy_balance": {
+      "ar": "رصيد النقاط",
+      "en": "Points balance"
+    },
+    "loy_to_reward": {
+      "ar": "حتى المكافأة",
+      "en": "to your reward"
+    },
+    "loy_visits": {
+      "ar": "الزيارات",
+      "en": "Visits"
+    },
+    "loy_points_issued": {
+      "ar": "نقاط صادرة",
+      "en": "Points issued"
+    },
+    "loy_rewards_redeemed": {
+      "ar": "مكافآت مستبدلة",
+      "en": "Rewards redeemed"
+    },
+    "loy_tier": {
+      "ar": "المستوى",
+      "en": "Tier"
+    },
+    "loy_tier_bronze": {
+      "ar": "برونزي",
+      "en": "Bronze"
+    },
+    "loy_tier_silver": {
+      "ar": "فضي",
+      "en": "Silver"
+    },
+    "loy_tier_gold": {
+      "ar": "ذهبي",
+      "en": "Gold"
+    },
+    "loy_member_card": {
+      "ar": "بطاقة العضوية",
+      "en": "Member card"
+    },
+    "loy_member_name": {
+      "ar": "العميل",
+      "en": "Member"
+    },
+    "loy_reward_ready": {
+      "ar": "المكافأة جاهزة",
+      "en": "Reward ready"
+    },
+    "loy_whatsapp_preview": {
+      "ar": "ما يصل العميل على واتساب",
+      "en": "What the customer gets on WhatsApp"
+    },
+    "loy_empty": {
+      "ar": "اضغط «زيارة جديدة» لتبدأ التجربة.",
+      "en": "Tap “New visit” to start."
+    },
+    "loy_note": {
+      "ar": "تُضبط النقاط والمستويات والمكافآت لكل منشأة. تُرسل الإشعارات على واتساب عبر كرم بوت أو رقم الولاء.",
+      "en": "Points, tiers and rewards are configured per business. Notifications go out on WhatsApp through Karam Bot or the loyalty number."
+    },
+    "att_shift_start": {
+      "ar": "بداية الوردية",
+      "en": "Shift starts"
+    },
+    "att_grace": {
+      "ar": "فترة السماح",
+      "en": "Grace period"
+    },
+    "att_staff_on_shift": {
+      "ar": "موظفون في الوردية",
+      "en": "Staff on shift"
+    },
+    "att_method": {
+      "ar": "طريقة التسجيل",
+      "en": "Check-in method"
+    },
+    "att_method_finger": {
+      "ar": "بصمة",
+      "en": "Fingerprint"
+    },
+    "att_method_qr": {
+      "ar": "رمز QR",
+      "en": "QR code"
+    },
+    "att_method_app": {
+      "ar": "الجوال مع الموقع",
+      "en": "Mobile + location"
+    },
+    "att_run": {
+      "ar": "شغّل الصباح",
+      "en": "Run the morning"
+    },
+    "att_running": {
+      "ar": "جارٍ التسجيل…",
+      "en": "Checking in…"
+    },
+    "att_board": {
+      "ar": "لوحة الحضور",
+      "en": "Attendance board"
+    },
+    "att_not_yet": {
+      "ar": "لم يسجّل",
+      "en": "not yet"
+    },
+    "att_on_time": {
+      "ar": "في الوقت",
+      "en": "On time"
+    },
+    "att_late": {
+      "ar": "متأخر",
+      "en": "Late"
+    },
+    "att_absent": {
+      "ar": "غائب",
+      "en": "Absent"
+    },
+    "att_present": {
+      "ar": "حاضر",
+      "en": "Present"
+    },
+    "att_late_by": {
+      "ar": "تأخر {{min}} دقيقة",
+      "en": "late by {{min}} min"
+    },
+    "att_manager_alerts": {
+      "ar": "تنبيهات المدير",
+      "en": "Manager alerts"
+    },
+    "att_to_manager": {
+      "ar": "إلى المدير · معاينة",
+      "en": "To the manager · preview"
+    },
+    "att_no_alerts": {
+      "ar": "لا تنبيهات بعد. شغّل الصباح لتراها تصل.",
+      "en": "No alerts yet. Run the morning to see them arrive."
+    },
+    "att_alert_late": {
+      "ar": "{{name}} متأخر {{min}} دقيقة",
+      "en": "{{name}} is late by {{min}} min"
+    },
+    "att_alert_absent": {
+      "ar": "{{name}} لم يسجّل حضوره. تم تسجيله غائبًا.",
+      "en": "{{name}} has not checked in. Marked absent."
+    },
+    "att_today": {
+      "ar": "اليوم",
+      "en": "Today"
+    },
+    "att_month": {
+      "ar": "ملخص الشهر",
+      "en": "Month at a glance"
+    },
+    "att_hours_worked": {
+      "ar": "ساعات العمل",
+      "en": "Hours worked"
+    },
+    "att_overtime": {
+      "ar": "عمل إضافي (ساعة)",
+      "en": "Overtime (h)"
+    },
+    "att_incidents": {
+      "ar": "حالات تأخير",
+      "en": "Late incidents"
+    },
+    "att_export": {
+      "ar": "تصدير كشف الرواتب",
+      "en": "Export payroll sheet"
+    },
+    "att_exported": {
+      "ar": "كشف الرواتب جاهز (Excel) · معاينة",
+      "en": "Payroll sheet ready (Excel) · preview"
+    },
+    "att_note": {
+      "ar": "بيانات توضيحية. في التركيب الفعلي تتم المزامنة من جهاز البصمة أو QR أو تطبيق الموظفين، بقواعد لكل فرع.",
+      "en": "Illustrative data. Real installs sync from your fingerprint device, QR or the staff app, with rules per branch."
+    },
+    "roi_result_label": {
+      "ar": "تقدير ما تخسره شهريًا من الرسائل الفائتة",
+      "en": "Estimated monthly loss from missed messages"
+    },
+    "roi_result_unit": {
+      "ar": "دينار / شهريًا",
+      "en": "JD / month"
+    },
+    "roi_hours_label": {
+      "ar": "ساعات الردّ اليدوي شهريًا",
+      "en": "Hours spent replying by hand per month"
+    },
+    "roi_msgs_per_day": {
+      "ar": "رسائل العملاء يوميًا",
+      "en": "Customer messages per day"
+    },
+    "roi_avg_ticket": {
+      "ar": "متوسط الفاتورة (دينار)",
+      "en": "Average bill (JD)"
+    },
+    "roi_missed_rate": {
+      "ar": "نسبة الرسائل التي تضيع بلا ردّ",
+      "en": "Share of messages lost without a reply"
+    },
+    "roi_reply_minutes": {
+      "ar": "دقائق لكل ردّ",
+      "en": "Minutes per reply"
+    },
+    "roi_assumptions": {
+      "ar": "تقدير تقريبي من المدخلات أعلاه فقط: الرسائل اليومية × نسبة ما يضيع بلا ردّ × متوسط الفاتورة × 30 يومًا. ساعات الردّ = الرسائل اليومية × دقائق الردّ × 30 ÷ 60. ليس وعدًا؛ الأرقام الفعلية تأتي من بياناتك.",
+      "en": "A rough estimate from the inputs above only: daily messages × share lost without a reply × average bill × 30 days. Reply hours = daily messages × minutes per reply × 30 ÷ 60. Not a promise; the real numbers come from your data."
+    },
+    "roi_defaults_note": {
+      "ar": "الأرقام الافتراضية لقطاع «{{sector}}». حرّك المؤشرات لتطابق منشأتك.",
+      "en": "Defaults for “{{sector}}”. Move the sliders to match your business."
+    },
+    "roi_cta": {
+      "ar": "أرسل هذا التقدير على واتساب",
+      "en": "Send this estimate on WhatsApp"
+    },
+    "team_step_label": {
+      "ar": "الخطوة {{n}} من {{total}} — {{label}}",
+      "en": "Step {{n}} of {{total}} — {{label}}"
+    },
+    "team_add": {
+      "ar": "أضف إلى فريقي",
+      "en": "Add to my team"
+    },
+    "team_added": {
+      "ar": "في فريقي",
+      "en": "On my team"
+    },
+    "team_role": {
+      "ar": "الدور",
+      "en": "Role"
+    },
+    "builder_progress": {
+      "ar": "{{n}} من {{total}} · {{label}}",
+      "en": "{{n}} of {{total}} · {{label}}"
+    },
+    "builder_q_business": {
+      "ar": "النشاط",
+      "en": "Business"
+    },
+    "builder_q_role": {
+      "ar": "دور الوكيل",
+      "en": "Agent role"
+    },
+    "builder_q_channel": {
+      "ar": "القناة الرئيسية",
+      "en": "Main channel"
+    },
+    "builder_q_pain": {
+      "ar": "أكبر مشكلة",
+      "en": "Biggest pain"
+    },
+    "builder_generate": {
+      "ar": "أنشئ وكيلي",
+      "en": "Generate my agent"
+    },
+    "builder_card_title": {
+      "ar": "وكيلك",
+      "en": "Your agent"
+    },
+    "builder_card_role": {
+      "ar": "الدور",
+      "en": "Role"
+    },
+    "builder_card_tasks": {
+      "ar": "أمثلة على المهام",
+      "en": "Example tasks"
+    },
+    "builder_cta": {
+      "ar": "أرسل لي خطة وكيلي",
+      "en": "Send me my agent plan"
+    },
+    "builder_hint": {
+      "ar": "اضغط على أي كلمة ملوّنة لتغيّرها.",
+      "en": "Tap any highlighted word to change it."
+    },
+    "contact_sector_label": {
+      "ar": "قطاعك",
+      "en": "Your sector"
+    },
+    "contact_need_label": {
+      "ar": "ما الذي تحتاجه؟ (اختر أكثر من واحد)",
+      "en": "What do you need? (pick as many as you like)"
+    },
+    "contact_name_label": {
+      "ar": "اسمك (اختياري)",
+      "en": "Your name (optional)"
+    },
+    "contact_name_placeholder": {
+      "ar": "مثال: أبو رامي",
+      "en": "e.g. Rami"
+    },
+    "contact_phone_label": {
+      "ar": "رقمك (اختياري)",
+      "en": "Your number (optional)"
+    },
+    "contact_phone_placeholder": {
+      "ar": "07x xxx xxxx",
+      "en": "07x xxx xxxx"
+    },
+    "contact_preview_label": {
+      "ar": "الرسالة التي سترسلها",
+      "en": "The message you'll send"
+    },
+    "contact_preview_empty": {
+      "ar": "اختر قطاعك ليظهر نص الرسالة هنا.",
+      "en": "Pick your sector and your message will appear here."
+    },
+    "contact_cta": {
+      "ar": "متابعة إلى واتساب",
+      "en": "Continue to WhatsApp"
+    },
+    "contact_helper": {
+      "ar": "ستراجع الرسالة قبل إرسالها",
+      "en": "You'll review the message before sending it"
+    },
+    "contact_privacy": {
+      "ar": "لا نستخدم رقمك إلا للردّ على طلبك.",
+      "en": "We only use your number to reply to this request."
+    },
+    "contact_opening": {
+      "ar": "يتم فتح واتساب مع رسالتك…",
+      "en": "Opening WhatsApp with your message…"
+    },
+    "about_text": {
+      "ar": "كرم بوت يردّ على واتساب عنك، وبقواعدك. نقاط الولاء تُرجِع عملاءك. نظام الدوام يضبط موظفيك. والحجوزات والاشتراكات والتسويق ونظام الإدارة تُكمل الصورة. أنظمة نبنيها ونشغّلها من إربد، للعيادات والمطاعم والكافيهات والمتاجر الإلكترونية.",
+      "en": "Karam Bot answers your WhatsApp for you, by your rules. Loyalty brings customers back. Attendance keeps your staff on schedule. Bookings, subscriptions, marketing and ERP complete the picture — built and run from Irbid for clinics, restaurants and cafés, and online stores."
+    },
+    "about_also_serve": {
+      "ar": "نخدم أيضًا: الصالونات، مراكز الأطفال، والعقارات — اسألنا.",
+      "en": "We also serve salons, kids' centers and real estate — just ask."
+    },
+    "footer_brand": {
+      "ar": "شِفت للذكاء الاصطناعي والأتمتة · إربد، الأردن",
+      "en": "SHIFT AI & Automation · Irbid, Jordan"
+    },
+    "footer_line": {
+      "ar": "كرم بوت، نقاط الولاء، الدوام، الحجوزات، الاشتراكات، التسويق الآلي، نظام الإدارة، والأتمتة المخصّصة للمنشآت في الأردن.",
+      "en": "Karam Bot, Loyalty Points, Attendance, Bookings, Subscriptions, Marketing Automation, ERP and custom automation for businesses in Jordan."
+    },
+    "footer_privacy": {
+      "ar": "سياسة الخصوصية",
+      "en": "Privacy policy"
+    },
+    "footer_data_deletion": {
+      "ar": "حذف البيانات",
+      "en": "Data deletion"
+    },
+    "footer_facebook": {
+      "ar": "شِفت على فيسبوك",
+      "en": "SHIFT on Facebook"
+    },
+    "footer_whatsapp": {
+      "ar": "واتساب",
+      "en": "WhatsApp"
+    },
+    "footer_copyright": {
+      "ar": "© 2026 شِفت",
+      "en": "© 2026 SHIFT"
+    },
+    "sticky_aria": {
+      "ar": "تواصل سريع",
+      "en": "Quick contact"
+    },
+    "sticky_default": {
+      "ar": "راسلنا على واتساب",
+      "en": "Message us on WhatsApp"
+    },
+    "sticky_bundle": {
+      "ar": "أرسل باقتي",
+      "en": "Send my bundle"
+    },
+    "sticky_contact": {
+      "ar": "أرسل الطلب",
+      "en": "Send the request"
+    }
+  },
+  "sections": {
+    "top": {
+      "eyebrow": {
+        "ar": "وكيل واتساب ذكي للمنشآت · إربد، الأردن",
+        "en": "A WhatsApp AI agent for local businesses · Irbid, Jordan"
+      },
+      "title": {
+        "ar": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.",
+        "en": "A customer messages you at 11 pm. Karam replies, books, and tells you in the morning."
+      },
+      "intro": {
+        "ar": "يردّ من أسعارك ومواعيدك، ويحوّل الحالات الصعبة إلى موظف — وأنت تتحكّم بكل شيء.",
+        "en": "It answers from your prices and schedule, hands the hard cases to a person — and you stay in control of everything."
+      }
+    },
+    "karam": {
+      "eyebrow": {
+        "ar": "كرم بوت · المنتج الرئيسي",
+        "en": "Karam Bot · the flagship"
+      },
+      "title": {
+        "ar": "كرم يردّ عنك، وبقواعدك.",
+        "en": "Karam replies for you, by your rules."
+      },
+      "intro": {
+        "ar": "هذا ما يصل عميلك على واتساب في وقتٍ مثل الآن. غيّر اسم المنشأة وشاهد الردّ الأول يتغيّر.",
+        "en": "This is what your customer gets on WhatsApp at a time like right now. Change the business name and watch the first reply update."
+      }
+    },
+    "cases": {
+      "eyebrow": {
+        "ar": "القطاعات",
+        "en": "Sectors"
+      },
+      "title": {
+        "ar": "مبنيّ على عملك أنت، وليس بوتًا جاهزًا للجميع.",
+        "en": "Built around your business, not a generic chatbot."
+      },
+      "intro": {
+        "ar": "اختر قطاعك، وكل ما في الصفحة يتحدث بلغته: المثال، الأرقام، والرسالة التي سترسلها.",
+        "en": "Pick your sector and the whole page speaks its language — the example, the numbers, and the message you'll send."
+      }
+    },
+    "products": {
+      "eyebrow": {
+        "ar": "منتجات شِفت",
+        "en": "SHIFT products"
+      },
+      "title": {
+        "ar": "اختر ما يحتاجه عملك. كل نظام يعمل وحده، ومعًا يعملون أفضل.",
+        "en": "Pick the systems you need. They work alone or together."
+      },
+      "intro": {
+        "ar": "اضغط على أي منتج لترى ماذا يفعل، وأضف ما يناسبك إلى باقتك، ليصلك عرض سعر واحد لكل ما اخترته.",
+        "en": "Tap a product to see what it does. Add the ones you want to your bundle and we'll quote it as one plan."
+      }
+    },
+    "loyalty": {
+      "eyebrow": {
+        "ar": "نقاط الولاء · المنتج 02",
+        "en": "Loyalty Points · product 02"
+      },
+      "title": {
+        "ar": "خلّي كل زيارة سببًا لزيارة ثانية.",
+        "en": "Give every visit a reason to come back."
+      },
+      "intro": {
+        "ar": "اضبط القواعد كما تريدها، ثم اضغط «زيارة جديدة» وشاهد ما يصل عميلك على واتساب.",
+        "en": "Set the rules, then tap “New visit” to see what the customer receives on WhatsApp."
+      }
+    },
+    "attendance": {
+      "eyebrow": {
+        "ar": "نظام الدوام · المنتج 03",
+        "en": "Attendance System · product 03"
+      },
+      "title": {
+        "ar": "اعرف من حضر، ومن تأخّر، وكم يستحق كل موظف، بلا جداول يدوية.",
+        "en": "Know who is in, who is late, and what payroll owes — without a spreadsheet."
+      },
+      "intro": {
+        "ar": "اختر قواعد الوردية، ثم شغّل صباحًا كاملًا. المتأخر والغائب يُعلَّمان فورًا، والمدير يصله التنبيه على واتساب.",
+        "en": "Choose the shift rules, then run a morning. Late and absent staff are flagged and the manager is told on WhatsApp."
+      }
+    },
+    "roi": {
+      "eyebrow": {
+        "ar": "العائد",
+        "en": "ROI"
+      },
+      "title": {
+        "ar": "كم تكلّفك الرسائل التي لا يُردّ عليها؟",
+        "en": "What do unanswered messages cost you?"
+      },
+      "intro": {
+        "ar": "ابدأ من أرقام قطاعك، ثم حرّك المؤشرات لتطابق منشأتك. التقدير يتغيّر معك.",
+        "en": "Start from your sector's numbers, then move the sliders to match your business. The estimate follows you."
+      }
+    },
+    "team": {
+      "eyebrow": {
+        "ar": "فريقك الذكي",
+        "en": "Your AI team"
+      },
+      "title": {
+        "ar": "كرم ليس بوتًا واحدًا، بل فريق تختاره أنت.",
+        "en": "Karam is not one bot. It's a team you assemble."
+      },
+      "intro": {
+        "ar": "خمسة أدوار يعمل بها كرم داخل منشأتك، وكل رسالة تمرّ بالخطوات نفسها. اختر ما يلزمك، وابدأ بواحد.",
+        "en": "Five roles Karam can play in your business, and every message goes through the same steps. Pick what you need and start with one."
+      }
+    },
+    "builder": {
+      "eyebrow": {
+        "ar": "ابنِ وكيلك الذكي بأربعة أسئلة",
+        "en": "Build your AI agent in four questions"
+      },
+      "title": {
+        "ar": "أربعة اختيارات، ووكيل جاهز يعرّف عن نفسه.",
+        "en": "Four choices. One agent, ready to describe itself."
+      },
+      "intro": {
+        "ar": "أجب عن الأسئلة الأربعة، وتظهر بطاقة وكيلك عند اكتمالها.",
+        "en": "Answer the four questions and your agent card appears when you're done."
+      }
+    },
+    "contact": {
+      "eyebrow": {
+        "ar": "تواصل",
+        "en": "Contact"
+      },
+      "title": {
+        "ar": "جاهز تشغّل عملك على شِفت؟",
+        "en": "Ready to run your business on SHIFT?"
+      },
+      "intro": {
+        "ar": "ابدأ بمنتج واحد وأضف الباقي متى شئت. الفريق نفسه، والرقم نفسه، وبلا تعقيد.",
+        "en": "Start with one product and add the rest when you're ready — same team, same WhatsApp number."
+      }
+    },
+    "about": {
+      "eyebrow": {
+        "ar": "من نحن",
+        "en": "About"
+      },
+      "title": {
+        "ar": "شِفت للذكاء الاصطناعي والأتمتة · إربد، الأردن",
+        "en": "SHIFT AI & Automation · Irbid, Jordan"
+      },
+      "intro": {
+        "ar": "كرم بوت يردّ على واتساب عنك، وبقواعدك. نقاط الولاء تُرجِع عملاءك. نظام الدوام يضبط موظفيك. والحجوزات والاشتراكات والتسويق ونظام الإدارة تُكمل الصورة. أنظمة نبنيها ونشغّلها من إربد، للعيادات والمطاعم والكافيهات والمتاجر الإلكترونية.",
+        "en": "Karam Bot answers your WhatsApp for you, by your rules. Loyalty brings customers back. Attendance keeps your staff on schedule. Bookings, subscriptions, marketing and ERP complete the picture — built and run from Irbid for clinics, restaurants and cafés, and online stores."
+      }
+    },
+    "trust": {
+      "eyebrow": {
+        "ar": "مبنيّ للتشغيل الفعلي",
+        "en": "Built for real operations"
+      },
+      "title": {
+        "ar": "أتمتة تتحكّم بها أنت، وترى كل ما يحدث فيها.",
+        "en": "Automation you control — and can see into."
+      },
+      "intro": {
+        "ar": "أي محادثة يمكن تحويلها لفريقك مع السياق كاملًا، والردود الجديدة تعتمدها أنت قبل أن يستخدمها كرم.",
+        "en": "Any conversation can be handed to your team with full context, and you approve new answers before Karam uses them."
+      }
+    }
+  },
+  "lists": {
+    "trust": [
+      {
+        "key": "handoff",
+        "title": {
+          "ar": "تحويل لموظف، دائمًا",
+          "en": "Human handoff, always"
+        },
+        "text": {
+          "ar": "أي محادثة يمكن تحويلها لفريقك مع السياق كاملًا. كرم لا يحاصر عميلًا أبدًا.",
+          "en": "Any conversation can be handed to your team with full context. Karam never traps a customer."
+        }
+      },
+      {
+        "key": "your_rules",
+        "title": {
+          "ar": "يعمل بطريقتك",
+          "en": "Works your way"
+        },
+        "text": {
+          "ar": "أسعارك، أوقاتك، قواعدك. لا شيء يُخترع نيابةً عنك.",
+          "en": "Your prices, your hours, your rules. Nothing is invented on your behalf."
+        }
+      },
+      {
+        "key": "integrations",
+        "title": {
+          "ar": "يتصل بما تستخدمه",
+          "en": "Connects to what you use"
+        },
+        "text": {
+          "ar": "واتساب Cloud API، جداول جوجل، التقويم، CRM، لوحات التحكم، Make وZapier وn8n.",
+          "en": "WhatsApp Cloud API, Google Sheets, calendar, CRM, dashboards, Make, Zapier, n8n."
+        }
+      },
+      {
+        "key": "controlled",
+        "title": {
+          "ar": "آمن ومضبوط",
+          "en": "Secure and controlled"
+        },
+        "text": {
+          "ar": "تعتمد الردود الجديدة قبل أن يستخدمها كرم. كل إجراء مسجَّل.",
+          "en": "Approve new answers before Karam uses them. Every action is logged."
+        }
+      }
+    ],
+    "team_steps": [
+      {
+        "ar": "رسالة جديدة تصل",
+        "en": "A new message arrives"
+      },
+      {
+        "ar": "كرم يفهم القصد",
+        "en": "Karam understands the intent"
+      },
+      {
+        "ar": "يردّ أو يحجز من بياناتك",
+        "en": "Replies or books from your data"
+      },
+      {
+        "ar": "يحوّل الحالات الصعبة إلى موظف",
+        "en": "Hands hard cases to a person"
+      },
+      {
+        "ar": "يبلّغك بالتقرير",
+        "en": "Reports back to you"
+      }
+    ],
+    "team_personas": [
+      {
+        "key": "reception",
+        "name": {
+          "ar": "استقبال",
+          "en": "Reception"
+        },
+        "text": {
+          "ar": "يجيب عن الأسئلة الشائعة فورًا ويوجّه كل عميل إلى المكان الصحيح.",
+          "en": "Answers common questions right away and points every customer to the right place."
+        }
+      },
+      {
+        "key": "sales",
+        "name": {
+          "ar": "مبيعات",
+          "en": "Sales"
+        },
+        "text": {
+          "ar": "يردّ على كل عميل محتمل، يجيب عن الأسعار، يقيس الاهتمام، ويتابع حتى القرار.",
+          "en": "Replies to every lead, answers pricing, gauges interest, and follows up until a decision."
+        }
+      },
+      {
+        "key": "booking",
+        "name": {
+          "ar": "حجوزات",
+          "en": "Bookings"
+        },
+        "text": {
+          "ar": "يعرض الأوقات المتاحة، يثبّت الحجز، ويرسل تذكيرًا قبله.",
+          "en": "Shows available times, confirms the booking, and sends a reminder before it."
+        }
+      },
+      {
+        "key": "ops",
+        "name": {
+          "ar": "عمليات",
+          "en": "Operations"
+        },
+        "text": {
+          "ar": "يحوّل المحادثات إلى مهام، يوزّعها على الفريق، ويتابع المتأخر منها.",
+          "en": "Turns conversations into tasks, assigns them to the team, and chases the late ones."
+        }
+      },
+      {
+        "key": "reports",
+        "name": {
+          "ar": "تقارير",
+          "en": "Reports"
+        },
+        "text": {
+          "ar": "يرسل لك ملخصًا واضحًا كل يوم: العملاء، الحجوزات، الإيراد، وما يحتاج تدخّلك.",
+          "en": "Sends you a clear daily summary: customers, bookings, revenue, and what needs you."
+        }
+      }
+    ],
+    "builder_roles": [
+      {
+        "key": "reception",
+        "label": {
+          "ar": "موظف استقبال ذكي",
+          "en": "AI receptionist"
+        }
+      },
+      {
+        "key": "sales",
+        "label": {
+          "ar": "وكيل مبيعات ذكي",
+          "en": "AI sales agent"
+        }
+      },
+      {
+        "key": "booking",
+        "label": {
+          "ar": "وكيل حجوزات ذكي",
+          "en": "AI booking agent"
+        }
+      },
+      {
+        "key": "ops",
+        "label": {
+          "ar": "مساعد عمليات ذكي",
+          "en": "AI operations assistant"
+        }
+      },
+      {
+        "key": "reports",
+        "label": {
+          "ar": "مساعد تقارير ذكي",
+          "en": "AI reports assistant"
+        }
+      }
+    ],
+    "builder_channels": [
+      {
+        "key": "whatsapp",
+        "label": {
+          "ar": "واتساب",
+          "en": "WhatsApp"
+        }
+      },
+      {
+        "key": "instagram",
+        "label": {
+          "ar": "رسائل إنستغرام",
+          "en": "Instagram DMs"
+        }
+      },
+      {
+        "key": "web",
+        "label": {
+          "ar": "دردشة الموقع",
+          "en": "Website chat"
+        }
+      },
+      {
+        "key": "all",
+        "label": {
+          "ar": "كل القنوات",
+          "en": "Every channel"
+        }
+      }
+    ],
+    "builder_pains": [
+      {
+        "key": "slow",
+        "label": {
+          "ar": "ردود بطيئة",
+          "en": "Slow replies"
+        }
+      },
+      {
+        "key": "lost",
+        "label": {
+          "ar": "عملاء ضائعون",
+          "en": "Lost customers"
+        }
+      },
+      {
+        "key": "manual",
+        "label": {
+          "ar": "حجوزات يدوية",
+          "en": "Manual bookings"
+        }
+      },
+      {
+        "key": "followup",
+        "label": {
+          "ar": "لا متابعة",
+          "en": "No follow-up"
+        }
+      },
+      {
+        "key": "pressure",
+        "label": {
+          "ar": "ضغط على الفريق",
+          "en": "Pressure on the team"
+        }
+      },
+      {
+        "key": "reports",
+        "label": {
+          "ar": "لا تقارير واضحة",
+          "en": "No clear reports"
+        }
+      }
+    ],
+    "contact_needs": [
+      {
+        "key": "karam",
+        "label": {
+          "ar": "ردود واتساب",
+          "en": "WhatsApp replies"
+        }
+      },
+      {
+        "key": "booking",
+        "label": {
+          "ar": "الحجوزات والمواعيد",
+          "en": "Bookings & appointments"
+        }
+      },
+      {
+        "key": "loyalty",
+        "label": {
+          "ar": "نقاط الولاء",
+          "en": "Loyalty points"
+        }
+      },
+      {
+        "key": "attend",
+        "label": {
+          "ar": "دوام الموظفين",
+          "en": "Staff attendance"
+        }
+      },
+      {
+        "key": "marketing",
+        "label": {
+          "ar": "حملات واتساب",
+          "en": "WhatsApp campaigns"
+        }
+      },
+      {
+        "key": "custom",
+        "label": {
+          "ar": "شيء آخر",
+          "en": "Something else"
+        }
+      }
+    ]
+  },
+  "templates": {
+    "composed": {
+      "greeting": {
+        "ar": "مرحبًا شِفت 👋",
+        "en": "Hi SHIFT 👋"
+      },
+      "business_named": {
+        "ar": "عندي {{name}}.",
+        "en": "I run {{name}}."
+      },
+      "business_sector": {
+        "ar": "عندي {{sector}}.",
+        "en": "I run a {{sector}}."
+      },
+      "bundle": {
+        "ar": "يهمّني: {{bundle}}.",
+        "en": "I'm interested in: {{bundle}}."
+      },
+      "need": {
+        "ar": "أحتاج: {{need}}.",
+        "en": "I need: {{need}}."
+      },
+      "msgs": {
+        "ar": "عندي ~{{msgs}} رسالة/يوم",
+        "en": "I get ~{{msgs}} messages/day"
+      },
+      "loss": {
+        "ar": "وأخسر ~{{loss}} دينار/شهر حسب الحاسبة.",
+        "en": "and lose ~{{loss}} JD/month according to the calculator."
+      },
+      "msgs_only": {
+        "ar": "عندي ~{{msgs}} رسالة/يوم.",
+        "en": "I get ~{{msgs}} messages/day."
+      },
+      "closing": {
+        "ar": "متى نحكي؟",
+        "en": "When can we talk?"
+      },
+      "attribution": {
+        "ar": "(المصدر: {{attribution}})",
+        "en": "(source: {{attribution}})"
+      },
+      "full": {
+        "ar": "مرحبًا شِفت 👋 عندي {{name}}. يهمّني: {{bundle}}. عندي ~{{msgs}} رسالة/يوم وأخسر ~{{loss}} دينار/شهر حسب الحاسبة. متى نحكي؟ (المصدر: {{attribution}})",
+        "en": "Hi SHIFT 👋 I run {{name}}. I'm interested in: {{bundle}}. I get ~{{msgs}} messages/day and lose ~{{loss}} JD/month according to the calculator. When can we talk? (source: {{attribution}})"
+      },
+      "max_chars": 700
+    },
+    "ask_about_product": {
+      "ar": "مرحبًا شِفت، أريد معرفة المزيد عن {{product}}.",
+      "en": "Hi SHIFT, I'd like to know more about {{product}}."
+    },
+    "bundle_quote": {
+      "ar": "مرحبًا شِفت، أريد عرض سعر لباقة من: {{bundle}}.",
+      "en": "Hi SHIFT, I'd like a quote for a bundle of: {{bundle}}."
+    },
+    "roi_estimate": {
+      "ar": "مرحبًا شِفت، عندي {{name}}. عندي ~{{msgs}} رسالة/يوم وأخسر ~{{loss}} دينار/شهر حسب الحاسبة. متى نحكي؟",
+      "en": "Hi SHIFT, I run {{name}}. I get ~{{msgs}} messages/day and lose ~{{loss}} JD/month according to the calculator. When can we talk?"
+    },
+    "builder_plan": {
+      "ar": "مرحبًا شِفت، أريد خطة كرم بوت لوكيل: {{role}} لـ{{business}} عبر {{channel}}. أكبر مشكلة: {{pain}}.",
+      "en": "Hi SHIFT, I want a Karam Bot plan for: {{role}} for a {{business}} on {{channel}}. Biggest pain: {{pain}}."
+    },
+    "builder_summary": {
+      "ar": "تعرّف على كرم، {{role}} لـ{{business}}. يعمل عبر {{channel}}، ويعالج مشكلة «{{pain}}» أولًا.",
+      "en": "Meet Karam, your {{role}} for your {{business}}. It works on {{channel}} and tackles “{{pain}}” first."
+    },
+    "loyalty_earn": {
+      "ar": "كسبت {{points}} نقطة في {{name}}. رصيدك {{balance}} نقطة، وبقي {{remaining}} نقطة حتى {{reward}}.",
+      "en": "You earned {{points}} points at {{name}}. Balance: {{balance}} points, {{remaining}} to go for {{reward}}."
+    },
+    "loyalty_unlock": {
+      "ar": "🎁 مكافأتك جاهزة في {{name}}: {{reward}}. أرسل لنا هذه الرسالة عند استخدامها.",
+      "en": "🎁 Your reward at {{name}} is ready: {{reward}}. Send us this message when you use it."
+    },
+    "loyalty_redeem": {
+      "ar": "تم استبدال {{reward}} في {{name}}. مبروك! نقاطك تستمر بالتراكم.",
+      "en": "{{reward}} redeemed at {{name}}. Congratulations! Your points keep adding up."
+    },
+    "attendance_alert_late": {
+      "ar": "{{name}} متأخر {{min}} دقيقة",
+      "en": "{{name}} is late by {{min}} min"
+    },
+    "attendance_alert_absent": {
+      "ar": "{{name}} لم يسجّل حضوره. تم تسجيله غائبًا.",
+      "en": "{{name}} has not checked in. Marked absent."
+    },
+    "hours_line_night": {
+      "ar": "الآن الساعة {{time}} — فريقك نايم. اترك رسالتك، ونتواصل معك الصباح.",
+      "en": "It's {{time}} — your team is asleep. Leave your message and we'll get back to you in the morning."
+    },
+    "hours_line_morning": {
+      "ar": "الآن الساعة {{time}} — الدوام لم يبدأ بعد. اترك رسالتك، ونردّ عليك مع بداية اليوم.",
+      "en": "It's {{time}} — the day hasn't started yet. Leave your message and we'll reply as the day begins."
+    },
+    "hours_line_peak": {
+      "ar": "الآن الساعة {{time}} — فريقنا موجود. راسلنا وسنردّ في أقرب وقت.",
+      "en": "It's {{time}} — the team is in. Message us and we'll reply as soon as we can."
+    }
+  }
+}

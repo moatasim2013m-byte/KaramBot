@@ -1,0 +1,112 @@
+/* =============================================================================
+   #top — opening + live ops card   (premium direction «أ · فخامة هادئة», 2026-09-10)
+   Scoped under #top; tokens/classes from base.css (eyebrow, btn, link-quiet, panel-glass,
+   glass-row, glass-icon, glass-time, badge-example, chip, chips-label).
+   Reference: design/premium/Main.dc.html (390) · MainDesktop.dc.html (1440) · DirectionB.dc.html (glass card).
+   Mobile-first: eyebrow → H1 → proof → CTA + note → glass ops panel → sector chips.
+   The phone composition holds until the two-column layout appears at 1024 (the direction defines
+   only the phone artboard and MainDesktop); between 768 and 1023 the stacked panel is capped at 480px.
+   ≥1024: two columns, gap 64px — text start, ops panel (480px, centred) end; chips row on a top hairline.
+   ============================================================================= */
+
+#top{ padding-block:36px 40px; }
+@media (min-width:1024px){ #top{ padding-block:84px 88px; } }
+
+#top .top-in{ display:grid; gap:28px; }                     /* text → ops panel: 28px (direction "margin 28px 20px 0") */
+@media (min-width:1024px){
+  #top .top-in{
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:64px; align-items:center;
+  }
+}
+
+/* ---- Text column: eyebrow → H1 → proof → actions → note (gap 16 / desktop 22) ---- */
+#top .top-text{ display:flex; flex-direction:column; align-items:stretch; gap:16px; min-width:0; }
+@media (min-width:1024px){ #top .top-text{ gap:22px; } }
+#top .top-eyebrow{ margin:0; }
+#top .top-h1{ margin:0; }                                   /* 34/1.32 → 52/1.25, max-width 14ch: base h1 */
+#top .top-h1-line{ display:inline; }                        /* let 14ch + text-wrap:balance set the lines */
+#top .top-proof{ margin:0; color:var(--text); font-size:16px; line-height:1.8; max-width:34ch; }
+@media (min-width:1024px){ #top .top-proof{ font-size:19px; line-height:1.75; max-width:30ch; } }
+
+/* ONE WhatsApp CTA: 52px pill, full width on mobile; desktop: inline + the quiet text link */
+#top .top-actions{ display:flex; flex-direction:column; align-items:stretch; gap:10px; padding-top:6px; }
+#top .top-cta{ width:100%; min-width:0; min-height:52px; white-space:normal; text-align:center; }   /* a long EN label wraps inside the pill; never widens the page */
+#top .top-watch{ display:none; }
+@media (min-width:1024px){
+  #top .top-actions{ flex-direction:row; align-items:center; gap:22px; padding-top:8px; }
+  #top .top-cta{ width:auto; min-height:56px; padding-inline:28px; }
+  #top .top-watch{ display:inline-flex; align-items:center; min-height:44px; }
+}
+#top .top-note{ margin:-6px 0 0; text-align:center; font-size:13px; line-height:1.6; color:var(--muted); }
+@media (min-width:1024px){ #top .top-note{ margin-top:-6px; text-align:start; } }
+
+/* ---- Ops card: the dark glass panel (.panel-glass carries bg / border / radius / shadow) ---- */
+#top .ops{
+  display:flex; flex-direction:column; gap:8px;
+  min-height:260px;
+  width:100%;
+}
+@media (min-width:768px){ #top .ops{ max-width:480px; justify-self:center; } }   /* stacked 768–1023: capped and centred; ≥1024: centred in its column */
+
+#top .ops-head{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+  padding:2px 2px 8px;
+}
+#top .ops-titles{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+#top .ops-title{ margin:0; font-size:16px; line-height:1.45; font-weight:600; color:#fff; text-wrap:balance; }
+#top .ops-sub{ margin:0; font-size:13px; line-height:1.5; color:var(--glass-muted); }
+#top .ops-head .badge-example{ flex:none; margin-top:2px; }
+
+/* Feed: glass rows, 8px apart; icon 32px square (#9CC0FF strokes), text 14.5px, time 12px tabular at the end */
+#top .ops-feed{ display:flex; flex-direction:column; gap:8px; margin:0; padding:0; list-style:none; }
+#top .ops-row{ min-height:56px; }                           /* 32px icon + 12px padding each side */
+/* Not streamed in yet: invisible but holding its space, so the feed never grows and pushes the page (CLS). */
+#top .ops-row.is-pending{ visibility:hidden; }
+/* The "stream finished" line is present from the start (empty) so revealing its text adds no height. */
+#top .ops-done{ min-height:1.7em; }
+#top .ops-text{ color:var(--glass-text); }
+#top .ops-time{ margin-inline-start:auto; direction:ltr; }
+
+/* Footer line: «تحديث 10:06 ص» (real time) / «N أحداث هذا الصباح» */
+#top .ops-foot{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:10px 2px 0;
+  font-size:12.5px; line-height:1.5;
+}
+#top .ops-clock{ color:var(--glass-muted); white-space:nowrap; }
+#top .ops-clock time{ unicode-bidi:isolate; }
+#top .ops-count{ color:var(--glass-text); font-weight:600; white-space:nowrap; }
+#top .ops-done{ margin:2px 2px 0; font-size:12.5px; line-height:1.5; color:var(--glass-muted); }
+
+/* ---- Sector chips: label + three 44px pills (selected = ink fill) ----------------
+   The page's ONE sector-chip recipe (identical in #top, #karam, #cases, #contact), sized with the
+   real fonts: «مطعم أو كافيه» alone is 76px at 14px, so on phones (<480) three equal pills hold the
+   labels on ONE line only as text pills — glyph and check are hidden there and the ink fill alone
+   marks the selection; a label that still cannot fit (EN «Restaurant & café» at 360) wraps INSIDE
+   its pill instead of spilling over the neighbours. ≥480: natural-width pills with the 15px glyph
+   (+ check when selected), nowrap — both languages fit in one row from there. ≥1024: 22px padding (MainDesktop). */
+#top .top-sectors{ display:flex; flex-direction:column; gap:12px; }
+#top .top-sectors-label{ margin:0; }
+#top .top-chips{ display:flex; gap:8px; flex-wrap:nowrap; }
+#top .top-chip{ flex:1 1 0; min-width:0; padding:0 8px; white-space:normal; text-align:center; line-height:1.25; }
+#top .top-chip .ic{ display:none; }
+@media (min-width:480px){
+  #top .top-chip{ flex:0 0 auto; padding:0 14px; white-space:nowrap; }
+  #top .top-chip .ic{ display:inline-block; }
+  #top .top-chip .chip-check{ display:none; }
+  #top .top-chip.is-on .chip-check{ display:inline-block; }
+}
+@media (min-width:1024px){
+  #top .top-sectors{
+    grid-column:1 / -1;
+    flex-direction:row; align-items:center; justify-content:space-between; gap:32px;
+    margin-top:0; padding-top:24px;
+    border-top:1px solid var(--line);
+  }
+  #top .top-sectors-label{ font-size:13px; white-space:nowrap; }
+  #top .top-chips{ gap:10px; }
+  #top .top-chip{ flex:0 0 auto; padding:0 22px; white-space:nowrap; }
+}
+
+/* Reduced motion: rows are all present at first paint (JS); base.css already neutralises .is-new. */

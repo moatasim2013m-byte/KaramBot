@@ -1,0 +1,132 @@
+/* =============================================================================
+   #cases — three sector chips (tabs) + المشكلة → ما يفعله كرم → النتيجة + FAQ + quiet CTA
+   Premium direction «أ · فخامة هادئة»: hairlines instead of borders/shadows, one light
+   card (.card, NO shadow) with --line-2 dividers, Alexandria titles via --font-display,
+   IBM Plex Sans Arabic body, ink/text/muted from tokens. No gold, no green (the WhatsApp
+   link is a quiet ink text link). Scoped under #cases; shared classes come from base.css
+   (.chip, .card, .ic-holder, .badge-example, .link-quiet, .sec-head, .eyebrow).
+   Mobile-first (360): chips in ONE row of three, blocks stacked with horizontal hairlines;
+   ≥768: blocks side by side with vertical hairlines. Only the selected sector's panel
+   exists in the DOM (cases.js).
+   ============================================================================= */
+
+/* ---- Chips: one row of three pills, never scrolls ----------------------------
+   The page's ONE sector-chip recipe (identical in #top, #karam, #cases, #contact), sized with the
+   real fonts: «مطعم أو كافيه» alone is 76px at 14px, so on phones (<480) three equal pills hold the
+   labels on ONE line only as text pills — glyph and check are hidden there and the ink fill alone
+   marks the selection; a label that still cannot fit (EN «Restaurant & café» at 360) wraps INSIDE
+   its pill instead of spilling over the neighbours. ≥480: natural-width pills with the 15px glyph
+   (+ check when selected), nowrap — both languages fit in one row from there. min-height 48px here is the contract's #cases size. */
+#cases .cases-tabs{
+  display:flex; gap:8px;
+  margin-bottom:24px;
+}
+#cases .cases-chip{
+  flex:1 1 0; min-width:0;
+  min-height:48px; padding:0 8px;
+  gap:6px;
+  font-size:14px; line-height:1.25;
+  white-space:normal; text-align:center;
+}
+#cases .cases-chip .ic{ display:none; width:15px; height:15px; }
+#cases .cases-chip-label{ min-width:0; }
+@media (min-width:480px){
+  #cases .cases-chip{ flex:0 0 auto; padding:0 14px; white-space:nowrap; }
+  #cases .cases-chip .ic{ display:inline-block; }
+  #cases .cases-chip .chip-check{ display:none; }
+  #cases .cases-chip.is-on .chip-check{ display:inline-block; }
+}
+@media (min-width:768px){
+  #cases .cases-tabs{ gap:10px; margin-bottom:28px; }
+  #cases .cases-chip{ padding:0 22px; }
+}
+
+/* ---- Panel (swapped in place on sector change) ------------------------------ */
+#cases .cases-panel{ transition:opacity var(--fast) var(--ease), transform var(--fast) var(--ease); }
+#cases .cases-panel.is-new{ opacity:0; transform:translateY(4px); }
+
+#cases .cases-panel-head{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+  gap:8px 16px; margin-bottom:12px;
+}
+#cases .cases-example{ margin:0; }
+#cases .cases-example-name{ color:var(--ink); font-weight:600; }
+
+/* ---- The three blocks: ONE light card, hairline dividers, no shadow ---------- */
+#cases .cases-flow{
+  display:grid;
+  padding:0;                                   /* the blocks carry the padding so dividers run edge to edge */
+  overflow:hidden;
+}
+#cases .cases-block{
+  display:flex; align-items:flex-start; gap:12px;
+  padding:16px;
+  border-top:1px solid var(--line-2);
+}
+#cases .cases-block:first-child{ border-top:0; }
+#cases .cases-block-body{ display:grid; gap:4px; min-width:0; }
+#cases .cases-block-label{
+  font-family:var(--font-body);
+  font-size:12.5px; line-height:1.5; font-weight:600; color:var(--muted);
+  margin:0; text-wrap:balance;
+}
+#cases .cases-block-text{ font-size:16px; line-height:1.7; color:var(--text); margin:0; }
+/* Problem = body text; Karam = ink-2; result = ink, medium weight. Structure, not frames. */
+#cases .cases-block-karam .cases-block-text{ color:var(--ink-2); }
+#cases .cases-block-result .cases-block-text{ color:var(--ink); font-weight:600; }
+@media (min-width:768px){
+  #cases .cases-flow{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #cases .cases-block{ flex-direction:column; gap:14px; padding:20px; border-top:0; border-inline-start:1px solid var(--line-2); }
+  #cases .cases-block:first-child{ border-inline-start:0; }
+  #cases .cases-block-text{ font-size:15.5px; }
+}
+
+/* ---- FAQ: 6 × <details> rows separated by hairlines, chevron at the end ----- */
+#cases .cases-faq{ margin-top:36px; max-width:720px; }
+#cases .cases-faq-title{ font-size:16px; margin-bottom:6px; }
+#cases .cases-faq-list{ border-top:1px solid var(--line); }
+#cases .cases-q{ border-bottom:1px solid var(--line); }
+#cases .cases-q-sum{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  min-height:52px; padding:12px 0;
+  font-size:15px; font-weight:600; line-height:1.5; color:var(--ink);
+  cursor:pointer; list-style:none; user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  transition:color var(--fast) var(--ease);
+}
+#cases .cases-q-sum::-webkit-details-marker{ display:none; }
+#cases .cases-q-sum::marker{ content:""; }
+#cases .cases-q-text{ flex:1 1 auto; min-width:0; }
+#cases .cases-q-ic{ flex:none; width:18px; height:18px; color:var(--muted); transition:transform var(--fast) var(--ease); }
+#cases .cases-q[open] .cases-q-ic{ transform:rotate(180deg); }
+#cases .cases-a{
+  padding:0 0 16px;
+  font-size:15px; line-height:1.7; color:var(--text);
+  animation:cases-fade var(--fast) var(--ease) 1;      /* one shot, never loops */
+}
+#cases .cases-a p{ margin:0; max-width:640px; }
+@keyframes cases-fade{ from{ opacity:0; transform:translateY(-2px); } to{ opacity:1; transform:none; } }
+@media (min-width:768px){
+  #cases .cases-faq{ margin-top:44px; }
+  #cases .cases-q-sum{ font-size:15.5px; }
+}
+
+/* ---- Quiet CTA «اسأل عن {sector}»: underlined ink text link, 44px target ------ */
+#cases .cases-cta{ margin-top:20px; }
+#cases .cases-ask{
+  display:inline-flex; align-items:center; gap:8px;
+  min-height:44px;
+}
+#cases .cases-ask .ic{ width:16px; height:16px; color:currentColor; }
+
+/* ---- Hover (pointer devices only) -------------------------------------------- */
+@media (hover:hover){
+  #cases .cases-q-sum:hover{ color:var(--electric); }
+  #cases .cases-q-sum:hover .cases-q-ic{ color:var(--electric); }
+}
+
+/* ---- Reduced motion: base.css zeroes durations; make sure nothing lingers hidden. */
+@media (prefers-reduced-motion:reduce){
+  #cases .cases-panel.is-new{ opacity:1; transform:none; }
+  #cases .cases-a{ animation:none; }
+}
