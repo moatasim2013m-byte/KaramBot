@@ -73,7 +73,7 @@
   display:flex; align-items:center; justify-content:space-between; gap:8px;
   min-height:30px; padding:6px 14px 0;
   background:var(--ink); color:#fff;
-  font-size:12px; font-weight:500; line-height:1;
+  font-size:12px; font-weight:600; line-height:1;
   font-variant-numeric:tabular-nums;
 }
 #karam .phone-badge{ min-height:20px; padding:2px 8px; }
@@ -131,7 +131,7 @@
 #karam .phone-day > span{
   display:inline-block; padding:3px 10px; border-radius:var(--r-pill);
   background:var(--surface); color:var(--muted);
-  font-size:12px; font-weight:500; line-height:1.5;
+  font-size:12px; font-weight:600; line-height:1.5;
 }
 #karam .phone-msgs{ display:flex; flex-direction:column; gap:6px; }
 
@@ -156,7 +156,7 @@
   display:flex; align-items:flex-start; gap:10px;
   padding:10px 12px;
   background:var(--surface); border:1px solid var(--line); color:var(--ink);
-  font-weight:500;
+  font-weight:600;
 }
 #karam .bub-book > .ic{ flex:none; width:16px; height:16px; margin-top:3px; color:var(--ink); }
 #karam .bub-book .bub-text{ flex:1 1 auto; min-width:0; }
@@ -166,7 +166,7 @@
   background:rgba(15,30,56,.06); color:var(--muted);
   font-size:12.5px; line-height:1.5; text-align:center;
 }
-#karam .bub-label{ font-weight:500; margin-inline-end:6px; }
+#karam .bub-label{ font-weight:600; margin-inline-end:6px; }
 #karam .bub-label::after{ content:"·"; margin-inline-start:6px; }
 #karam .bub-text{ white-space:pre-wrap; overflow-wrap:anywhere; }
 /* The time floats to inline-END. Physical fallback first (RTL page → left), then the logical value

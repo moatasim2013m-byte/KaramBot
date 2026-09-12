@@ -43,9 +43,9 @@
 #loyalty .loy-rule-head{
   display:flex; align-items:baseline; justify-content:space-between; gap:12px;
 }
-#loyalty .loy-rule-head label{ font-size:13px; line-height:1.5; font-weight:500; color:var(--muted); }
+#loyalty .loy-rule-head label{ font-size:13px; line-height:1.5; font-weight:600; color:var(--muted); }
 #loyalty .loy-rule-val{
-  font-size:13px; line-height:1.5; font-weight:500; color:var(--ink);
+  font-size:13px; line-height:1.5; font-weight:600; color:var(--ink);
   font-variant-numeric:tabular-nums; white-space:nowrap; unicode-bidi:isolate;
 }
 
@@ -75,7 +75,7 @@
 }
 #loyalty .loy-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 #loyalty .loy-card-id{ min-width:0; }
-#loyalty .loy-card-label{ margin:0; font-size:12.5px; line-height:1.5; font-weight:500; color:var(--muted); }
+#loyalty .loy-card-label{ margin:0; font-size:12.5px; line-height:1.5; font-weight:600; color:var(--muted); }
 #loyalty .loy-card-name{
   margin:0; font-family:var(--font-display); font-size:18px; line-height:1.4; font-weight:600;
   letter-spacing:0; color:var(--ink); overflow-wrap:anywhere;
@@ -83,7 +83,7 @@
 #loyalty .loy-tier{
   flex:none; display:inline-flex; align-items:center; gap:6px;
   min-height:26px; padding:2px 10px; border-radius:var(--r-pill);
-  font-size:12px; line-height:1.5; font-weight:500; white-space:nowrap;
+  font-size:12px; line-height:1.5; font-weight:600; white-space:nowrap;
   background:transparent; border:1px solid var(--chip-line); color:var(--ink);
   transition:background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
 }
@@ -104,7 +104,7 @@
   transition:transform var(--base) var(--ease);
 }
 [dir="rtl"] #loyalty .loy-bar > i{ transform-origin:100% 50%; }
-#loyalty .loy-card-line{ margin:0; font-size:14px; line-height:1.6; font-weight:500; color:var(--ink-2); }
+#loyalty .loy-card-line{ margin:0; font-size:14px; line-height:1.6; font-weight:600; color:var(--ink-2); }
 #loyalty .loy-card-line.is-ready{
   justify-self:start; display:inline-block;
   padding:4px 12px; border-radius:var(--r-pill);
@@ -124,7 +124,7 @@
 }
 #loyalty .loy-chat-avatar .ic{ width:16px; height:16px; }
 #loyalty .loy-chat-id{ min-width:0; }
-#loyalty .loy-chat-name{ margin:0; font-size:14px; line-height:1.4; font-weight:500; color:var(--ink); overflow-wrap:anywhere; }
+#loyalty .loy-chat-name{ margin:0; font-size:14px; line-height:1.4; font-weight:600; color:var(--ink); overflow-wrap:anywhere; }
 #loyalty .loy-chat-sub{ margin:0; font-size:12px; line-height:1.4; color:var(--muted); }
 #loyalty .loy-msgs{
   display:flex; flex-direction:column; gap:6px;
@@ -145,12 +145,12 @@
 }
 #loyalty .loy-bub.is-in{ opacity:1; transform:none; }
 #loyalty .loy-bub-in{ align-self:flex-start; background:#FFFFFF; border-start-start-radius:4px; }
-#loyalty .loy-bub-in[data-kind="unlock"]{ font-weight:500; color:var(--ink); }
+#loyalty .loy-bub-in[data-kind="unlock"]{ font-weight:600; color:var(--ink); }
 #loyalty .loy-bub-book{
   align-self:stretch; max-width:100%;
   display:flex; align-items:flex-start; gap:10px;
   padding:10px 12px;
-  background:var(--surface); border:1px solid var(--line); color:var(--ink); font-weight:500;
+  background:var(--surface); border:1px solid var(--line); color:var(--ink); font-weight:600;
 }
 #loyalty .loy-bub-book > .ic{ flex:none; width:16px; height:16px; margin-top:3px; color:var(--ink); }
 #loyalty .loy-bub-book .loy-bub-text{ flex:1 1 auto; min-width:0; }

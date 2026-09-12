@@ -28,11 +28,12 @@ const FONTS = JSON.parse(fs.readFileSync(path.join(M, 'src/fonts.json'), 'utf8')
 // PRELOAD is measured, not assumed: preloading the two first-screen faces (~74 KB) delayed first paint on a
 // throttled 4G connection, because it competes with the HTML/CSS. Fonts are discovered from app.css instead and
 // text paints immediately in the metric-matched fallback. Set PRELOAD_FONTS=1 to re-test the other way.
-const PRELOAD_FONTS = process.env.PRELOAD_FONTS === '1';
+// Preload ONE face: the display font for this page's language (~31 KB). It is font-display:optional, so it is
+// only used if it arrives in time — preloading is what makes that likely on a first visit. Preloading the body
+// font too was measured and dropped: two files (~74 KB) cost ~1.2 s of first paint on throttled 4G.
 function preloadFor(lang) {
-  if (!PRELOAD_FONTS) return '';
   const subset = lang === 'ar' ? 'arabic' : 'latin';
-  return FONTS.filter(f => f.subset === subset && ((f.family === 'Alexandria' && f.weight === '600') || (f.family === 'IBM Plex Sans Arabic' && f.weight === '400')))
+  return FONTS.filter(f => f.family === 'Alexandria' && f.subset === subset)
     .map(f => `<link rel="preload" as="font" type="font/woff2" href="/assets/fonts/${f.file}" crossorigin>`).join('\n');
 }
 const BUILD_TIME = '2026-09-15T13:30:00+03:00';

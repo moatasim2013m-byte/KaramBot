@@ -18,7 +18,7 @@
   min-height:76px; padding:10px 6px;
   border:1px solid var(--line); border-radius:var(--r-card);
   background:var(--surface); color:var(--ink);
-  font-family:var(--font-body); font-size:13px; font-weight:500; line-height:1.3; text-align:center;
+  font-family:var(--font-body); font-size:13px; font-weight:600; line-height:1.3; text-align:center;
   cursor:pointer; user-select:none;
   transition:transform var(--fast) var(--ease), border-color var(--fast) var(--ease);
   -webkit-tap-highlight-color:transparent;
@@ -90,7 +90,7 @@
   display:inline-flex; align-items:center; justify-content:center;
   width:26px; height:26px; border-radius:50%;
   border:1px solid var(--chip-line); background:var(--surface); color:var(--muted);
-  font-size:12px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums;
+  font-size:12px; font-weight:600; line-height:1; font-variant-numeric:tabular-nums;
   transition:background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 #team .team-mark-check{ display:none; width:13px; height:13px; }
@@ -101,7 +101,7 @@
 
 /* Text label «الخطوة N من 5 — …» 13px + the 5 step rows on hairlines */
 #team .team-step-label{
-  margin-top:14px; font-size:13px; font-weight:500; line-height:1.5; color:var(--ink-2);
+  margin-top:14px; font-size:13px; font-weight:600; line-height:1.5; color:var(--ink-2);
   transition:opacity var(--fast) var(--ease),transform var(--fast) var(--ease);
 }
 #team .team-step-label.is-new{ opacity:0; transform:translateY(2px); }
@@ -115,22 +115,22 @@
   transition:color var(--fast) var(--ease), transform var(--fast) var(--ease);
 }
 #team .team-step-btn:active{ transform:scale(.99); }
-#team .team-step-n{ flex:none; min-width:18px; padding-top:1px; font-size:12px; font-weight:500; color:var(--muted); font-variant-numeric:tabular-nums; }
+#team .team-step-n{ flex:none; min-width:18px; padding-top:1px; font-size:12px; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; }
 #team .team-step-text{ flex:1 1 auto; min-width:0; }
 #team .team-step.is-done .team-step-btn{ color:var(--muted); }
-#team .team-step.is-current .team-step-btn{ color:var(--ink); font-weight:500; }
+#team .team-step.is-current .team-step-btn{ color:var(--ink); font-weight:600; }
 #team .team-step.is-current .team-step-n{ color:var(--ink); font-weight:600; }
 /* Quiet replay link (the «شاهد كرم يردّ ↓» pattern): ink, hairline underline. */
 #team .team-replay{
   display:inline-flex; align-items:center; min-height:44px; margin-top:4px; padding:0 2px;
-  color:var(--ink); font-size:14px; font-weight:500;
+  color:var(--ink); font-size:14px; font-weight:600;
   text-decoration:underline; text-underline-offset:6px; text-decoration-color:var(--hair); text-decoration-thickness:1px;
   transition:color var(--fast) var(--ease), text-decoration-color var(--fast) var(--ease);
 }
 
 /* ---- #builder: progress «N من 4 · label» 13px muted + 2px ink bar ---------------- */
 #builder .builder-progress-wrap{ display:grid; gap:10px; max-width:760px; }
-#builder .builder-progress{ font-size:13px; line-height:1.5; font-weight:500; color:var(--muted); font-variant-numeric:tabular-nums; }
+#builder .builder-progress{ font-size:13px; line-height:1.5; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; }
 #builder .builder-bar{ display:block; height:2px; background:var(--line); overflow:hidden; }
 #builder .builder-bar-fill{
   display:block; height:100%; background:var(--ink);
@@ -178,7 +178,7 @@
   #builder .builder-card-sec:first-child{ padding-inline-start:0; border-inline-start:0; }
   #builder .builder-card-sec:last-child{ padding-inline-end:0; }
 }
-#builder .builder-card-label{ margin-bottom:6px; font-family:var(--font-body); font-size:12.5px; line-height:1.5; font-weight:500; color:var(--muted); }
+#builder .builder-card-label{ margin-bottom:6px; font-family:var(--font-body); font-size:12.5px; line-height:1.5; font-weight:600; color:var(--muted); }
 #builder .builder-card-role{ font-weight:600; color:var(--ink); }
 #builder .builder-tasks{ display:grid; gap:8px; }
 #builder .builder-task{ display:flex; align-items:flex-start; gap:8px; font-size:14.5px; line-height:1.6; color:var(--ink-2); }

@@ -76,7 +76,7 @@
 }
 #top .ops-clock{ color:var(--glass-muted); white-space:nowrap; }
 #top .ops-clock time{ unicode-bidi:isolate; }
-#top .ops-count{ color:var(--glass-text); font-weight:500; white-space:nowrap; }
+#top .ops-count{ color:var(--glass-text); font-weight:600; white-space:nowrap; }
 #top .ops-done{ margin:2px 2px 0; font-size:12.5px; line-height:1.5; color:var(--glass-muted); }
 
 /* ---- Sector chips: label + three 44px pills (selected = ink fill) ----------------

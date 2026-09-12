@@ -24,7 +24,7 @@
 #contact .contact-form{ display:grid; gap:24px; }
 #contact .contact-group{ display:grid; gap:10px; }
 /* Label above a chip row: 12.5px/500 muted (the direction's chips label). */
-#contact .contact-group-label{ margin:0; font-size:12.5px; line-height:1.5; font-weight:500; color:var(--muted); }
+#contact .contact-group-label{ margin:0; font-size:12.5px; line-height:1.5; font-weight:600; color:var(--muted); }
 
 /* Sector chips: one row of three 44px pills, never scrolls.
    The page's ONE sector-chip recipe (identical in #top, #karam, #cases, #contact), sized with the
@@ -64,7 +64,7 @@
    Stacked on mobile, side by side from 560px. */
 #contact .contact-fields{ display:grid; gap:14px; }
 @media (min-width:560px){ #contact .contact-fields{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-#contact .field > label{ font-size:13px; line-height:1.5; font-weight:500; color:var(--ink-2); }
+#contact .field > label{ font-size:13px; line-height:1.5; font-weight:600; color:var(--ink-2); }
 #contact .input{
   min-height:52px; padding:12px 16px;
   border:1px solid var(--chip-line); border-radius:12px;
@@ -122,4 +122,4 @@
 /* ---- CTA (52px green pill, the only green in the section) + helper + «opening…» status */
 #contact .contact-cta{ min-height:52px; min-width:0; white-space:normal; text-align:center; }   /* a long EN label wraps inside the pill; never widens the page */
 #contact .contact-helper{ margin:0; text-align:center; font-size:13px; line-height:1.6; color:var(--muted); }
-#contact .contact-opening{ margin:0; text-align:center; font-size:13px; line-height:1.6; font-weight:500; color:var(--ink-2); }
+#contact .contact-opening{ margin:0; text-align:center; font-size:13px; line-height:1.6; font-weight:600; color:var(--ink-2); }
