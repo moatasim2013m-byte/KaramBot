@@ -85,12 +85,15 @@
  *        name = the visitor-typed name only ('' when untyped — outgoing text never claims sector.exampleName as the lead's);
  *        business = name || sector label; business_line = composed.business_named / business_sector (the honest sentence).
  *    SHIFT.waUrl(msg?)                → "https://wa.me/<WA>?text=…" (pure; msg defaults to composeMessage()).
+ *    SHIFT.waHref()                   → the PUBLIC link for href attributes: greeting · sector line · closing, nothing the visitor typed.
  *    SHIFT.waLink(placement, msg?)    → tracks whatsapp_click {placement, sector, bundle} THEN returns waUrl(msg). Call at click time.
- *    Declarative (preferred): render  <a href="…" data-wa="placement" target="_blank" rel="noopener">…</a>
+ *    Declarative (preferred): render  <a href="SHIFT.waHref()" data-wa="placement" target="_blank" rel="noopener">…</a>
  *        (+ optional data-wa-kind="ask_about_product" data-wa-product="كرم بوت" → extra vars). Core's delegated click handler
- *        recomposes the message from live state, tracks, and rewrites href before navigation; it also keeps the href of every
- *        kind-less [data-wa] fresh on state changes. Mark the opening CTA data-cta="top" and the contact CTA data-cta="contact":
- *        the sticky bar hides while either is on screen.
+ *        recomposes the full message from live state, tracks, and OPENS it itself; the href is never rewritten with it.
+ *        PRIVACY: an href must never carry the composed message. Meta's automatic SubscribedButtonClick sends the link's
+ *        destination (cd[buttonFeatures]) and GA4's outbound-click measurement sends link_url, so a name, phone or business
+ *        typed into the page would leave the browser — the /privacy page promises it does not.
+ *        Mark the opening CTA data-cta="top" and the contact CTA data-cta="contact": the sticky bar hides while either is on screen.
  *    Other delegated actions (no JS needed in the section):
  *        data-action="lang"  ·  data-action="sector" data-sector="clinic"  ·  data-action="product" data-product="loyalty"
  *
@@ -713,19 +716,31 @@
     if (msg == null) msg = SHIFT.composeMessage();
     return 'https://wa.me/' + SHIFT.WA + '?text=' + encodeURIComponent(msg);
   };
+  // What an href may carry: our own greeting, the page's sector and our closing — never visitor input or attribution.
+  SHIFT.waHref = function () {
+    var P = path(C, 'templates.composed') || {}, s = SHIFT.sector();
+    var parts = [SHIFT.tx(P.greeting), s ? SHIFT.tx(P.business_sector, { sector: SHIFT.tx(s.label) }) : '', SHIFT.tx(P.closing)];
+    return SHIFT.waUrl(clampMsg(parts.filter(Boolean).join(' '), maxChars()));
+  };
   SHIFT.waLink = function (placement, msg) {
     SHIFT.track('whatsapp_click', { placement: placement || 'unknown', sector: state.sector, bundle: state.bundle.join(',') });
     return SHIFT.waUrl(msg);
   };
+  function openWa(url) {
+    var win = null;
+    try { win = w.open(url, '_blank'); } catch (e) { win = null; }
+    if (win) { try { win.opener = null; } catch (e) { /* cross-origin already */ } }
+    else w.location.href = url;                  // popup refused → same tab, still with the full message
+  }
   function refreshWaHrefs() {
-    var url = SHIFT.waUrl();
-    var nodes = d.querySelectorAll('[data-wa]:not([data-wa-kind])');
+    var url = SHIFT.waHref();
+    var nodes = d.querySelectorAll('[data-wa]');
     for (var i = 0; i < nodes.length; i++) nodes[i].setAttribute('href', url);
   }
 
   /* ------------------------------------------------------------------ shell */
   function waAnchor(placement, cls, inner, extra) {
-    return '<a class="' + cls + '" href="' + SHIFT.esc(SHIFT.waUrl()) + '" data-wa="' + placement + '" target="_blank" rel="noopener"' + (extra || '') + '>' + inner + '</a>';
+    return '<a class="' + cls + '" href="' + SHIFT.esc(SHIFT.waHref()) + '" data-wa="' + placement + '" target="_blank" rel="noopener"' + (extra || '') + '>' + inner + '</a>';
   }
   function renderNav() {
     var el = byId('nav');
@@ -902,7 +917,13 @@
           if (k === 'wa' || k === 'waKind' || k.indexOf('wa') !== 0 || k.length < 3) return;
           vars[k.charAt(2).toLowerCase() + k.slice(3)] = wa.dataset[k];
         });
-        wa.setAttribute('href', SHIFT.waLink(wa.getAttribute('data-wa'), SHIFT.composeMessage(kind, vars)));
+        var full = SHIFT.waLink(wa.getAttribute('data-wa'), SHIFT.composeMessage(kind, vars));
+        // A plain tap opens the full message from here. Modified clicks (new tab/window) keep the browser's default
+        // and get the public href — the lead is still tracked above.
+        if (!e.defaultPrevented && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          openWa(full);
+        }
         return;
       }
       var act = t.closest('[data-action]');

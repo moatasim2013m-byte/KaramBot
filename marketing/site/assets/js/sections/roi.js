@@ -98,7 +98,7 @@
   function valVars() { var o = {}; inputs().forEach(function (inp) { o[inp.id] = valText(inp); }); return o; }
   function summaryValues() { return t('roi_adjust_values', valVars()); }
   function defaultsNote() { return t('roi_defaults_note', { sector: SHIFT.tx(sector().label) }); }
-  function ctaHref() { return SHIFT.waUrl(SHIFT.composeMessage('roi_estimate')); }
+  function ctaHref() { return SHIFT.waHref(); }   // public href; core opens the roi_estimate message on tap
 
   /* ---------------------------------------------------------------- html */
   function fieldHtml(inp) {

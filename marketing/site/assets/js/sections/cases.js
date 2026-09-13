@@ -110,7 +110,7 @@
   }
   function ctaHtml(s) {
     return '<div class="cases-cta">' +
-      '<a class="link-quiet cases-ask" href="' + SHIFT.esc(SHIFT.waUrl()) + '" data-wa="cases" target="_blank" rel="noopener">' +
+      '<a class="link-quiet cases-ask" href="' + SHIFT.esc(SHIFT.waHref()) + '" data-wa="cases" target="_blank" rel="noopener">' +
         SHIFT.icon('whatsapp', { size: 16 }) +
         '<span>' + SHIFT.rich(askLabel(s)) + '</span>' +
       '</a>' +

@@ -69,10 +69,13 @@ srv.listen(4174, '127.0.0.1', async () => {
   let n = await mark();
   const ctx = page.context();
   ctx.on('page', p => p.close().catch(() => {}));            // wa.me opens a new tab; close it
+  // Capture what the tap opens: core opens the full message itself, the href stays public.
+  await page.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(String(u)); return {}; }; });
+  await page.route('https://wa.me/**', r => r.abort());
   await page.locator('[data-cta="top"], #top [data-wa]').first().click();
   await page.waitForTimeout(600);
   c = await since(n);
-  const href = await page.locator('[data-cta="top"], #top [data-wa]').first().getAttribute('href');
+  const href = (await page.evaluate(() => window.__opened[0])) || '';
   const leads = c.filter(x => x[0] === 'fbq' && x[1] === 'track' && x[2] === 'Lead').length;
   expect('top CTA → fbq Lead (once)', leads === 1, 'Lead x' + leads);
   expect('top CTA → fbq Contact', has(c, 'fbq', 'track', 'Contact'));
@@ -101,9 +104,21 @@ srv.listen(4174, '127.0.0.1', async () => {
   // 4) Contact CTA → one Lead, not two
   n = await mark();
   const contactCta = page.locator('[data-cta="contact"]').first();
-  if (await contactCta.count()) { await contactCta.scrollIntoViewIfNeeded(); await contactCta.click(); await page.waitForTimeout(600); c = await since(n);
+  if (await contactCta.count()) {
+    // Privacy: what the visitor types must reach WhatsApp but never an href (Meta automatic events / GA4 outbound clicks read hrefs).
+    const NAME = 'Zzprobe', PHONE = '0790000123';
+    await page.fill('#f-name', NAME); await page.fill('#f-phone', PHONE);
+    await page.evaluate(() => { window.__opened = []; });
+    await contactCta.scrollIntoViewIfNeeded(); await contactCta.click(); await page.waitForTimeout(600); c = await since(n);
     const l2 = c.filter(x => x[0] === 'fbq' && x[1] === 'track' && x[2] === 'Lead').length;
-    expect('contact CTA → exactly one fbq Lead', l2 === 1, 'Lead x' + l2); }
+    expect('contact CTA → exactly one fbq Lead', l2 === 1, 'Lead x' + l2);
+    const opened = decodeURIComponent((await page.evaluate(() => window.__opened[0])) || '');
+    expect('contact CTA opens WhatsApp with the typed name and phone', opened.includes(NAME) && opened.includes(PHONE), opened);
+    const hrefs = await page.$$eval('a[href]', as => as.map(a => decodeURIComponent(a.getAttribute('href'))));
+    const leaky = hrefs.filter(h => h.includes(NAME) || h.includes(PHONE) || h.includes('karam-clinics'));
+    expect('no href carries typed name/phone or attribution', leaky.length === 0, leaky.slice(0, 2).join(' | '));
+    const trackArgs = JSON.stringify(c);
+    expect('no fbq/gtag call carries typed name/phone', !trackArgs.includes(NAME) && !trackArgs.includes(PHONE), ''); }
   else expect('contact CTA found', false);
 
   expect('no page/console errors', errors.length === 0, errors.slice(0, 3).join(' | '));

@@ -162,7 +162,7 @@
   function sideHtml() {
     return '<div class="contact-side">' +
       previewHtml() +
-      '<a class="btn btn-wa btn-lg btn-block contact-cta" href="' + esc(SHIFT.waUrl()) + '" data-wa="contact" data-cta="contact" target="_blank" rel="noopener">' +
+      '<a class="btn btn-wa btn-lg btn-block contact-cta" href="' + esc(SHIFT.waHref()) + '" data-wa="contact" data-cta="contact" target="_blank" rel="noopener">' +
         SHIFT.icon('whatsapp', { size: 20 }) + '<span>' + esc(t('contact.cta')) + '</span>' +
       '</a>' +
       '<p class="contact-helper small muted">' + rich(t('contact.helper')) + '</p>' +

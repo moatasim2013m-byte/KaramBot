@@ -155,7 +155,7 @@
               '<span class="ic-holder" aria-hidden="true">' + SHIFT.icon('clock', { size: 16 }) + '</span>' +
               '<p class="karam-hours-text" data-hours>' + SHIFT.rich(SHIFT.hoursLine()) + '</p>' +
             '</div>' +
-            '<a class="btn btn-wa karam-cta" href="' + esc(SHIFT.waUrl()) + '" data-wa="karam" target="_blank" rel="noopener">' +
+            '<a class="btn btn-wa karam-cta" href="' + esc(SHIFT.waHref()) + '" data-wa="karam" target="_blank" rel="noopener">' +
               SHIFT.icon('whatsapp', { size: 20 }) + '<span>' + esc(t('karam_cta')) + '</span>' +
             '</a>' +
           '</div>' +

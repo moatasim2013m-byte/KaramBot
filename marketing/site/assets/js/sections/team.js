@@ -475,7 +475,6 @@
   function cardHtml(isNew) {
     var v = cardVars();
     var summary = t('templates.builder_summary', v);
-    var msg = SHIFT.composeMessage('builder_plan', { role: v.role, business: v.business, channel: v.channel, pain: v.pain });
     var tasks = v.tasks.map(function (task) { return taskHtml(task, v); }).join('');
     return '<article class="builder-card' + (isNew ? ' is-new' : '') + '" aria-labelledby="' + CARD_TITLE_ID + '">' +
       '<div class="builder-card-head">' +
@@ -489,7 +488,7 @@
         (tasks ? sectionHtml('builder_card_tasks', '<ul class="builder-tasks">' + tasks + '</ul>') : '') +
         (v.impact ? sectionHtml('builder_card_impact', '<p class="builder-card-impact">' + rich(v.impact) + '</p>') : '') +
       '</div>' +
-      '<a class="btn btn-wa btn-lg builder-cta" href="' + esc(SHIFT.waUrl(msg)) + '" data-wa="builder" data-wa-kind="builder_plan"' +
+      '<a class="btn btn-wa btn-lg builder-cta" href="' + esc(SHIFT.waHref()) + '" data-wa="builder" data-wa-kind="builder_plan"' +
         ' data-wa-role="' + esc(v.role) + '" data-wa-business="' + esc(v.business) + '" data-wa-channel="' + esc(v.channel) + '" data-wa-pain="' + esc(v.pain) + '"' +
         ' target="_blank" rel="noopener">' +
         SHIFT.icon('whatsapp', { size: 20 }) + '<span>' + rich(t('builder_cta')) + '</span>' +

@@ -55,9 +55,8 @@
   function nameId(p) { return 'prod-n-' + p.key; }
   function tagId(p) { return 'prod-t-' + p.key; }
   function detId(p) { return 'prod-d-' + p.key; }
-  function askHref(p) {
-    return SHIFT.waUrl(SHIFT.composeMessage('ask_about_product', { product: SHIFT.tx(p.name) }));
-  }
+  // Public href only (see core: hrefs never carry the composed message); core opens the product question on tap.
+  function askHref() { return SHIFT.waHref(); }
 
   /* ---- pieces (pure strings) ---- */
   function addInner(on) {
@@ -73,7 +72,7 @@
   }
   function askLink(p) {
     var name = SHIFT.tx(p.name);
-    return '<a class="prod-ask" href="' + esc(askHref(p)) + '" data-wa="product:' + esc(p.key) + '" data-wa-kind="ask_about_product" data-wa-product="' + esc(name) + '" target="_blank" rel="noopener">' +
+    return '<a class="prod-ask" href="' + esc(askHref()) + '" data-wa="product:' + esc(p.key) + '" data-wa-kind="ask_about_product" data-wa-product="' + esc(name) + '" target="_blank" rel="noopener">' +
       SHIFT.icon('whatsapp', { size: 18 }) +
       '<span>' + SHIFT.rich(t('ask_about_product', { product: name })) + '</span>' +
     '</a>';
@@ -175,7 +174,7 @@
         '<strong class="prod-bundle-count">' + esc(countText(n)) + '</strong>' +
         '<span class="prod-bundle-names small muted">' + SHIFT.rich(bundleNames()) + '</span>' +
       '</div>' +
-      '<a class="btn btn-wa prod-bundle-cta" href="' + esc(SHIFT.waUrl()) + '" data-wa="bundle" target="_blank" rel="noopener">' +
+      '<a class="btn btn-wa prod-bundle-cta" href="' + esc(SHIFT.waHref()) + '" data-wa="bundle" target="_blank" rel="noopener">' +
         SHIFT.icon('whatsapp', { size: 20 }) + '<span>' + esc(t('bundle_cta')) + '</span>' +
       '</a>' +
     '</div>' +
