@@ -151,7 +151,7 @@
           '<h1 class="top-h1">' + lines + '</h1>' +
           '<p class="top-proof">' + SHIFT.rich(sp ? SHIFT.tx(sp.intro) : SHIFT.t('sections.top.intro')) + '</p>' +
           '<div class="top-actions">' +
-            '<a class="btn btn-wa btn-lg top-cta" href="' + SHIFT.esc(SHIFT.waUrl()) + '" data-wa="top" data-cta="top" target="_blank" rel="noopener">' +
+            '<a class="btn btn-wa btn-lg top-cta" href="' + SHIFT.esc(SHIFT.waHref()) + '" data-wa="top" data-cta="top" target="_blank" rel="noopener">' +
               SHIFT.icon('whatsapp', { size: 20 }) +
               '<span>' + SHIFT.esc(SHIFT.t('cta_whatsapp')) + '</span>' +
             '</a>' +
