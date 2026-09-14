@@ -6,15 +6,15 @@
       "cleanUrls": true,
       "ignore": ["firebase.json", "**/.*"],
       "redirects": [
-        { "source": "/login",    "destination": "https://app.shifts-ai.store/login",    "type": 302 },
-        { "source": "/overview", "destination": "https://app.shifts-ai.store/overview", "type": 302 },
-        { "source": "/inbox",    "destination": "https://app.shifts-ai.store/inbox",    "type": 302 },
-        { "source": "/orders",   "destination": "https://app.shifts-ai.store/orders",   "type": 302 },
-        { "source": "/menu",     "destination": "https://app.shifts-ai.store/menu",     "type": 302 },
-        { "source": "/clinic",   "destination": "https://app.shifts-ai.store/clinic",   "type": 302 },
-        { "source": "/reports",  "destination": "https://app.shifts-ai.store/reports",  "type": 302 },
-        { "source": "/staff",    "destination": "https://app.shifts-ai.store/staff",    "type": 302 },
-        { "source": "/settings", "destination": "https://app.shifts-ai.store/settings", "type": 302 }
+        { "source": "/login",    "destination": "https://app.shifts-ai.com/login",    "type": 302 },
+        { "source": "/overview", "destination": "https://app.shifts-ai.com/overview", "type": 302 },
+        { "source": "/inbox",    "destination": "https://app.shifts-ai.com/inbox",    "type": 302 },
+        { "source": "/orders",   "destination": "https://app.shifts-ai.com/orders",   "type": 302 },
+        { "source": "/menu",     "destination": "https://app.shifts-ai.com/menu",     "type": 302 },
+        { "source": "/clinic",   "destination": "https://app.shifts-ai.com/clinic",   "type": 302 },
+        { "source": "/reports",  "destination": "https://app.shifts-ai.com/reports",  "type": 302 },
+        { "source": "/staff",    "destination": "https://app.shifts-ai.com/staff",    "type": 302 },
+        { "source": "/settings", "destination": "https://app.shifts-ai.com/settings", "type": 302 }
       ],
       "headers": [
         { "source": "**", "headers": [

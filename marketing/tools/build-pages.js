@@ -20,7 +20,8 @@ const { chromium } = require(path.join(process.env.HOME, 'qa-playwright/node_mod
 
 const M = path.join(__dirname, '..');
 const SITE = path.join(M, 'site');
-const ORIGIN = 'https://shifts-ai.store';
+// The official domain since 2026-09-14 (shifts-ai.store now 301-redirects here).
+const ORIGIN = 'https://shifts-ai.com';
 const TEMPLATE = fs.readFileSync(path.join(M, 'src/page.template.html'), 'utf8');
 // Fonts are self-hosted (tools/fetch-fonts.js). Preload only the two faces the first screen needs in this page's
 // language — the H1 (display 600) and body text (400) — so they are already there when the page first paints.

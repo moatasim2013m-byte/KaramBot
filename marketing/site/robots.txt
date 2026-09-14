@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://shifts-ai.store/sitemap.xml
+Sitemap: https://shifts-ai.com/sitemap.xml
