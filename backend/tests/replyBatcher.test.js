@@ -178,6 +178,14 @@ describe('isHumanActive', () => {
     expect(batcher.isHumanActive(open, { created_at: new Date(now.getTime() - 5 * 60000) }, now)).toBe(true);
     expect(batcher.isHumanActive(open, { created_at: new Date(now.getTime() - 31 * 60000) }, now)).toBe(false);
   });
+
+  test('after «إرجاع للبوت» (released_at) a staff send from before the release no longer counts', () => {
+    const staff = { created_at: new Date(now.getTime() - 10 * 60000) };
+    const released = { ...open, metadata: { human_active_until: null, released_at: new Date(now.getTime() - 5 * 60000).toISOString() } };
+    expect(batcher.isHumanActive(released, staff, now)).toBe(false);
+    // A staff message after the release keeps the bot quiet again.
+    expect(batcher.isHumanActive(released, { created_at: new Date(now.getTime() - 60000) }, now)).toBe(true);
+  });
 });
 
 // ─── Timers ──────────────────────────────────────────────────────────────────
@@ -248,23 +256,27 @@ describe('scheduleReply', () => {
     expect(batcher.hasPendingTimer('c2')).toBe(true);
   });
 
-  test('15. send keeps failing → retried until reply_failures = 3, one alert, then it stops', async () => {
+  test('15. send keeps failing → not retried at once; later runs count up to 3, one alert, then it stops', async () => {
     whatsapp.sendText.mockImplementation(async () => failSend('rejected'));
     const { conv } = seedShift();
     const a = seedInbound(conv, 'مرحبا');
 
     expect((await batcher.runBatch(conv.id)).outcome).toBe('failed');
     expect(convRow(conv.id).metadata.reply_failures).toBe(1);
-    expect(batcher.hasPendingTimer(conv.id)).toBe(true);
+    // No 0 ms retry inside the same outage: the rows stay received and the sweeper paces the next try.
+    expect(batcher.hasPendingTimer(conv.id)).toBe(false);
+    await jest.advanceTimersByTimeAsync(1000);
+    await settle();
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
 
-    // Each rescheduled run fires on a 0 ms timer; drive them until the counter stops moving.
-    for (let i = 0; i < 20 && convRow(conv.id).metadata.reply_failures < 3; i++) {
+    // Two sweeper-driven retries (a minute apart in production).
+    for (let i = 0; i < 2; i++) {
+      batcher.scheduleReply(conv.id, { reason: 'sweep' });
       await jest.advanceTimersByTimeAsync(1);
       await settle();
     }
-    await jest.advanceTimersByTimeAsync(1000);
-    await settle();
 
+    expect(convRow(conv.id).metadata.reply_failures).toBe(3);
     expect(batcher.hasPendingTimer(conv.id)).toBe(false);
     expect(whatsapp.sendText).toHaveBeenCalledTimes(3);
     expect(alertReasons().filter((r) => r === 'reply_failures')).toHaveLength(1);
@@ -727,7 +739,292 @@ describe('deliverResult', () => {
   });
 });
 
+// ─── PR1 review regressions ──────────────────────────────────────────────────
+
+describe('sends left at `sending` (crash or unrecorded result)', () => {
+  function seedStaleSending(conv, batchIds, { ageMs = 4 * 60 * 1000, key } = {}) {
+    return db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'outbound', status: 'sending',
+        message_type: 'text', text_body: 'أهلًا! شو نوع منشأتك؟', is_ai_generated: true,
+        created_at: new Date(Date.now() - ageMs),
+        raw_payload: { kind: 'reply', batch_key: key || `${batchIds[batchIds.length - 1]}:0`, part_index: 0, batch_ids: batchIds, buttons: null },
+      }],
+    }).messages[0];
+  }
+
+  test('process killed mid-send → the next run flags the row ambiguous and alerts, never resends', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 5 * 60 * 1000 });
+    const stale = seedStaleSending(conv, [a.id]);
+
+    const r = await batcher.runBatch(conv.id);
+    await settle();
+
+    expect(r).toEqual({ outcome: 'recovered', sent: 0 });
+    expect(row(stale.id).status).toBe('ambiguous');
+    expect(row(a.id).status).toBe('answered');
+    expect(alertReasons()).toEqual(['ambiguous_send']);
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+  });
+
+  test('definite 400 whose status update fails twice → next run flags it instead of silently answering', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 5 * 60 * 1000 });
+    whatsapp.sendText.mockReset().mockResolvedValueOnce(failSend('rejected'));
+    const blip = () => Object.assign(new Error('connection lost'), { code: 'P1001' });
+    db.failNext('message.update', blip());
+    db.failNext('message.update', blip());
+
+    const first = await batcher.runBatch(conv.id);
+    batcher.cancelAll();
+    expect(first.outcome).toBe('failed');
+    expect(row(a.id).status).toBe('received');
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['sending']);
+
+    alerts.sendStaffAlert.mockClear();
+    const second = await batcher.runBatch(conv.id);
+    await settle();
+    expect(second).toEqual({ outcome: 'recovered', sent: 0 });
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['ambiguous']);
+    expect(alertReasons()).toEqual(['ambiguous_send']);
+  });
+
+  test('one DB blip on the status update is retried: the failure is recorded and the next run resends', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 5 * 60 * 1000 });
+    whatsapp.sendText.mockReset()
+      .mockResolvedValueOnce(failSend('rejected'))
+      .mockImplementation(async () => okSend());
+    db.failNext('message.update', Object.assign(new Error('connection lost'), { code: 'P1001' }));
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('failed');
+    batcher.cancelAll();
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['failed']);
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('deliverResult under the lease flags a same-batch_key `sending` row; without a lease it only dedupes', async () => {
+    const { biz, conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 5 * 60 * 1000 });
+    const stale = seedStaleSending(conv, [a.id]);
+
+    const plain = await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result: textResult(), batch: [row(a.id)] });
+    await settle();
+    expect(plain.parts).toEqual([{ index: 0, status: 'deduped', reason: null, id: null }]);
+    expect(row(stale.id).status).toBe('sending');
+    expect(alertReasons()).toEqual([]);
+
+    await db.jsonb.acquireLease(conv.id, 'tok_1');
+    const leased = await batcher.deliverResult({
+      business: biz, conversation: convRow(conv.id), result: textResult(), batch: [row(a.id)], leaseToken: 'tok_1',
+    });
+    await settle();
+    expect(leased.outcome).toBe('deduped');
+    expect(row(stale.id).status).toBe('ambiguous');
+    expect(alertReasons()).toEqual(['ambiguous_send']);
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+  });
+});
+
+describe('button taps and a running batch', () => {
+  function tapRow(conv, id = 'slot:other', title = 'وقت ثاني') {
+    seq += 1;
+    return db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'inbound', status: 'received',
+        message_type: 'interactive', text_body: title, meta_message_id: `wamid.tap${seq}`,
+        interactive_reply: { type: 'button_reply', button_reply: { id, title } }, created_at: new Date(),
+      }],
+    }).messages[0];
+  }
+
+  test('a tap during generation is answered first; the text is regenerated from the post-tap state', async () => {
+    const { conv } = seedShift({ conversation: { current_state: 'fit' } });
+    const text = seedInbound(conv, 'طيب بس قديش السعر؟');
+    let tap;
+    let tapRun;
+    shift.processShiftBatch
+      .mockImplementationOnce(async () => {
+        tap = tapRow(conv);
+        // messageProcessor runs the tap at once; the generating run holds the lease.
+        tapRun = await batcher.runBatch(conv.id);
+        return textResult('نسخة قبل الضغطة', { stateUpdate: { current_state: 'fit' } });
+      })
+      .mockImplementationOnce(async () => textResult('الأسعار حسب الحجم — أي يوم بناسبك؟', { stateUpdate: {} }));
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(tapRun.outcome).toBe('lease_busy');
+    expect(r).toEqual({ outcome: 'sent', sent: 2 });
+    expect(whatsapp.sendText.mock.calls.map((c) => c[3])).toEqual(['تمام — أي يوم وساعة بتريحك؟', 'الأسعار حسب الحجم — أي يوم بناسبك؟']);
+    // The second generation saw the tap's state and only the text row.
+    const [, convSeen, batchSeen] = shift.processShiftBatch.mock.calls[1];
+    expect(convSeen.workflow_data.capture_pending).toMatchObject({ slot_id: 'other' });
+    expect(convSeen.current_state).toBe('close');
+    expect(batchSeen.map((m) => m.id)).toEqual([text.id]);
+    expect(convRow(conv.id).current_state).toBe('close');
+    expect(row(tap.id).status).toBe('answered');
+    expect(row(text.id).status).toBe('answered');
+    expect(botOutbound(conv).map((m) => m.raw_payload.kind)).toEqual(['button', 'reply']);
+  });
+
+  test('a tap and a text in one batch: the tap is answered deterministically, the text goes to the model', async () => {
+    const { conv } = seedShift({ conversation: { current_state: 'fit' } });
+    const text = seedInbound(conv, 'وكمان عندي سؤال');
+    const tap = tapRow(conv);
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r).toEqual({ outcome: 'sent', sent: 2 });
+    expect(shift.processShiftBatch).toHaveBeenCalledTimes(1);
+    expect(shift.processShiftBatch.mock.calls[0][2].map((m) => m.id)).toEqual([text.id]);
+    expect(whatsapp.sendText.mock.calls[0][3]).toBe('تمام — أي يوم وساعة بتريحك؟');
+    expect(row(tap.id).status).toBe('answered');
+  });
+
+  test('a tap alone never calls the model', async () => {
+    const { conv } = seedShift();
+    const tap = tapRow(conv);
+    expect(await batcher.runBatch(conv.id)).toEqual({ outcome: 'sent', sent: 1 });
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+    expect(row(tap.id).status).toBe('answered');
+  });
+});
+
+describe('release to the bot', () => {
+  test('after /release a staff outbound from 10 min earlier does not park the next message', async () => {
+    const { conv } = seedShift({
+      conversation: {
+        status: 'open', ai_enabled: true, assigned_staff_id: null,
+        metadata: { human_active_until: null, released_at: new Date(Date.now() - 60000).toISOString() },
+      },
+    });
+    db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'outbound', status: 'sent',
+        message_type: 'text', text_body: 'تمام، برجعك للمساعد', sent_by_user_id: 'u_staff',
+        created_at: new Date(Date.now() - 10 * 60 * 1000),
+      }],
+    });
+    const a = seedInbound(conv, 'طيب كم السعر؟');
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r.outcome).toBe('sent');
+    expect(shift.processShiftBatch).toHaveBeenCalledTimes(1);
+    expect(row(a.id).status).toBe('answered');
+  });
+});
+
 // ─── messageProcessor SHIFT path (§7.2) ──────────────────────────────────────
+
+// PR1 review (round 2): writes other actors make while the model is generating must survive the delivery.
+describe('writes made while the model generates', () => {
+  const captureAi = { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الساعة 5' }, lead: {} };
+
+  function seedCaptured() {
+    const oldAt = new Date(Date.now() - 3 * HOUR).toISOString();
+    const { biz, conv } = seedShift({
+      conversation: {
+        status: 'pending', current_state: 'captured',
+        workflow_data: {
+          lead: { name: 'أبو خالد', business_name: 'كافيه زيتون', preferred_time: { text: 'بكرا الساعة 4' }, version: 1 },
+          needs_team: {
+            reason: 'meeting', summary: 'بكرا الساعة 4', at: oldAt,
+            resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null,
+          },
+          bot_turns: 3,
+        },
+      },
+    });
+    seedInbound(conv, 'خليها الساعة 5');
+    return { biz, conv, oldAt };
+  }
+
+  test('a new call time keeps the SLA claim the sweeper made meanwhile', async () => {
+    const { biz, conv, oldAt } = seedCaptured();
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) => {
+      // The sweeper's exact write during generation.
+      expect(await db.jsonb.claimFlag('conversations', conv.id, 'workflow_data', ['needs_team', 'sla_note_sent_at'])).toBe(true);
+      return toWorkflowResult(captureAi, { business: biz, conversation, batchMessages: batch, now });
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+
+    const nt = convRow(conv.id).workflow_data.needs_team;
+    expect(nt.summary).toContain('5');
+    expect(nt.at).toBe(oldAt);
+    // Without it the next sweep would send a second SLA note and a duplicate sla_breached alert.
+    expect(nt.sla_note_sent_at).toEqual(expect.any(String));
+  });
+
+  test('a request staff resolved meanwhile comes back as a fresh request with the new time', async () => {
+    const { biz, conv, oldAt } = seedCaptured();
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) => {
+      // PATCH /conversations/:id/lead {needs_team_resolved:true}, as inbox.js writes it.
+      await db.jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team', { resolved_at: new Date().toISOString() });
+      await db.prisma.conversation.update({ where: { id: conv.id }, data: { status: 'open' } });
+      return toWorkflowResult(captureAi, { business: biz, conversation, batchMessages: batch, now });
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+
+    const c = convRow(conv.id);
+    // Not the old item with its resolution wiped (which the SLA sweep would flag at once).
+    expect(c.workflow_data.needs_team).toMatchObject({ reason: 'meeting', resolved_at: null, sla_note_sent_at: null });
+    expect(c.workflow_data.needs_team.summary).toContain('5');
+    expect(c.workflow_data.needs_team.at).not.toBe(oldAt);
+    expect(c.status).toBe('pending');
+  });
+
+  test('a staff claim during generation: the regeneration a tap forces does not answer the tap', async () => {
+    const { conv } = seedShift();
+    seedInbound(conv, 'مرحبا');
+    shift.processShiftBatch.mockImplementationOnce(async () => {
+      db.store.conversations.find((c) => c.id === conv.id).status = 'human_takeover';
+      db.store.conversations.find((c) => c.id === conv.id).ai_enabled = false;
+      seedInbound(conv, 'وقت ثاني', {
+        ageMs: 0, message_type: 'interactive',
+        interactive_reply: { type: 'button_reply', button_reply: { id: 'slot:other', title: 'وقت ثاني' } },
+      });
+      return textResult();
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('awaiting_staff');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(convRow(conv.id).status).toBe('human_takeover');
+  });
+
+  test('a delivery never writes status over a staff claim', async () => {
+    const { biz, conv } = seedShift({ conversation: { status: 'human_takeover' } });
+    const a = seedInbound(conv, 'متى بتحكوني؟');
+    await batcher.deliverResult({
+      business: biz, conversation: { ...convRow(conv.id), status: 'open' },
+      result: textResult('تمام', { stateUpdate: { status: 'pending', current_state: 'captured' } }), batch: [row(a.id)],
+    });
+    expect(convRow(conv.id).status).toBe('human_takeover');
+  });
+
+  test('a handoff whose ack could not be sent still alerts staff (the retry sees it as already open)', async () => {
+    whatsapp.sendText.mockImplementation(async () => failSend('rejected'));
+    const { biz, conv } = seedShift();
+    const a = seedInbound(conv, 'بدي احكي مع حدا');
+    const result = {
+      ...textResult('ولا يهمك.'), kind: 'handoff', action: 'HANDOFF_TO_HUMAN',
+      stateUpdate: { status: 'pending', current_state: 'handoff' },
+      needsTeam: { reason: 'person' }, alert: { reason: 'handoff', summary: 'بدي احكي مع حدا' },
+    };
+    const report = await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result, batch: [row(a.id)] });
+    await settle();
+    expect(report.outcome).toBe('failed');
+    expect(alertReasons().filter((r) => r === 'handoff')).toHaveLength(1);
+  });
+});
 
 describe('messageProcessor with the SHIFT number', () => {
   function entryFor(pnid, waMsg) {
@@ -833,6 +1130,111 @@ describe('messageProcessor with the SHIFT number', () => {
     expect(inboundRows()[0].status).toBe('answered');
     expect(botOutbound(conv)[0].raw_payload.kind).toBe('button');
     expect(batcher.hasPendingTimer(conv.id)).toBe(false);
+  });
+
+  test('an unsupported message (view-once media) is queued for a reply, not skipped', async () => {
+    seedBusiness();
+    const entry = entryFor('pnid_shift', { id: 'wamid.u1', type: 'unsupported', errors: [{ code: 131051 }] });
+    await processInboundMessage(entry, { persisted: await persistInbound(entry) });
+    expect(inboundRows()[0].status).toBe('received');
+    expect(batcher.hasPendingTimer(db.store.conversations[0].id)).toBe(true);
+  });
+
+  test('a media caption is saved as the text body for SHIFT only', async () => {
+    seedBusiness();
+    seedBusiness({ business_type: 'restaurant', wa_phone_number_id: 'pnid_rest' });
+    const image = { type: 'image', image: { id: 'media1', mime_type: 'image/jpeg', caption: 'هاد نظامنا الحالي، بتقدروا تربطوا عليه؟' } };
+    await persistInbound(entryFor('pnid_shift', { id: 'wamid.c1', ...image }));
+    await persistInbound(entryFor('pnid_rest', { id: 'wamid.c2', ...image }));
+    expect(inboundRows().map((m) => m.text_body)).toEqual(['هاد نظامنا الحالي، بتقدروا تربطوا عليه؟', null]);
+  });
+
+  test('no typing indicator when the bot will not answer: save-only mode or a staff-held conversation', async () => {
+    process.env.SHIFT_BOT_LIVE = '0';
+    seedBusiness();
+    const gated = entryFor('pnid_shift', { id: 'wamid.ty1', type: 'text', text: { body: 'مرحبا' } });
+    await processInboundMessage(gated, { persisted: await persistInbound(gated) });
+    expect(whatsapp.markAsRead).toHaveBeenLastCalledWith('pnid_shift', 'plain_test_token', 'wamid.ty1', { typing: false });
+
+    delete process.env.SHIFT_BOT_LIVE;
+    db.store.conversations[0].status = 'human_takeover';
+    const held = entryFor('pnid_shift', { id: 'wamid.ty2', type: 'text', text: { body: 'في حدا؟' } });
+    await processInboundMessage(held, { persisted: await persistInbound(held) });
+    expect(whatsapp.markAsRead).toHaveBeenLastCalledWith('pnid_shift', 'plain_test_token', 'wamid.ty2', { typing: false });
+  });
+
+  test('a persist that saved the message but not the counters: the retry processes it and counts it once', async () => {
+    seedBusiness();
+    const entry = entryFor('pnid_shift', { id: 'wamid.h1', type: 'text', text: { body: 'مرحبا' } });
+    db.failNext('conversation.update', Object.assign(new Error('transient'), { code: 'P1001' }));
+
+    const err = await persistInbound(entry).catch((e) => e);
+    expect(err.message).toBe('transient');
+    expect(err.persisted.items).toEqual([]);
+    expect(inboundRows()).toHaveLength(1);
+
+    const retry = await persistInbound(entry);
+    expect(retry.items[0]).toMatchObject({ created: false, recovered: true });
+    expect(db.store.conversations[0].unread_count).toBe(1);
+    await processInboundMessage(entry, { persisted: retry });
+    expect(batcher.hasPendingTimer(db.store.conversations[0].id)).toBe(true);
+
+    // A later duplicate of a completed persist is not processed again.
+    batcher.cancelAll();
+    const dup = await persistInbound(entry);
+    expect(dup.items[0]).toMatchObject({ created: false, recovered: false });
+  });
+
+  test('a failure on one message still hands back the messages saved before it', async () => {
+    seedBusiness();
+    const entry = {
+      changes: [{
+        value: {
+          metadata: { phone_number_id: 'pnid_shift' },
+          contacts: [{ wa_id: CUSTOMER, profile: { name: 'محمد' } }],
+          messages: [
+            { from: CUSTOMER, id: 'wamid.m1', type: 'text', text: { body: 'مرحبا' } },
+            { from: CUSTOMER, id: 'wamid.m2', type: 'text', text: { body: 'عندي عيادة' } },
+          ],
+        },
+      }],
+    };
+    const realCreate = db.prisma.message.create;
+    let calls = 0;
+    jest.spyOn(db.prisma.message, 'create').mockImplementation(async (args) => {
+      calls += 1;
+      if (calls === 2) throw Object.assign(new Error('db down'), { code: 'P1001' });
+      return realCreate(args);
+    });
+    const err = await persistInbound(entry).catch((e) => e);
+    expect(err.persisted.items.map((i) => i.waMsg.id)).toEqual(['wamid.m1']);
+  });
+
+  test('a status is not attached to an old ambiguous row while a newer send still waits for its wamid', async () => {
+    const biz = seedBusiness();
+    const [conv] = db.seed({ conversations: [{ business_id: biz.id, customer_wa_id: CUSTOMER, last_inbound_at: new Date() }] }).conversations;
+    const [amb] = db.seed({
+      messages: [{
+        business_id: biz.id, conversation_id: conv.id, direction: 'outbound', status: 'ambiguous',
+        raw_payload: { kind: 'reply' }, created_at: new Date(Date.now() - 60000),
+      }],
+    }).messages;
+    db.seed({
+      messages: [{ business_id: biz.id, conversation_id: conv.id, direction: 'outbound', status: 'sending', raw_payload: { kind: 'reply' } }],
+    });
+    const statusEntry = (status) => ({ changes: [{ value: { metadata: { phone_number_id: 'pnid_shift' }, statuses: [status] } }] });
+
+    await processInboundMessage(statusEntry({ id: 'wamid.newer', status: 'sent', recipient_id: CUSTOMER }));
+    expect(row(amb.id)).toMatchObject({ meta_message_id: null, status: 'ambiguous' });
+
+    // Nor a status stamped long after the ambiguous send.
+    const sendingRow = db.store.messages.find((m) => m.status === 'sending');
+    sendingRow.status = 'sent';
+    sendingRow.meta_message_id = 'wamid.known';
+    await processInboundMessage(statusEntry({
+      id: 'wamid.later', status: 'sent', recipient_id: CUSTOMER, timestamp: String(Math.floor((Date.now() + 10 * 60000) / 1000)),
+    }));
+    expect(row(amb.id).status).toBe('ambiguous');
   });
 
   test('a button tap while staff is active → awaiting_staff, no reply', async () => {

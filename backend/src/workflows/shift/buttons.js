@@ -98,8 +98,9 @@ function slotOffers(teamHours, now = new Date(), lang = 'ar') {
   return offers;
 }
 
+// Same rule as results.isStageLocked (not required here: results.js requires this module at load time).
 function stageLocked(conversation) {
-  return ['handoff', 'captured'].includes(conversation?.current_state);
+  return ['handoff', 'captured'].includes(conversation?.current_state) && conversation?.status === 'pending';
 }
 
 function buttonResult(fields) {

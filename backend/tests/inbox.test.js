@@ -309,6 +309,24 @@ describe('PATCH /api/inbox/conversations/:id/lead', () => {
     expect(res.body.conversation.status).toBe('open');
     expect(res.body.conversation.workflow_data.lead.version).toBe(1);
   });
+
+  test('needs_team_resolved does not close a newer request the bot recorded after staff loaded the card', async () => {
+    const row = conversationRow('c_lead');
+    const stale = JSON.parse(JSON.stringify(row));
+    // Meanwhile the customer asked for a person: the handoff replaced the quote entry.
+    row.workflow_data.needs_team = { reason: 'person', summary: 'بدو حدا', at: '2026-09-14T09:00:00.000Z', resolved_at: null, sla_note_sent_at: '2026-09-14T09:20:00.000Z', claimed_at: null, claimed_by: null };
+    const realFindFirst = db.prisma.conversation.findFirst;
+    jest.spyOn(db.prisma.conversation, 'findFirst').mockImplementationOnce(async () => stale).mockImplementation(realFindFirst);
+
+    const res = await request(inboxApp)
+      .patch('/api/inbox/conversations/c_lead/lead')
+      .set('Authorization', tokenFor('u_sara'))
+      .send({ needs_team_resolved: true });
+
+    expect(res.status).toBe(200);
+    expect(conversationRow('c_lead').workflow_data.needs_team).toMatchObject({ reason: 'person', resolved_at: null, sla_note_sent_at: '2026-09-14T09:20:00.000Z' });
+    expect(conversationRow('c_lead').status).toBe('pending');
+  });
 });
 
 describe('POST /api/inbox/conversations/:id/claim and /release', () => {
@@ -423,6 +441,52 @@ describe('POST /api/inbox/conversations/:id/claim and /release', () => {
     expect(conv.workflow_data.needs_team.claimed_by).toBe('u_sara');
   });
 
+  test('release stamps released_at and hands messages parked for staff back to the batcher queue', async () => {
+    seedClaimable({ status: 'human_takeover', ai_enabled: false, assigned_staff_id: 'u_sara' });
+    db.seed({
+      messages: [
+        { id: 'm_park', business_id: 'biz_shift', conversation_id: 'c_claim', direction: 'inbound', status: 'awaiting_staff', text_body: 'طيب كم السعر؟' },
+        { id: 'm_done', business_id: 'biz_shift', conversation_id: 'c_claim', direction: 'inbound', status: 'answered', text_body: 'مرحبا' },
+      ],
+    });
+    const before = Date.now();
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_claim/release').set('Authorization', tokenFor('u_sara'));
+    expect(res.status).toBe(200);
+    expect(new Date(res.body.conversation.metadata.released_at).getTime()).toBeGreaterThanOrEqual(before);
+    const status = Object.fromEntries(db.store.messages.map((m) => [m.id, m.status]));
+    expect(status).toEqual({ m_park: 'received', m_done: 'answered' });
+  });
+
+  test('enable-ai is a release too', async () => {
+    seedClaimable({ status: 'human_takeover', ai_enabled: false, assigned_staff_id: 'u_sara' });
+    db.seed({ messages: [{ id: 'm_park2', business_id: 'biz_shift', conversation_id: 'c_claim', direction: 'inbound', status: 'awaiting_staff' }] });
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_claim/enable-ai').set('Authorization', tokenFor('u_sara'));
+    expect(res.status).toBe(200);
+    expect(res.body.conversation).toMatchObject({ status: 'open', ai_enabled: true });
+    expect(res.body.conversation.metadata.released_at).toEqual(expect.any(String));
+    expect(db.store.messages[0].status).toBe('received');
+  });
+
+  test('two staff claiming at the same moment: one owner, one ack', async () => {
+    seedClaimable();
+    const [a, b] = await Promise.all([
+      request(inboxApp).post('/api/inbox/conversations/c_claim/claim').set('Authorization', tokenFor('u_sara')),
+      request(inboxApp).post('/api/inbox/conversations/c_claim/claim').set('Authorization', tokenFor('u_omar')),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    const winner = a.status === 200 ? 'u_sara' : 'u_omar';
+    expect(conversationRow('c_claim').assigned_staff_id).toBe(winner);
+    expect(conversationRow('c_claim').workflow_data.needs_team.claimed_by).toBe(winner);
+  });
+
+  test('the claim ack language falls back to the customer\'s newest text when the lead has none', async () => {
+    seedClaimable({ workflow_data: { lead: { version: 1 } } });
+    db.seed({ messages: [{ business_id: 'biz_shift', conversation_id: 'c_claim', direction: 'inbound', status: 'answered', text_body: 'Hi, I need a quote' }] });
+    await request(inboxApp).post('/api/inbox/conversations/c_claim/claim').set('Authorization', tokenFor('u_sara'));
+    expect(acks.pickLanguage).toHaveBeenCalledWith({ version: 1 }, 'Hi, I need a quote');
+  });
+
   test('release without a recorded stage keeps current_state', async () => {
     seedClaimable({ status: 'human_takeover', ai_enabled: false, assigned_staff_id: 'u_sara', current_state: 'discovery' });
     const res = await request(inboxApp).post('/api/inbox/conversations/c_claim/release').set('Authorization', tokenFor('u_omar'));
@@ -456,8 +520,8 @@ describe('POST /api/inbox/conversations/:id/send — human activity bookkeeping'
     const until = new Date(meta.human_active_until).getTime();
     expect(until).toBeGreaterThanOrEqual(before + 30 * MINUTE - 1000);
     expect(until).toBeLessThanOrEqual(Date.now() + 30 * MINUTE + 1000);
-    // Keys other writers own survive the patch.
-    expect(meta).toMatchObject({ lease_token: 'tok', reply_failures: 1 });
+    // Keys other writers own survive the patch; the bot's failure count is cleared (the customer got a reply).
+    expect(meta).toMatchObject({ lease_token: 'tok', reply_failures: 0 });
 
     const status = Object.fromEntries(db.store.messages.filter((m) => m.direction === 'inbound').map((m) => [m.id, m.status]));
     expect(status).toEqual({ m_wait1: 'answered', m_wait2: 'answered', m_recv: 'received' });

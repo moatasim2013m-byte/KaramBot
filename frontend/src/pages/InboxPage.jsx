@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 import {
   Send, Bot, UserCheck, CheckCheck, RefreshCw,
   Phone, Search, Circle, AlertTriangle, Clock,
@@ -46,6 +47,13 @@ const LEAD_FIELDS = [
 ];
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
+// The batcher stops retrying after this many failed deliveries (replyBatcher MAX_REPLY_FAILURES).
+const MAX_REPLY_FAILURES = 3;
+
+// The bot gave up: the customer has no reply until someone answers by hand.
+function replyGaveUp(conv) {
+  return Number(conv?.metadata?.reply_failures) >= MAX_REPLY_FAILURES;
+}
 
 function openNeedsTeam(conv) {
   const nt = conv?.workflow_data?.needs_team;
@@ -80,12 +88,17 @@ function useNow(intervalMs) {
   return now;
 }
 
-function ConvItem({ conv, active, onClick }) {
+// `isShift`: the lead line, stage and team badges are SHIFT sales data. Restaurant, clinic and
+// external-mode tenants keep their Inbox as it was (their current_state is a workflow state).
+function ConvItem({ conv, active, onClick, isShift }) {
   const st = STATUS_LABELS[conv.status] || STATUS_LABELS.open;
   const time = new Date(conv.last_message_at).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
   const lead = conv.workflow_data?.lead || {};
-  const leadLine = [SECTOR_LABELS[lead.sector] || lead.sector, lead.sector_text, lead.business_name].filter(Boolean).join(' · ');
-  const needsTeam = conv.status === 'pending' ? openNeedsTeam(conv) : null;
+  const leadLine = isShift
+    ? [SECTOR_LABELS[lead.sector] || lead.sector, lead.sector_text, lead.business_name].filter(Boolean).join(' · ')
+    : '';
+  const needsTeam = isShift && conv.status === 'pending' ? openNeedsTeam(conv) : null;
+  const gaveUp = isShift && replyGaveUp(conv);
 
   return (
     <button
@@ -96,7 +109,7 @@ function ConvItem({ conv, active, onClick }) {
         <div className="flex items-center gap-1.5">
           <Circle size={8} className={`fill-current ${st.color}`} />
           <span className="text-xs text-gray-400">{st.label}</span>
-          {conv.current_state && (
+          {isShift && conv.current_state && (
             <span className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5">
               {STAGE_LABELS[conv.current_state] || conv.current_state}
             </span>
@@ -119,8 +132,11 @@ function ConvItem({ conv, active, onClick }) {
         {conv.ai_enabled ? <Bot size={10} className="text-green-400" /> : <BotOff size={10} className="text-gray-300" />}
         {conv.customer_wa_id}
       </div>
-      {(needsTeam || conv.awaiting_staff > 0) && (
+      {(needsTeam || conv.awaiting_staff > 0 || gaveUp) && (
         <div className="flex flex-wrap gap-1 mt-1">
+          {gaveUp && (
+            <span className="text-[10px] bg-red-100 text-red-700 rounded px-1.5 py-0.5">بدون رد</span>
+          )}
           {needsTeam && (
             <span className="text-[10px] bg-orange-100 text-orange-700 rounded px-1.5 py-0.5">
               يحتاج الفريق: {NEEDS_TEAM_LABELS[needsTeam.reason] || needsTeam.reason}
@@ -363,6 +379,8 @@ function LeadCard({ conversation, onChanged }) {
 }
 
 export default function InboxPage() {
+  const { user } = useAuth();
+  const isShift = user?.business_type === 'shift';
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -373,6 +391,21 @@ export default function InboxPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const messagesEndRef = useRef(null);
   const selectedId = selected?.id;
+  // The conversation staff currently have open. A response that arrives after they switched (or
+  // resolved) must not switch the page back, or a reply would go to the previous customer.
+  const openIdRef = useRef(null);
+
+  const openConversation = (conv) => {
+    openIdRef.current = conv ? conv.id : null;
+    setSelected(conv);
+  };
+
+  // Apply a /messages response only if that conversation is still the open one.
+  const applyMessages = (convId, data) => {
+    if (openIdRef.current !== convId) return;
+    setMessages(data.messages || []);
+    if (data.conversation) setSelected(data.conversation);
+  };
 
   const loadConversations = useCallback(async () => {
     const params = {};
@@ -394,12 +427,11 @@ export default function InboxPage() {
   }, [loadConversations]);
 
   const loadMessages = async (conv) => {
-    setSelected(conv);
+    openConversation(conv);
     setLoadingMsgs(true);
     try {
       const res = await api.get(`/inbox/conversations/${conv.id}/messages`);
-      setMessages(res.data.messages || []);
-      setSelected(res.data.conversation || conv);
+      applyMessages(conv.id, res.data);
     } catch (e) {
       console.error(e);
     } finally {
@@ -412,8 +444,7 @@ export default function InboxPage() {
     if (!selectedId) return;
     try {
       const res = await api.get(`/inbox/conversations/${selectedId}/messages`);
-      setMessages(res.data.messages || []);
-      if (res.data.conversation) setSelected(res.data.conversation);
+      applyMessages(selectedId, res.data);
     } catch (e) {
       console.error(e);
     }
@@ -429,9 +460,12 @@ export default function InboxPage() {
   useEffect(() => {
     if (!selectedId) return;
     const interval = setInterval(async () => {
-      const res = await api.get(`/inbox/conversations/${selectedId}/messages`);
-      setMessages(res.data.messages || []);
-      if (res.data.conversation) setSelected(res.data.conversation);
+      try {
+        const res = await api.get(`/inbox/conversations/${selectedId}/messages`);
+        applyMessages(selectedId, res.data);
+      } catch (e) {
+        console.error(e);
+      }
     }, 5000);
     return () => clearInterval(interval);
   }, [selectedId]);
@@ -443,7 +477,7 @@ export default function InboxPage() {
       await api.post(`/inbox/conversations/${selected.id}/send`, { text: replyText });
       setReplyText('');
       const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
-      setMessages(res.data.messages || []);
+      applyMessages(selected.id, res.data);
     } catch (err) {
       alert('فشل الإرسال: ' + (err.response?.data?.error || err.message));
     } finally {
@@ -455,7 +489,7 @@ export default function InboxPage() {
     if (!selected) return;
     await api.post(`/inbox/conversations/${selected.id}/takeover`);
     const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
-    setSelected(res.data.conversation);
+    applyMessages(selected.id, res.data);
     loadConversations();
   };
 
@@ -463,7 +497,7 @@ export default function InboxPage() {
     if (!selected) return;
     await api.post(`/inbox/conversations/${selected.id}/enable-ai`);
     const res = await api.get(`/inbox/conversations/${selected.id}/messages`);
-    setSelected(res.data.conversation);
+    applyMessages(selected.id, res.data);
     loadConversations();
   };
 
@@ -471,7 +505,7 @@ export default function InboxPage() {
     if (!selected) return;
     await api.post(`/inbox/conversations/${selected.id}/resolve`);
     loadConversations();
-    setSelected(null);
+    openConversation(null);
     setMessages([]);
   };
 
@@ -513,6 +547,7 @@ export default function InboxPage() {
               conv={conv}
               active={selected?.id === conv.id}
               onClick={() => loadMessages(conv)}
+              isShift={isShift}
             />
           ))}
         </div>
@@ -586,6 +621,14 @@ export default function InboxPage() {
             </div>
           )}
 
+          {/* The bot failed to reply 3 times and stopped retrying: shown even when no alert channel is set */}
+          {isShift && replyGaveUp(selected) && (
+            <div className="text-center text-xs py-1.5 bg-red-50 text-red-700 flex items-center justify-center gap-1">
+              <AlertTriangle size={12} />
+              البوت ما قدر يرد 3 مرات ووقف المحاولة — العميل بدون رد، رد عليه من هون
+            </div>
+          )}
+
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
             {loadingMsgs && <div className="text-center text-gray-400 py-8">جاري التحميل...</div>}
@@ -593,8 +636,8 @@ export default function InboxPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Lead card */}
-          <LeadCard conversation={selected} onChanged={refreshSelected} />
+          {/* Lead card (SHIFT sales leads only) */}
+          {isShift && <LeadCard conversation={selected} onChanged={refreshSelected} />}
 
           {/* Reply box */}
           <div className="border-t border-gray-100 p-3 bg-white">

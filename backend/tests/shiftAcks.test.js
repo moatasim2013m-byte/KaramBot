@@ -147,6 +147,19 @@ describe('pickLanguage', () => {
   test('Arabizi → ar', () => {
     expect(acks.pickLanguage({}, 'mar7aba 3ndi salon')).toBe('ar');
     expect(acks.pickLanguage(null, 'shu el se3er?')).toBe('ar');
+    expect(acks.pickLanguage({}, '3ndi 2 far3')).toBe('ar');
+  });
+
+  // A time, an ordinal or B2B puts a digit next to a letter without being Arabizi.
+  test.each([
+    'Hi, can we talk tomorrow at 5pm?',
+    'Is 2pm ok?',
+    '10:30am works for me',
+    'We are a B2B store, 3 branches',
+    'see you on the 3rd',
+    'I want to speak to someone at 2pm',
+  ])('English with digits next to letters → en: %s', (text) => {
+    expect(acks.pickLanguage({}, text)).toBe('en');
   });
 
   test('mixed Arabic + POS → ar', () => {

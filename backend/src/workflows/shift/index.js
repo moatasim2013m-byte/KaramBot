@@ -15,25 +15,33 @@ const hours = require('./hours');
 const handoff = require('./handoff');
 const buttons = require('./buttons');
 const { buildSystemPrompt, formatHistory, SHIFT_KNOWLEDGE } = require('./prompt');
-const { toWorkflowResult, MEDIA_TYPES } = require('./results');
+const { toWorkflowResult, isStageLocked, MEDIA_TYPES } = require('./results');
 const {
   SHIFT_ACTIONS, CORRECTION_PROMPT, RESPONSE_SCHEMA, MODEL_STAGES, NEXT_STEPS,
 } = require('./actions');
 
 const HISTORY_LIMIT = 12;
+const STAFF_ALERT_KIND = 'staff_alert';
 const RETRY_HISTORY = 6;
 const AI_DEADLINE_MS = 18000;
 
 const MEDIA_PLACEHOLDERS = {
-  ar: { audio: '[رسالة صوتية]', image: '[صورة]', video: '[فيديو]', document: '[ملف]', sticker: '[ملصق]', location: '[موقع]' },
-  en: { audio: '[voice note]', image: '[image]', video: '[video]', document: '[file]', sticker: '[sticker]', location: '[location]' },
+  ar: {
+    audio: '[رسالة صوتية]', image: '[صورة]', video: '[فيديو]', document: '[ملف]', sticker: '[ملصق]', location: '[موقع]',
+    unsupported: '[رسالة]',
+  },
+  en: {
+    audio: '[voice note]', image: '[image]', video: '[video]', document: '[file]', sticker: '[sticker]', location: '[location]',
+    unsupported: '[message]',
+  },
 };
 
 function batchLine(message, lang = 'ar') {
   const placeholders = MEDIA_PLACEHOLDERS[lang === 'en' ? 'en' : 'ar'];
   const text = message && typeof message.text_body === 'string' ? message.text_body : '';
-  if (text) return text;
   const type = message && message.message_type;
+  // A captioned photo or file: the model should know the words came with an attachment.
+  if (text) return MEDIA_TYPES.includes(type) && placeholders[type] ? `${placeholders[type]} ${text}` : text;
   return placeholders[type] || '';
 }
 
@@ -68,7 +76,7 @@ async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
   }
 
   const userMessage = batchMessages.map((m) => batchLine(m, lang)).join('\n');
-  const promptOpts = { now, offers, stage: conversation.current_state, lang };
+  const promptOpts = { now, offers, stage: conversation.current_state, stageLocked: isStageLocked(conversation), lang };
   const systemPrompt = buildSystemPrompt(business, formatHistory(history), promptOpts);
   const retrySystemPrompt = buildSystemPrompt(business, formatHistory(history.slice(-RETRY_HISTORY)), promptOpts);
 
@@ -117,9 +125,14 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
         where: { conversation_id: conversation.id },
         orderBy: { created_at: 'desc' },
         take: HISTORY_LIMIT + batch.length,
-        select: { id: true, direction: true, text_body: true, message_type: true },
+        select: { id: true, direction: true, text_body: true, message_type: true, raw_payload: true },
       });
-      history = recent.filter((m) => !batchIds.has(m.id)).slice(0, HISTORY_LIMIT).reverse();
+      // A staff alert sent to a team member's own chat quotes other customers' names and words: it
+      // never belongs in the model's context (nor does it read as something SHIFT told this person).
+      history = recent
+        .filter((m) => !batchIds.has(m.id) && m.raw_payload?.kind !== STAFF_ALERT_KIND)
+        .slice(0, HISTORY_LIMIT)
+        .reverse();
     }
 
     return await answer(ctx, history, { deadlineAt, onRetry });

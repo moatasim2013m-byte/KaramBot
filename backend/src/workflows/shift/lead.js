@@ -207,6 +207,9 @@ function mayWriteScalar(field, existing, value, meta) {
   }
   if (prov?.source === 'staff') return false;
   if (sameValue(current, value)) return false;
+  // The caller acks this field back to the customer («سجّلت طلب مكالمة: …الخميس الساعة 5»), so it is
+  // an explicit statement, not a guess (attribution is never trusted this way).
+  if (field !== 'source' && Array.isArray(meta.trusted) && meta.trusted.includes(field)) return true;
   // First touch wins for attribution: a later referral or guess never rewrites where the lead came from.
   if (field === 'source') return isEmpty(current);
   if (isEmpty(current)) return true;

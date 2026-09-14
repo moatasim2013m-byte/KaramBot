@@ -10,25 +10,32 @@ const acks = require('./acks');
 const hours = require('./hours');
 const handoff = require('./handoff');
 const buttons = require('./buttons');
-const { mergeLead, extractCustomerNumbers } = require('./lead');
+const { mergeLead, extractCustomerNumbers, normalize } = require('./lead');
 const { SHIFT_ACTIONS, MODEL_STAGES, FLAG_REASONS } = require('./actions');
 const { SITE_HOST } = require('../../config/site');
 
 const NEEDS_TEAM_PRIORITY = { person: 5, complaint: 5, meeting: 4, quote: 3, demo: 2, unknown: 1, ai_failure: 0 };
-const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
+// `unsupported` (view-once media, polls…) is answered like media: the bot cannot read it either.
+const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker', 'unsupported'];
 const TEXT_LIMIT = 4096;
 const INTERACTIVE_LIMIT = 1024;
 const LOCKED_STAGES = ['handoff', 'captured'];
-const MEDIA_MENTION_RE = /صوت|صورة|فيديو|ملف|ملصق|voice|image|photo|video|file|sticker/i;
+// The reply already tells the customer the bot reads text only. Naming the attachment («شفت الصورة»)
+// is not that: it may be the model pretending it saw it.
+const TEXT_ONLY_RE = /بقرأ النص بس|بقرا النص بس|read text only|only read text/i;
 
 function priorityOf(reason) {
   return Object.prototype.hasOwnProperty.call(NEEDS_TEAM_PRIORITY, reason) ? NEEDS_TEAM_PRIORITY[reason] : NEEDS_TEAM_PRIORITY.unknown;
 }
 
-/** The stored needs_team is replaced only when missing, resolved, or of strictly lower priority. */
+/**
+ * The stored needs_team is replaced only when missing, resolved, claimed, or of strictly lower
+ * priority. A claimed entry belongs to a finished takeover: the bot only runs again after «إرجاع
+ * للبوت», so a new request must start fresh (its own SLA note, not the earlier staff member's claim).
+ */
 function mergeNeedsTeam(existing, next) {
   if (!next) return null;
-  if (!existing || typeof existing !== 'object' || existing.resolved_at) return next;
+  if (!existing || typeof existing !== 'object' || existing.resolved_at || existing.claimed_at) return next;
   return priorityOf(existing.reason) < priorityOf(next.reason) ? next : null;
 }
 
@@ -56,12 +63,20 @@ function sanitizeButtons(list, offers) {
   return out;
 }
 
-function nextStage(current, proposed, action) {
+/**
+ * Handed off or captured with the team's request still open (pending): the bot answers as a concierge
+ * and only staff move the stage on. Once staff resolve or release it the conversation is open again
+ * and continues like any other, so a prospect who comes back is not stuck at «تحويل» for good.
+ */
+function isStageLocked(conversation) {
+  return !!conversation && LOCKED_STAGES.includes(conversation.current_state) && conversation.status === 'pending';
+}
+
+function nextStage(current, proposed, action, locked = LOCKED_STAGES.includes(current)) {
   if (action === 'OPT_OUT' || action === 'NOT_NOW') return 'closed';
   if (action === 'HANDOFF_TO_HUMAN') return 'handoff';
   if (action === 'CAPTURE_TIME') return 'captured';
-  // Once handed off or captured, only staff /release moves the stage.
-  if (LOCKED_STAGES.includes(current)) return undefined;
+  if (locked) return undefined;
   if (MODEL_STAGES.includes(proposed) && proposed !== 'closed') return proposed;
   if (!current) return 'opening';
   return undefined;
@@ -142,11 +157,26 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = 
     ...(leadPatch || {}),
     preferred_time: preferredTime || leadPatch?.preferred_time || { text: timeText },
   };
-  const lead = mergeLead(c.wd.lead || {}, patch, modelLeadMeta(c)).lead;
+  // The ack below names this time, so it must be stored even over an earlier confirmed one («خليها
+  // الخميس» carries no correction word): the capture is the customer's explicit statement of it.
+  const leadMeta = { ...modelLeadMeta(c), trusted: ['preferred_time'] };
+  const lead = mergeLead(c.wd.lead || {}, patch, leadMeta).lead;
   const when = preferredTime?.start
     ? acks.windowText(preferredTime, c.now, preferredTime.tz || c.teamHours.tz, c.lang)
     : (timeText || preferredTimeText(preferredTime) || '');
-  const needs = mergeNeedsTeam(c.wd.needs_team, needsTeamEntry('meeting', when, at));
+  const existing = c.wd.needs_team;
+  const entry = needsTeamEntry('meeting', when, at);
+  const needs = mergeNeedsTeam(existing, entry);
+  let needsTeamMerge = null;
+  if (!needs && existing && existing.reason === 'meeting' && existing.summary !== entry.summary) {
+    // Same request, new time: the team's item must show the time the customer was just told was noted.
+    // Only the summary is merged, into needs_team as stored at write time: this copy was read before
+    // the model call, and spreading it would wipe a flag the sweeper or staff set meanwhile.
+    const match = { reason: 'meeting', at: existing.at };
+    if ('resolved_at' in existing) match.resolved_at = null;
+    if ('claimed_at' in existing) match.claimed_at = null;
+    needsTeamMerge = { match, patch: { summary: entry.summary }, entry };
+  }
   const ack = acks.captureAck({ name: lead.name, businessName: lead.business_name, when, lang: c.lang });
 
   return emptyResult({
@@ -160,15 +190,16 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = 
       ...(needs && { needs_team: needs }),
     },
     leadPatch: patch,
-    leadMeta: modelLeadMeta(c),
+    leadMeta,
     needsTeam: needs,
+    needsTeamMerge,
     alert: { reason: 'meeting', summary: when },
   });
 }
 
 function aiFailureResult(c) {
   const at = c.now.toISOString();
-  const withButtons = !['handoff', 'captured', 'closed'].includes(c.conversation.current_state) && c.offers.length > 0;
+  const withButtons = !isStageLocked(c.conversation) && c.conversation.current_state !== 'closed' && c.offers.length > 0;
   const needs = mergeNeedsTeam(c.wd.needs_team, needsTeamEntry('ai_failure', c.joinedText.slice(0, 200), at));
   const workflowDataPatch = { bot_turns: (c.wd.bot_turns || 0) + 1 };
   if (needs) workflowDataPatch.needs_team = needs;
@@ -188,6 +219,15 @@ function aiFailureResult(c) {
     needsTeam: needs,
     alert: { reason: 'ai_failure', summary: c.joinedText.slice(0, 200) },
   });
+}
+
+/** A pending capture's slot: over once its window has ended or the tap is older than an offer may be. */
+function slotExpired(slot, capturePending, now) {
+  const nowMs = now.getTime();
+  const endMs = slot.end ? new Date(slot.end).getTime() : NaN;
+  if (Number.isFinite(endMs) && endMs <= nowMs) return true;
+  const atMs = capturePending.at ? new Date(capturePending.at).getTime() : NaN;
+  return Number.isFinite(atMs) && nowMs - atMs > buttons.SLOT_OFFER_TTL_MS;
 }
 
 function firstLine(s) {
@@ -230,14 +270,18 @@ function toWorkflowResult(aiResult, ctx) {
   const lead = wd.lead || {};
   const args = isPlainObject(aiResult.action_args) ? aiResult.action_args : {};
   const stage = c.conversation.current_state;
+  const locked = isStageLocked(c.conversation);
   let leadPatch = cleanLeadPatch(aiResult.lead, c);
   const leadMeta = modelLeadMeta(c);
 
   let modelLine = reply;
-  const mediaMessage = c.batchMessages.find((m) => MEDIA_TYPES.includes(m.message_type) && !m.text_body);
-  const hasText = c.batchMessages.some((m) => m.text_body);
-  if (mediaMessage && hasText && modelLine && !MEDIA_MENTION_RE.test(modelLine)) {
-    modelLine = `${acks.mediaPrefix(mediaMessage.message_type, c.lang)}\n${modelLine}`;
+  // D13: any attachment in the batch, captioned or not, gets the «I read text only» line — the model
+  // only saw a placeholder and must not sound as if it looked at the photo or heard the voice note.
+  const mediaMessage = c.batchMessages.find((m) => MEDIA_TYPES.includes(m.message_type));
+  if (mediaMessage && modelLine && !TEXT_ONLY_RE.test(modelLine)) {
+    const separateText = c.batchMessages.some((m) => m.text_body && !MEDIA_TYPES.includes(m.message_type));
+    const prefix = acks.mediaPrefix(mediaMessage.message_type, c.lang, { captioned: !separateText && !!mediaMessage.text_body });
+    modelLine = `${prefix}\n${modelLine}`;
   }
 
   const common = { bot_turns: (wd.bot_turns || 0) + 1 };
@@ -252,17 +296,34 @@ function toWorkflowResult(aiResult, ctx) {
   });
 
   // A slot was tapped (or «وقت ثاني») and the bot asked for the missing details: this batch completes it.
-  if (wd.capture_pending && !['OPT_OUT', 'NOT_NOW', 'HANDOFF_TO_HUMAN'].includes(action)) {
+  // A team request of another kind (a written quote) is not an answer to that ask: it takes the FLAG
+  // path and the capture stays pending for the next message. A question in the batch keeps the
+  // model's answer above the ack — the customer asked something, and silence on it reads as ignoring.
+  const flagsOther = action === 'FLAG_FOR_TEAM' && args.reason !== 'meeting';
+  const answerLine = /[؟?]/.test(c.joinedText) ? modelLine : null;
+  if (wd.capture_pending && !['OPT_OUT', 'NOT_NOW', 'HANDOFF_TO_HUMAN'].includes(action) && !flagsOther) {
     const cp = wd.capture_pending;
     const storedSlot = cp.slot_id && cp.slot_id !== 'other' && lead.preferred_time?.slot_id === cp.slot_id
       ? lead.preferred_time
       : null;
-    const timeText = cp.time_text || preferredTimeText(aiResult.lead?.preferred_time) || preferredTimeText(args.time_text);
-    if (storedSlot) {
-      return finish(captureResult(c, { preferredTime: storedSlot, modelLine: null, leadPatch }));
+    const expired = !!storedSlot && slotExpired(storedSlot, cp, c.now);
+    let timeText = cp.time_text || preferredTimeText(aiResult.lead?.preferred_time) || preferredTimeText(args.time_text);
+    // An echo of the expired slot's own wording is not a new time.
+    if (expired && timeText && normalize(timeText) === normalize(storedSlot.text || '')) timeText = null;
+    if (storedSlot && !expired) {
+      return finish(captureResult(c, { preferredTime: storedSlot, modelLine: answerLine, leadPatch }));
     }
     if (timeText) {
-      return finish(captureResult(c, { timeText, modelLine: null, leadPatch: { ...(leadPatch || {}), preferred_time: timeText } }));
+      return finish(captureResult(c, { timeText, modelLine: answerLine, leadPatch: { ...(leadPatch || {}), preferred_time: timeText } }));
+    }
+    if (storedSlot) {
+      // The tapped window is over (or the tap is stale): the same rule handleButton applies at tap time.
+      return finish(emptyResult({
+        action: 'NONE',
+        messages: [textMessage(answerLine, acks.expiredSlot(c.lang))],
+        stateUpdate: locked ? {} : { current_state: 'close' },
+        workflowDataPatch: { capture_pending: { slot_id: null, time_text: null, at } },
+      }));
     }
   }
 
@@ -279,7 +340,7 @@ function toWorkflowResult(aiResult, ctx) {
       }
       const summary = String(args.summary || c.joinedText).slice(0, 200);
       const needs = mergeNeedsTeam(wd.needs_team, needsTeamEntry(reason, summary, at));
-      const stateUpdate = stateWith({ status: 'pending', current_state: nextStage(stage, aiResult.stage, action) });
+      const stateUpdate = stateWith({ status: 'pending', current_state: nextStage(stage, aiResult.stage, action, locked) });
       if (!needs) {
         // Already on the team's list with an equal or higher priority: no second ack, no second alert.
         return finish(emptyResult({ action, messages: [textMessage(modelLine)], stateUpdate }));
@@ -314,10 +375,14 @@ function toWorkflowResult(aiResult, ctx) {
 
     case 'CAPTURE_TIME': {
       const timeText = preferredTimeText(args.time_text) || preferredTimeText(aiResult.lead?.preferred_time);
-      if (timeText) leadPatch = { ...(leadPatch || {}), preferred_time: timeText };
+      // Re-stating the stored time keeps the stored object (a tapped slot's start/end/slot_id).
+      const sameTime = timeText && isPlainObject(lead.preferred_time)
+        && normalize(lead.preferred_time.text || '') === normalize(timeText);
+      if (timeText) leadPatch = { ...(leadPatch || {}), preferred_time: sameTime ? lead.preferred_time : timeText };
       const preview = mergeLead(lead, leadPatch || {}, leadMeta).lead;
       if (timeText && (preview.name || preview.business_name)) {
-        return finish(captureResult(c, { timeText, modelLine, leadPatch }));
+        const slot = sameTime && lead.preferred_time.start ? lead.preferred_time : undefined;
+        return finish(captureResult(c, { preferredTime: slot, timeText, modelLine, leadPatch }));
       }
       const text = /[؟?]/.test(modelLine)
         ? modelLine
@@ -325,7 +390,7 @@ function toWorkflowResult(aiResult, ctx) {
       return finish(emptyResult({
         action,
         messages: [textMessage(text)],
-        stateUpdate: LOCKED_STAGES.includes(stage) ? {} : { current_state: 'close' },
+        stateUpdate: locked ? {} : { current_state: 'close' },
         workflowDataPatch: { capture_pending: { slot_id: null, time_text: timeText || null, at } },
       }));
     }
@@ -348,8 +413,9 @@ function toWorkflowResult(aiResult, ctx) {
       }));
 
     default: {
-      const stateUpdate = stateWith({ current_state: nextStage(stage, aiResult.stage, 'NONE') });
-      const kept = sanitizeButtons(aiResult.buttons, c.offers);
+      const stateUpdate = stateWith({ current_state: nextStage(stage, aiResult.stage, 'NONE', locked) });
+      // Concierge while the team's request is open (design §3.1/§7.1): no slot buttons, no pitch.
+      const kept = locked ? [] : sanitizeButtons(aiResult.buttons, c.offers);
       if (kept.length) {
         return finish(emptyResult({
           action: 'NONE',
@@ -370,6 +436,7 @@ module.exports = {
   needsTeamEntry,
   sanitizeButtons,
   nextStage,
+  isStageLocked,
   captureResult,
   toWorkflowResult,
   compose,

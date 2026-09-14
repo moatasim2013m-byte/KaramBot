@@ -103,6 +103,7 @@ jest.mock('../src/config/prisma', () => {
       create: jest.fn(({ data } = {}) =>
         Promise.resolve({ id: `conv_new_${Math.random().toString(36).slice(2)}`, ...data }),
       ),
+      updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
       update: jest.fn(({ where, data } = {}) => {
         const base = ALL_CONVS.find((c) => c.id === where?.id);
         // Return merged object; ai_enabled stays false (base value wins over spread)
@@ -125,7 +126,13 @@ jest.mock('../src/config/prisma', () => {
     },
 
     message: {
-      updateMany: jest.fn(() => Promise.resolve({ count: 0 })),
+      // Applies status transitions by id (the inbound persist claim: `persisting` → final status).
+      updateMany: jest.fn(({ where, data } = {}) => {
+        const rows = [...msgByMetaId.values()].filter((m) => where?.id && m.id === where.id
+          && (where.status === undefined || m.status === where.status));
+        rows.forEach((m) => Object.assign(m, data));
+        return Promise.resolve({ count: rows.length });
+      }),
       findUnique:  jest.fn(({ where } = {}) =>
         Promise.resolve(msgByMetaId.get(where?.meta_message_id) ?? null),
       ),

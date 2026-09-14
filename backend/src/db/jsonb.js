@@ -84,6 +84,32 @@ WHERE "id" = ${id}
   return count === 1;
 }
 
+/**
+ * Merge `patch` into the object stored under top-level `key`, leaving its other fields alone. Only
+ * when that key already holds an object, and (optionally) that object contains `match` (jsonb @>).
+ * patchJson replaces a whole top-level key, so a writer holding an old copy of needs_team would wipe
+ * a flag another writer set inside it meanwhile (sla_note_sent_at, resolved_at); this does not.
+ * Returns true when the row was updated.
+ */
+async function mergeObjectKey(table, id, column, key, patch, { match } = {}) {
+  const T = ident(table, TABLES);
+  const C = ident(column, COLUMNS);
+  checkPath([key]);
+  const json = JSON.stringify(patch || {});
+  if (json === '{}') return false;
+  const matchClause = match
+    ? Prisma.sql`
+  AND (${C} -> ${key}::text) @> ${JSON.stringify(match)}::jsonb`
+    : Prisma.empty;
+
+  const count = await prisma.$executeRaw(Prisma.sql`UPDATE ${T}
+SET ${C} = jsonb_set(${C}, ARRAY[${key}::text], (${C} -> ${key}::text) || ${json}::jsonb, false),
+    "updated_at" = now()
+WHERE "id" = ${id}
+  AND jsonb_typeof(${C} -> ${key}::text) = 'object'${matchClause}`);
+  return count === 1;
+}
+
 /** Set key := value only if it differs — "once per inbound id" claims for the sweeper. */
 async function claimValue(table, id, column, key, value) {
   const T = ident(table, TABLES);
@@ -149,6 +175,7 @@ WHERE "id" = ${conversationId} AND "metadata" ->> 'lease_token' = ${String(token
 
 module.exports = {
   patchJson,
+  mergeObjectKey,
   claimFlag,
   claimValue,
   incrementCounter,

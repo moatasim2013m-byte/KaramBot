@@ -211,6 +211,26 @@ describe('jsonb fake', () => {
     expect(db.store.conversations[0].workflow_data.handoff).toBeUndefined();
   });
 
+  test('mergeObjectKey merges into the stored object only, and only when it matches', async () => {
+    const { conv } = seedConversation({
+      workflow_data: { needs_team: { reason: 'meeting', at: 't1', summary: 'old', resolved_at: null }, bot_turns: 2 },
+    });
+    // A claim written by another actor after the caller read the object.
+    await jsonb.claimFlag('conversations', conv.id, 'workflow_data', ['needs_team', 'sla_note_sent_at']);
+
+    expect(await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team', { summary: 'new' },
+      { match: { reason: 'meeting', at: 't1', resolved_at: null } })).toBe(true);
+    const wd = db.store.conversations[0].workflow_data;
+    expect(wd.needs_team).toMatchObject({ summary: 'new', at: 't1', sla_note_sent_at: expect.any(String) });
+    expect(wd.bot_turns).toBe(2);
+
+    expect(await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team', { summary: 'x' }, { match: { at: 't2' } })).toBe(false);
+    expect(await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team', { summary: 'x' }, { match: { claimed_at: null } })).toBe(false);
+    expect(await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'handoff', { tier: 1 })).toBe(false);
+    expect(db.store.conversations[0].workflow_data.needs_team.summary).toBe('new');
+    expect(db.store.conversations[0].workflow_data.handoff).toBeUndefined();
+  });
+
   test('claimValue once per value; incrementCounter', async () => {
     const { conv } = seedConversation();
     expect(await jsonb.claimValue('conversations', conv.id, 'metadata', 'unanswered_alert_for', 'm1')).toBe(true);

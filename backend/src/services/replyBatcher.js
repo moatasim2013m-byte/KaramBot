@@ -13,6 +13,8 @@
  * - Never silent: rows stay `received` until an outbound covering them went out (or was ambiguous);
  *   failures are counted and the sweeper retries orphans.
  * - State before send: acks may only state what is already persisted («سجّلت طلبك…»).
+ * - Button taps are answered deterministically but inside the run (under the lease), so a reply
+ *   generated before a tap is never sent after it, nor written over the state the tap saved.
  */
 
 const crypto = require('crypto');
@@ -21,7 +23,10 @@ const jsonb = require('../db/jsonb');
 const whatsapp = require('./whatsapp');
 const alerts = require('./alerts');
 const shift = require('../workflows/shift');
+const { mergeNeedsTeam } = require('../workflows/shift/results');
 const lead = require('../workflows/shift/lead');
+const { isShiftButtonId, handleButton } = require('../workflows/shift/buttons');
+const { pickLanguage } = require('../workflows/shift/acks');
 const { isWithinServiceWindow, REPLY_WINDOW_MARGIN_MS } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
 const sseEmitter = require('../utils/sseEmitter');
@@ -32,13 +37,20 @@ const HUMAN_ACTIVE_MS = 30 * 60 * 1000;
 const MAX_BATCH = 20;
 const MAX_REPLY_FAILURES = 3;
 const HOT_LEAD_SCORE = 6;
+// A tap arriving while the model generates forces another generation, bounded so taps cannot loop a run.
+const MAX_REGENERATIONS = 3;
+const AMBIGUOUS_SUMMARY = 'انقطع الإرسال وما بنعرف إذا وصل — راجع المحادثة';
 
 // Outbound kinds that answer the inbound rows listed in their batch_ids (notes and opt-out acks do not).
 const COVERING_KINDS = ['reply', 'fallback', 'handoff', 'button', 'media'];
-// Outcomes after which an immediate re-run would only repeat the same decision.
-const NO_RESCHEDULE = new Set(['lease_busy', 'awaiting_staff', 'skipped', 'window_closed']);
+// Outcomes after which an immediate re-run would only repeat the same decision. A failed delivery
+// (throttled, Meta 5xx, billing) is not retried at once either: three back-to-back attempts would all
+// land inside the same outage. The rows stay `received` and the sweeper retries them a minute apart.
+const NO_RESCHEDULE = new Set(['lease_busy', 'awaiting_staff', 'skipped', 'window_closed', 'failed']);
 
 const timers = new Map(); // conversationId → { timer, firstAt }
+const inFlight = new Set(); // runs and deliveries a shutdown waits for
+let stopping = false;
 
 function digits(value) {
   return String(value ?? '').replace(/\D/g, '');
@@ -82,17 +94,28 @@ function isHumanActive(conversation, lastStaffOutbound, now = new Date()) {
   if (!conversation) return false;
   const nowMs = toMs(now);
   if (conversation.status === 'human_takeover' || conversation.ai_enabled === false) return true;
-  const until = conversation.metadata && conversation.metadata.human_active_until;
-  if (until && toMs(until) > nowMs) return true;
+  const metadata = conversation.metadata || {};
+  if (metadata.human_active_until && toMs(metadata.human_active_until) > nowMs) return true;
+  // «إرجاع للبوت» stamps released_at: staff messages sent before it no longer keep the bot quiet.
+  const released = metadata.released_at ? toMs(metadata.released_at) : null;
   if (lastStaffOutbound && lastStaffOutbound.created_at
+    && !(released !== null && toMs(lastStaffOutbound.created_at) <= released)
     && nowMs - toMs(lastStaffOutbound.created_at) < HUMAN_ACTIVE_MS) return true;
   return false;
+}
+
+/** A tap on one of the bot's own buttons (slot offers, «احكي مع الفريق»). */
+function tapButtonId(message) {
+  const reply = message && message.interactive_reply;
+  const id = reply && ((reply.button_reply && reply.button_reply.id) || (reply.list_reply && reply.list_reply.id));
+  return isShiftButtonId(id) ? id : null;
 }
 
 // ─── Timers (in-memory, per instance; the sweeper covers a lost instance) ────
 
 function scheduleReply(conversationId, { text = '', reason = 'inbound' } = {}) {
-  if (!conversationId) return;
+  // While shutting down the rows stay `received`; another instance's sweeper picks them up.
+  if (!conversationId || stopping) return;
   const existing = timers.get(conversationId);
   const nowMs = Date.now();
   let delay;
@@ -136,6 +159,28 @@ function cancelAll() {
   timers.clear();
 }
 
+function track(promise) {
+  inFlight.add(promise);
+  promise.then(() => inFlight.delete(promise), () => inFlight.delete(promise));
+  return promise;
+}
+
+/**
+ * SIGTERM (deploy, scale-in): stop starting runs and wait for the ones mid-send, so an intent row is
+ * not left at `sending`. Cloud Run kills the process 10 s after SIGTERM, hence the budget.
+ */
+async function shutdown(timeoutMs = 8000) {
+  stopping = true;
+  cancelAll();
+  if (!inFlight.size) return true;
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  const done = Promise.allSettled([...inFlight]).then(() => true);
+  const drained = await Promise.race([done, timeout]);
+  clearTimeout(timer);
+  return drained;
+}
+
 // ─── DB helpers ──────────────────────────────────────────────────────────────
 
 // Status-based, not time-based: two rows whose created_at are out of order (clock skew between
@@ -173,15 +218,36 @@ async function outboundSince(conversationId, batch) {
   });
 }
 
+/**
+ * Every covering send runs under the conversation lease, so a `sending` row seen by the lease holder
+ * belongs to a run that died mid-send (deploy, scale-in) or could not record the Graph result. It may
+ * or may not have reached the customer: never resend it, and flag it like a timed-out send so the
+ * Inbox badge, the status webhook and sweepAmbiguous all see it.
+ */
+async function flagDeadSends(ids, business, conv, now) {
+  if (!ids.length) return;
+  const { count } = await prisma.message.updateMany({
+    where: { id: { in: ids }, status: 'sending' },
+    data: { status: 'ambiguous' },
+  });
+  if (count > 0) {
+    console.warn(`[batcher] ${count} send(s) left at sending by an earlier run conversation=${conv.id} — flagged ambiguous`);
+    fireAlert('ambiguous_send', business, conv, AMBIGUOUS_SUMMARY, now);
+  }
+}
+
 /** Step 4: a previous run sent a reply for some of these rows but died before marking them answered. */
-async function recoverCovered(conversationId, batch) {
+async function recoverCovered(conversationId, batch, { business, conv, now }) {
   const recent = await outboundSince(conversationId, batch);
   const covered = new Set();
+  const dead = [];
   for (const row of recent) {
     const payload = row.raw_payload || {};
     if (!COVERING_KINDS.includes(payload.kind) || row.status === 'failed') continue;
+    if (row.status === 'sending') dead.push(row.id);
     if (Array.isArray(payload.batch_ids)) payload.batch_ids.forEach((id) => covered.add(id));
   }
+  await flagDeadSends(dead, business, conv, now);
   const done = batch.filter((m) => covered.has(m.id)).map((m) => m.id);
   if (done.length) {
     await prisma.message.updateMany({
@@ -211,7 +277,11 @@ function fireAlert(reason, business, conversation, summary, now) {
 
 // ─── runBatch ────────────────────────────────────────────────────────────────
 
-async function runBatch(conversationId, { now = () => new Date() } = {}) {
+function runBatch(conversationId, options) {
+  return track(runBatchLeased(conversationId, options));
+}
+
+async function runBatchLeased(conversationId, { now = () => new Date() } = {}) {
   const clock = typeof now === 'function' ? now : () => new Date(now);
   const token = crypto.randomUUID();
   if (!(await jsonb.acquireLease(conversationId, token, LEASE_TTL_MS))) {
@@ -236,20 +306,16 @@ async function runBatch(conversationId, { now = () => new Date() } = {}) {
   }
 
   if (mayReschedule && !NO_RESCHEDULE.has(report.outcome)) {
-    await rescheduleIfPending(conversationId, report.outcome);
+    await rescheduleIfPending(conversationId);
   }
   return { outcome: report.outcome, sent: report.sent };
 }
 
 // Rows that arrived after the freshness check (or beyond MAX_BATCH) get their own run.
-async function rescheduleIfPending(conversationId, outcome) {
+async function rescheduleIfPending(conversationId) {
   try {
     const rest = await collectBatch(conversationId);
     if (!rest.length) return;
-    if (outcome === 'failed') {
-      const conv = await prisma.conversation.findUnique({ where: { id: conversationId } });
-      if (((conv && conv.metadata && conv.metadata.reply_failures) || 0) >= MAX_REPLY_FAILURES) return;
-    }
     scheduleReply(conversationId, { reason: 'reschedule' });
   } catch (err) {
     console.error(`[batcher] reschedule check failed conversation=${conversationId}: ${err.message}`);
@@ -269,7 +335,7 @@ async function runLeased(id, token, clock) {
     return { outcome: 'skipped', sent: 0 };
   }
 
-  batch = await recoverCovered(id, batch);
+  batch = await recoverCovered(id, batch, { business, conv, now: clock() });
   if (!batch.length) return { outcome: 'recovered', sent: 0 };
 
   if (isHumanActive(conv, await lastStaffOutbound(id), clock())) {
@@ -290,8 +356,28 @@ async function runLeased(id, token, clock) {
 
   let result = null;
   let regenerations = 0;
+  let tapsSent = 0;
   for (;;) {
     await jsonb.renewLease(id, token, LEASE_TTL_MS);
+
+    // A regeneration re-reads the conversation: staff may have claimed it while the model generated,
+    // and a tap answered now would talk over the claim ack.
+    if (regenerations > 0 && isHumanActive(conv, await lastStaffOutbound(id), clock())) {
+      await markRows(batch.map((m) => m.id), 'awaiting_staff');
+      return { outcome: 'awaiting_staff', sent: tapsSent };
+    }
+
+    // Taps first, one at a time, each from the conversation as the previous delivery left it; the
+    // text rows are then generated from that state, so no reply computed before a tap follows it.
+    const taps = await answerTaps({ id, token, business, clock, batch, conv });
+    if (taps.stop) return { ...taps.stop, sent: tapsSent + taps.sent };
+    tapsSent += taps.sent;
+    if (taps.answered.size) {
+      batch = batch.filter((m) => !taps.answered.has(m.id));
+      conv = (await prisma.conversation.findUnique({ where: { id } })) || conv;
+      if (!batch.length) return { outcome: 'sent', sent: tapsSent };
+    }
+
     const newest = batch[batch.length - 1];
     const onRetry = async () => {
       await jsonb.renewLease(id, token, LEASE_TTL_MS);
@@ -308,12 +394,16 @@ async function runLeased(id, token, clock) {
     });
 
     // Freshness: a reply that ignores a line the customer sent meanwhile reads as not listening.
-    // Regenerate once with the larger batch; a later line gets its own run (reschedule).
+    // Regenerate once with the larger batch; a later line gets its own run (reschedule). A tap always
+    // regenerates (up to MAX_REGENERATIONS): it may change the stage this result was computed from.
     const fresh = await collectBatch(id);
     const known = new Set(batch.map((m) => m.id));
-    if (regenerations === 0 && result && result.kind !== 'fallback' && fresh.some((m) => !known.has(m.id))) {
+    const added = fresh.filter((m) => !known.has(m.id));
+    const tapArrived = added.some((m) => tapButtonId(m));
+    if (added.length && result && result.kind !== 'fallback'
+      && (regenerations === 0 || (tapArrived && regenerations < MAX_REGENERATIONS))) {
       batch = fresh;
-      regenerations = 1;
+      regenerations += 1;
       conv = (await prisma.conversation.findUnique({ where: { id } })) || conv;
       continue;
     }
@@ -338,12 +428,47 @@ async function runLeased(id, token, clock) {
   }
 
   const report = await deliverResult({ business, conversation: conv2, result, batch, leaseToken: token, now: clock() });
-  const sent = report.parts.filter((p) => p.status === 'sent' || p.status === 'ambiguous').length;
-  let outcome = report.outcome;
-  if (outcome === 'state_failed') outcome = 'failed';
-  if (outcome === 'deduped') outcome = 'recovered';
+  const sent = tapsSent + countDelivered(report);
+  let outcome = runOutcome(report);
   if (outcome === 'sent' && result.kind === 'fallback') outcome = 'fallback';
   return { outcome, sent, noRetry: report.noRetry };
+}
+
+function countDelivered(report) {
+  return report.parts.filter((p) => p.status === 'sent' || p.status === 'ambiguous').length;
+}
+
+function runOutcome(report) {
+  if (report.outcome === 'state_failed') return 'failed';
+  if (report.outcome === 'deduped') return 'recovered';
+  return report.outcome;
+}
+
+/**
+ * Answer the batch's button taps deterministically, under the run's lease. A tap handleButton cannot
+ * read stays in the batch as text. Returns the ids answered, or `stop` when a delivery did not cover
+ * its tap (the tap stays `received` and the run ends like any failed delivery).
+ */
+async function answerTaps({ id, token, business, clock, batch, conv }) {
+  const answered = new Set();
+  let sent = 0;
+  let current = conv;
+  for (const message of batch) {
+    const buttonId = tapButtonId(message);
+    if (!buttonId) continue;
+    if (answered.size) current = (await prisma.conversation.findUnique({ where: { id } })) || current;
+    const now = clock();
+    const lang = pickLanguage((current.workflow_data && current.workflow_data.lead) || {}, message.text_body || '');
+    const result = handleButton(buttonId, { business, conversation: current, now, lang, messageId: message.id });
+    if (!result) continue;
+    const report = await deliverResult({ business, conversation: current, result, batch: [message], leaseToken: token, now });
+    sent += countDelivered(report);
+    if (!['sent', 'ambiguous', 'deduped'].includes(report.outcome)) {
+      return { answered, sent, stop: { outcome: runOutcome(report), sent: 0, noRetry: report.noRetry } };
+    }
+    answered.add(message.id);
+  }
+  return { answered, sent, stop: null };
 }
 
 // ─── deliverResult ───────────────────────────────────────────────────────────
@@ -383,6 +508,18 @@ async function countFailure(business, conv, now, { billing = false } = {}) {
   return n;
 }
 
+/**
+ * A new time for the meeting already on the team's list: merge the summary into needs_team as stored
+ * now. When the entry changed while the model was generating (staff resolved it), it is decided again
+ * on the fresh entry — a resolved request plus a new time is a new request.
+ */
+async function applyNeedsTeamMerge(id, { match, patch, entry }) {
+  if (await jsonb.mergeObjectKey('conversations', id, 'workflow_data', 'needs_team', patch, { match })) return;
+  const fresh = await prisma.conversation.findUnique({ where: { id } });
+  const next = mergeNeedsTeam(fresh && fresh.workflow_data && fresh.workflow_data.needs_team, entry);
+  if (next) await jsonb.patchJson('conversations', id, 'workflow_data', { needs_team: next });
+}
+
 async function sendPart(business, accessToken, to, part) {
   const interactive = part.type === 'interactive' && Array.isArray(part.buttons) && part.buttons.length > 0;
   const send = () => (interactive
@@ -398,9 +535,13 @@ async function sendPart(business, accessToken, to, part) {
 
 /**
  * Persist the result's state, send its parts, then commit the inbound rows.
- * Also used by messageProcessor (buttons, opt-out) and the sweeper (notes, batch = []).
+ * Also used by runBatch for button taps, by messageProcessor (opt-out) and by the sweeper (notes, batch = []).
  */
-async function deliverResult({
+function deliverResult(args) {
+  return track(deliver(args));
+}
+
+async function deliver({
   business, conversation, result, batch = [], leaseToken = null, windowMarginMs = REPLY_WINDOW_MARGIN_MS,
   inboundStatus = 'answered', now = new Date(),
 } = {}) {
@@ -433,12 +574,17 @@ async function deliverResult({
   let leadSave = null;
   try {
     const stateData = pickState(result.stateUpdate);
-    if (Object.keys(stateData).length) {
+    if (stateData.status) {
+      // Never over a staff claim made after this result was computed: the Inbox would show the claimed
+      // conversation as pending and let a second person claim it.
+      await prisma.conversation.updateMany({ where: { id, status: { not: 'human_takeover' } }, data: stateData });
+    } else if (Object.keys(stateData).length) {
       await prisma.conversation.update({ where: { id }, data: stateData });
     }
     if (result.workflowDataPatch && Object.keys(result.workflowDataPatch).length) {
       await jsonb.patchJson('conversations', id, 'workflow_data', result.workflowDataPatch);
     }
+    if (result.needsTeamMerge) await applyNeedsTeamMerge(id, result.needsTeamMerge);
     if (result.leadPatch) {
       const meta = result.leadMeta || { source: 'model', msgId: null, at: now.toISOString(), inboundText: '' };
       leadSave = await lead.saveLead(id, result.leadPatch, meta);
@@ -457,7 +603,10 @@ async function deliverResult({
     const part = messages[i];
     const batchKey = newestId ? `${newestId}:${i}` : null;
     // A failed row did not reach the customer, so it must not block the retry of the same batch.
-    if (batchKey && existing.some((m) => m.raw_payload && m.raw_payload.batch_key === batchKey && m.status !== 'failed')) {
+    const duplicate = batchKey
+      && existing.find((m) => m.raw_payload && m.raw_payload.batch_key === batchKey && m.status !== 'failed');
+    if (duplicate) {
+      if (duplicate.status === 'sending' && leaseToken) await flagDeadSends([duplicate.id], business, conv, now);
       parts.push({ index: i, status: 'deduped', reason: null, id: null });
       continue;
     }
@@ -497,14 +646,18 @@ async function deliverResult({
       : status === 'ambiguous'
         ? { status: 'ambiguous' }
         : { status: 'failed', raw_payload: { ...intent.raw_payload, error: res.error, reason: res.reason, code: res.code } };
-    try {
-      await prisma.message.update({ where: { id: intent.id }, data });
-    } catch (err) {
-      if (res.ok && err && err.code === 'P2002') {
-        // The status webhook already attached this wamid elsewhere; keep the row's status truthful.
-        await prisma.message.update({ where: { id: intent.id }, data: { status: 'sent' } }).catch(() => {});
-      } else {
-        console.error(`[batcher] intent row update failed conversation=${id}: ${err.message}`);
+    // One retry: a row left at `sending` is later flagged ambiguous even when the send surely failed.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await prisma.message.update({ where: { id: intent.id }, data });
+        break;
+      } catch (err) {
+        if (res.ok && err && err.code === 'P2002') {
+          // The status webhook already attached this wamid elsewhere; keep the row's status truthful.
+          await prisma.message.update({ where: { id: intent.id }, data: { status: 'sent' } }).catch(() => {});
+          break;
+        }
+        if (attempt === 2) console.error(`[batcher] intent row update failed conversation=${id}: ${err.message}`);
       }
     }
     parts.push({ index: i, status, reason: res.reason || null, id: res.id || null });
@@ -515,6 +668,11 @@ async function deliverResult({
 
   if (!covered) {
     await countFailure(business, conv, now, { billing: parts.some((p) => p.reason === 'billing') });
+    // The team request is saved even though the ack did not go out, and the retry will see it as
+    // already open (no second alert): tell staff now, or they only hear of it from the SLA sweep.
+    if (result.alert && result.alert.reason && (result.needsTeam || result.kind === 'handoff')) {
+      fireAlert(result.alert.reason, business, conv, result.alert.summary, now);
+    }
     return { outcome: 'failed', parts };
   }
 
@@ -535,7 +693,7 @@ async function deliverResult({
   // A fully deduplicated delivery already alerted in the run that sent it.
   if (delivered.length) {
     if (delivered.some((p) => p.status === 'ambiguous')) {
-      fireAlert('ambiguous_send', business, conv, 'انقطع الإرسال وما بنعرف إذا وصل — راجع المحادثة', now);
+      fireAlert('ambiguous_send', business, conv, AMBIGUOUS_SUMMARY, now);
     }
     if (result.alert && result.alert.reason) {
       fireAlert(result.alert.reason, business, conv, result.alert.summary, now);
@@ -561,6 +719,7 @@ module.exports = {
   quietWindowMs,
   isShiftReplyAllowed,
   isHumanActive,
+  tapButtonId,
   scheduleReply,
   hasPendingTimer,
   collectBatch,
@@ -568,4 +727,5 @@ module.exports = {
   deliverResult,
   cancel,
   cancelAll,
+  shutdown,
 };

@@ -358,6 +358,84 @@ describe('SHIFT bot end to end', () => {
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
+  test('(i) a slot tap while the model is generating → confirmation first, no stale reply, captured state kept', async () => {
+    const TUE_SLOT = 'slot:2026-09-15T10:00+03:00/12:00';
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true, current_state: 'close',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: {
+          lead: { name: 'أحمد', business_name: 'كافيه النخيل' },
+          slot_offers: [{ id: TUE_SLOT, title: 'بكرا 10–12', issued_at: START.toISOString() }],
+        },
+      }],
+    });
+
+    // The first model call hangs until released; later calls answer from whatever state they are given.
+    let release;
+    mockGenerateContent
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }))
+      .mockResolvedValue(modelReply({ reply: 'الباقات حسب حجم المحل، والفريق بيوضحلك بالمكالمة.', action: 'NONE', stage: 'close' }));
+
+    await postWebhook(inboundPayload({ text: 'طيب بس قديش السعر؟' }));
+    await settle();
+    await advance(5000); // quiet window passes, the batch starts generating
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+    const tap = inboundPayload({ text: 'x' });
+    tap.entry[0].changes[0].value.messages[0] = {
+      ...tap.entry[0].changes[0].value.messages[0],
+      type: 'interactive',
+      interactive: { type: 'button_reply', button_reply: { id: TUE_SLOT, title: 'بكرا 10–12' } },
+    };
+    delete tap.entry[0].changes[0].value.messages[0].text;
+    await postWebhook(tap);
+    await settle();
+    // The running batch holds the conversation: the tap waits for it instead of racing it.
+    expect(sends()).toHaveLength(0);
+
+    release(modelReply({ reply: 'الباقات بتبدأ من 25 دينار بالشهر. أي وقت بناسبك نحكي؟', action: 'NONE', stage: 'close' }));
+    await settle();
+    await advance(100);
+
+    const texts = sends().map(sendText);
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).toContain('سجّلت طلب مكالمة: أحمد، كافيه النخيل');
+    expect(texts[1]).toBe('الباقات حسب حجم المحل، والفريق بيوضحلك بالمكالمة.');
+    expect(texts.join('\n')).not.toContain('أي وقت بناسبك نحكي؟');
+    const conv = conversationOf();
+    expect(conv.current_state).toBe('captured');
+    expect(conv.status).toBe('pending');
+    expect(conv.workflow_data.lead.preferred_time.slot_id).toBe(TUE_SLOT);
+    expect(inboundRows().map((m) => m.status)).toEqual(['answered', 'answered']);
+  });
+
+  test('(j) staff claim, reply, «إرجاع للبوت» → the customer\'s next message is answered by the bot', async () => {
+    const biz = seedShiftBusiness();
+    const [user] = db.seed({ users: [{ name: 'رنا', role: 'business_admin', business_id: biz.id }] }).users;
+    const [conv] = db.seed({
+      conversations: [{ business_id: biz.id, customer_wa_id: CUSTOMER, last_inbound_at: START, last_message_at: START }],
+    }).conversations;
+    const auth = `Bearer ${jwt.sign({ id: user.id }, process.env.JWT_SECRET)}`;
+
+    expect((await request(app).post(`/api/inbox/conversations/${conv.id}/claim`).set('Authorization', auth)).status).toBe(200);
+    expect((await request(app).post(`/api/inbox/conversations/${conv.id}/send`).set('Authorization', auth)
+      .send({ text: 'أهلين، معك رنا' })).status).toBe(200);
+    await advance(5 * 60 * 1000);
+    expect((await request(app).post(`/api/inbox/conversations/${conv.id}/release`).set('Authorization', auth)).status).toBe(200);
+    const staffSends = sends().length;
+
+    await advance(5 * 60 * 1000); // still inside 30 min of the staff message
+    await postWebhook(inboundPayload({ text: 'طيب كم السعر؟' }));
+    await settle();
+    await advance(5000);
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    expect(sends()).toHaveLength(staffSends + 1);
+    expect(inboundRows().map((m) => m.status)).toEqual(['answered']);
+  });
+
   test('(h) SHIFT_BOT_LIVE=0 → a normal number is saved without a reply; a test number is answered', async () => {
     process.env.SHIFT_BOT_LIVE = '0';
     process.env.SHIFT_TEST_NUMBERS = '962796381676';

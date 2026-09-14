@@ -6,7 +6,7 @@ const { sendTextMessage, sendText } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const sseEmitter = require('../utils/sseEmitter');
-const { patchJson } = require('../db/jsonb');
+const { patchJson, mergeObjectKey } = require('../db/jsonb');
 const { saveLead } = require('../workflows/shift/lead');
 const { claimAck, pickLanguage } = require('../workflows/shift/acks');
 const { STAGES } = require('../workflows/shift/actions');
@@ -24,6 +24,33 @@ router.use(authenticate, attachBusinessId);
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Hand a conversation back to the bot. released_at tells the batcher that staff messages sent before
+ * it no longer mean "a person is talking" (otherwise the bot stays quiet for 30 min after the last
+ * one), and messages parked for staff go back to the batcher's queue: the sweeper answers them.
+ */
+async function releaseToBot(conversationId) {
+  await patchJson('conversations', conversationId, 'metadata', {
+    human_active_until: null,
+    released_at: new Date().toISOString(),
+  });
+  await prisma.message.updateMany({
+    where: { conversation_id: conversationId, direction: 'inbound', status: 'awaiting_staff' },
+    data: { status: 'received' },
+  });
+}
+
+// The lead's language, else the customer's newest text: an English prospect gets an English ack.
+async function customerLanguage(conv) {
+  const lead = conv.workflow_data?.lead || {};
+  if (lead.language) return pickLanguage(lead, '');
+  const newest = await prisma.message.findFirst({
+    where: { conversation_id: conv.id, direction: 'inbound', text_body: { not: null } },
+    orderBy: { created_at: 'desc' },
+  });
+  return pickLanguage(lead, newest?.text_body || '');
 }
 
 function findScopedConversation(req) {
@@ -224,9 +251,11 @@ router.post('/conversations/:id/send', async (req, res) => {
     // returned as an error (staff would resend). human_active_until keeps the SHIFT bot quiet while
     // staff are talking; awaiting_staff rows are now answered by this send. `received` rows are left
     // for the batcher, which re-checks human activity before it replies.
+    // A staff reply also clears the bot's «failed 3 times» flag: the customer has been answered.
     try {
       await patchJson('conversations', conv.id, 'metadata', {
         human_active_until: new Date(Date.now() + HUMAN_ACTIVE_MS).toISOString(),
+        reply_failures: 0,
       });
       await prisma.message.updateMany({
         where: { conversation_id: conv.id, direction: 'inbound', status: 'awaiting_staff' },
@@ -270,11 +299,12 @@ router.patch('/conversations/:id/lead', async (req, res) => {
 
     const needsTeam = conv.workflow_data?.needs_team;
     if (needsTeamResolved === true && needsTeam) {
-      await patchJson('conversations', conv.id, 'workflow_data', {
-        needs_team: { ...needsTeam, resolved_at: needsTeam.resolved_at || now },
-      });
-      if (conv.status === 'pending') {
-        await prisma.conversation.update({ where: { id: conv.id }, data: { status: 'open' } });
+      // Only resolved_at is set, and only on the request staff were looking at: a newer one the bot
+      // recorded meanwhile (a handoff replacing a quote) stays open, and a flag the sweeper set stays.
+      const resolved = !!needsTeam.resolved_at || await mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team',
+        { resolved_at: now }, { match: { reason: needsTeam.reason, at: needsTeam.at } });
+      if (resolved && conv.status === 'pending') {
+        await prisma.conversation.updateMany({ where: { id: conv.id, status: 'pending' }, data: { status: 'open' } });
       }
     }
 
@@ -300,16 +330,23 @@ router.post('/conversations/:id/claim', async (req, res) => {
     const wd = conv.workflow_data || {};
     const now = new Date();
 
-    await prisma.conversation.update({
-      where: { id: conv.id },
+    // Atomic: two staff clicking «استلام» together must not both send the customer an ack.
+    const { count } = await prisma.conversation.updateMany({
+      where: { id: conv.id, business_id: req.businessId, status: { not: 'human_takeover' } },
       data: { status: 'human_takeover', ai_enabled: false, assigned_staff_id: req.user.id },
     });
-    await patchJson('conversations', conv.id, 'workflow_data', {
-      stage_before_takeover: conv.current_state ?? null,
-      ...(wd.needs_team && {
-        needs_team: { ...wd.needs_team, claimed_at: now.toISOString(), claimed_by: req.user.id },
-      }),
-    });
+    if (count !== 1) {
+      const current = await findScopedConversation(req);
+      if (current && current.assigned_staff_id === req.user.id) return res.json({ conversation: current, ack: 'skipped' });
+      return res.status(409).json({ error: 'already_claimed' });
+    }
+    await patchJson('conversations', conv.id, 'workflow_data', { stage_before_takeover: conv.current_state ?? null });
+    if (wd.needs_team) {
+      // Merged into the stored entry, not spread from the copy read above: keeps a sweeper claim
+      // (sla_note_sent_at) written in between.
+      await mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team',
+        { claimed_at: now.toISOString(), claimed_by: req.user.id });
+    }
 
     // The claim ack tells a waiting SHIFT customer a person has it. A failed ack never fails the claim.
     let ack = 'skipped';
@@ -319,7 +356,7 @@ router.post('/conversations/:id/claim', async (req, res) => {
       try {
         const accessToken = decrypt(business.wa_access_token);
         if (!accessToken) throw new Error('WhatsApp token not configured');
-        const text = claimAck({ staffName: req.user.name, lang: pickLanguage(wd.lead || {}, '') });
+        const text = claimAck({ staffName: req.user.name, lang: await customerLanguage(conv) });
         const sent = await sendText(business.wa_phone_number_id, accessToken, conv.customer_wa_id, text);
         if (sent.ok) {
           await prisma.message.create({
@@ -372,7 +409,7 @@ router.post('/conversations/:id/release', async (req, res) => {
       },
     });
     await patchJson('conversations', conv.id, 'workflow_data', { stage_before_takeover: null });
-    await patchJson('conversations', conv.id, 'metadata', { human_active_until: null });
+    await releaseToBot(conv.id);
 
     const conversation = await prisma.conversation.findUnique({ where: { id: conv.id } });
     res.json({ conversation });
@@ -411,10 +448,12 @@ router.post('/conversations/:id/enable-ai', async (req, res) => {
     });
     if (!existing) return res.status(404).json({ error: 'Conversation not found' });
 
-    const conv = await prisma.conversation.update({
+    await prisma.conversation.update({
       where: { id: req.params.id },
       data: { ai_enabled: true, status: 'open', assigned_staff_id: null },
     });
+    await releaseToBot(req.params.id);
+    const conv = await prisma.conversation.findUnique({ where: { id: req.params.id } });
     res.json({ conversation: conv });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -36,11 +36,22 @@ const ALERT_LABELS = {
 
 const WEBHOOK_TIMEOUT_MS = 5000;
 
+// The profile name and summary are the customer's own words. Slack parses <!channel>, <url|label>
+// and Discord @everyone inside `text`, so the webhook copy escapes them; WhatsApp shows text as is.
+function escapeForWebhook(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/@(everyone|here|channel)/gi, '@\u200b$1');
+}
+
 // Plain text only: Slack, Discord and WhatsApp all render it the same.
-function formatAlertText({ reason, business, conversation, summary }) {
+function formatAlertText({ reason, business, conversation, summary }, { forWebhook = false } = {}) {
   const conv = conversation || {};
   const label = ALERT_LABELS[reason] || reason;
-  return `🔔 SHIFT bot — ${label}\nالعميل: ${conv.profile_name || '-'} (+${conv.customer_wa_id})\n${summary || ''}\nconversation=${conv.id}`;
+  const safe = (v) => (forWebhook ? escapeForWebhook(v) : v);
+  return `🔔 SHIFT bot — ${label}\nالعميل: ${safe(conv.profile_name || '-')} (+${conv.customer_wa_id})\n${safe(summary || '')}\nconversation=${conv.id}`;
 }
 
 function alertNumbers(business) {
@@ -103,7 +114,7 @@ async function sendStaffAlert({ reason, business, conversation, summary = '', no
     if (url) {
       try {
         await axios.post(url, {
-          text,
+          text: formatAlertText({ reason, business, conversation, summary }, { forWebhook: true }),
           reason,
           conversationId: conversation?.id ?? null,
           businessId: business?.id ?? null,

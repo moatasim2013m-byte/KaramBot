@@ -51,14 +51,24 @@ router.post('/webhook', async (req, res) => {
   // answer within a few seconds, hence the budget.
   const entries = body.entry || [];
   const budget = parseInt(process.env.WEBHOOK_PERSIST_BUDGET_MS, 10) || 4000;
-  const persistAll = Promise.all(entries.map((e) => persistInbound(e)));
+  const persists = entries.map((e) => persistInbound(e));
   let persisted;
   try {
-    persisted = await withTimeout(persistAll, budget);
+    persisted = await withTimeout(Promise.all(persists), budget);
   } catch (err) {
-    persistAll.catch(() => {}); // the in-flight persist keeps running; Meta will retry
     console.error('[webhook] persist failed — returning 500 so Meta retries:', err.message);
-    return res.status(500).json({ error: 'persist_failed' });
+    res.status(500).json({ error: 'persist_failed' });
+    // Whatever this delivery does save is processed by this delivery: Meta's retry finds those
+    // messages already stored and skips them, so nobody else would (an external tenant's forward,
+    // a restaurant reply). A persist still in flight is processed when it finishes; a failed one
+    // hands over the items it completed before the error.
+    entries.forEach((e, i) => {
+      persists[i]
+        .then((p) => p, (persistErr) => (persistErr && persistErr.persisted) || null)
+        .then((p) => (p && p.items.length ? processInboundMessage(e, { persisted: p }) : null))
+        .catch(console.error);
+    });
+    return undefined;
   }
 
   res.status(200).json({ status: 'ok' });

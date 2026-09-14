@@ -13,6 +13,10 @@ const hours = require('./hours');
 const ARABIC_LETTER_RE = /[؀-ۿ]/g;
 const LATIN_LETTER_RE = /[A-Za-z]/g;
 const ARABIZI_RE = /[a-z][2356789]|[2356789][a-z]|\b(shu|sho|keef|kif|bdi|baddi|3ndi|ahlan|mar7aba|marhaba|se3er|kam|tamam|yalla|mat3am|3iyade)\b/i;
+// English tokens where a digit touches a letter without being Arabizi: times (5pm, 10:30am), ordinals
+// (2nd, 3rd), B2B/B2C, sizes and counts (4G, 10k, 2x, 30min). Removed before the Arabizi test, so
+// «Can we talk at 5pm?» is still English. (Departure from the contract regex, which counted them.)
+const ENGLISH_DIGIT_TOKENS_RE = /\b\d{1,2}(:\d{2})?\s?(am|pm)\b|\b\d+(st|nd|rd|th|k|m|g|x|h|hrs?|mins?|pcs?)\b|\b[bcp]2[bcp]\b/gi;
 
 function isEn(lang) {
   return lang === 'en';
@@ -25,7 +29,7 @@ function pickLanguage(lead, text) {
   const latin = (s.match(LATIN_LETTER_RE) || []).length;
   const letters = arabic + latin;
   // Arabizi («mar7aba 3ndi salon») is Latin script but an Arabic speaker: answer in Arabic.
-  if (letters > 0 && latin / letters >= 0.7 && !ARABIZI_RE.test(s)) return 'en';
+  if (letters > 0 && latin / letters >= 0.7 && !ARABIZI_RE.test(s.replace(ENGLISH_DIGIT_TOKENS_RE, ' '))) return 'en';
   return 'ar';
 }
 
@@ -239,7 +243,15 @@ function media(type, lang) {
   return `${MEDIA_NOUNS_AR[type] || 'وصلتني رسالتك'} 🙏 هون بالمحادثة بقرأ النص بس — ممكن تكتبلي المطلوب بسطر؟`;
 }
 
-function mediaPrefix(type, lang) {
+/**
+ * Line above a model reply when the batch had an attachment. `captioned`: the attachment came with the
+ * only text, so the reply goes by that caption and not by the file itself.
+ */
+function mediaPrefix(type, lang, { captioned = false } = {}) {
+  if (captioned) {
+    if (isEn(lang)) return `${MEDIA_NOUNS_EN[type] || 'Got your message'} 🙏 here I read text only, so I'm going by what you wrote.`;
+    return `${MEDIA_NOUNS_AR[type] || 'وصلتني رسالتك'} 🙏 هون بقرأ النص بس، فبرد على اللي كتبته.`;
+  }
   if (isEn(lang)) return `${MEDIA_NOUNS_EN[type] || 'Got your message'} too 🙏 — here I read text only.`;
   return `${MEDIA_NOUNS_AR[type] || 'وصلتني رسالتك'} كمان 🙏 هون بقرأ النص بس.`;
 }

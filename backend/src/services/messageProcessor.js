@@ -19,14 +19,14 @@ const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const jsonb = require('../db/jsonb');
 const { isOptOutCommand, optOutResult } = require('../workflows/shift/optout');
-const { isShiftButtonId, handleButton } = require('../workflows/shift/buttons');
 const { pickLanguage } = require('../workflows/shift/acks');
 const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
-// Nothing to answer: WhatsApp system notices, reactions and message types the Cloud API can't show us.
-const SHIFT_SKIP_TYPES = ['reaction', 'unsupported', 'system', 'ephemeral'];
+// Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
+// customer content, so it joins the batch and gets the media reply instead of silence.
+const SHIFT_SKIP_TYPES = ['reaction', 'system', 'ephemeral'];
 const REFERRAL_KEYS = ['source_url', 'source_id', 'source_type', 'headline', 'body', 'ctwa_clid'];
 const BILLING_ERROR_CODE = 131042;
 
@@ -76,7 +76,12 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
   return conv;
 }
 
-async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId, status = 'delivered') {
+// A caption is what the customer typed with the photo/file («هاد نظامنا الحالي…»).
+function mediaCaption(waMsg) {
+  return waMsg.image?.caption || waMsg.video?.caption || waMsg.document?.caption || null;
+}
+
+async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId, status = 'delivered', { captions = false } = {}) {
   if (waMsg?.id) {
     const existing = await prisma.message.findUnique({
       where: { meta_message_id: waMsg.id },
@@ -93,7 +98,8 @@ async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId,
         meta_message_id: waMsg.id || null,
         direction: 'inbound',
         message_type: type,
-        text_body: waMsg.text?.body || waMsg.interactive?.button_reply?.title || waMsg.interactive?.list_reply?.title || null,
+        text_body: waMsg.text?.body || waMsg.interactive?.button_reply?.title || waMsg.interactive?.list_reply?.title
+          || (captions ? mediaCaption(waMsg) : null) || null,
         media_id: waMsg.image?.id || waMsg.audio?.id || waMsg.video?.id || waMsg.document?.id || null,
         media_mime_type: waMsg.image?.mime_type || waMsg.audio?.mime_type || null,
         location: waMsg.location || null,
@@ -186,11 +192,44 @@ async function createConfirmedAppointment(business, conversation, appointmentDat
 }
 
 
+// A row with this status was saved by a delivery that has not claimed it yet. Short-lived: the claim is
+// the next statement. A row still `persisting` belongs to a delivery that stopped before its claim.
+const PERSISTING = 'persisting';
+
+/**
+ * Exactly-once claim: the one delivery whose update moves the row out of `persisting` processes it —
+ * the delivery that saved it, or Meta's retry when that delivery stopped first. Two deliveries racing
+ * (a slow persist answered 500 while still running, a duplicate POST) cannot both win.
+ */
+async function claimInbound(messageId, status) {
+  const { count } = await prisma.message.updateMany({
+    where: { id: messageId, status: PERSISTING },
+    data: { status },
+  });
+  return count === 1;
+}
+
+async function countInbound(conversationId, at) {
+  // Never move last_inbound_at backwards: the deliveries of a burst can finish out of order.
+  await prisma.conversation.updateMany({
+    where: { id: conversationId, OR: [{ last_inbound_at: null }, { last_inbound_at: { lt: at } }] },
+    data: { last_message_at: at, last_inbound_at: at },
+  });
+  return prisma.conversation.update({
+    where: { id: conversationId },
+    data: { unread_count: { increment: 1 } },
+  });
+}
+
 /**
  * Phase 1 (before the webhook returns 200): save every inbound message and the conversation counters.
- * Throws on any DB error so the route can answer 500 and Meta retries. Idempotent under retries:
- * the unique meta_message_id dedupes the message, and a retry after a half-finished persist repairs
- * last_inbound_at.
+ * Throws on any DB error so the route can answer 500 and Meta retries; the error carries the items
+ * this delivery claimed (`err.persisted`) so the route can still process them — Meta's retry finds
+ * those already claimed and skips them. Idempotent under retries: the unique meta_message_id dedupes
+ * the message and the `persisting` claim decides who processes it.
+ *
+ * An item this delivery claimed but that it did not save comes back `recovered`: an earlier delivery
+ * stopped before its claim, so nobody else will process it.
  */
 async function persistInbound(entry) {
   const value = entry?.changes?.[0]?.value;
@@ -215,30 +254,79 @@ async function persistInbound(entry) {
   const contacts = value.contacts || [];
   const items = [];
 
+  let firstError = null;
+
   for (const waMsg of messages) {
-    const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
-    const customerWaId = normalizePhone(waMsg.from);
-    let conversation = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
-    const { created, msg } = await saveInboundMessage(business.id, conversation.id, waMsg, customerWaId, inboundStatus);
+    try {
+      const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
+      const customerWaId = normalizePhone(waMsg.from);
+      let conversation = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
+      const { created, msg } = await saveInboundMessage(business.id, conversation.id, waMsg, customerWaId, PERSISTING,
+        { captions: inboundStatus === 'received' });
 
-    if (created) {
-      const now = new Date();
-      conversation = await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { last_message_at: now, last_inbound_at: now, unread_count: { increment: 1 } },
-      });
-    } else if (msg?.created_at && conversation.last_inbound_at < msg.created_at) {
-      // A retry after a persist that saved the message but not the counters.
-      conversation = await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { last_inbound_at: msg.created_at },
-      });
+      // Rows saved before the claim existed are never `persisting`: a redelivery of those is a duplicate.
+      const claimed = !!msg && msg.status === PERSISTING && await claimInbound(msg.id, inboundStatus);
+      if (!claimed) {
+        items.push({ waMsg, contact, customerWaId, conversation, message: msg, created, recovered: false, claimed: false });
+        continue;
+      }
+
+      const message = { ...msg, status: inboundStatus };
+      const at = msg.created_at ? new Date(msg.created_at) : new Date();
+      try {
+        conversation = await countInbound(conversation.id, at);
+      } catch (err) {
+        // Hand the claim back so Meta's retry counts and processes the message. If even that fails,
+        // this delivery keeps it and processes it (the webhook still answers 500).
+        const released = await prisma.message.updateMany({
+          where: { id: msg.id, status: inboundStatus },
+          data: { status: PERSISTING },
+        }).then((r) => r.count === 1, () => false);
+        if (released) throw err;
+        if (!firstError) firstError = err;
+      }
+
+      items.push({ waMsg, contact, customerWaId, conversation, message, created, recovered: !created, claimed: true });
+    } catch (err) {
+      // Keep going: the messages that do save are processed even though the webhook answers 500.
+      if (!firstError) firstError = err;
     }
-
-    items.push({ waMsg, contact, customerWaId, conversation, message: msg, created });
   }
 
+  if (firstError) {
+    firstError.persisted = { business, items };
+    throw firstError;
+  }
   return { business, items };
+}
+
+// Claimed by this delivery: saved by it, or by an earlier one that stopped before its claim.
+function needsProcessing(item) {
+  return item.claimed === undefined ? !!(item.created || item.recovered) : item.claimed;
+}
+
+// The status may belong to a newer send whose wamid is not stored yet (its intent row is still
+// `sending`, or it was saved without a wamid): attaching it to the old ambiguous row would mark that
+// row delivered while it may never have arrived. Only a status from around the ambiguous send, with
+// no newer send still waiting for its wamid, is taken as its own; otherwise the sweeper flags it.
+const RECONCILE_WINDOW_MS = 2 * 60 * 1000;
+
+async function mayReconcile(conversationId, amb, status) {
+  const sentAtMs = Number(status.timestamp) * 1000;
+  if (Number.isFinite(sentAtMs) && sentAtMs > 0) {
+    const createdMs = new Date(amb.created_at).getTime();
+    if (sentAtMs < createdMs - RECONCILE_WINDOW_MS || sentAtMs > createdMs + RECONCILE_WINDOW_MS) return false;
+  }
+  const newer = await prisma.message.findFirst({
+    where: {
+      conversation_id: conversationId,
+      direction: 'outbound',
+      meta_message_id: null,
+      status: { in: ['sending', 'ambiguous', 'sent'] },
+      created_at: { gt: amb.created_at },
+    },
+  });
+  return !newer;
 }
 
 /**
@@ -279,7 +367,7 @@ async function handleStatuses(phoneNumberId, statuses) {
           where: { conversation_id: conv.id, direction: 'outbound', status: 'ambiguous' },
           orderBy: { created_at: 'asc' },
         });
-        if (amb) {
+        if (amb && await mayReconcile(conv.id, amb, status)) {
           try {
             await prisma.message.update({
               where: { id: amb.id },
@@ -303,7 +391,14 @@ async function handleStatuses(phoneNumberId, statuses) {
   }
 }
 
-/** The SHIFT number: answer buttons and opt-outs at once, hand everything else to the batcher. */
+// «typing…» promises a reply; a conversation staff hold (or that just got a staff message) gets none.
+function staffHolds(conv, now) {
+  if (conv.status === 'human_takeover' || conv.ai_enabled === false) return true;
+  const until = conv.metadata?.human_active_until;
+  return !!until && new Date(until).getTime() > now.getTime();
+}
+
+/** The SHIFT number: answer opt-outs at once, hand everything else (button taps included) to the batcher. */
 async function processShiftItem(business, accessToken, item) {
   const { waMsg, customerWaId } = item;
   const msg = item.message;
@@ -313,20 +408,19 @@ async function processShiftItem(business, accessToken, item) {
   const now = new Date();
   const phoneNumberId = business.wa_phone_number_id;
 
-  // Typing only for the first fragment: later ones already have a batch on its way.
-  await markAsRead(phoneNumberId, accessToken, waMsg.id, { typing: !replyBatcher.hasPendingTimer(conv.id) });
+  const allowed = replyBatcher.isShiftReplyAllowed(business, customerWaId);
+  const skipType = SHIFT_SKIP_TYPES.includes(waMsg.type);
+  // Typing only for the first fragment of a message the bot will answer: later ones already have a
+  // batch on its way, and save-only mode or a staff-held conversation gets a plain read receipt.
+  const typing = allowed && !skipType && !staffHolds(conv, now) && !replyBatcher.hasPendingTimer(conv.id);
+  await markAsRead(phoneNumberId, accessToken, waMsg.id, { typing });
   sseEmitter.emit(`business:${business.id}`, {
     type: 'new_message',
     conversationId: conv.id,
     businessId: business.id,
   });
 
-  if (!replyBatcher.isShiftReplyAllowed(business, customerWaId)) {
-    await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
-    return;
-  }
-
-  if (SHIFT_SKIP_TYPES.includes(waMsg.type)) {
+  if (!allowed || skipType) {
     await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
     return;
   }
@@ -362,21 +456,13 @@ async function processShiftItem(business, accessToken, item) {
     return;
   }
 
-  const buttonId = waMsg.interactive?.button_reply?.id || waMsg.interactive?.list_reply?.id;
-  if (isShiftButtonId(buttonId)) {
-    const lastStaff = await prisma.message.findFirst({
-      where: { conversation_id: conv.id, direction: 'outbound', sent_by_user_id: { not: null } },
-      orderBy: { created_at: 'desc' },
-    });
-    if (replyBatcher.isHumanActive(conv, lastStaff, now)) {
-      await prisma.message.update({ where: { id: msg.id }, data: { status: 'awaiting_staff' } });
-      return;
-    }
-    const result = handleButton(buttonId, { business, conversation: conv, now, lang, messageId: msg.id });
-    if (result) {
-      await replyBatcher.deliverResult({ business, conversation: conv, result, batch: [msg] });
-      return;
-    }
+  if (replyBatcher.tapButtonId(msg)) {
+    // A tap is answered now, but through a run: it needs the conversation lease so it cannot race a
+    // batch that is generating. When a run holds the lease, that run picks the tap up (freshness
+    // check, or the reschedule after it) — and the sweeper does if that instance died.
+    replyBatcher.cancel(conv.id);
+    await replyBatcher.runBatch(conv.id);
+    return;
   }
 
   // Text, media and unknown taps join the batch; processShiftBatch renders media placeholders.
@@ -409,7 +495,7 @@ async function processInboundMessage(entry, { persisted } = {}) {
     if (business.ai_config?.reply_mode === 'external') {
       let anyCreated = false;
       for (const item of items) {
-        if (!item.created) continue;
+        if (!needsProcessing(item)) continue;
         anyCreated = true;
         sseEmitter.emit(`business:${business.id}`, {
           type: 'new_message',
@@ -449,7 +535,7 @@ async function processInboundMessage(entry, { persisted } = {}) {
 
     if (business.business_type === 'shift') {
       for (const item of items) {
-        if (!item.created) {
+        if (!needsProcessing(item)) {
           console.log(`Duplicate webhook for meta_message_id=${item.waMsg.id} — skipping reprocess`);
           continue;
         }
@@ -463,17 +549,24 @@ async function processInboundMessage(entry, { persisted } = {}) {
       return;
     }
 
+    const handled = new Set();
     for (const item of items) {
       const { waMsg, customerWaId } = item;
 
       await markAsRead(phoneNumberId, accessToken, waMsg.id);
 
-      if (!item.created) {
+      if (!needsProcessing(item)) {
         console.log(`Duplicate webhook for meta_message_id=${waMsg.id} — skipping reprocess`);
         continue;
       }
 
       let conversation = item.conversation;
+      // The snapshot was taken before the earlier messages of this entry ran: a second message from
+      // the same customer must see the cart or takeover the first one just wrote.
+      if (handled.has(conversation.id)) {
+        conversation = (await prisma.conversation.findUnique({ where: { id: conversation.id } })) || conversation;
+      }
+      handled.add(conversation.id);
 
       if (!conversation.ai_enabled || conversation.status === 'human_takeover') {
         continue;

@@ -156,8 +156,11 @@ describe('handleButton', () => {
     expect(r.messages).toEqual([{ type: 'text', text: 'تمام — أي يوم وساعة بتريحك؟' }]);
     expect(r.workflowDataPatch.capture_pending).toEqual({ slot_id: 'other', time_text: null, at: MON_11.toISOString() });
     expect(r.stateUpdate).toEqual({ current_state: 'close' });
-    const locked = handleButton('slot:other', { business, conversation: conv({}, { current_state: 'handoff' }), now: MON_11, lang: 'ar' });
+    const locked = handleButton('slot:other', { business, conversation: conv({}, { current_state: 'handoff', status: 'pending' }), now: MON_11, lang: 'ar' });
     expect(locked.stateUpdate).toEqual({});
+    // Staff resolved or released the handoff: the stage moves on again.
+    const released = handleButton('slot:other', { business, conversation: conv({}, { current_state: 'handoff', status: 'open' }), now: MON_11, lang: 'ar' });
+    expect(released.stateUpdate).toEqual({ current_state: 'close' });
   });
 
   test('lead_talk → handoff without buttons', () => {
@@ -211,6 +214,20 @@ describe('human request patterns (§5.7)', () => {
 
   test.each(['عندي موظفة بترد', 'زبايني بحبوا يحكوا مع شخص', 'بدي أحكي مع زباين أكثر', 'موظف', 'مش راضي أحكي مع بوت', 'the bot can talk to customers', 'one-stop shop'])(
     'negative: %s', (text) => expect(detectHumanRequest(text)).toBe(false),
+  );
+
+  // The customer checking with their own side first (the «بحكيك» objection) or asking for the site:
+  // not a request for someone from SHIFT, so the model decides.
+  test.each([
+    'خليني أحكي مع المدير وبرجعلك',
+    'بدي أحكي مع صاحب الشركة تبعي قبل ما أقرر',
+    'خليني احكي مع الفريق تبعي',
+    'حوّلني على الموقع',
+    'I need to talk to the owner first, then I will get back to you',
+  ])('own side or the site, not a handoff: %s', (text) => expect(detectHumanRequest(text)).toBe(false));
+
+  test.each(['بدي احكي مع حدا من الفريق قبل ما ادفع', 'بدي احكي مع حدا عندي سؤال عن الاسعار', 'حوّلني على موظف'])(
+    'still a request with more words around it: %s', (text) => expect(detectHumanRequest(text)).toBe(true),
   );
 
   test('normalizeArabic', () => {

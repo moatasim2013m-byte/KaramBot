@@ -124,7 +124,7 @@ describe('Webhook Security', () => {
       expect(messageProcessor.processInboundMessage).not.toHaveBeenCalled();
     });
 
-    test('persist slower than WEBHOOK_PERSIST_BUDGET_MS → 500, processInboundMessage not called', async () => {
+    test('persist slower than WEBHOOK_PERSIST_BUDGET_MS with nothing saved → 500, processInboundMessage not called', async () => {
       process.env.WEBHOOK_PERSIST_BUDGET_MS = '50';
       messageProcessor.persistInbound.mockImplementation(
         () => new Promise((resolve) => setTimeout(() => resolve({ business: null, items: [] }), 300)),
@@ -133,6 +133,31 @@ describe('Webhook Security', () => {
       expect(res.status).toBe(500);
       await new Promise((resolve) => setTimeout(resolve, 350));
       expect(messageProcessor.processInboundMessage).not.toHaveBeenCalled();
+    });
+
+    test('persist slower than the budget → 500, and this delivery processes what it saved once the persist finishes', async () => {
+      process.env.WEBHOOK_PERSIST_BUDGET_MS = '50';
+      const persisted = { business: { id: 'biz' }, items: [{ created: true }] };
+      messageProcessor.persistInbound.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(persisted), 150)),
+      );
+      const res = await post({ object: 'whatsapp_business_account', entry: [entry] });
+      expect(res.status).toBe(500);
+      expect(messageProcessor.processInboundMessage).not.toHaveBeenCalled();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      // Meta's retry will find these rows already stored and skip them, so nobody else would process them.
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledTimes(1);
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted });
+    });
+
+    test('persist fails part-way → 500, and the items saved before the error are processed', async () => {
+      const partial = { business: { id: 'biz' }, items: [{ created: true }] };
+      messageProcessor.persistInbound.mockRejectedValue(Object.assign(new Error('db down'), { code: 'P1001', persisted: partial }));
+      const res = await post({ object: 'whatsapp_business_account', entry: [entry] });
+      expect(res.status).toBe(500);
+      await flush();
+      await flush();
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted: partial });
     });
 
     test('persist ok → 200, then processInboundMessage(entry, {persisted}) after the response', async () => {

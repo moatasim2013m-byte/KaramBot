@@ -492,6 +492,27 @@ function createFakeDb() {
       return { ok: true, count: 1 };
     },
 
+    async mergeObjectKey(table, id, column, key, patch, { match } = {}) {
+      ident(table, TABLES);
+      ident(column, COLUMNS);
+      checkPath([key]);
+      checkFailure('jsonb.mergeObjectKey');
+      const parsed = JSON.parse(JSON.stringify(patch || {}));
+      if (Object.keys(parsed).length === 0) return false;
+      const row = conversationRow(id);
+      if (!row || !isPlainObject(row[column]) || !isPlainObject(row[column][key])) return false;
+      const target = row[column][key];
+      if (match) {
+        // jsonb @> on a flat object: every match key present with an equal value (null matches null only).
+        const wanted = JSON.parse(JSON.stringify(match));
+        const contained = Object.entries(wanted).every(([k, v]) => Object.prototype.hasOwnProperty.call(target, k)
+          && JSON.stringify(target[k]) === JSON.stringify(v));
+        if (!contained) return false;
+      }
+      writeColumn(row, column, { ...clone(row[column]), [key]: { ...clone(target), ...parsed } });
+      return true;
+    },
+
     async claimFlag(table, id, column, path) {
       ident(table, TABLES);
       ident(column, COLUMNS);

@@ -8,6 +8,7 @@ const { resolveModel } = require('./ai/provider');
 const { graphVersion } = require('./services/whatsapp');
 const { assertButtons } = require('./workflows/shift/buttons');
 const { runSweep } = require('./services/shiftSweeper');
+const replyBatcher = require('./services/replyBatcher');
 
 const PORT = process.env.PORT || 8080;
 const SWEEP_INTERVAL_MS = 60000;
@@ -19,7 +20,7 @@ async function start() {
     await connectDB();
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
     console.log(`[ai] model=${resolveModel()} graph=${graphVersion()}`);
@@ -29,6 +30,16 @@ async function start() {
     if (process.env.NODE_ENV !== 'test') {
       setInterval(() => runSweep().catch((e) => console.error('[sweep]', e.message)), SWEEP_INTERVAL_MS).unref();
     }
+  });
+
+  // Cloud Run sends SIGTERM on deploy and scale-in, then kills the process 10 s later. Node's default
+  // is to exit at once, which can leave a reply's intent row at `sending`; let in-flight sends finish.
+  process.once('SIGTERM', async () => {
+    console.log('[shutdown] SIGTERM — finishing in-flight replies');
+    server.close();
+    const drained = await replyBatcher.shutdown(8000).catch(() => false);
+    console.log(`[shutdown] ${drained ? 'drained' : 'timed out'} — exiting`);
+    process.exit(0);
   });
 }
 

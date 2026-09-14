@@ -104,6 +104,33 @@ describe('leases', () => {
   });
 });
 
+describe('mergeObjectKey', () => {
+  test('merges into the object under the key with jsonb_set, guarded by type and an optional @> match', async () => {
+    prisma.$executeRaw.mockResolvedValue(1);
+    const ok = await jsonb.mergeObjectKey('conversations', 'c1', 'workflow_data', 'needs_team', { summary: 'الساعة 5' },
+      { match: { reason: 'meeting', at: 't1' } });
+
+    expect(ok).toBe(true);
+    const { text, values } = lastSql(prisma.$executeRaw);
+    expect(text).toContain('SET "workflow_data" = jsonb_set("workflow_data", ARRAY[?::text], ("workflow_data" -> ?::text) || ?::jsonb, false)');
+    expect(text).toContain("jsonb_typeof(\"workflow_data\" -> ?::text) = 'object'");
+    expect(text).toContain('("workflow_data" -> ?::text) @> ?::jsonb');
+    expect(values).toEqual(['needs_team', 'needs_team', JSON.stringify({ summary: 'الساعة 5' }), 'c1', 'needs_team', 'needs_team',
+      JSON.stringify({ reason: 'meeting', at: 't1' })]);
+  });
+
+  test('no match clause without match; count 0 → false; empty patch → no SQL; bad identifiers throw', async () => {
+    prisma.$executeRaw.mockResolvedValue(0);
+    expect(await jsonb.mergeObjectKey('conversations', 'c1', 'workflow_data', 'needs_team', { resolved_at: 'x' })).toBe(false);
+    expect(lastSql(prisma.$executeRaw).text).not.toContain('@>');
+
+    prisma.$executeRaw.mockClear();
+    expect(await jsonb.mergeObjectKey('conversations', 'c1', 'workflow_data', 'needs_team', {})).toBe(false);
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    await expect(jsonb.mergeObjectKey('users', 'c1', 'workflow_data', 'needs_team', { a: 1 })).rejects.toThrow('jsonb: bad identifier');
+  });
+});
+
 describe('claims and counters', () => {
   test('claimFlag on a nested path adds the parent-object predicate', async () => {
     const ok = await jsonb.claimFlag('conversations', 'c1', 'workflow_data', ['needs_team', 'sla_note_sent_at']);

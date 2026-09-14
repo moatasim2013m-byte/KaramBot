@@ -8,6 +8,9 @@ and `pr1-contracts.md`. Commands for Cloud Run, Cloud Scheduler and the database
 
 **Webhook (D12).** `routes/whatsapp.js` now saves inbound messages and conversation counters before it answers 200
 (4 s budget). A DB error or timeout returns 500 so Meta retries; the unique `meta_message_id` makes retries harmless.
+Each inbound row is inserted as `persisting` and the delivery whose update moves it to its real status (`received`
+for SHIFT, `delivered` for everyone else) is the only one that processes it, so a retry that races a slow delivery
+never forwards or answers the message twice. `last_inbound_at` never moves backwards.
 AI work, status updates, forwarding and sends run after the response. This also applies to the external-mode
 restaurant tenant: its inbound row is now saved before 200, and everything else about it is unchanged.
 
@@ -19,8 +22,10 @@ each Graph call, so a crash after sending is recovered without a second send. Ro
 
 **Never silent.** If the AI fails twice within the 18 s deadline, the customer gets one fallback message (with slot
 buttons during team hours). The conversation goes to `pending` with `needs_team.reason = ai_failure`, and staff are
-alerted. Send failures are counted, and staff are alerted after 3. Billing errors (131042) set
-`metadata.billing_blocked_at`, which the Inbox shows as a red banner.
+alerted. Send failures are counted, and staff are alerted after 3. A failed send is not retried at once: the rows
+stay `received` and each sweep (a minute apart) is the next attempt, so a short throttle or Meta outage does not use
+all three. After 3 the Inbox shows «بدون رد» and a banner until the bot or a staff reply answers the customer.
+Billing errors (131042) set `metadata.billing_blocked_at`, which the Inbox shows as a red banner.
 
 **Workflow.** `workflows/shift.js` is now the folder `workflows/shift/`:
 
@@ -56,6 +61,9 @@ the customer's messages become `awaiting_staff`.
   - the lead card with inline edit
   - the «استلام» and «إرجاع للبوت» buttons
   - the billing banner
+  - the «بدون رد» badge and banner (bot failed 3 times)
+
+  The lead card, stage chip and team badges show only for a `shift` business; other tenants' Inbox is unchanged.
 
 **Sweeper and alerts.** `services/shiftSweeper.js` runs every 60 s in-process and on `POST /api/internal/sweep`
 (bearer token). It:

@@ -19,6 +19,16 @@ const REQUEST_PATTERNS = [
   /\b(talk|speak|chat) (to|with) (a |an |the |your )?(human|person|someone|agent|manager|owner|team|real person)\b/i,
   /\b(transfer|connect) me\b/i,
 ];
+// Mentions of a person that do not ask for someone from SHIFT: the customer checking with their own
+// side first («خليني احكي مع المدير تبعي وبرجعلك» — the «بحكيك» objection) or asking to be sent to
+// the site. These go to the model, which can still hand off.
+const NOT_A_REQUEST = [
+  /(المدير|مدير|المسؤول|صاحب الشركه|صاحب الشركة|الفريق|شريكي) ?(تبعي|تبعنا|تبعتي|تبعتنا)/,
+  /(برجعلك|برجع لك|برجعلكم|بردلك|برد عليك|بخبرك|بحكيلك)/,
+  /حول(ني|وني) ?(ل|علي|عل)? ?(ال|ل)?(موقع|صفح|رابط|لينك|ويب|سايت)/,
+  /\b(get back|let you know)\b/i,
+  /\b(my|our) (manager|owner|team|boss|partner)\b/i,
+];
 
 function normalizeArabic(text) {
   return String(text == null ? '' : text)
@@ -33,6 +43,7 @@ function normalizeArabic(text) {
 function detectHumanRequest(text) {
   const normalized = normalizeArabic(text);
   if (!normalized) return false;
+  if (NOT_A_REQUEST.some((re) => re.test(normalized))) return false;
   return REQUEST_PATTERNS.some((re) => re.test(normalized));
 }
 

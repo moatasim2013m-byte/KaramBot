@@ -135,6 +135,44 @@ describe('1. orphaned batches', () => {
     expect(report.orphans).toBe(0);
   });
 
+  // PR1 review (round 2): the oldest-100-rows query ran before the reply_failures filter, so rows of
+  // conversations that gave up hid a newer orphan (e.g. one whose timer died with an instance).
+  test('100+ received rows on conversations that gave up do not starve a new orphan', async () => {
+    seedBusiness();
+    for (let i = 0; i < 35; i += 1) {
+      const conv = seedConversation({
+        customer_wa_id: `96279${String(i).padStart(7, '0')}`,
+        last_inbound_at: before(3 * HOUR), last_message_at: before(3 * HOUR), metadata: { reply_failures: 3 },
+      });
+      for (let j = 0; j < 3; j += 1) {
+        seedMessage({ conversation_id: conv.id, status: 'received', created_at: before(3 * HOUR + j * 1000 + i * 10 * 1000) });
+      }
+    }
+    const fresh = seedConversation({ customer_wa_id: '962799999999', last_inbound_at: before(MIN), last_message_at: before(MIN) });
+    seedMessage({ conversation_id: fresh.id, status: 'received', created_at: before(MIN) });
+
+    const report = await runSweep({ now: NOW });
+
+    expect(replyBatcher.scheduleReply).toHaveBeenCalledTimes(1);
+    expect(replyBatcher.scheduleReply).toHaveBeenCalledWith(fresh.id, { reason: 'sweep' });
+    expect(report.orphans).toBe(1);
+  });
+
+  test('a conversation that gave up and whose 24 h window closed: its rows are skipped, not kept as orphans', async () => {
+    seedBusiness();
+    const closed = seedConversation({ customer_wa_id: '962790000011', last_inbound_at: before(25 * HOUR), metadata: { reply_failures: 3 } });
+    const open = seedConversation({ customer_wa_id: '962790000012', last_inbound_at: before(2 * HOUR), metadata: { reply_failures: 3 } });
+    const a = seedMessage({ conversation_id: closed.id, status: 'received', created_at: before(25 * HOUR) });
+    const b = seedMessage({ conversation_id: open.id, status: 'received', created_at: before(2 * HOUR) });
+
+    await runSweep({ now: NOW });
+
+    const status = (id) => db.store.messages.find((m) => m.id === id).status;
+    expect(status(a.id)).toBe('skipped');
+    expect(status(b.id)).toBe('received');
+    expect(replyBatcher.scheduleReply).not.toHaveBeenCalled();
+  });
+
   test('other business types are never swept', async () => {
     seedBusiness({ business_type: 'restaurant' });
     const conv = seedConversation();
@@ -184,9 +222,34 @@ describe('2. SLA note', () => {
     expect(alertsFor('sla_breached')).toHaveLength(1);
   });
 
+  test('a call request with the time already noted → staff alert only, no «write me a time» note', async () => {
+    seedBusiness();
+    const conv = seedPending({ reason: 'meeting', summary: 'بكرا بين 10 و12' }, {
+      lead: { name: 'محمد', business_name: 'زيتون', preferred_time: { text: 'بكرا بين 10 و12' } },
+    });
+
+    const report = await runSweep({ now: NOW });
+
+    expect(notesOf('sla_note')).toHaveLength(0);
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+    expect(report.sla_notes).toBe(0);
+    expect(storedConversation(conv.id).workflow_data.needs_team.sla_note_sent_at).toEqual(expect.any(String));
+
+    await runSweep({ now: new Date(NOW.getTime() + MIN) });
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+  });
+
   test('English lead gets the English note', async () => {
     seedBusiness();
     seedPending({}, { lead: { language: 'en' } });
+    await runSweep({ now: NOW });
+    expect(notesOf('sla_note')[0].result.messages[0].text).toBe(acks.slaNote('en'));
+  });
+
+  test('no lead language: the note follows the customer\'s newest text', async () => {
+    seedBusiness();
+    const conv = seedPending();
+    seedMessage({ conversation_id: conv.id, text_body: 'Hi, can I get a quote for my clinic?', created_at: before(20 * MIN) });
     await runSweep({ now: NOW });
     expect(notesOf('sla_note')[0].result.messages[0].text).toBe(acks.slaNote('en'));
   });
@@ -432,6 +495,29 @@ describe('5. ambiguous sends', () => {
     await runSweep({ now: new Date(NOW.getTime() + MIN) });
     expect(alertsFor('ambiguous_send')).toHaveLength(1);
   });
+
+  test('a send left at `sending` for 3 min (process died mid-send) → ambiguous_unreconciled + alert once; 30 s → untouched', async () => {
+    seedBusiness();
+    const conv = seedConversation();
+    const dead = seedMessage({
+      conversation_id: conv.id, direction: 'outbound', status: 'sending', text_body: 'رسالتك وصلت', created_at: before(3 * MIN),
+      raw_payload: { kind: 'awaiting_note', batch_ids: [] },
+    });
+    const live = seedMessage({
+      conversation_id: conv.id, direction: 'outbound', status: 'sending', text_body: 'أهلًا', created_at: before(30 * 1000),
+    });
+
+    const report = await runSweep({ now: NOW });
+
+    expect(db.store.messages.find((m) => m.id === dead.id).status).toBe('ambiguous_unreconciled');
+    expect(db.store.messages.find((m) => m.id === live.id).status).toBe('sending');
+    expect(alertsFor('ambiguous_send')).toHaveLength(1);
+    expect(report.ambiguous_alerts).toBe(1);
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+
+    await runSweep({ now: new Date(NOW.getTime() + MIN) });
+    expect(alertsFor('ambiguous_send')).toHaveLength(1);
+  });
 });
 
 describe('6. inbound without outbound', () => {
@@ -448,6 +534,20 @@ describe('6. inbound without outbound', () => {
 
     await runSweep({ now: new Date(NOW.getTime() + MIN) });
     expect(alertsFor('inbound_without_outbound')).toHaveLength(1);
+  });
+
+  test('a failed or never-recorded outbound does not count as an answer', async () => {
+    seedBusiness();
+    const failed = seedConversation({ customer_wa_id: '962790000011', last_inbound_at: before(5 * MIN) });
+    seedMessage({ conversation_id: failed.id, status: 'received', text_body: 'مرحبا', created_at: before(5 * MIN) });
+    seedMessage({ conversation_id: failed.id, direction: 'outbound', status: 'failed', text_body: 'أهلًا', created_at: before(4 * MIN) });
+    const sending = seedConversation({ customer_wa_id: '962790000012', last_inbound_at: before(5 * MIN) });
+    seedMessage({ conversation_id: sending.id, status: 'received', text_body: 'مرحبا', created_at: before(5 * MIN) });
+    // Younger than the stale-send threshold, so step 5 has not flagged it yet.
+    seedMessage({ conversation_id: sending.id, direction: 'outbound', status: 'sending', text_body: 'أهلًا', created_at: before(90 * 1000) });
+
+    await runSweep({ now: NOW });
+    expect(alertsFor('inbound_without_outbound').map((a) => a.conversation.id).sort()).toEqual([failed.id, sending.id].sort());
   });
 
   test("fires with reply_mode 'external' and with the bot gate closed", async () => {

@@ -48,6 +48,17 @@ describe('formatAlertText', () => {
       .toContain('العميل: - (+962791111111)');
   });
 
+  test('the webhook copy escapes customer text (Slack mentions, disguised links, Discord @everyone)', () => {
+    const hostile = { ...conversation, profile_name: '<!here> @everyone' };
+    const summary = 'بدي احكي مع موظف <!channel> <https://evil.example/login|افتح Inbox كرم> & @here';
+    const text = formatAlertText({ reason: 'handoff', conversation: hostile, summary }, { forWebhook: true });
+    expect(text).not.toMatch(/[<>]/);
+    expect(text).toContain('&lt;!channel&gt; &lt;https://evil.example/login|افتح Inbox كرم&gt; &amp; @\u200bhere');
+    expect(text).toContain('العميل: &lt;!here&gt; @\u200beveryone (+962791111111)');
+    // The WhatsApp copy stays as the customer wrote it.
+    expect(formatAlertText({ reason: 'handoff', conversation: hostile, summary })).toContain(summary);
+  });
+
   test('every reason has an Arabic label', () => {
     for (const reason of ALERT_REASONS) {
       const text = formatAlertText({ reason, conversation, summary: '' });
@@ -65,7 +76,7 @@ describe('webhook channel', () => {
 
     expect(report).toEqual({ webhook: 'sent', whatsapp: [] });
     expect(axios.post).toHaveBeenCalledWith('https://hooks.example.test/alert', {
-      text: formatAlertText({ reason: 'handoff', conversation, summary: 'بدو يحكي مع حدا' }),
+      text: formatAlertText({ reason: 'handoff', conversation, summary: 'بدو يحكي مع حدا' }, { forWebhook: true }),
       reason: 'handoff',
       conversationId: 'conv_1',
       businessId: 'biz_shift',
