@@ -318,6 +318,26 @@ describe('Multi-Business Routing', () => {
     });
   });
 
+  // ── SHIFT gate does not leak into other tenants (D1, D5) ──────────────────
+  describe('SHIFT_BOT_LIVE=0 only affects the SHIFT number', () => {
+    test('a restaurant business still stores inbound as delivered', async () => {
+      const originalType = BIZ_A.business_type;
+      process.env.SHIFT_BOT_LIVE = '0';
+      BIZ_A.business_type = 'restaurant';
+      try {
+        await processInboundMessage(buildEntry(PHONE_A, CUSTOMER_A, 'بدي بيتزا', 'wmsg_rest_gate_001'));
+      } finally {
+        BIZ_A.business_type = originalType;
+        delete process.env.SHIFT_BOT_LIVE;
+      }
+
+      const msgs = msgsFor(CONV_A.id);
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].status).toBe('delivered');
+      expect(msgs[0].text_body).toBe('بدي بيتزا');
+    });
+  });
+
   // ── Unknown phone number ──────────────────────────────────────────────────
   describe('Unknown phone_number_id', () => {
     test('silently ignored — no message stored anywhere', async () => {

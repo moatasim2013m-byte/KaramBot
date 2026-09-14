@@ -1,6 +1,11 @@
 /**
  * Message Processor
  * Handles inbound WhatsApp messages: saves to DB, runs workflow, sends reply.
+ *
+ * Two phases (decision D12): persistInbound runs before the webhook answers 200, so a message Meta
+ * delivered is never lost when the instance dies; processInboundMessage runs after the response and
+ * does the slow work (AI, sends). SHIFT replies go through the reply batcher instead of answering
+ * each message on its own.
  */
 
 const axios = require('axios');
@@ -10,8 +15,26 @@ const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { processRestaurantMessage } = require('../workflows/restaurant');
 const { processClinicMessage } = require('../workflows/clinic');
-const { processShiftMessage } = require('../workflows/shift');
+const replyBatcher = require('./replyBatcher');
+const alerts = require('./alerts');
+const jsonb = require('../db/jsonb');
+const { isOptOutCommand, optOutResult } = require('../workflows/shift/optout');
+const { isShiftButtonId, handleButton } = require('../workflows/shift/buttons');
+const { pickLanguage } = require('../workflows/shift/acks');
+const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
+
+const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
+// Nothing to answer: WhatsApp system notices, reactions and message types the Cloud API can't show us.
+const SHIFT_SKIP_TYPES = ['reaction', 'unsupported', 'system', 'ephemeral'];
+const REFERRAL_KEYS = ['source_url', 'source_id', 'source_type', 'headline', 'body', 'ctwa_clid'];
+const BILLING_ERROR_CODE = 131042;
+
+const BUSINESS_SELECT = {
+  id: true, name: true, business_type: true, status: true,
+  currency: true, wa_phone_number_id: true, wa_access_token: true,
+  ai_config: true, policies: true,
+};
 
 function canSendAutoReply(business, conversation, label) {
   if (isWithinServiceWindow(conversation.last_inbound_at)) return true;
@@ -26,15 +49,24 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
     where: { business_id: businessId, customer_wa_id: customerWaId },
   });
   if (!conv) {
-    conv = await prisma.conversation.create({
-      data: {
-        business_id: businessId,
-        customer_wa_id: customerWaId,
-        profile_name: profileName || null,
-        status: 'open',
-        ai_enabled: true,
-      },
-    });
+    try {
+      conv = await prisma.conversation.create({
+        data: {
+          business_id: businessId,
+          customer_wa_id: customerWaId,
+          profile_name: profileName || null,
+          status: 'open',
+          ai_enabled: true,
+        },
+      });
+    } catch (err) {
+      // Two deliveries for a new customer can race on the (business_id, customer_wa_id) unique key.
+      if (!err || err.code !== 'P2002') throw err;
+      conv = await prisma.conversation.findFirst({
+        where: { business_id: businessId, customer_wa_id: customerWaId },
+      });
+      if (!conv) throw err;
+    }
   } else if (profileName && !conv.profile_name) {
     conv = await prisma.conversation.update({
       where: { id: conv.id },
@@ -44,7 +76,7 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
   return conv;
 }
 
-async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId) {
+async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId, status = 'delivered') {
   if (waMsg?.id) {
     const existing = await prisma.message.findUnique({
       where: { meta_message_id: waMsg.id },
@@ -67,7 +99,7 @@ async function saveInboundMessage(businessId, conversationId, waMsg, senderWaId)
         location: waMsg.location || null,
         interactive_reply: waMsg.interactive || null,
         sender_wa_id: senderWaId,
-        status: 'delivered',
+        status,
         raw_payload: waMsg,
       },
     });
@@ -154,40 +186,221 @@ async function createConfirmedAppointment(business, conversation, appointmentDat
 }
 
 
-async function processInboundMessage(entry) {
+/**
+ * Phase 1 (before the webhook returns 200): save every inbound message and the conversation counters.
+ * Throws on any DB error so the route can answer 500 and Meta retries. Idempotent under retries:
+ * the unique meta_message_id dedupes the message, and a retry after a half-finished persist repairs
+ * last_inbound_at.
+ */
+async function persistInbound(entry) {
+  const value = entry?.changes?.[0]?.value;
+  const messages = value?.messages || [];
+  if (!value || !messages.length) return { business: null, items: [] };
+
+  const phoneNumberId = value.metadata?.phone_number_id;
+  const business = await prisma.business.findFirst({
+    where: { wa_phone_number_id: phoneNumberId },
+    select: BUSINESS_SELECT,
+  });
+  if (!business) {
+    console.warn(`No business found for phone_number_id: ${phoneNumberId}`);
+    return { business: null, items: [] };
+  }
+  if (business.status !== 'active') return { business, items: [] };
+
+  // D5: only SHIFT rows enter the batcher's queue; every other tenant keeps 'delivered'.
+  const inboundStatus = business.business_type === 'shift' && business.ai_config?.reply_mode !== 'external'
+    ? 'received'
+    : 'delivered';
+  const contacts = value.contacts || [];
+  const items = [];
+
+  for (const waMsg of messages) {
+    const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
+    const customerWaId = normalizePhone(waMsg.from);
+    let conversation = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
+    const { created, msg } = await saveInboundMessage(business.id, conversation.id, waMsg, customerWaId, inboundStatus);
+
+    if (created) {
+      const now = new Date();
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { last_message_at: now, last_inbound_at: now, unread_count: { increment: 1 } },
+      });
+    } else if (msg?.created_at && conversation.last_inbound_at < msg.created_at) {
+      // A retry after a persist that saved the message but not the counters.
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { last_inbound_at: msg.created_at },
+      });
+    }
+
+    items.push({ waMsg, contact, customerWaId, conversation, message: msg, created });
+  }
+
+  return { business, items };
+}
+
+/**
+ * Delivery statuses. A SHIFT send that timed out has no wamid (status `ambiguous`); the first status
+ * webhook for that customer tells us what happened to it.
+ */
+async function handleStatuses(phoneNumberId, statuses) {
+  let business;
+  const shiftBusiness = async () => {
+    if (business === undefined) {
+      business = await prisma.business.findFirst({
+        where: { wa_phone_number_id: phoneNumberId },
+        select: BUSINESS_SELECT,
+      }).catch(() => null);
+    }
+    return business && business.business_type === 'shift' ? business : null;
+  };
+
+  for (const status of statuses) {
+    const updated = await prisma.message.updateMany({
+      where: { meta_message_id: status.id },
+      data: { status: status.status },
+    }).catch(() => {});
+
+    try {
+      const unmatched = !!updated && updated.count === 0;
+      const billing = status.status === 'failed' && status.errors?.[0]?.code === BILLING_ERROR_CODE;
+      if (!unmatched && !billing) continue;
+      const biz = await shiftBusiness();
+      if (!biz) continue;
+      const conv = await prisma.conversation.findFirst({
+        where: { business_id: biz.id, customer_wa_id: normalizePhone(status.recipient_id) },
+      });
+      if (!conv) continue;
+
+      if (unmatched) {
+        const amb = await prisma.message.findFirst({
+          where: { conversation_id: conv.id, direction: 'outbound', status: 'ambiguous' },
+          orderBy: { created_at: 'asc' },
+        });
+        if (amb) {
+          try {
+            await prisma.message.update({
+              where: { id: amb.id },
+              data: { meta_message_id: status.id, status: status.status },
+            });
+          } catch (err) {
+            if (!err || err.code !== 'P2002') throw err;
+          }
+        }
+      }
+
+      if (billing) {
+        await jsonb.patchJson('conversations', conv.id, 'metadata', { billing_blocked_at: new Date().toISOString() });
+        Promise.resolve(alerts.sendStaffAlert({
+          reason: 'billing', business: biz, conversation: conv, summary: 'واتساب رفض رسالة — لازم تنضاف طريقة دفع',
+        })).catch(() => {});
+      }
+    } catch (err) {
+      console.error(`[status] SHIFT reconcile failed for ${status.id}:`, err.message);
+    }
+  }
+}
+
+/** The SHIFT number: answer buttons and opt-outs at once, hand everything else to the batcher. */
+async function processShiftItem(business, accessToken, item) {
+  const { waMsg, customerWaId } = item;
+  const msg = item.message;
+  const conv = item.conversation;
+  const text = msg.text_body || '';
+  const lang = pickLanguage(conv.workflow_data?.lead || {}, text);
+  const now = new Date();
+  const phoneNumberId = business.wa_phone_number_id;
+
+  // Typing only for the first fragment: later ones already have a batch on its way.
+  await markAsRead(phoneNumberId, accessToken, waMsg.id, { typing: !replyBatcher.hasPendingTimer(conv.id) });
+  sseEmitter.emit(`business:${business.id}`, {
+    type: 'new_message',
+    conversationId: conv.id,
+    businessId: business.id,
+  });
+
+  if (!replyBatcher.isShiftReplyAllowed(business, customerWaId)) {
+    await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
+    return;
+  }
+
+  if (SHIFT_SKIP_TYPES.includes(waMsg.type)) {
+    await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
+    return;
+  }
+
+  if (waMsg.referral) {
+    // Click-to-WhatsApp ad: first touch wins, and it stays "inferred" until the customer confirms.
+    const referral = {};
+    for (const key of REFERRAL_KEYS) {
+      if (waMsg.referral[key] !== undefined) referral[key] = waMsg.referral[key];
+    }
+    try {
+      await saveLead(conv.id, { source: { type: 'ctwa', referral, confidence: 'inferred' } },
+        { source: 'referral', msgId: msg.id, at: now.toISOString(), inboundText: '' });
+    } catch (err) {
+      console.error(`[shift] referral not saved conversation=${conv.id}:`, err.message);
+    }
+  }
+
+  if (waMsg.type === 'text' && isOptOutCommand(text)) {
+    replyBatcher.cancel(conv.id);
+    // Whatever else is queued is not answered by a sales reply after «إيقاف».
+    await prisma.message.updateMany({
+      where: { conversation_id: conv.id, direction: 'inbound', status: 'received' },
+      data: { status: 'skipped' },
+    });
+    await replyBatcher.deliverResult({
+      business,
+      conversation: conv,
+      result: optOutResult({ conversation: conv, lang, now }),
+      batch: [msg],
+      inboundStatus: 'skipped',
+    });
+    return;
+  }
+
+  const buttonId = waMsg.interactive?.button_reply?.id || waMsg.interactive?.list_reply?.id;
+  if (isShiftButtonId(buttonId)) {
+    const lastStaff = await prisma.message.findFirst({
+      where: { conversation_id: conv.id, direction: 'outbound', sent_by_user_id: { not: null } },
+      orderBy: { created_at: 'desc' },
+    });
+    if (replyBatcher.isHumanActive(conv, lastStaff, now)) {
+      await prisma.message.update({ where: { id: msg.id }, data: { status: 'awaiting_staff' } });
+      return;
+    }
+    const result = handleButton(buttonId, { business, conversation: conv, now, lang, messageId: msg.id });
+    if (result) {
+      await replyBatcher.deliverResult({ business, conversation: conv, result, batch: [msg] });
+      return;
+    }
+  }
+
+  // Text, media and unknown taps join the batch; processShiftBatch renders media placeholders.
+  replyBatcher.scheduleReply(conv.id, { text });
+}
+
+async function processInboundMessage(entry, { persisted } = {}) {
   try {
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     if (!value) return;
 
     const phoneNumberId = value.metadata?.phone_number_id;
-    const contacts = value.contacts || [];
     const messages = value.messages || [];
     const statuses = value.statuses || [];
 
     // Handle status updates
-    for (const status of statuses) {
-      await prisma.message.updateMany({
-        where: { meta_message_id: status.id },
-        data: { status: status.status },
-      }).catch(() => {});
-    }
+    if (statuses.length) await handleStatuses(phoneNumberId, statuses);
 
     if (!messages.length) return;
 
-    const business = await prisma.business.findFirst({
-      where: { wa_phone_number_id: phoneNumberId },
-      select: {
-        id: true, name: true, business_type: true, status: true,
-        currency: true, wa_phone_number_id: true, wa_access_token: true,
-        ai_config: true, policies: true,
-      },
-    });
-    if (!business) {
-      console.warn(`No business found for phone_number_id: ${phoneNumberId}`);
-      return;
-    }
-    if (business.status !== 'active') return;
+    // Legacy callers (scripts, tests) did not persist first.
+    const { business, items } = persisted || await persistInbound(entry);
+    if (!business || business.status !== 'active') return;
 
     // External reply mode: an outside automation (e.g. Make + Voiceflow) owns
     // the conversation. KaramBot stores inbound messages for the Inbox and
@@ -195,21 +408,12 @@ async function processInboundMessage(entry) {
     // automation via POST /api/ingest/outbound.
     if (business.ai_config?.reply_mode === 'external') {
       let anyCreated = false;
-      for (const waMsg of messages) {
-        const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
-        const customerWaId = normalizePhone(waMsg.from);
-        const conversation = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
-        const { created } = await saveInboundMessage(business.id, conversation.id, waMsg, customerWaId);
-        if (!created) continue;
+      for (const item of items) {
+        if (!item.created) continue;
         anyCreated = true;
-        const now = new Date();
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { last_message_at: now, last_inbound_at: now, unread_count: { increment: 1 } },
-        });
         sseEmitter.emit(`business:${business.id}`, {
           type: 'new_message',
-          conversationId: conversation.id,
+          conversationId: item.conversation.id,
           businessId: business.id,
         });
       }
@@ -243,30 +447,33 @@ async function processInboundMessage(entry) {
       return;
     }
 
-    for (const waMsg of messages) {
-      const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
-      const customerWaId = normalizePhone(waMsg.from);
-      const profileName = contact.profile?.name;
+    if (business.business_type === 'shift') {
+      for (const item of items) {
+        if (!item.created) {
+          console.log(`Duplicate webhook for meta_message_id=${item.waMsg.id} — skipping reprocess`);
+          continue;
+        }
+        try {
+          await processShiftItem(business, accessToken, item);
+        } catch (err) {
+          // The row stays `received`; the sweeper schedules it within a minute.
+          console.error(`[shift] inbound handling failed for ${item.waMsg.id}:`, err.message);
+        }
+      }
+      return;
+    }
+
+    for (const item of items) {
+      const { waMsg, customerWaId } = item;
 
       await markAsRead(phoneNumberId, accessToken, waMsg.id);
 
-      let conversation = await getOrCreateConversation(business.id, customerWaId, profileName);
-
-      const { created } = await saveInboundMessage(business.id, conversation.id, waMsg, customerWaId);
-      if (!created) {
+      if (!item.created) {
         console.log(`Duplicate webhook for meta_message_id=${waMsg.id} — skipping reprocess`);
         continue;
       }
 
-      const now = new Date();
-      conversation = await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          last_message_at: now,
-          last_inbound_at: now,
-          unread_count: { increment: 1 },
-        },
-      });
+      let conversation = item.conversation;
 
       if (!conversation.ai_enabled || conversation.status === 'human_takeover') {
         continue;
@@ -305,8 +512,6 @@ async function processInboundMessage(entry) {
         workflowResult = await processRestaurantMessage(business, conversation, customerText);
       } else if (business.business_type === 'clinic') {
         workflowResult = await processClinicMessage(business, conversation, customerText);
-      } else if (business.business_type === 'shift') {
-        workflowResult = await processShiftMessage(business, conversation, customerText);
       } else {
         workflowResult = {
           reply: (business.ai_config?.greeting_message) || 'كيف أقدر أساعدك؟',
@@ -384,4 +589,4 @@ async function processInboundMessage(entry) {
   }
 }
 
-module.exports = { processInboundMessage };
+module.exports = { persistInbound, processInboundMessage, MEDIA_TYPES };
