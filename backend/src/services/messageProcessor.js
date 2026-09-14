@@ -10,6 +10,7 @@ const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { processRestaurantMessage } = require('../workflows/restaurant');
 const { processClinicMessage } = require('../workflows/clinic');
+const { processShiftMessage } = require('../workflows/shift');
 const sseEmitter = require('../utils/sseEmitter');
 
 function canSendAutoReply(business, conversation, label) {
@@ -304,6 +305,8 @@ async function processInboundMessage(entry) {
         workflowResult = await processRestaurantMessage(business, conversation, customerText);
       } else if (business.business_type === 'clinic') {
         workflowResult = await processClinicMessage(business, conversation, customerText);
+      } else if (business.business_type === 'shift') {
+        workflowResult = await processShiftMessage(business, conversation, customerText);
       } else {
         workflowResult = {
           reply: (business.ai_config?.greeting_message) || 'كيف أقدر أساعدك؟',
