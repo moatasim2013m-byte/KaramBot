@@ -40,6 +40,8 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
+// Bearer-protected and called every minute by Cloud Scheduler: never behind apiLimiter.
+app.use('/api/internal', require('./routes/internal'));
 app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
 app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));

@@ -32,4 +32,27 @@ describe('Environment Validator', () => {
     expect(() => validateEnv()).not.toThrow(); // only warns in dev
     warnSpy.mockRestore();
   });
+
+  test('production without INTERNAL_SWEEP_TOKEN warns but does not exit', () => {
+    const { validateEnv } = require('../src/config/validateEnv');
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit called');
+    });
+    process.env.NODE_ENV = 'production';
+    delete process.env.INTERNAL_SWEEP_TOKEN;
+    delete process.env.STAFF_ALERT_WEBHOOK_URL;
+    try {
+      expect(() => validateEnv()).not.toThrow();
+      expect(exitSpy).not.toHaveBeenCalled();
+      const warned = warnSpy.mock.calls.map((args) => args.join(' ')).join('\n');
+      expect(warned).toContain('INTERNAL_SWEEP_TOKEN is not set');
+      expect(warned).toContain('STAFF_ALERT_WEBHOOK_URL is not set');
+    } finally {
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
 });

@@ -73,7 +73,15 @@ jest.mock('../src/config/prisma', () => {
   const ALL_BUSINESSES   = [BIZ_A, BIZ_B];
   const ALL_CONVS        = [CONV_A, CONV_B];
 
-  return {
+  const matchesValue = (value, cond) => (cond && typeof cond === 'object' && Array.isArray(cond.in)
+    ? cond.in.includes(value)
+    : value === cond);
+
+  const mock = {
+    // D24: persistInbound writes the row and the counters in one interactive transaction. No isolation
+    // is needed here: the callback runs against this same mock.
+    $transaction: jest.fn((arg) => (typeof arg === 'function' ? arg(mock) : Promise.all(arg))),
+
     // Exposed for test assertions
     __BIZ_A: BIZ_A,
     __BIZ_B: BIZ_B,
@@ -103,6 +111,7 @@ jest.mock('../src/config/prisma', () => {
       create: jest.fn(({ data } = {}) =>
         Promise.resolve({ id: `conv_new_${Math.random().toString(36).slice(2)}`, ...data }),
       ),
+      updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
       update: jest.fn(({ where, data } = {}) => {
         const base = ALL_CONVS.find((c) => c.id === where?.id);
         // Return merged object; ai_enabled stays false (base value wins over spread)
@@ -125,7 +134,13 @@ jest.mock('../src/config/prisma', () => {
     },
 
     message: {
-      updateMany: jest.fn(() => Promise.resolve({ count: 0 })),
+      // Applies status transitions by id (`processing` → `delivered` once the workflow ran, D24).
+      updateMany: jest.fn(({ where, data } = {}) => {
+        const rows = [...msgByMetaId.values()].filter((m) => where?.id && matchesValue(m.id, where.id)
+          && (where.status === undefined || matchesValue(m.status, where.status)));
+        rows.forEach((m) => Object.assign(m, data));
+        return Promise.resolve({ count: rows.length });
+      }),
       findUnique:  jest.fn(({ where } = {}) =>
         Promise.resolve(msgByMetaId.get(where?.meta_message_id) ?? null),
       ),
@@ -147,6 +162,7 @@ jest.mock('../src/config/prisma', () => {
 
     $disconnect: jest.fn(() => Promise.resolve()),
   };
+  return mock;
 });
 
 // ─── Requires (after mocks are declared) ──────────────────────────────────────
@@ -315,6 +331,26 @@ describe('Multi-Business Routing', () => {
 
       // Only the first call should have stored a message
       expect(msgsFor(CONV_A.id)).toHaveLength(1);
+    });
+  });
+
+  // ── SHIFT gate does not leak into other tenants (D1, D5) ──────────────────
+  describe('SHIFT_BOT_LIVE=0 only affects the SHIFT number', () => {
+    test('a restaurant business still stores inbound as delivered', async () => {
+      const originalType = BIZ_A.business_type;
+      process.env.SHIFT_BOT_LIVE = '0';
+      BIZ_A.business_type = 'restaurant';
+      try {
+        await processInboundMessage(buildEntry(PHONE_A, CUSTOMER_A, 'بدي بيتزا', 'wmsg_rest_gate_001'));
+      } finally {
+        BIZ_A.business_type = originalType;
+        delete process.env.SHIFT_BOT_LIVE;
+      }
+
+      const msgs = msgsFor(CONV_A.id);
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].status).toBe('delivered');
+      expect(msgs[0].text_body).toBe('بدي بيتزا');
     });
   });
 

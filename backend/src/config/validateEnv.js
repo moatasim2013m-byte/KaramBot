@@ -70,6 +70,17 @@ function validateEnv() {
     }
   }
 
+  // SHIFT bot settings are optional: a missing one must warn, never stop the shared service.
+  if (isProd && !process.env.INTERNAL_SWEEP_TOKEN) {
+    warnings.push('INTERNAL_SWEEP_TOKEN is not set — /api/internal/sweep returns 503');
+  }
+  if (isProd && !process.env.STAFF_ALERT_WEBHOOK_URL) {
+    warnings.push('STAFF_ALERT_WEBHOOK_URL is not set — staff alerts go to WhatsApp numbers only');
+  }
+  if (process.env.GRAPH_API_VERSION && !/^v\d+\.\d+$/.test(process.env.GRAPH_API_VERSION)) {
+    warnings.push(`GRAPH_API_VERSION="${process.env.GRAPH_API_VERSION}" does not look like v24.0`);
+  }
+
   if (!isProd && !process.env.META_APP_SECRET) {
     warnings.push('META_APP_SECRET is missing — webhook signature validation is DISABLED (dev only)');
   }
