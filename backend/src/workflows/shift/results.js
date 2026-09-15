@@ -239,7 +239,11 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = 
 
 function aiFailureResult(c) {
   const at = c.now.toISOString();
-  const withButtons = !isStageLocked(c.conversation) && c.conversation.current_state !== 'closed' && c.offers.length > 0;
+  // Slot buttons only mid-conversation and only while no time is chosen: offering a call on a bare
+  // «مرحبا», or again right after the customer tapped a slot, read as broken (owner test, 2026-09-15).
+  const timeChosen = Boolean(c.wd.lead?.preferred_time || c.wd.capture_pending);
+  const withButtons = !isStageLocked(c.conversation) && c.conversation.current_state !== 'closed'
+    && c.offers.length > 0 && (c.wd.bot_turns || 0) > 0 && !timeChosen;
   const candidate = needsTeamEntry('ai_failure', c.joinedText.slice(0, 200), at);
   const needs = mergeNeedsTeam(c.wd.needs_team, candidate);
   const workflowDataPatch = { bot_turns: (c.wd.bot_turns || 0) + 1 };

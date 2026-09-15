@@ -11,7 +11,12 @@
 
 const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
 const LEGACY_TIMEOUT_MS = 15000;
-const DEFAULT_FIRST_ATTEMPT_MS = 10000;
+// gemini-3.x spends hidden "thinking" tokens from maxOutputTokens. A 600-token cap was used up by
+// thinking alone (finish=MAX_TOKENS, 6–59 visible tokens) and every SHIFT reply fell back — 2026-09-15.
+const SHIFT_MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 2048;
+// 'minimal' measured 4.6–8.2 s with complete JSON; set GEMINI_THINKING_LEVEL=off to omit the field.
+const SHIFT_THINKING_LEVEL = process.env.GEMINI_THINKING_LEVEL || 'minimal';
+const DEFAULT_FIRST_ATTEMPT_MS = 15000;
 // Below this there is no point starting a second attempt: the model p50 alone is longer.
 const MIN_RETRY_MS = 1500;
 
@@ -55,7 +60,8 @@ async function callGemini(systemPrompt, userMessage, opts = {}) {
       const useSystemInstruction = opts.systemInstruction && process.env.GEMINI_TEXT_MODE !== '1';
       if (useSystemInstruction) params.systemInstruction = systemPrompt;
       if (opts.jsonMode) {
-        params.generationConfig = { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: 600 };
+        params.generationConfig = { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: SHIFT_MAX_OUTPUT_TOKENS };
+        if (SHIFT_THINKING_LEVEL !== 'off') params.generationConfig.thinkingConfig = { thinkingLevel: SHIFT_THINKING_LEVEL };
         if (opts.responseSchema) params.generationConfig.responseSchema = opts.responseSchema;
       }
       geminiModel = genAI.getGenerativeModel(params);
@@ -81,6 +87,7 @@ async function callGemini(systemPrompt, userMessage, opts = {}) {
       ms: Date.now() - started,
       in: usage.promptTokenCount ?? null,
       out: usage.candidatesTokenCount ?? null,
+      thoughts: usage.thoughtsTokenCount ?? null,
       finish: response?.candidates?.[0]?.finishReason ?? null,
       conv: opts.conversationId || null,
       attempt: opts.attempt || 1,
@@ -163,7 +170,7 @@ const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArr
 const hasValue = (set, value) => (set instanceof Set ? set.has(value) : Array.from(set || []).includes(value));
 
 // Buttons, lead and action_args are cleaned in place rather than failing validation: a bad
-// button title must never cost an 18 s retry or silence the reply.
+// button title must never cost an 25 s retry or silence the reply.
 function sanitiseResult(result) {
   const seen = new Set();
   result.buttons = (Array.isArray(result.buttons) ? result.buttons : [])

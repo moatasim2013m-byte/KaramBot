@@ -1,6 +1,6 @@
 /**
  * SHIFT options of ai/provider.js: per-workflow actions, sanitised buttons, stage repair,
- * JSON mode + systemInstruction, the 18 s deadline split and the usage log.
+ * JSON mode + systemInstruction + thinking budget, the 25 s deadline split and the usage log.
  */
 require('./setup');
 
@@ -30,6 +30,8 @@ beforeEach(() => {
   mockGetGenerativeModel.mockClear();
   delete process.env.GEMINI_MODEL;
   delete process.env.GEMINI_TEXT_MODE;
+  delete process.env.GEMINI_MAX_OUTPUT_TOKENS;
+  delete process.env.GEMINI_THINKING_LEVEL;
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -39,6 +41,8 @@ afterEach(() => {
   jest.useRealTimers();
   jest.restoreAllMocks();
   delete process.env.GEMINI_TEXT_MODE;
+  delete process.env.GEMINI_MAX_OUTPUT_TOKENS;
+  delete process.env.GEMINI_THINKING_LEVEL;
 });
 
 describe('validation options', () => {
@@ -134,7 +138,7 @@ describe('validation options', () => {
   test('invalid stage twice in deadline mode is also repaired', async () => {
     mockGenerateContent.mockResolvedValue(reply({ reply: 'تمام', next_step: 'nope' }));
     const result = await generateValidatedAIReply('S', 'U', [], {
-      nextSteps: ['ask_name'], jsonMode: true, deadlineAt: Date.now() + 18000,
+      nextSteps: ['ask_name'], jsonMode: true, deadlineAt: Date.now() + 25000,
     });
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     expect(result.reply).toBe('تمام');
@@ -156,7 +160,13 @@ describe('SHIFT call shape', () => {
     expect(mockGetGenerativeModel).toHaveBeenCalledWith({
       model: 'gemini-3.6-flash',
       systemInstruction: 'SYSTEM',
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: 600, responseSchema: schema },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.4,
+        maxOutputTokens: 2048,
+        thinkingConfig: { thinkingLevel: 'minimal' },
+        responseSchema: schema,
+      },
     });
     const [request, requestOpts] = mockGenerateContent.mock.calls[0];
     expect(request).toEqual({ contents: [{ role: 'user', parts: [{ text: 'رسالة 1\nرسالة 2' }] }] });
@@ -175,6 +185,59 @@ describe('SHIFT call shape', () => {
     expect(mockGenerateContent.mock.calls[0][0].contents[0].parts[0].text).toBe('SYSTEM\n\nرسائل العميل:\nمرحبا');
   });
 
+  // gemini-3.x spends hidden thinking tokens from maxOutputTokens: with the old 600 cap every SHIFT
+  // reply finished MAX_TOKENS with a truncated body and fell back (production, 2026-09-15).
+  describe('thinking budget (constants read at module load)', () => {
+    const loadProvider = () => {
+      let mod;
+      jest.isolateModules(() => { mod = require('../src/ai/provider'); });
+      return mod;
+    };
+    const generationConfig = async (provider) => {
+      mockGenerateContent.mockResolvedValue(reply({ reply: 'أهلًا' }));
+      await provider.generateValidatedAIReply('SYSTEM', 'مرحبا', [], { jsonMode: true, systemInstruction: true });
+      return mockGetGenerativeModel.mock.calls[0][0].generationConfig;
+    };
+
+    test('default: maxOutputTokens 2048 and thinkingLevel minimal', async () => {
+      const config = await generationConfig(loadProvider());
+      expect(config.maxOutputTokens).toBe(2048);
+      expect(config.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+    });
+
+    test('GEMINI_THINKING_LEVEL=off omits thinkingConfig entirely', async () => {
+      process.env.GEMINI_THINKING_LEVEL = 'off';
+      const config = await generationConfig(loadProvider());
+      expect(config).not.toHaveProperty('thinkingConfig');
+      expect(config.maxOutputTokens).toBe(2048);
+      expect(config.responseMimeType).toBe('application/json');
+    });
+
+    test('GEMINI_THINKING_LEVEL passes another level through', async () => {
+      process.env.GEMINI_THINKING_LEVEL = 'low';
+      const config = await generationConfig(loadProvider());
+      expect(config.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+    });
+
+    test('GEMINI_MAX_OUTPUT_TOKENS overrides the cap; a non-number falls back to 2048', async () => {
+      process.env.GEMINI_MAX_OUTPUT_TOKENS = '4096';
+      expect((await generationConfig(loadProvider())).maxOutputTokens).toBe(4096);
+
+      mockGetGenerativeModel.mockClear();
+      process.env.GEMINI_MAX_OUTPUT_TOKENS = 'lots';
+      expect((await generationConfig(loadProvider())).maxOutputTokens).toBe(2048);
+    });
+
+    test('the legacy path gets no generationConfig at all', async () => {
+      process.env.GEMINI_THINKING_LEVEL = 'high';
+      process.env.GEMINI_MAX_OUTPUT_TOKENS = '4096';
+      const provider = loadProvider();
+      mockGenerateContent.mockResolvedValue(reply({ reply: 'x' }));
+      await provider.generateValidatedAIReply('S', 'U');
+      expect(mockGetGenerativeModel).toHaveBeenCalledWith({ model: 'gemini-3.6-flash' });
+    });
+  });
+
   test('JSON mode parses bare JSON first and falls back to the fence extractor', async () => {
     mockGenerateContent.mockResolvedValue(reply('```json\n{"reply":"من الفنس"}\n```'));
     const result = await generateValidatedAIReply('S', 'U', [], { jsonMode: true });
@@ -183,23 +246,30 @@ describe('SHIFT call shape', () => {
 });
 
 describe('deadline mode', () => {
-  test('9. attempt 1 gets min(10 s, remaining), attempt 2 the remainder, total ≤ 18 s', async () => {
+  test('9. attempt 1 gets min(15 s, remaining), attempt 2 the remainder, total ≤ 25 s', async () => {
     jest.useFakeTimers();
     const start = Date.now();
     mockGenerateContent.mockImplementation(never);
 
     const promise = generateValidatedAIReply('S', 'U', [], {
-      jsonMode: true, systemInstruction: true, deadlineAt: start + 18000,
+      jsonMode: true, systemInstruction: true, deadlineAt: start + 25000,
     });
 
-    await jest.advanceTimersByTimeAsync(10000);
-    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-    expect(mockGenerateContent.mock.calls[0][1]).toEqual({ timeout: 10000 });
-    expect(mockGenerateContent.mock.calls[1][1]).toEqual({ timeout: 8000 });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    expect(mockGenerateContent.mock.calls[0][1]).toEqual({ timeout: 15000 });
 
-    await jest.advanceTimersByTimeAsync(8000);
+    // still on attempt 1 just before its 15 s budget runs out
+    await jest.advanceTimersByTimeAsync(14999);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(mockGenerateContent.mock.calls[1][1]).toEqual({ timeout: 10000 });
+
+    await jest.advanceTimersByTimeAsync(10000);
     await expect(promise).resolves.toBeNull();
-    expect(Date.now() - start).toBeLessThanOrEqual(18000);
+    expect(Date.now() - start).toBeLessThanOrEqual(25000);
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
   });
 
@@ -225,7 +295,7 @@ describe('deadline mode', () => {
     });
 
     const result = await generateValidatedAIReply('S', 'U', [], {
-      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 18000, onRetry, correctionPrompt: 'CORRECT',
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, onRetry, correctionPrompt: 'CORRECT',
     });
 
     expect(result.reply).toBe('تمام');
@@ -238,7 +308,7 @@ describe('deadline mode', () => {
       .mockResolvedValueOnce(reply('not json'))
       .mockResolvedValueOnce(reply({ reply: 'تمام' }));
     const result = await generateValidatedAIReply('S', 'U', [], {
-      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 18000, correctionPrompt: 'CORRECT',
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, correctionPrompt: 'CORRECT',
       onRetry: () => { throw new Error('lease lost'); },
     });
     expect(result.reply).toBe('تمام');
@@ -252,9 +322,9 @@ describe('deadline mode', () => {
     const onRetry = jest.fn();
 
     const promise = generateValidatedAIReply('S', 'U', [], {
-      jsonMode: true, deadlineAt: Date.now() + 11000, onRetry,
+      jsonMode: true, deadlineAt: Date.now() + 16000, onRetry,
     });
-    await jest.advanceTimersByTimeAsync(10000);
+    await jest.advanceTimersByTimeAsync(15000);
 
     await expect(promise).resolves.toBeNull();
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
@@ -267,7 +337,7 @@ describe('deadline mode', () => {
       .mockResolvedValueOnce(reply({ reply: 'تمام' }));
 
     await generateValidatedAIReply('FULL', 'U', [], {
-      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 18000, retrySystemPrompt: 'SHORT',
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, retrySystemPrompt: 'SHORT',
     });
 
     expect(mockGetGenerativeModel.mock.calls[0][0].systemInstruction).toBe('FULL');
@@ -281,26 +351,26 @@ describe('usage log', () => {
     .filter((line) => typeof line === 'string' && line.startsWith('[ai] '))
     .map((line) => JSON.parse(line.slice(5)));
 
-  test('13. one line per attempt with model, ms, in, out, finish, conv, attempt, ok', async () => {
+  test('13. one line per attempt with model, ms, in, out, thoughts, finish, conv, attempt, ok', async () => {
     mockGenerateContent
       .mockResolvedValueOnce(reply('garbage', {
-        usageMetadata: { promptTokenCount: 1200, candidatesTokenCount: 40 },
+        usageMetadata: { promptTokenCount: 1200, candidatesTokenCount: 40, thoughtsTokenCount: 570 },
         candidates: [{ finishReason: 'STOP' }],
       }))
       .mockRejectedValueOnce(new Error('boom'));
 
     const result = await generateValidatedAIReply('S', 'U', [], {
-      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 18000, conversationId: 'conv_1',
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, conversationId: 'conv_1',
     });
 
     expect(result).toBeNull();
     const lines = usageLines();
     expect(lines).toHaveLength(2);
     expect(lines[0]).toEqual({
-      model: 'gemini-3.6-flash', ms: expect.any(Number), in: 1200, out: 40, finish: 'STOP', conv: 'conv_1', attempt: 1, ok: true,
+      model: 'gemini-3.6-flash', ms: expect.any(Number), in: 1200, out: 40, thoughts: 570, finish: 'STOP', conv: 'conv_1', attempt: 1, ok: true,
     });
     expect(lines[1]).toEqual(expect.objectContaining({
-      model: 'gemini-3.6-flash', in: null, out: null, finish: null, conv: 'conv_1', attempt: 2, ok: false,
+      model: 'gemini-3.6-flash', in: null, out: null, thoughts: null, finish: null, conv: 'conv_1', attempt: 2, ok: false,
     }));
   });
 

@@ -41,7 +41,8 @@ const { decrypt } = require('../utils/tokenCrypto');
 const sseEmitter = require('../utils/sseEmitter');
 
 const LEASE_TTL_MS = 60000;
-const AI_DEADLINE_MS = 18000;
+// 25 s: live Gemini latency reached 12–17 s on 2026-09-15; the typing indicator covers the wait.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 25000;
 const HUMAN_ACTIVE_MS = 30 * 60 * 1000;
 const MAX_BATCH = 20;
 const MAX_REPLY_FAILURES = 3;
