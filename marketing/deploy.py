@@ -7,7 +7,8 @@ SITE    = "shifts-ai-site"
 PROJECT = "karam-bot"
 ROOT    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
 BASE    = "https://firebasehosting.googleapis.com/v1beta1"
-APP     = "https://app.shifts-ai.store"
+DOMAIN  = "shifts-ai.com"  # official domain since 2026-09-14; shifts-ai.store 301-redirects here
+APP     = f"https://app.{DOMAIN}"
 
 ap = argparse.ArgumentParser(description="Deploy ./site to Firebase Hosting (live by default).")
 ap.add_argument("--channel", help="deploy to a preview channel id (e.g. preview) instead of live; prints its URL")
@@ -89,8 +90,8 @@ def indexnow_ping():
     changed = [p for p, v in sorted(lastmod.items()) if pinged.get(p) != v.get("hash")]
     if not key or not changed:
         print("indexnow: nothing changed"); return
-    body = {"host": "shifts-ai.store", "key": key, "keyLocation": f"https://shifts-ai.store/{key}.txt",
-            "urlList": [("https://shifts-ai.store" + p) for p in changed]}
+    body = {"host": DOMAIN, "key": key, "keyLocation": f"https://{DOMAIN}/{key}.txt",
+            "urlList": [(f"https://{DOMAIN}" + p) for p in changed]}
     r = urllib.request.Request("https://api.indexnow.org/indexnow", data=json.dumps(body).encode(), method="POST",
                                headers={"Content-Type": "application/json; charset=utf-8"})
     try:
