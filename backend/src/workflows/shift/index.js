@@ -23,7 +23,8 @@ const {
 const HISTORY_LIMIT = 12;
 const STAFF_ALERT_KIND = 'staff_alert';
 const RETRY_HISTORY = 6;
-const AI_DEADLINE_MS = 18000;
+// 25 s: live Gemini latency reached 12–17 s on 2026-09-15; the typing indicator covers the wait.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 25000;
 
 const MEDIA_PLACEHOLDERS = {
   ar: {
@@ -65,7 +66,7 @@ async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
   const { business, conversation, batchMessages, now, lang, offers, joinedText } = ctx;
 
   if (handoff.detectHumanRequest(joinedText)) {
-    // The line is fixed («ولا يهمك.»), so the ack must not wait up to 18 s for the model.
+    // The line is fixed («ولا يهمك.»), so the ack must not wait up to 25 s for the model.
     return handoff.buildHandoff({
       ...ctx,
       reason: 'person',

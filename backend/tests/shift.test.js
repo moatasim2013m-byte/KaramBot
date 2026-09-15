@@ -97,18 +97,71 @@ describe('SHIFT workflow — results', () => {
     expect(r.stateUpdate).toEqual({});
   });
 
-  test('AI failure → fallback with slot buttons, pending, needs_team ai_failure', () => {
-    const r = toWorkflowResult(null);
+  test('AI failure mid-conversation with no time chosen → fallback with slot buttons, pending, needs_team ai_failure', () => {
+    const c = conv({ workflow_data: { bot_turns: 2, lead: { name: 'محمد' } } });
+    const r = toWorkflowResult(null, ctx({ conversation: c }));
     expect(r.kind).toBe('fallback');
     expect(r.action).toBe('AI_FAILURE');
     expect(r.stateUpdate).toEqual({ status: 'pending' });
     expect(r.workflowDataPatch.needs_team.reason).toBe('ai_failure');
+    expect(r.workflowDataPatch.bot_turns).toBe(3);
     expect(r.messages[0].type).toBe('interactive');
     expect(r.messages[0].buttons).toHaveLength(3);
+    expect(r.messages[0].buttons).toEqual(buttons.slotOffers(TH, MON_11, 'ar').map((o) => ({ id: o.id, title: o.title })));
     expect(r.messages[0].text).toBe(acks.aiFailure('ar', { withButtons: true }));
     expect(r.workflowDataPatch.slot_offers).toHaveLength(3);
+    expect(r.workflowDataPatch.slot_offers[0].issued_at).toBe(MON_11.toISOString());
     expect(r.alert.reason).toBe('ai_failure');
     expect(JSON.stringify(r)).not.toContain('ai_enabled');
+  });
+
+  // Hotfix 2026-09-15: a call offer on a bare «مرحبا», or again right after a slot tap, read as broken.
+  describe('AI failure slot buttons only mid-conversation with no time chosen', () => {
+    const expectTextFallback = (r, lang = 'ar') => {
+      expect(r.kind).toBe('fallback');
+      expect(r.messages).toEqual([{ type: 'text', text: acks.aiFailure(lang, { withButtons: false }) }]);
+      expect(r.workflowDataPatch).not.toHaveProperty('slot_offers');
+      expect(r.stateUpdate).toEqual({ status: 'pending' });
+      expect(r.workflowDataPatch.needs_team.reason).toBe('ai_failure');
+      expect(r.alert.reason).toBe('ai_failure');
+    };
+
+    test('the very first turn (bot_turns 0) → text fallback, no buttons', () => {
+      const r = toWorkflowResult(null, ctx({ conversation: conv({ current_state: null, workflow_data: {} }) }));
+      expectTextFallback(r);
+      expect(r.workflowDataPatch.bot_turns).toBe(1);
+    });
+
+    test('the first turn in English → English text fallback, no buttons', () => {
+      const r = toWorkflowResult(null, ctx({
+        conversation: conv({ current_state: null, workflow_data: { bot_turns: 0 } }),
+        batchMessages: [{ id: 'm1', message_type: 'text', text_body: 'Hi' }],
+        lang: 'en',
+      }));
+      expectTextFallback(r, 'en');
+    });
+
+    test('lead.preferred_time already stored → no buttons', () => {
+      const c = conv({
+        current_state: 'captured',
+        workflow_data: { bot_turns: 4, lead: { name: 'محمد', preferred_time: { text: 'بكرا بين 10 و12', slot_id: 'slot:2026-09-15T10:00+03:00/12:00' } } },
+      });
+      expectTextFallback(toWorkflowResult(null, ctx({ conversation: c })));
+    });
+
+    test('capture_pending (a slot was just tapped) → no buttons', () => {
+      const c = conv({
+        current_state: 'close',
+        workflow_data: { bot_turns: 3, capture_pending: { slot_id: 'slot:2026-09-14T16:00+03:00/18:00', time_text: null, at: MON_11.toISOString() } },
+      });
+      expectTextFallback(toWorkflowResult(null, ctx({ conversation: c })));
+    });
+
+    test('the button text invites a time pick; the text variant does not', () => {
+      expect(acks.aiFailure('ar', { withButtons: true })).not.toBe(acks.aiFailure('ar'));
+      expect(acks.aiFailure('en', { withButtons: true })).toMatch(/pick a time/);
+      expect(acks.aiFailure('en')).not.toMatch(/pick a time|call/);
+    });
   });
 
   test('AI failure during a handoff keeps the open person request and sends no buttons', () => {
@@ -286,10 +339,30 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(r.leadMeta).toMatchObject({ source: 'model', msgId: 'm2', inboundText: 'عندي كافيه\nبإربد' });
   });
 
-  test('without deadlineAt the deadline is now + 18 s', async () => {
+  test('without deadlineAt the deadline is now + 25 s', async () => {
     generateValidatedAIReply.mockResolvedValue({ reply: 'هلا', action: 'NONE' });
     await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'هلا' }], { now: MON_11 });
-    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 18000);
+    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 25000);
+  });
+
+  test('SHIFT_AI_DEADLINE_MS overrides the default deadline (read at module load)', async () => {
+    process.env.SHIFT_AI_DEADLINE_MS = '30000';
+    try {
+      let shift;
+      let provider;
+      let prismaMock;
+      jest.isolateModules(() => {
+        provider = require('../src/ai/provider');
+        prismaMock = require('../src/config/prisma');
+        shift = require('../src/workflows/shift');
+      });
+      prismaMock.message.findMany.mockResolvedValue([]);
+      provider.generateValidatedAIReply.mockResolvedValue({ reply: 'هلا', action: 'NONE' });
+      await shift.processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'هلا' }], { now: MON_11 });
+      expect(provider.generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 30000);
+    } finally {
+      delete process.env.SHIFT_AI_DEADLINE_MS;
+    }
   });
 
   test('a tier-1 human request skips the AI', async () => {
@@ -336,9 +409,16 @@ describe('SHIFT workflow — processShiftBatch', () => {
 
   test('English batch answers the fallback in English', async () => {
     generateValidatedAIReply.mockResolvedValue(null);
-    const r = await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'How much does the bot cost?' }], { now: MON_11 });
+    const r = await processShiftBatch(business, conv({ workflow_data: { bot_turns: 2 } }), [{ id: 'm1', message_type: 'text', text_body: 'How much does the bot cost?' }], { now: MON_11 });
     expect(r.messages[0].text).toBe(acks.aiFailure('en', { withButtons: true }));
     expect(r.messages[0].buttons[0].title).toBe('Today 4–6 pm');
+  });
+
+  test('AI failure on the first English message → English text fallback, no buttons', async () => {
+    generateValidatedAIReply.mockResolvedValue(null);
+    const r = await processShiftBatch(business, conv({ current_state: null }), [{ id: 'm1', message_type: 'text', text_body: 'Hello, what is Karam Bot?' }], { now: MON_11 });
+    expect(r.kind).toBe('fallback');
+    expect(r.messages).toEqual([{ type: 'text', text: acks.aiFailure('en', { withButtons: false }) }]);
   });
 });
 

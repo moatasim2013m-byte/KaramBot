@@ -193,12 +193,12 @@ function expiredSlot(lang) {
 function aiFailure(lang, { withButtons = false } = {}) {
   if (withButtons) {
     return isEn(lang)
-      ? "I got stuck for a moment — your message is saved and I'll continue with you. Meanwhile, shall I note a time for the call?"
-      : 'علّقت شوي — رسالتك محفوظة وبرجع أكمّل معك. بالوقت هذا: بتحب أسجّللك وقت للمكالمة؟';
+      ? 'Sorry, my reply is delayed right now. Your message reached us and the SHIFT team will continue with you here. If you like, pick a time for a short call:'
+      : 'معلش، تأخر ردّي شوي. رسالتك وصلت، وفريق شِفت بيكمّل معك هون. وإذا بتحب نرتّب مكالمة قصيرة، اختار وقت:';
   }
   return isEn(lang)
-    ? "I got stuck for a moment — your message is saved and I'll continue with you here."
-    : 'علّقت شوي — رسالتك محفوظة وبرجع أكمّل معك هون.';
+    ? 'Sorry, my reply is delayed right now. Your message reached us and the SHIFT team will continue with you here.'
+    : 'معلش، تأخر ردّي شوي. رسالتك وصلت، وفريق شِفت بيكمّل معك هون.';
 }
 
 function optOut(lang) {

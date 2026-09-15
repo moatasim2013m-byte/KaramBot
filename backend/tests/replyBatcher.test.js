@@ -33,6 +33,7 @@ const whatsapp = require('../src/services/whatsapp');
 const alerts = require('../src/services/alerts');
 const shift = require('../src/workflows/shift');
 const { toWorkflowResult } = require('../src/workflows/shift/results');
+const acks = require('../src/workflows/shift/acks');
 const batcher = require('../src/services/replyBatcher');
 const { persistInbound, processInboundMessage } = require('../src/services/messageProcessor');
 
@@ -360,7 +361,8 @@ describe('runBatch', () => {
   });
 
   test('6. AI failure → exactly one fallback outbound, pending, ai_enabled untouched', async () => {
-    const { biz, conv } = seedShift();
+    // Mid-conversation with no call time chosen: the fallback carries the slot buttons.
+    const { biz, conv } = seedShift({ conversation: { current_state: 'discovery', workflow_data: { bot_turns: 2 } } });
     const a = seedInbound(conv, 'بدي أعرف أكثر');
     shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) => {
       seedInbound(conv, 'وكمان سؤال', { ageMs: 0 }); // must not trigger a regeneration after a fallback
@@ -376,8 +378,9 @@ describe('runBatch', () => {
     expect(whatsapp.sendInteractiveButtons).toHaveBeenCalledTimes(1);
     const [, , to, body, buttons] = whatsapp.sendInteractiveButtons.mock.calls[0];
     expect(to).toBe(CUSTOMER);
-    expect(body).toContain('علّقت شوي');
+    expect(body).toBe(acks.aiFailure('ar', { withButtons: true }));
     expect(buttons).toHaveLength(3);
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
     const out = botOutbound(conv);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ status: 'sent', message_type: 'interactive', is_ai_generated: true });
@@ -390,6 +393,34 @@ describe('runBatch', () => {
     expect(row(a.id).status).toBe('answered');
     expect(alertReasons()).toEqual(['ai_failure']);
     expect(alerts.sendStaffAlert.mock.calls[0][0].business.id).toBe(biz.id);
+  });
+
+  test('6b. AI failure on the very first message → one plain-text fallback, no slot buttons', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) =>
+      toWorkflowResult(null, { business, conversation, batchMessages: batch, now }));
+
+    const r = await batcher.runBatch(conv.id);
+    batcher.cancelAll();
+    await settle();
+
+    expect(r).toEqual({ outcome: 'fallback', sent: 1 });
+    expect(whatsapp.sendInteractiveButtons).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    expect(whatsapp.sendText.mock.calls[0][2]).toBe(CUSTOMER);
+    expect(whatsapp.sendText.mock.calls[0][3]).toBe(acks.aiFailure('ar', { withButtons: false }));
+    const out = botOutbound(conv);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ status: 'sent', message_type: 'text', is_ai_generated: true });
+    expect(out[0].raw_payload.kind).toBe('fallback');
+    const c = convRow(conv.id);
+    expect(c.status).toBe('pending');
+    expect(c.ai_enabled).toBe(true);
+    expect(c.workflow_data.needs_team.reason).toBe('ai_failure');
+    expect(c.workflow_data.slot_offers).toBeUndefined();
+    expect(row(a.id).status).toBe('answered');
+    expect(alertReasons()).toEqual(['ai_failure']);
   });
 
   describe('7. human active → rows awaiting_staff, no AI, no send', () => {
@@ -651,13 +682,16 @@ describe('runBatch', () => {
   test('onRetry renews the lease and re-posts the typing indicator', async () => {
     const { conv } = seedShift();
     const a = seedInbound(conv, 'مرحبا');
+    let budgetMs;
     shift.processShiftBatch.mockImplementation(async (business, conversation, batch, opts) => {
-      expect(opts.deadlineAt - opts.now.getTime()).toBe(18000);
+      budgetMs = opts.deadlineAt - opts.now.getTime();
       await opts.onRetry();
       return textResult();
     });
     await batcher.runBatch(conv.id);
     await settle();
+    // 25 s: live Gemini latency reached 12–17 s (2026-09-15), so the old 18 s cut good replies off.
+    expect(budgetMs).toBe(25000);
     expect(whatsapp.markAsRead).toHaveBeenCalledWith('pnid_shift', 'plain_test_token', a.meta_message_id, { typing: true });
   });
 });
