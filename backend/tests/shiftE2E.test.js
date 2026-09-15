@@ -1,5 +1,5 @@
 /**
- * shiftE2E.test.js — PR1 end to end through the real express app.
+ * shiftE2E.test.js — PR1 and PR2 end to end through the real express app.
  *
  * Signed webhook → routes/whatsapp (persist before 200) → messageProcessor → replyBatcher (quiet
  * window on jest fake timers) → workflows/shift → ai/provider → services/whatsapp → axios.
@@ -14,9 +14,14 @@ jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb
 jest.mock('axios');
 
 const mockGenerateContent = jest.fn();
+// The model parameters of every call (system instruction, response schema): the prompt path is observable.
+const mockModelParams = [];
 jest.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
-    getGenerativeModel: () => ({ generateContent: mockGenerateContent }),
+    getGenerativeModel: (params) => {
+      mockModelParams.push(params);
+      return { generateContent: mockGenerateContent };
+    },
   })),
 }));
 
@@ -148,6 +153,7 @@ beforeEach(() => {
     return { status: 200, data: { messages: [{ id: `wamid.out${outSeq}` }] } };
   });
   mockGenerateContent.mockReset();
+  mockModelParams.length = 0;
   mockGenerateContent.mockResolvedValue(modelReply({
     reply: 'أهلين فيك! شو نوع منشأتك؟', action: 'NONE', stage: 'discovery',
   }));
@@ -244,9 +250,12 @@ describe('SHIFT bot end to end', () => {
     await settle();
     await advance(5000);
 
-    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    // PR2 validators (G1): an invented price is never sent. The reply is regenerated once with a hint;
+    // the same price again → the concierge stage line replaces the model's words, still one reply.
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
     expect(sends()).toHaveLength(2);
-    expect(sendText(sends()[1])).toBe('الباقات بتبدأ من 25 دينار بالشهر.');
+    expect(sendText(sends()[1])).toBe(require('../src/workflows/shift/validators').stageFallback('handoff', 'ar'));
+    expect(sendText(sends()[1])).not.toContain('25');
     conv = conversationOf();
     expect(conv.ai_enabled).toBe(true);
     expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
@@ -876,5 +885,406 @@ describe('reliability decisions end to end (D17–D24)', () => {
     expect(noteSends()).toHaveLength(1);
     const notes = botRows().filter((m) => m.raw_payload.kind === 'sla_note');
     expect(notes.map((m) => m.status).sort()).toEqual(['cancelled', 'sent']);
+  });
+});
+
+// ─── PR2 sales quality, end to end ───────────────────────────────────────────
+//
+// Same real app and fakes. The model is scripted per turn; everything between the signed webhook and the
+// mocked Graph POST is production code: pre-fill parsing, prompt v2, results, validators, the role-play
+// sandbox, the part sender with its intent rows (D17) and the sweeper's nudge step.
+
+describe('PR2 sales quality end to end', () => {
+  const hours = require('../src/workflows/shift/hours');
+  const buttons = require('../src/workflows/shift/buttons');
+  const roleplay = require('../src/workflows/shift/roleplay');
+  const validators = require('../src/workflows/shift/validators');
+  const { SHIFT_KNOWLEDGE } = require('../src/workflows/shift/prompt');
+  const { runSweep } = require('../src/services/shiftSweeper');
+  const PR2_ENV = ['SHIFT_PROMPT_V1', 'SHIFT_ROLEPLAY', 'SHIFT_SAMPLES_VETTED', 'SHIFT_NUDGES', 'SHIFT_MEDIA'];
+  const ARABIC = /[ء-ي]/;
+  const OFFERS = buttons.slotOffers(hours.resolveTeamHours({}), START, 'ar');
+  const INTRO = 'أهلًا وسهلًا، أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم اللي بنركّبه على رقم مطعمك، بس هون بمعلومات شِفت.';
+
+  beforeEach(() => {
+    for (const k of PR2_ENV) delete process.env[k];
+  });
+  afterEach(() => {
+    for (const k of PR2_ENV) delete process.env[k];
+  });
+
+  function script(...replies) {
+    for (const r of replies) mockGenerateContent.mockResolvedValueOnce(modelReply({ next_step: 'question', action_args: {}, buttons: [], lead: {}, ...r }));
+  }
+
+  function seedConversation(business, fields = {}) {
+    return db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true,
+        last_inbound_at: START, last_message_at: START, ...fields,
+      }],
+    }).conversations[0];
+  }
+
+  /** One customer message through the signed webhook and the quiet window; returns the Graph sends it caused. */
+  async function say(text, { wait = 5000 } = {}) {
+    const before = sends().length;
+    const res = await postWebhook(inboundPayload({ text }));
+    expect(res.status).toBe(200);
+    await settle();
+    await advance(wait);
+    return sends().slice(before);
+  }
+
+  const userTurn = (call) => mockGenerateContent.mock.calls[call][0].contents[0].parts[0].text;
+  const outboundRows = () => db.store.messages.filter((m) => m.direction === 'outbound');
+
+  test('site pre-fill «مرحبًا شِفت 👋 عندي مطعم أو كافيه…» → lead seeded from the template, one reply opening with the canonical intro', async () => {
+    seedShiftBusiness();
+    const PREFILL = 'مرحبًا شِفت 👋 عندي مطعم أو كافيه. أحتاج: ردود واتساب، الحجوزات والمواعيد. الاسم: محمد. الهاتف: 0791234567. متى نحكي؟';
+    script({ reply: `${INTRO} أقرب أوقات الفريق:`, stage: 'close', next_step: 'buttons', buttons: OFFERS.map((o) => ({ id: o.id, title: o.title })), lead: { interest: 'hot' } });
+
+    const parts = await say(PREFILL);
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    // Prompt v2: the static prompt is the system instruction, the pre-fill travels in the user turn.
+    expect(mockModelParams[0].systemInstruction).toContain('# الصدق');
+    expect(userTurn(0)).toContain('مطعم أو كافيه');
+    expect(parts).toHaveLength(1);
+    expect(sendText(parts[0]).startsWith(INTRO)).toBe(true);
+    expect(parts[0].type).toBe('interactive');
+    expect(parts[0].interactive.action.buttons.map((b) => b.reply.id)).toEqual(OFFERS.map((o) => o.id));
+    expect(parts[0].biz_opaque_callback_data).toBe(botRows()[0].id);
+
+    const conv = conversationOf();
+    const lead = conv.workflow_data.lead;
+    expect(lead).toMatchObject({ sector: 'restaurant', name: 'محمد', source: { type: 'site' } });
+    expect(lead.need).toEqual(expect.arrayContaining(['ردود واتساب', 'الحجوزات والمواعيد']));
+    expect(lead.sector_text).toBeUndefined();
+    expect((lead.customer_numbers || []).map(String)).not.toContain('0791234567');
+    expect(conv.workflow_data.prefill).toMatchObject({ lang: 'ar', truncated: false });
+    expect(conv.workflow_data.disclosed_at).toBeTruthy();
+    expect(inboundRows().map((m) => m.status)).toEqual(['answered']);
+  });
+
+  test('«جرّبني» → setup ask → facts → an order total «حسب أسعارك» from the closure → «خلص» → debrief; no order is created', async () => {
+    const business = seedShiftBusiness();
+    seedConversation(business, {
+      current_state: 'fit',
+      workflow_data: { lead: { sector: 'restaurant', need: ['الطلبات بالليل'], version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() },
+    });
+
+    // 1. The model proposes the setup; the server appends the fixed ask.
+    script({ reply: 'أكيد، خلّيني أصير كرم تبع مطعمك.', stage: 'roleplay_setup', next_step: 'confirmed' });
+    const t1 = await say('جرّبني');
+    expect(t1).toHaveLength(1);
+    expect(sendText(t1[0])).toBe(`أكيد، خلّيني أصير كرم تبع مطعمك.\n\n${roleplay.setupAsk('restaurant', 'ar')}`);
+    expect(conversationOf().current_state).toBe('roleplay_setup');
+
+    // 2. The facts → START_ROLEPLAY → the labelled start line.
+    const FACTS = ['شاورما 3 دنانير', 'برجر 4', 'توصيل داخل إربد'];
+    script({ reply: 'أهلًا فيك بمطعم الساحة، شو بتحب تطلب؟', action: 'START_ROLEPLAY', action_args: { sector: 'restaurant', business_name: 'مطعم الساحة', facts: FACTS }, stage: 'roleplay_setup' });
+    const t2 = await say('مطعم الساحة، شاورما 3 دنانير، برجر 4، توصيل داخل إربد');
+    expect(t2).toHaveLength(1);
+    expect(sendText(t2[0]).startsWith(roleplay.startLine('مطعم الساحة', 'ar'))).toBe(true);
+    expect(conversationOf().current_state).toBe('roleplay');
+
+    // 3. In character: 10 is not a number the customer typed, but 2×3 + 1×4 with «حسب أسعارك» passes.
+    const total = 'شاورما عدد 2 بـ3 دنانير وبرجر عدد 1 بـ4 — المجموع 10 دنانير حسب أسعارك. بتأكد الطلب؟';
+    script({ reply: total, stage: 'sample' });
+    const t3 = await say('بدي 2 شاورما و1 برجر');
+    expect(t3).toHaveLength(1);
+    expect(t3[0].type).toBe('text');
+    expect(sendText(t3[0])).toBe(total);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+
+    // 4. «خلص» → the fixed debrief, no model call, no buttons.
+    const t4 = await say('خلص');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    expect(t4).toHaveLength(1);
+    expect(t4[0].type).toBe('text');
+    expect(sendText(t4[0])).toBe(roleplay.endLine('restaurant', 'ar'));
+
+    const conv = conversationOf();
+    expect(conv.current_state).toBe('close');
+    expect(conv.workflow_data.roleplay).toMatchObject({ active: false, end_reason: 'done', business_name: 'مطعم الساحة' });
+    expect(conv.workflow_data.lead.business_name).toBe('مطعم الساحة');
+    expect(conv.workflow_data.lead.name).toBeUndefined();
+    expect(conv.status).toBe('open');
+    expect(db.store.orders).toHaveLength(0);
+    expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
+  });
+
+  describe('owner phone test (2026-09-15): agreeing to a call without a time records nothing', () => {
+    function tapPayload(id, title) {
+      const tap = inboundPayload({ text: 'x' });
+      tap.entry[0].changes[0].value.messages[0] = {
+        ...tap.entry[0].changes[0].value.messages[0],
+        type: 'interactive',
+        interactive: { type: 'button_reply', button_reply: { id, title } },
+      };
+      delete tap.entry[0].changes[0].value.messages[0].text;
+      return tap;
+    }
+
+    test('AR «صح عليكم طيب يلا» + a CAPTURE_TIME with a slot title → slot buttons, no ack; the tap then records the tapped slot', async () => {
+      const business = seedShiftBusiness();
+      seedConversation(business, {
+        current_state: 'close',
+        workflow_data: { lead: { business_name: 'بيكابو', sector: 'other', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString() },
+      });
+      script({
+        reply: 'ممتاز جداً! عشان ننسّق المكالمة، اختار الوقت المناسب إلك أو احكيلي متى بفرغ وقتك. أقرب أوقات الفريق:',
+        action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا 10–12 بتوقيت عمّان' }, stage: 'close', next_step: 'buttons',
+        lead: { preferred_time: 'بكرا 10–12' },
+      });
+
+      const parts = await say('صح عليكم طيب يلا');
+
+      expect(parts).toHaveLength(1);
+      expect(parts[0].type).toBe('interactive');
+      const body = sendText(parts[0]);
+      expect(body).not.toContain('سجّلت طلب مكالمة');
+      expect(body.endsWith(acks.slotsBody('ar'))).toBe(true);
+      const ids = parts[0].interactive.action.buttons.map((b) => b.reply.id);
+      expect(ids).toEqual(OFFERS.slice(0, 3).map((o) => o.id));
+      let conv = conversationOf();
+      expect(conv.workflow_data.lead.preferred_time).toBeUndefined();
+      expect(conv.workflow_data.needs_team).toBeFalsy();
+      expect(conv.workflow_data.capture_pending == null || conv.workflow_data.capture_pending.time_text == null).toBe(true);
+      expect(conv.current_state).toBe('close');
+      expect(conv.status).toBe('open');
+      expect(inboundRows().map((m) => m.status)).toEqual(['answered']);
+
+      // (a) The customer taps a slot: that time is stored, and the missing name is asked for.
+      const offer = OFFERS[0];
+      await postWebhook(tapPayload(offer.id, offer.title));
+      await settle();
+      await advance(100);
+      expect(sends()).toHaveLength(2);
+      expect(sendText(sends()[1])).not.toContain('سجّلت طلب مكالمة');
+      conv = conversationOf();
+      expect(conv.workflow_data.lead.preferred_time.slot_id).toBe(offer.id);
+      expect(conv.workflow_data.capture_pending).toMatchObject({ slot_id: offer.id });
+
+      // The name arrives → the capture ack names the tapped slot, alone.
+      script({ reply: 'تشرفنا يا سامي.', stage: 'close', lead: { name: 'سامي' } });
+      const last = await say('سامي');
+      expect(last).toHaveLength(1);
+      expect(sendText(last[0])).toContain('سجّلت طلب مكالمة: سامي، بيكابو، ');
+      conv = conversationOf();
+      expect(conv.current_state).toBe('captured');
+      expect(conv.workflow_data.lead.preferred_time.slot_id).toBe(offer.id);
+    });
+
+    test('EN "Sounds good, let\'s do it" + a CAPTURE_TIME with an invented time → English slot buttons, nothing stored', async () => {
+      const business = seedShiftBusiness();
+      seedConversation(business, {
+        current_state: 'close',
+        workflow_data: { lead: { business_name: 'Peekaboo', sector: 'other', language: 'en', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString() },
+      });
+      script({
+        reply: "Great! To arrange the call, pick a time that suits you or tell me when you're free. The team's nearest times:",
+        action: 'CAPTURE_TIME', action_args: { time_text: 'tomorrow 10–12' }, stage: 'close', next_step: 'buttons',
+      });
+
+      const parts = await say("Sounds good, let's do it");
+
+      expect(parts).toHaveLength(1);
+      expect(parts[0].type).toBe('interactive');
+      const body = sendText(parts[0]);
+      expect(body).not.toMatch(/call request noted/i);
+      expect(body).not.toMatch(ARABIC);
+      expect(body.endsWith(acks.slotsBody('en'))).toBe(true);
+      const offersEn = buttons.slotOffers(hours.resolveTeamHours({}), START, 'en');
+      expect(parts[0].interactive.action.buttons.map((b) => b.reply.id)).toEqual(offersEn.slice(0, 3).map((o) => o.id));
+      const conv = conversationOf();
+      expect(conv.workflow_data.lead.preferred_time).toBeUndefined();
+      expect(conv.current_state).toBe('close');
+      expect(conv.status).toBe('open');
+    });
+  });
+
+  test('SEND_SAMPLE for a vetted sector → one image-header interactive sent through its own intent row', async () => {
+    const business = seedShiftBusiness({ samples_vetted: ['restaurant'] });
+    seedConversation(business, {
+      current_state: 'fit',
+      workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() },
+    });
+    script({ reply: 'تمام، هاد مثال على مطعم.', action: 'SEND_SAMPLE', action_args: { sector: 'restaurant' }, stage: 'sample', next_step: 'buttons' });
+
+    const parts = await say('أي أوريني');
+
+    const cards = parts.filter((p) => p.type === 'interactive' && p.interactive.header && p.interactive.header.type === 'image');
+    expect(cards).toHaveLength(1);
+    const [card] = cards;
+    expect(card.interactive.header.image.link).toMatch(/^https:\/\/shifts-ai\.com\/assets\/samples\/restaurant-square-v1\.png$/);
+    expect(card.interactive.body.text.startsWith('مثال توضيحي')).toBe(true);
+    expect(card.interactive.action.buttons.map((b) => b.reply.id)).toEqual(['sample_roleplay:restaurant', 'sample_page:restaurant', 'lead_talk']);
+    // D17: the intent row exists before the Graph call and its id rides as callback data.
+    const intent = outboundRows().find((m) => m.id === card.biz_opaque_callback_data);
+    expect(intent).toBeTruthy();
+    expect(intent).toMatchObject({ status: 'sent', is_ai_generated: true });
+    expect(intent.raw_payload).toMatchObject({ part_type: 'interactive', image_link: card.interactive.header.image.link });
+    for (const p of parts) expect(outboundRows().some((m) => m.id === p.biz_opaque_callback_data)).toBe(true);
+
+    const conv = conversationOf();
+    expect(conv.current_state).toBe('sample');
+    expect(conv.workflow_data.samples_sent).toMatchObject({ image: 'restaurant' });
+  });
+
+  test('SEND_SAMPLE for an unvetted sector → the role-play setup ask instead of an image', async () => {
+    const business = seedShiftBusiness();
+    seedConversation(business, {
+      current_state: 'fit',
+      workflow_data: { lead: { sector: 'clinic', version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() },
+    });
+    script({ reply: 'تمام.', action: 'SEND_SAMPLE', action_args: { sector: 'clinic' }, stage: 'sample', next_step: 'buttons' });
+
+    const parts = await say('أي أوريني');
+
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe('text');
+    expect(sendText(parts[0])).toBe(`تمام.\n\n${roleplay.setupAsk('clinic', 'ar')}`);
+    expect(axios.post.mock.calls.some(([, p]) => p && p.interactive && p.interactive.header && p.interactive.header.type === 'image')).toBe(false);
+    const conv = conversationOf();
+    expect(conv.current_state).toBe('roleplay_setup');
+    expect(conv.workflow_data.roleplay).toMatchObject({ active: false, sector: 'clinic', setup_asks: 1 });
+    expect(conv.workflow_data.samples_sent.image).toBeFalsy();
+  });
+
+  test('the model inventing «50 دينار» → one regeneration, then the stage fallback; the price is never sent', async () => {
+    const business = seedShiftBusiness();
+    seedConversation(business, {
+      current_state: 'objection',
+      workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 2, disclosed_at: START.toISOString() },
+    });
+    const invented = { reply: 'الاشتراك عنا 50 دينار بالشهر، بتحب نبلش؟', stage: 'objection' };
+    script(invented, invented);
+
+    const parts = await say('طيب كم الاشتراك تقريبًا؟');
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(userTurn(1)).toContain(validators.hintFor('digits', 'ar'));
+    expect(parts).toHaveLength(1);
+    expect(sendText(parts[0])).toBe(validators.stageFallback('objection', 'ar'));
+    expect(axios.post.mock.calls.map(([, p]) => JSON.stringify(p || {})).join('\n')).not.toMatch(/50|خمسين/);
+    const conv = conversationOf();
+    expect(conv.workflow_data.validator_blocks.map((b) => [b.codes, b.attempt])).toEqual([[['digits'], 1], [['digits'], 2]]);
+    expect(inboundRows().map((m) => m.status)).toEqual(['answered']);
+  });
+
+  test('«are you a bot?» with a dodging model → the honest identity line', async () => {
+    seedShiftBusiness();
+    const dodge = { reply: "I'm here to help with anything you need about SHIFT. What kind of business do you run?", stage: 'opening' };
+    script(dodge, dodge);
+
+    const parts = await say('are you a bot?');
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(parts).toHaveLength(1);
+    expect(sendText(parts[0])).toBe(validators.HONEST_IDENTITY.en);
+    expect(sendText(parts[0])).toMatch(/AI assistant/);
+  });
+
+  test('an Arabizi opener → an English model line is blocked and the Arabic reply goes out; lead.language = ar', async () => {
+    seedShiftBusiness();
+    script(
+      { reply: "Hi! I'm Karam, SHIFT's AI assistant (shifts-ai.com). Who answers your salon's messages at night?", stage: 'opening' },
+      { reply: 'أهلًا وسهلًا، أنا كرم، مساعد شِفت الذكي (shifts-ai.com). مين بيرد على رسائل الصالون بالليل حاليًا؟', stage: 'discovery', lead: { sector: 'other', sector_text: 'صالون حلاقة', city: 'إربد' } },
+    );
+
+    const parts = await say('mar7aba, 3ndi salon 7ela2a b irbid, bdi bot yrod 3al zabayen bil lail');
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(userTurn(1)).toContain(validators.hintFor('language', 'ar'));
+    expect(parts).toHaveLength(1);
+    expect(sendText(parts[0])).toMatch(ARABIC);
+    expect(sendText(parts[0])).not.toMatch(/Karam|Hi!/);
+    expect(conversationOf().workflow_data.lead).toMatchObject({ language: 'ar', sector: 'other', sector_text: 'صالون حلاقة' });
+  });
+
+  test('an English customer → English reply and the /en sector page on shifts-ai.com (role-play off, no vetted image)', async () => {
+    process.env.SHIFT_ROLEPLAY = '0';
+    seedShiftBusiness();
+    script({
+      reply: "Hi, I'm Karam, SHIFT's AI assistant (shifts-ai.com). Here's our restaurants page with a full ordering simulation.",
+      action: 'SEND_SAMPLE', action_args: { sector: 'restaurant' }, stage: 'sample', next_step: 'buttons',
+      lead: { sector: 'restaurant', language: 'en' },
+    });
+
+    const parts = await say('Hi, I run a restaurant in Amman. Can you show me an example?');
+
+    expect(parts.length).toBeGreaterThanOrEqual(1);
+    for (const p of parts) expect(JSON.stringify(p)).not.toMatch(ARABIC);
+    const cta = parts.find((p) => p.type === 'interactive' && p.interactive.type === 'cta_url');
+    expect(cta).toBeTruthy();
+    expect(cta.interactive.action.parameters.url).toMatch(/^https:\/\/shifts-ai\.com\/en\/restaurants\?/);
+    const allText = axios.post.mock.calls.map(([, p]) => JSON.stringify(p || {})).join('\n');
+    expect(allText).not.toContain(['shifts-ai', 'store'].join('.'));
+    expect(sendText(parts[0])).toContain("SHIFT's AI assistant");
+    expect(conversationOf().workflow_data.samples_sent).toMatchObject({ page: 'restaurant' });
+  });
+
+  test('SHIFT_PROMPT_V1=1 → the PR1 prompt path: PR1 system prompt, PR1 schema, the batch as the user turn', async () => {
+    process.env.SHIFT_PROMPT_V1 = '1';
+    seedShiftBusiness();
+    script({ reply: 'أهلين فيك! شو نوع منشأتك؟', stage: 'discovery' });
+
+    const parts = await say('مرحبا، بدي أعرف عن كرم');
+
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    const params = mockModelParams[mockModelParams.length - 1];
+    expect(params.systemInstruction).toContain(SHIFT_KNOWLEDGE.split('\n')[0]);
+    expect(params.systemInstruction).not.toContain('# الصدق');
+    expect(params.generationConfig.responseSchema.required).toEqual(['reply', 'action']);
+    expect(params.generationConfig.responseSchema.properties.action.enum).toEqual(require('../src/workflows/shift/actions').SHIFT_ACTIONS_V1);
+    expect(userTurn(0)).toBe('مرحبا، بدي أعرف عن كرم');
+    expect(parts).toHaveLength(1);
+    expect(sendText(parts[0])).toBe('أهلين فيك! شو نوع منشأتك؟');
+  });
+
+  test('a silent prospect gets exactly one nudge from the sweeper, inside the window and at a friendly hour', async () => {
+    const business = seedShiftBusiness();
+    seedConversation(business, {
+      current_state: 'discovery',
+      workflow_data: { lead: { name: 'سامي', sector: 'restaurant', need: ['الطلبات بالليل'], version: 1 }, bot_turns: 2, disclosed_at: START.toISOString() },
+    });
+    script({ reply: 'عشان طلبات الليل: كرم بيرد من المنيو وبياخد الطلب والمطعم مسكّر. بدك أوريك مثال؟', stage: 'fit' });
+    await say('بتضيع علينا طلبات بالليل');
+    expect(sends()).toHaveLength(1);
+    const reportOf = [];
+    const sweepAt = async (iso) => {
+      jest.setSystemTime(new Date(iso));
+      reportOf.push(await runSweep({ now: new Date() }));
+      await advance(100);
+    };
+
+    // Monday 10:00 + 20 h = Tuesday 06:00 Amman: not friendly yet, and the plan is due at 09:00.
+    await sweepAt('2026-09-14T07:05:00.000Z');
+    const nudge = conversationOf().workflow_data.nudge;
+    expect(nudge).toMatchObject({ kind: 'stage', sent_at: null, dropped_at: null });
+    expect(new Date(nudge.due_at).toISOString()).toBe('2026-09-15T06:00:00.000Z'); // Tue 09:00 Amman
+    await sweepAt('2026-09-15T03:00:00.000Z'); // Tue 06:00 Amman
+    expect(sends()).toHaveLength(1);
+
+    await sweepAt('2026-09-15T06:05:00.000Z'); // Tue 09:05 Amman, window closes at 10:00
+    expect(sends()).toHaveLength(2);
+    const sent = sends()[1];
+    expect(hours.localParts(new Date(), 'Asia/Amman').minutes).toBeGreaterThanOrEqual(9 * 60);
+    expect(sendText(sent)).toContain('أستاذ سامي');
+    expect(sendText(sent)).not.toMatch(/واتساب ما بيسمحلنا|النافذة/);
+    expect(sent.interactive.action.buttons.map((b) => b.reply.id)).toEqual(['sample_roleplay:restaurant', 'send_sample_now', 'nudge_not_now']);
+    const row = outboundRows().find((m) => m.id === sent.biz_opaque_callback_data);
+    expect(row).toMatchObject({ status: 'sent' });
+    expect(row.raw_payload.kind).toBe('nudge');
+
+    await sweepAt('2026-09-15T06:20:00.000Z');
+    await sweepAt('2026-09-15T06:40:00.000Z');
+    expect(sends()).toHaveLength(2);
+    const conv = conversationOf();
+    expect(conv.workflow_data.nudges_sent).toBe(1);
+    expect(conv.workflow_data.nudge.sent_at).toBeTruthy();
+    expect(reportOf.reduce((n, r) => n + (r.nudges_sent || 0), 0)).toBe(1);
   });
 });

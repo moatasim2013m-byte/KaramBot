@@ -354,6 +354,21 @@ async function failIntent(intent, status, now) {
     data: { status: 'failed', raw_payload: payload },
   });
 
+  // Review r2 #8: an image Graph accepted and could not fetch (131053) — the header-less fallback the
+  // synchronous path would have sent goes out now, before any requeue or «covered» decision.
+  if (payload.fallback_part) {
+    let fallback = null;
+    try {
+      fallback = await replyBatcher.sendMediaFallback({ ...intent, raw_payload: payload }, { now, errorCode: error?.code ?? null });
+    } catch (err) {
+      console.error(`[status] fallback send failed intent=${intent.id}: ${err.message}`);
+    }
+    if (fallback && ['sent', 'ambiguous', 'deduped'].includes(fallback.outcome)) {
+      await markFailed();
+      return 'fallback_sent';
+    }
+  }
+
   const batchIds = Array.isArray(payload.batch_ids) ? payload.batch_ids : [];
   if (!COVERING_KINDS.includes(payload.kind) || !batchIds.length || payload.inbound_status === 'skipped') {
     await markFailed();

@@ -25,6 +25,11 @@ const { sendStaffAlert, alertChannelConfigured } = require('./alerts');
 const { NOTE_WINDOW_MARGIN_MS, windowClosesAt, isWithinServiceWindow } = require('../utils/serviceWindow');
 const { resolveModel } = require('../ai/provider');
 const { graphVersion } = require('./whatsapp');
+// PR2 (contract §11.1): the idle role-play and single-nudge steps. All pure decision modules.
+const followups = require('../workflows/shift/followups');
+const roleplay = require('../workflows/shift/roleplay');
+const { staffTask } = require('../workflows/shift/buttons');
+const { expectedLanguage } = require('../workflows/shift/validators');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -48,6 +53,17 @@ const WINDOW_FLAG_TO_MS = 24 * HOUR_MS;
 const UNANSWERED_MIN_AGE_MS = 2 * MINUTE_MS;
 const UNANSWERED_MAX_AGE_MS = 60 * MINUTE_MS;
 const BACKLOG_AGE_MS = 60 * 1000;
+// PR2: a role-play setup nobody answered for this long is abandoned like an idle role-play.
+const ROLEPLAY_SETUP_IDLE_MS = roleplay.ROLEPLAY_IDLE_MS;
+const ROLEPLAY_STAGES = ['roleplay', 'roleplay_setup'];
+const NUDGE_LOOKBACK_MS = 24 * HOUR_MS;
+// A live example outside its stage is only left behind by a recent write (a tap, a half-applied sweep).
+const ROLEPLAY_STALE_LOOKBACK_MS = 48 * HOUR_MS;
+const STAFF_TASKS_CAP = 20;
+// Outbound rows that never reached the customer do not make "the newest message is ours" true.
+const UNDELIVERED_OUTBOUND = ['failed', 'cancelled', 'ambiguous_unreconciled'];
+const SKIPPED_INBOUND_TYPES = ['reaction', 'system', 'ephemeral'];
+const WINDOW_TASK_SUMMARY = 'النافذة مسكّرة — اتصل';
 
 let running = false;
 let last = { at: null, report: null };
@@ -55,7 +71,8 @@ let last = { at: null, report: null };
 function emptyReport() {
   return {
     stuck_inbound: null, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
-    pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0, errors: [],
+    pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0,
+    roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0, errors: [],
   };
 }
 
@@ -541,6 +558,9 @@ async function sweepUnanswered(business, now, report) {
     });
     // Reactions need no answer; awaiting_staff has its own note and alert.
     if (!inb || inb.message_type === 'reaction' || inb.status === 'awaiting_staff') return;
+    // SHIFT_ROLEPLAY=0 ended a live example on this «خلص» with no reply, by design (§10.2 #7).
+    const rp = workflowData(conv).roleplay;
+    if (rp && rp.end_reason === 'disabled' && toMs(rp.ended_at) >= toMs(inb.created_at)) return;
     // A failed send, one never recorded, one the pre-send check cancelled, or one D18 treated as
     // undelivered did not answer the customer.
     const outbound = await prisma.message.findFirst({
@@ -562,6 +582,228 @@ async function sweepUnanswered(business, now, report) {
   });
 }
 
+// ─── 7. Idle role-play (PR2, contract §3.2 / §11.1) ─────────────────────────
+
+// A reply run holds the lease, or the customer has written and a batch is due: the conversation is not
+// idle, whatever the stored timestamps say, and a silent end now would race the answer.
+async function replyInFlight(conv, now) {
+  const leaseUntil = metadataOf(conv).reply_lease_until;
+  if (leaseUntil && toMs(leaseUntil) > now.getTime()) return true;
+  const waiting = await prisma.message.count({
+    where: { conversation_id: conv.id, direction: 'inbound', status: 'received' },
+  });
+  return waiting > 0;
+}
+
+// The newest activity of a setup (no role-play object timestamp exists before START_ROLEPLAY).
+function setupActivityMs(conv) {
+  const wd = workflowData(conv);
+  const times = [conv.last_inbound_at, wd.last_bot && wd.last_bot.at, wd.roleplay && wd.roleplay.last_turn_at]
+    .map((v) => (v ? toMs(v) : NaN))
+    .filter(Number.isFinite);
+  return times.length ? Math.max(...times) : NaN;
+}
+
+/**
+ * Silent: nothing is sent. An active role-play idle for 15 min (or any active one once SHIFT_ROLEPLAY=0)
+ * ends with end_reason idle|disabled, and a setup nobody answered for 15 min is abandoned; both move the
+ * stage to `close`. A live object whose stage already left the example (review r2 #12) ends as `done`.
+ *
+ * The role-play object is ended first, conditional on the one read (still active, same last turn), and the
+ * stage moves after, conditional on the stage read: a failure between the two leaves an ended example in a
+ * `roleplay` stage (answered as close), never a live example outside it that no sweep selects again.
+ */
+async function sweepRoleplayIdle(business, teamHours, now, report) {
+  const convs = await prisma.conversation.findMany({
+    where: {
+      business_id: business.id,
+      OR: [
+        { current_state: { in: ROLEPLAY_STAGES } },
+        { last_message_at: { gte: ago(now, ROLEPLAY_STALE_LOOKBACK_MS) } },
+      ],
+    },
+  });
+  const enabled = roleplay.roleplayEnabled();
+  await each(report, `roleplay_idle ${business.id}`, convs, async (conv) => {
+    const wd = workflowData(conv);
+    const rp = wd.roleplay && typeof wd.roleplay === 'object' ? wd.roleplay : null;
+    const active = roleplay.isActive(wd);
+    const inStage = ROLEPLAY_STAGES.includes(conv.current_state);
+    if (!inStage && !active) return;
+
+    let reason = null;
+    if (active && !inStage) {
+      reason = 'done';
+    } else if (active) {
+      if (!enabled) reason = 'disabled';
+      else if (roleplay.isIdle(rp, now)) reason = 'idle';
+    } else if (conv.current_state === 'roleplay_setup') {
+      const last = setupActivityMs(conv);
+      if (!enabled) reason = 'disabled';
+      else if (!Number.isFinite(last) || now.getTime() - last >= ROLEPLAY_SETUP_IDLE_MS) reason = 'idle';
+    }
+    if (!reason) return;
+    if (await replyInFlight(conv, now)) return;
+
+    // A setup that never started has no example to end: its object stays as it is (inactive), so the
+    // roleplay_resume nudge, which follows only an example that ran and went idle, is not offered.
+    if (active) {
+      const match = { active: true };
+      if (rp.last_turn_at) match.last_turn_at = rp.last_turn_at;
+      const ended = await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'roleplay',
+        { active: false, ended_at: now.toISOString(), end_reason: reason }, { match });
+      if (!ended) return;
+      // The nudge planned before the example went idle (if any) is cleared, so the next sweep plans the
+      // resume nudge for the same silence.
+      if (wd.nudge && !wd.nudge.sent_at) await jsonb.patchJson('conversations', conv.id, 'workflow_data', { nudge: null });
+    }
+    if (inStage) {
+      const { count } = await prisma.conversation.updateMany({
+        where: { id: conv.id, current_state: conv.current_state },
+        data: { current_state: 'close' },
+      });
+      if (!count && !active) return;
+    }
+    report.roleplay_idle += 1;
+  });
+}
+
+// ─── 8. The single in-window nudge (PR2, contract §8.3 / §11.1) ─────────────
+
+async function newestInboundRow(conversationId) {
+  return prisma.message.findFirst({
+    where: { conversation_id: conversationId, direction: 'inbound', message_type: { notIn: SKIPPED_INBOUND_TYPES } },
+    orderBy: { created_at: 'desc' },
+  });
+}
+
+async function newestDeliveredOutbound(conversationId) {
+  return prisma.message.findFirst({
+    where: { conversation_id: conversationId, direction: 'outbound', status: { notIn: UNDELIVERED_OUTBOUND } },
+    orderBy: { created_at: 'desc' },
+  });
+}
+
+/** Read, append, cap at 20, write whole (contract §1.3). A lost append under a race is acceptable. */
+async function appendStaffTask(conversationId, task) {
+  const fresh = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  const list = Array.isArray(workflowData(fresh).staff_tasks) ? workflowData(fresh).staff_tasks : [];
+  await jsonb.patchJson('conversations', conversationId, 'workflow_data', {
+    staff_tasks: list.concat([task]).slice(-STAFF_TASKS_CAP),
+  });
+}
+
+/**
+ * The nudge could not go out before the window closes: the team gets a call task and a
+ * `window_closing` alert, once per silence (claimed on the inbound the nudge followed).
+ */
+async function flagWindowDrop(business, conv, nudge, now) {
+  const claimed = await jsonb.claimValue('conversations', conv.id, 'metadata', 'nudge_drop_for', nudge.for_inbound_id);
+  if (!claimed) return;
+  await appendStaffTask(conv.id, staffTask('window_closed', WINDOW_TASK_SUMMARY, now, now));
+  const closesAt = windowClosesAt(nudge.for_inbound_at || conv.last_inbound_at);
+  await sendStaffAlert({
+    reason: 'window_closing', business, conversation: conv, now,
+    summary: `nudge dropped (window)${closesAt ? ` — closes at ${closesAt.toISOString()}` : ''}`,
+  });
+}
+
+// Settle an unsent nudge as dropped, only while it is still the same unsent, undropped nudge.
+function markDropped(conv, nudge, reason, now) {
+  return jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'nudge',
+    { dropped_at: now.toISOString(), drop_reason: reason },
+    { match: { for_inbound_id: nudge.for_inbound_id, sent_at: null, dropped_at: null } });
+}
+
+const DELIVERED_OUTCOMES = ['sent', 'ambiguous', 'deduped'];
+
+async function sweepNudges(business, teamHours, now, report) {
+  if (!followups.nudgesEnabled()) return;
+  const convs = await prisma.conversation.findMany({
+    where: { business_id: business.id, last_inbound_at: { gte: ago(now, NUDGE_LOOKBACK_MS) } },
+  });
+  await each(report, `nudges ${business.id}`, convs, async (conv) => {
+    if (conv.status === 'human_takeover' || !notesAllowed(business, conv)) return;
+    const lastInbound = await newestInboundRow(conv.id);
+    if (!lastInbound) return;
+    // Sample flags as delivered, not as written before the send (D17): a card that failed is not «sent», so
+    // the 2 h sample touch is planned instead of the 20 h stage nudge (review minor).
+    const view = await replyBatcher.deliveredView(conv, now);
+    const wd = workflowData(view);
+
+    // Plan: no nudge yet, or the stored one belongs to an older silence.
+    let nudge = wd.nudge && typeof wd.nudge === 'object' ? wd.nudge : null;
+    if (!nudge || nudge.for_inbound_id !== lastInbound.id) {
+      const outbound = await newestDeliveredOutbound(conv.id);
+      const newestMessage = outbound && toMs(outbound.created_at) > toMs(lastInbound.created_at) ? outbound : lastInbound;
+      const planned = followups.planNudge({ conversation: view, lastInbound, lastBot: wd.last_bot, now, newestMessage });
+      if (planned) {
+        await jsonb.patchJson('conversations', conv.id, 'workflow_data', { nudge: planned });
+        nudge = planned;
+        if (planned.dropped_at) {
+          report.nudges_dropped += 1;
+          if (planned.drop_reason === 'window') await flagWindowDrop(business, conv, planned, now);
+          return;
+        }
+      }
+    }
+    if (!nudge) return;
+
+    const convWithNudge = { ...view, workflow_data: { ...wd, nudge } };
+    const staff = await newestStaffOutbound(conv.id);
+    const due = followups.dueDecision(nudge, convWithNudge, now, { newestInbound: lastInbound, newestStaffOutbound: staff });
+    if (due.decision === 'wait' || due.reason === 'settled' || due.reason === 'none') return;
+
+    if (due.decision === 'drop') {
+      if (!(await markDropped(conv, nudge, due.reason, now))) return;
+      report.nudges_dropped += 1;
+      if (due.reason === 'window') await flagWindowDrop(business, conv, nudge, now);
+      return;
+    }
+
+    // Send: claimed before the send, so two sweeps never both deliver; a failed send is not retried.
+    const claimed = await jsonb.claimValue('conversations', conv.id, 'metadata', 'nudge_sent_for', nudge.for_inbound_id);
+    if (!claimed) return;
+    const lang = expectedLanguage([lastInbound.text_body || ''], wd.lead || {});
+    const part = followups.nudgePart(convWithNudge, nudge, lang);
+    const sentAt = now.toISOString();
+    const delivery = await replyBatcher.deliverResult({
+      business,
+      conversation: conv,
+      result: {
+        kind: 'nudge',
+        action: 'NUDGE',
+        messages: [part],
+        stateUpdate: {},
+        workflowDataPatch: { nudge: { ...nudge, sent_at: sentAt }, nudges_sent: (Number(wd.nudges_sent) || 0) + 1 },
+        leadPatch: null,
+        needsTeam: null,
+        alert: null,
+      },
+      batch: [],
+      windowMarginMs: NOTE_WINDOW_MARGIN_MS,
+      // A staff member who stepped in after the plan owns the conversation: the pre-send check refuses.
+      humanGuard: true,
+      // «إيقاف» stored after the silence this nudge follows: the pre-send check refuses (review minor).
+      optedOutSince: nudge.for_inbound_at || lastInbound.created_at,
+      now,
+    });
+    const outcome = delivery && delivery.outcome;
+    if (DELIVERED_OUTCOMES.includes(outcome)) {
+      report.nudges_sent += 1;
+      return;
+    }
+    // Not delivered: record why, over whatever the state write stored, so the Inbox and the next sweep
+    // see a settled nudge instead of one that looks due forever (its claim is already spent).
+    const reason = outcome === 'window_closed' ? 'window' : outcome === 'awaiting_staff' ? 'staff' : 'send_failed';
+    await jsonb.patchJson('conversations', conv.id, 'workflow_data', {
+      nudge: { ...nudge, sent_at: null, dropped_at: now.toISOString(), drop_reason: reason },
+    });
+    report.nudges_dropped += 1;
+    if (reason === 'window') await flagWindowDrop(business, conv, nudge, now);
+  });
+}
+
 // ─── run ─────────────────────────────────────────────────────────────────────
 
 // Order matters: settled or un-paused rows are back to `received` before the orphan step schedules
@@ -574,6 +816,9 @@ const STEPS = [
   ['awaiting_notes', sweepAwaitingNotes],
   ['window_flags', (b, th, now, r) => sweepWindowFlags(b, now, r)],
   ['unanswered', (b, th, now, r) => sweepUnanswered(b, now, r)],
+  // PR2: idle role-plays end before the nudge step, so a just-ended example can get its resume nudge.
+  ['roleplay_idle', sweepRoleplayIdle],
+  ['nudges', sweepNudges],
 ];
 
 /**
@@ -634,7 +879,7 @@ async function getShiftStatus({ now = new Date() } = {}) {
     where: { business_id: business.id, direction },
     orderBy: { created_at: 'desc' },
   });
-  const [lastIn, lastOut, pending, awaitingStaff, receivedBacklog, unconfirmed, ambiguous] = await Promise.all([
+  const [lastIn, lastOut, pending, awaitingStaff, receivedBacklog, unconfirmed, ambiguous, convs] = await Promise.all([
     newest('inbound'),
     newest('outbound'),
     prisma.conversation.count({ where: { business_id: business.id, status: 'pending' } }),
@@ -647,7 +892,16 @@ async function getShiftStatus({ now = new Date() } = {}) {
     prisma.message.count({
       where: { business_id: business.id, direction: 'outbound', status: { in: ['ambiguous', 'ambiguous_unreconciled'] } },
     }),
+    // PR2 counters live in workflow_data (no JSON-path filters allowed): recent conversations, counted in JS.
+    prisma.conversation.findMany({
+      where: { business_id: business.id, last_message_at: { gte: ago(now, 2 * NUDGE_LOOKBACK_MS) } },
+    }),
   ]);
+  const nudgesPending = convs.filter((c) => {
+    const n = workflowData(c).nudge;
+    return !!(n && typeof n === 'object' && !n.sent_at && !n.dropped_at);
+  }).length;
+  const roleplaysActive = convs.filter((c) => roleplay.isActive(workflowData(c))).length;
   const iso = (row) => (row && row.created_at ? new Date(row.created_at).toISOString() : null);
 
   return {
@@ -666,9 +920,11 @@ async function getShiftStatus({ now = new Date() } = {}) {
     received_backlog: receivedBacklog,
     unconfirmed,
     ambiguous,
+    nudges_pending: nudgesPending,
+    roleplays_active: roleplaysActive,
     sweep: lastSweep(),
     now: new Date(now).toISOString(),
   };
 }
 
-module.exports = { runSweep, getShiftStatus, lastSweep, isCloser };
+module.exports = { runSweep, getShiftStatus, lastSweep, isCloser, STEPS };

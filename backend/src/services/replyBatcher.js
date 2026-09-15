@@ -36,9 +36,14 @@ const lead = require('../workflows/shift/lead');
 const { isShiftButtonId, handleButton } = require('../workflows/shift/buttons');
 const { isOptOutCommand, optOutResult } = require('../workflows/shift/optout');
 const { pickLanguage } = require('../workflows/shift/acks');
+const roleplay = require('../workflows/shift/roleplay');
+const media = require('../workflows/shift/media');
+const { expectedLanguage } = require('../workflows/shift/validators');
+const { vettedSectors } = require('../workflows/shift/assets');
 const { isWithinServiceWindow, REPLY_WINDOW_MARGIN_MS } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
 const sseEmitter = require('../utils/sseEmitter');
+const { SITE_HOST } = require('../config/site');
 
 const LEASE_TTL_MS = 60000;
 // 25 s: live Gemini latency reached 12–17 s on 2026-09-15; the typing indicator covers the wait.
@@ -62,6 +67,16 @@ const RECONCILE_LIMIT = 200;
 const STRANDED_AFTER_MS = 5 * 60 * 1000;
 // A deadline this close is "now": avoids a 3 ms re-arm loop from clock rounding.
 const DUE_TOLERANCE_MS = 25;
+// PR2 (contract §1.4 / §10.2): a result has 1–3 parts of these types; a later part may wait up to
+// 1.5 s (the sample page follow-up) before its own pre-send check.
+const MAX_PARTS = 3;
+const PART_TYPES = ['text', 'interactive', 'list', 'cta_url', 'image'];
+const MAX_PART_DELAY_MS = 1500;
+// Graph definitely refused the part: its `fallback` (e.g. the same buttons without an image header) is
+// sent once. Never after `ambiguous` — the original may have arrived.
+const FALLBACK_REASONS = ['rejected', 'invalid_payload'];
+// Media transcription that took this much of the lease renews it before the model call (§10.2 #1).
+const MEDIA_RENEW_AFTER_MS = 20000;
 
 // Inbound rows whose covering send has not been confirmed yet. Not `received` (a run would answer them
 // again) and not `answered` (the customer may have nothing).
@@ -280,6 +295,80 @@ async function outboundSince(conversationId, since) {
   });
 }
 
+// ─── delivered facts (review r1-7) ───────────────────────────────────────────
+
+const DELIVERED_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+const ROLEPLAY_START_RE = /^\s*(?:مثال توضيحي 🎭|Illustrative example 🎭)/;
+// The end note in front of the first reply after a silent idle end (results.withEndNote).
+const ROLEPLAY_END_NOTE_RE = /^\s*\((?:كان مثال توضيحي|That was an illustrative example)/;
+
+/**
+ * State is written before the send (D17), so "the sample was sent", "the example started" and "Karam
+ * introduced himself" are recorded even when that send then failed and the rows went back to `received`.
+ * A rerun must not trust those flags: before a workflow reads the conversation, each one is checked
+ * against the outbound intent rows, and a flag with no row that may have reached the customer is taken
+ * out of the in-memory view (never written back). The rerun then sends the card again instead of
+ * «المثال وصلك فوق 👆», and an example whose start line never arrived gets that line with its first turn.
+ */
+async function deliveredView(conv, now = new Date()) {
+  const wd = conv && conv.workflow_data && typeof conv.workflow_data === 'object' ? conv.workflow_data : null;
+  if (!wd) return conv;
+  const samples = wd.samples_sent && typeof wd.samples_sent === 'object' ? wd.samples_sent : null;
+  const rp = wd.roleplay && wd.roleplay.active === true && wd.roleplay.started_at ? wd.roleplay : null;
+  const checkImage = !!(samples && samples.image);
+  const checkPage = !!(samples && samples.page);
+  const checkDisclosed = !!wd.disclosed_at;
+  const announced = wd.roleplay && wd.roleplay.active !== true && wd.roleplay.end_reason === 'idle' && wd.roleplay.end_announced_at
+    ? wd.roleplay
+    : null;
+  if (!checkImage && !checkPage && !rp && !checkDisclosed && !announced) return conv;
+  let rows;
+  try {
+    rows = await outboundSince(conv.id, new Date(toMs(now) - DELIVERED_LOOKBACK_MS));
+  } catch (err) {
+    console.error(`[batcher] delivered view failed conversation=${conv.id}: ${err.message}`);
+    return conv;
+  }
+  const payload = (m) => m.raw_payload || {};
+  // A flag is withdrawn only on evidence: an intent that carried it failed, and none that carried it may
+  // have arrived (a header-less fallback of the card counts as the card).
+  const undelivered = (match) => {
+    const carried = (rows || []).filter(match);
+    return carried.some((m) => UNDELIVERED.includes(m.status)) && !carried.some((m) => !UNDELIVERED.includes(m.status));
+  };
+  const next = { ...wd };
+  let changed = false;
+  if (checkImage && undelivered((m) => (payload(m).image_link && String(payload(m).image_link).includes(samples.image))
+    || payload(m).fallback_of)) {
+    next.samples_sent = { ...(next.samples_sent || samples), image: null };
+    changed = true;
+  }
+  if (checkPage && undelivered((m) => payload(m).part_type === 'cta_url')) {
+    next.samples_sent = { ...(next.samples_sent || samples), page: null };
+    changed = true;
+  }
+  if (rp) {
+    const startedMs = toMs(rp.started_at) - 5000;
+    if (undelivered((m) => toMs(m.created_at) >= startedMs && ROLEPLAY_START_RE.test(m.text_body || ''))) {
+      next.roleplay = { ...rp, start_undelivered: true };
+      changed = true;
+    }
+  }
+  if (announced) {
+    // The note that told the customer the example had ended never arrived: the rerun says it again.
+    const atMs = toMs(announced.end_announced_at) - 5000;
+    if (undelivered((m) => toMs(m.created_at) >= atMs && ROLEPLAY_END_NOTE_RE.test(m.text_body || ''))) {
+      next.roleplay = { ...announced, end_announced_at: null };
+      changed = true;
+    }
+  }
+  if (checkDisclosed && undelivered((m) => typeof m.text_body === 'string' && m.text_body.includes(SITE_HOST))) {
+    next.disclosed_at = null;
+    changed = true;
+  }
+  return changed ? { ...conv, workflow_data: next } : conv;
+}
+
 function inboundStatusOf(payload) {
   return payload.inbound_status || (payload.kind === 'optout' ? 'skipped' : 'answered');
 }
@@ -413,10 +502,15 @@ async function rescheduleIfPending(conversationId) {
 async function handleOptOut({ id, token, business, conv, batch, stop, clock }) {
   cancel(id);
   const now = clock();
-  const lang = pickLanguage((conv.workflow_data && conv.workflow_data.lead) || {}, stop.text_body || '');
+  const wd = conv.workflow_data || {};
+  const lang = pickLanguage(wd.lead || {}, stop.text_body || '');
+  const result = optOutResult({ conversation: conv, lang, now });
+  if (roleplay.isActive(wd)) {
+    // §10.3: «إيقاف» mid-example ends the example and whatever nudge was planned for it.
+    result.workflowDataPatch = { ...result.workflowDataPatch, roleplay: roleplay.endState(wd.roleplay, 'optout', now), nudge: null };
+  }
   const report = await deliverResult({
-    business, conversation: conv, result: optOutResult({ conversation: conv, lang, now }),
-    batch: [stop], leaseToken: token, inboundStatus: 'skipped', now,
+    business, conversation: conv, result, batch: [stop], leaseToken: token, inboundStatus: 'skipped', now,
   });
   if (['state_failed', 'lease_lost'].includes(report.outcome)) {
     return { outcome: runOutcome(report), sent: 0, noRetry: report.noRetry };
@@ -494,6 +588,12 @@ async function runLeased(id, token, clock) {
       if (!batch.length) return { outcome: 'sent', sent: tapsSent };
     }
 
+    if (media.mediaEnabled()) {
+      const enriched = await enrichMedia({ id, token, business, accessToken, batch, clock });
+      if (enriched.leaseLost) return { outcome: 'lease_lost', sent: tapsSent };
+      batch = enriched.batch;
+    }
+
     const newest = batch[batch.length - 1];
     let leaseLost = false;
     const onRetry = async () => {
@@ -507,7 +607,7 @@ async function runLeased(id, token, clock) {
         .catch(() => {});
     };
     const startedAt = clock();
-    result = await shift.processShiftBatch(business, conv, batch, {
+    result = await shift.processShiftBatch(business, await deliveredView(conv, startedAt), batch, {
       now: startedAt,
       deadlineAt: startedAt.getTime() + AI_DEADLINE_MS,
       onRetry,
@@ -536,7 +636,8 @@ async function runLeased(id, token, clock) {
     break;
   }
 
-  if (!result || !Array.isArray(result.messages) || !result.messages.length) {
+  const skippedReply = !!result && result.kind === 'skipped_reply';
+  if (!skippedReply && (!result || !Array.isArray(result.messages) || !result.messages.length)) {
     console.error(`[batcher] workflow returned no messages conversation=${id} — using the fallback`);
     result = shift.toWorkflowResult(null, { business, conversation: conv, batchMessages: batch, now: clock() });
   }
@@ -553,8 +654,10 @@ async function runLeased(id, token, clock) {
     return { outcome: 'skipped', sent: 0 };
   }
 
+  if (skippedReply) return applySkippedReply(id, token, result, batch);
+
   if (result.kind === 'fallback') {
-    // D25 / GPT-6 #9: the generic «علّقت شوي» answers the whole burst. Fragments that arrived after
+    // D25 / GPT-6 #9: the generic «تأخر ردّي شوي» answers the whole burst. Fragments that arrived after
     // generation started join it now; leaving them to a rescheduled run would send a second fallback.
     const known = new Set(batch.map((m) => m.id));
     const extra = (await collectBatch(id)).filter((m) => !known.has(m.id) && !isSkipRow(m) && !tapButtonId(m) && !isOptOutRow(m));
@@ -566,6 +669,58 @@ async function runLeased(id, token, clock) {
   let outcome = runOutcome(report);
   if (outcome === 'sent' && result.kind === 'fallback') outcome = 'fallback';
   return { outcome, sent, noRetry: report.noRetry };
+}
+
+/**
+ * §10.2 #1 (SHIFT_MEDIA=1): transcribe voice notes and read images before the model call. The result is
+ * saved on the row (raw_payload.shift_media), so a regeneration or a later run never pays for it twice.
+ * Best effort: a failed save or a thrown enrichment leaves PR1's placeholder behaviour.
+ */
+async function enrichMedia({ id, token, business, accessToken, batch, clock }) {
+  const started = Date.now();
+  let out;
+  try {
+    out = await media.enrichBatch(business, accessToken, batch, { now: clock() });
+  } catch (err) {
+    console.error(`[batcher] media enrichment failed conversation=${id}: ${err && err.message}`);
+    return { batch };
+  }
+  for (const update of (out && Array.isArray(out.updates) ? out.updates : [])) {
+    const original = batch.find((m) => m.id === update.id);
+    try {
+      await prisma.message.update({
+        where: { id: update.id },
+        data: { raw_payload: { ...((original && original.raw_payload) || {}), shift_media: update.shift_media } },
+      });
+    } catch (err) {
+      console.error(`[batcher] shift_media not saved message=${update.id}: ${err.message}`);
+    }
+  }
+  if (Date.now() - started > MEDIA_RENEW_AFTER_MS && !(await jsonb.renewLease(id, token, LEASE_TTL_MS))) {
+    return { batch, leaseLost: true };
+  }
+  return { batch: out && Array.isArray(out.batch) ? out.batch : batch };
+}
+
+/**
+ * §10.2 #7: SHIFT_ROLEPLAY=0 ended a live example and the customer's only message was «خلص». Nothing is
+ * sent (a sandbox shutdown is a server event, not a question); the patch is applied and the row answered.
+ */
+async function applySkippedReply(id, token, result, batch) {
+  if (!(await jsonb.renewLease(id, token, LEASE_TTL_MS))) return { outcome: 'lease_lost', sent: 0 };
+  try {
+    const stateData = pickState(result.stateUpdate);
+    if (Object.keys(stateData).length) await prisma.conversation.update({ where: { id }, data: stateData });
+    if (result.workflowDataPatch && Object.keys(result.workflowDataPatch).length) {
+      await mustPatch(id, 'workflow_data', result.workflowDataPatch);
+    }
+  } catch (err) {
+    console.error(`[batcher] skipped reply state write failed conversation=${id}: ${err.message}`);
+    return { outcome: 'failed', sent: 0 };
+  }
+  await markRows(batch.map((m) => m.id), 'answered');
+  console.log(`[batcher] role-play ended without a reply conversation=${id}`);
+  return { outcome: 'skipped_reply', sent: 0 };
 }
 
 function countDelivered(report) {
@@ -592,8 +747,13 @@ async function answerTaps({ id, token, business, clock, batch, conv }) {
     if (!buttonId) continue;
     if (answered.size) current = (await prisma.conversation.findUnique({ where: { id } })) || current;
     const now = clock();
-    const lang = pickLanguage((current.workflow_data && current.workflow_data.lead) || {}, message.text_body || '');
-    const result = handleButton(buttonId, { business, conversation: current, now, lang, messageId: message.id });
+    const view = await deliveredView(current, now);
+    // The title the customer tapped is in the language the bot offered it in (§14 #10).
+    const lang = expectedLanguage([message.text_body || ''], (current.workflow_data && current.workflow_data.lead) || {});
+    const result = handleButton(buttonId, {
+      business, conversation: view, now, lang, messageId: message.id,
+      roleplayOn: roleplay.roleplayEnabled(), vetted: vettedSectors(business),
+    });
     if (!result) continue;
     const report = await deliverResult({ business, conversation: current, result, batch: [message], leaseToken: token, now });
     sent += countDelivered(report);
@@ -611,11 +771,72 @@ function partKind(part) {
   return part.type === 'interactive' && Array.isArray(part.buttons) && part.buttons.length > 0;
 }
 
+/**
+ * PR1's two shapes: plain text (an `interactive` part left without buttons goes out as text, as in PR1)
+ * and reply buttons with no header or footer. Their Graph payloads and Inbox summaries are identical
+ * through PR1's senders and through whatsapp.sendStructured (§4.2: "keep PR1's shapes"), so they keep
+ * PR1's functions; every other shape (image header, list, CTA URL, image) goes through sendStructured.
+ */
+function isPr1Shape(part) {
+  if (part.type === 'text') return true;
+  if (part.type !== 'interactive') return false;
+  return !partKind(part) || (!part.header && !part.footer);
+}
+
 async function sendPart(business, accessToken, to, part, callbackData) {
   const options = { callbackData };
+  const pnid = business.wa_phone_number_id;
+  if (!isPr1Shape(part)) return whatsapp.sendStructured(pnid, accessToken, to, part, options);
   return partKind(part)
-    ? whatsapp.sendInteractiveButtons(business.wa_phone_number_id, accessToken, to, part.text, part.buttons, options)
-    : whatsapp.sendText(business.wa_phone_number_id, accessToken, to, part.text, options);
+    ? whatsapp.sendInteractiveButtons(pnid, accessToken, to, part.text, part.buttons, options)
+    : whatsapp.sendText(pnid, accessToken, to, part.text, options);
+}
+
+// Arabic letters decide the image mark in the summary («[صورة]» / "[image]").
+function partLang(part) {
+  const text = [part.text, part.displayText, part.buttonLabel].filter((s) => typeof s === 'string').join(' ');
+  return /[ء-ي]/.test(text) ? 'ar' : 'en';
+}
+
+/** §10.2 #3: the intent row's message_type / text_body — what the Inbox thread shows for the part. */
+function summarizePart(part) {
+  if (isPr1Shape(part)) {
+    return partKind(part)
+      ? { message_type: 'interactive', text_body: `${part.text}\n${part.buttons.map((b) => `[${b.title}]`).join(' ')}` }
+      : { message_type: 'text', text_body: part.text };
+  }
+  return whatsapp.partSummary(part, partLang(part));
+}
+
+/** raw_payload fields that let staff and the eval harness see what the part carried (never modelLine/ack). */
+function partPayload(part) {
+  const out = { part_type: part.type, buttons: partKind(part) ? part.buttons : null };
+  if (part.type === 'list') {
+    out.rows = (part.sections || []).flatMap((s) => (s && Array.isArray(s.rows) ? s.rows : []))
+      .map((r) => ({ id: r.id, title: r.title }));
+  }
+  if (part.type === 'cta_url') out.url = part.url;
+  const link = part.type === 'image' ? part.image && part.image.link : part.header && part.header.type === 'image' && part.header.image && part.header.image.link;
+  if (link) out.image_link = link;
+  // Review r2 #8: Graph usually accepts an image given by link and reports the fetch failure later in a
+  // `failed` status webhook. The fallback is stored so failIntent can still send it then.
+  if (link && part.fallback && typeof part.fallback === 'object') out.fallback_part = storableFallback(part.fallback);
+  return out;
+}
+
+function storableFallback(fallback) {
+  const copy = JSON.parse(JSON.stringify(fallback));
+  delete copy.modelLine;
+  delete copy.ack;
+  delete copy.fallback;
+  // Validator and sender hints only: the stored part is sent as it is, never validated again.
+  delete copy.serverButtons;
+  delete copy.delayMs;
+  return copy;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
 
 // Intent statuses Graph's own answer may still overwrite.
@@ -739,7 +960,7 @@ async function cancelUnsent(id, intent, batchIds, since) {
  */
 async function dispatchIntent({
   business, conversation, token = null, kind, parts = [], batchIds = [], batchKey = null,
-  precheck = {}, inboundStatus = 'answered', since = null, sentByUserId = null, now = new Date(),
+  precheck = {}, inboundStatus = 'answered', since = null, sentByUserId = null, now = new Date(), extraPayload = null,
 } = {}) {
   const id = conversation.id;
   const report = [];
@@ -749,50 +970,40 @@ async function dispatchIntent({
   const existing = batchKey ? await outboundSince(id, since || new Date(toMs(now) - 24 * 60 * 60 * 1000)) : [];
   const check = () => (precheck === false ? true : jsonb.preSendCheck(id, precheck || {}));
   let aborted = false;
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    const key = batchKey ? `${batchKey}:${i}` : null;
-    const duplicate = key && existing.find((m) => m.raw_payload && m.raw_payload.batch_key === key && !UNDELIVERED.includes(m.status));
-    if (duplicate) {
-      if (duplicate.status === 'sending' && precheck && precheck.leaseToken) {
-        // Under the lease a `sending` row is a dead run's: it may have gone out, so it is unconfirmed.
-        await prisma.message.updateMany({ where: { id: duplicate.id, status: 'sending' }, data: { status: 'ambiguous' } });
-      }
-      report.push({ index: i, status: 'deduped', reason: null, id: null, intentId: duplicate.id, confirmed: CONFIRMED.includes(duplicate.status) });
-      continue;
+  const findDuplicate = (key) => key && existing.find((m) => m.raw_payload && m.raw_payload.batch_key === key && !UNDELIVERED.includes(m.status));
+  const dedupe = async (i, duplicate) => {
+    if (duplicate.status === 'sending' && precheck && precheck.leaseToken) {
+      // Under the lease a `sending` row is a dead run's: it may have gone out, so it is unconfirmed.
+      await prisma.message.updateMany({ where: { id: duplicate.id, status: 'sending' }, data: { status: 'ambiguous' } });
     }
-
-    const interactive = partKind(part);
-    let intent;
-    try {
-      intent = await prisma.message.create({
-        data: {
-          business_id: business.id,
-          conversation_id: id,
-          direction: 'outbound',
-          message_type: interactive ? 'interactive' : 'text',
-          text_body: interactive ? `${part.text}\n${part.buttons.map((b) => `[${b.title}]`).join(' ')}` : part.text,
-          status: 'sending',
-          is_ai_generated: !sentByUserId,
-          ...(sentByUserId && { sent_by_user_id: sentByUserId }),
-          raw_payload: {
-            kind,
-            batch_key: key,
-            part_index: i,
-            batch_ids: batchIds,
-            buttons: interactive ? part.buttons : null,
-            inbound_status: inboundStatus,
-          },
+    report.push({ index: i, status: 'deduped', reason: null, id: null, intentId: duplicate.id, confirmed: CONFIRMED.includes(duplicate.status) });
+  };
+  const createIntent = async (part, i, key, extra = {}) => {
+    const summary = summarizePart(part);
+    return prisma.message.create({
+      data: {
+        business_id: business.id,
+        conversation_id: id,
+        direction: 'outbound',
+        message_type: summary.message_type,
+        text_body: summary.text_body,
+        status: 'sending',
+        is_ai_generated: !sentByUserId,
+        ...(sentByUserId && { sent_by_user_id: sentByUserId }),
+        raw_payload: {
+          kind,
+          batch_key: key,
+          part_index: i,
+          batch_ids: batchIds,
+          ...partPayload(part),
+          inbound_status: inboundStatus,
+          ...extra,
         },
-      });
-    } catch (err) {
-      // No intent row, no send: an unrecorded send could never be correlated or deduplicated.
-      console.error(`[batcher] intent row failed conversation=${id}: ${err.message}`);
-      report.push({ index: i, status: 'failed', reason: 'db', id: null, intentId: null });
-      continue;
-    }
-
+      },
+    });
+  };
+  // D20 check right before every Graph call; only a `retryable` refusal is retried at once.
+  const send = async (intent, part) => {
     let res = null;
     for (let attempt = 1; attempt <= 2 && !aborted; attempt++) {
       if (!(await check())) {
@@ -802,6 +1013,62 @@ async function dispatchIntent({
       res = await sendPart(business, accessToken, conversation.customer_wa_id, part, intent.id);
       if (!res || res.ok || !res.retryable || attempt === 2) break;
       console.warn(`[batcher] retrying send once reason=${res.reason}`);
+    }
+    return res;
+  };
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const key = batchKey ? `${batchKey}:${i}` : null;
+    const duplicate = findDuplicate(key);
+    if (duplicate) {
+      await dedupe(i, duplicate);
+      continue;
+    }
+
+    if (i > 0) {
+      // §10.2 #4: a later part waits its delay, then passes the same fence as part 0 (the check renews
+      // the lease) before its intent row even exists. The parts already sent cover the batch.
+      const delay = Math.min(Math.max(Number(part.delayMs) || 0, 0), MAX_PART_DELAY_MS);
+      if (delay) await sleep(delay);
+      if (!(await check())) {
+        aborted = true;
+        report.push({ index: i, status: 'aborted', reason: 'precheck', id: null, intentId: null });
+        console.warn(`[batcher] part skipped after fence conversation=${id} kind=${kind} part=${i}`);
+        break;
+      }
+    }
+
+    let intent;
+    try {
+      intent = await createIntent(part, i, key, extraPayload || {});
+    } catch (err) {
+      // No intent row, no send: an unrecorded send could never be correlated or deduplicated.
+      console.error(`[batcher] intent row failed conversation=${id}: ${err.message}`);
+      report.push({ index: i, status: 'failed', reason: 'db', id: null, intentId: null });
+      continue;
+    }
+
+    let res = await send(intent, part);
+    if (!aborted && res && !res.ok && FALLBACK_REASONS.includes(res.reason) && part.fallback && typeof part.fallback === 'object') {
+      // §10.2 #2: Graph definitely refused this shape (an image header, say). The refusal is recorded on
+      // its intent, and the fallback is its own intent row with its own fence check, sent once.
+      await recordOutcome(intent, res);
+      console.warn(`[batcher] part refused (${res.reason}) conversation=${id} — sending its fallback`);
+      const fbKey = key ? `${key}:fb` : null;
+      const fbDuplicate = findDuplicate(fbKey);
+      if (fbDuplicate) {
+        await dedupe(i, fbDuplicate);
+        continue;
+      }
+      try {
+        intent = await createIntent(part.fallback, i, fbKey, { fallback_of: intent.id });
+      } catch (err) {
+        console.error(`[batcher] fallback intent row failed conversation=${id}: ${err.message}`);
+        report.push({ index: i, status: 'failed', reason: res.reason, id: null, intentId: intent.id });
+        continue;
+      }
+      res = await send(intent, part.fallback);
     }
     if (aborted && !res) {
       await cancelUnsent(id, intent, batchIds, since || intent.created_at);
@@ -822,6 +1089,12 @@ async function dispatchIntent({
     report.push({ index: i, status, reason, id: res.id || null, intentId: intent.id });
     // A retry that was itself refused by the pre-send check still recorded the first attempt's result.
     if (aborted) break;
+    // A delayed follow-up hangs on this part («لما ترجع…» after the page link): with the part gone for good
+    // it would point at nothing, and a sent follow-up would count as the answer (review minor).
+    if (status === 'failed' && parts.slice(i + 1).some((p) => p && Number(p.delayMs) > 0)) {
+      console.warn(`[batcher] part ${i} failed conversation=${id} kind=${kind} — its follow-up is not sent`);
+      break;
+    }
   }
 
   const confirmed = report.some((p) => p.status === 'sent' || (p.status === 'deduped' && p.confirmed));
@@ -850,6 +1123,46 @@ async function dispatchIntent({
   else if (report.length && report.every((p) => p.status === 'deduped')) outcome = 'deduped';
   else outcome = 'failed';
   return { outcome, parts: report };
+}
+
+// ─── An accepted image that failed later (review r2 #8) ──────────────────────
+
+// Failures a header-less resend cannot fix: the window, billing, the recipient, rate limits, the account.
+const NON_MEDIA_FAILURE_CODES = [131047, 131042, 131026, 131050, 131049, 130472, 131031, 131056, 131048, 130429, 368];
+
+/**
+ * A `failed` status for a part sent with an image (a card's image header, a sector image) whose intent stored
+ * its fallback: send that fallback now, as its own intent (`${batch_key}:fb`, deduplicated) behind the same
+ * pre-send fence. For messageProcessor.failIntent, before it requeues or calls the part covered.
+ * Returns dispatchIntent's report, or null when no fallback applies.
+ */
+async function sendMediaFallback(intent, { now = new Date(), errorCode = null } = {}) {
+  const payload = (intent && intent.raw_payload) || {};
+  const part = payload.fallback_part;
+  if (!part || typeof part !== 'object' || !payload.image_link || payload.fallback_of) return null;
+  if (errorCode !== null && errorCode !== undefined && NON_MEDIA_FAILURE_CODES.includes(Number(errorCode))) return null;
+  const conv = await prisma.conversation.findUnique({ where: { id: intent.conversation_id } });
+  const business = conv ? await prisma.business.findUnique({ where: { id: intent.business_id } }) : null;
+  if (!conv || !business) return null;
+  if (!isWithinServiceWindow(conv.last_inbound_at, now, { marginMs: REPLY_WINDOW_MARGIN_MS })) return null;
+  console.warn(`[batcher] image part failed after Graph accepted it intent=${intent.id} — sending its fallback`);
+  return dispatchIntent({
+    business,
+    conversation: conv,
+    kind: payload.kind,
+    parts: [part],
+    batchIds: Array.isArray(payload.batch_ids) ? payload.batch_ids : [],
+    batchKey: payload.batch_key ? `${payload.batch_key}:fb` : null,
+    precheck: {
+      humanGuard: COVERING_KINDS.includes(payload.kind),
+      // A sales card computed before «إيقاف» must not follow it, not even as its fallback.
+      optedOutSince: payload.kind === 'optout' ? null : intent.created_at,
+    },
+    inboundStatus: inboundStatusOf(payload),
+    since: new Date(toMs(intent.created_at) - 60 * 1000),
+    extraPayload: { fallback_of: intent.id },
+    now,
+  });
 }
 
 // ─── Settling unconfirmed intents (D18) ──────────────────────────────────────
@@ -1071,9 +1384,17 @@ function pickState(stateUpdate) {
   return out;
 }
 
+// §10.2 #5: a part is sendable when its type is known and its Inbox summary is not empty; at most 3.
 function validParts(messages) {
-  const list = Array.isArray(messages) ? messages : [];
-  return list.filter((p) => p && typeof p.text === 'string' && p.text.trim());
+  const list = (Array.isArray(messages) ? messages : [])
+    // PR1 callers always typed their parts; an untyped part with text is still PR1's text part.
+    .map((p) => (p && !p.type && typeof p.text === 'string' ? { ...p, type: 'text' } : p));
+  return list.filter((p) => {
+    if (!p || !PART_TYPES.includes(p.type)) return false;
+    if (isPr1Shape(p)) return typeof p.text === 'string' && !!p.text.trim();
+    const summary = whatsapp.partSummary(p, partLang(p));
+    return !!(summary && typeof summary.text_body === 'string' && summary.text_body.trim());
+  }).slice(0, MAX_PARTS);
 }
 
 async function countFailure(business, conv, now, { billing = false } = {}) {
@@ -1150,11 +1471,17 @@ function deliverResult(args) {
 
 async function deliver({
   business, conversation, result, batch = [], leaseToken = null, windowMarginMs = REPLY_WINDOW_MARGIN_MS,
-  inboundStatus = 'answered', now = new Date(), humanGuard,
+  inboundStatus = 'answered', now = new Date(), humanGuard, optedOutSince,
 } = {}) {
   const conv = conversation;
   const id = conv.id;
   const batchIds = batch.map((m) => m.id);
+  const rpPatch = result && result.workflowDataPatch && result.workflowDataPatch.roleplay;
+  if (rpPatch && typeof rpPatch === 'object' && 'start_undelivered' in rpPatch) {
+    // deliveredView's in-memory marker is never stored.
+    const { start_undelivered: _marker, ...stored } = rpPatch;
+    result = { ...result, workflowDataPatch: { ...result.workflowDataPatch, roleplay: stored } };
+  }
   const guardHumans = humanGuard === undefined ? COVERING_KINDS.includes(result && result.kind) : !!humanGuard;
 
   if (leaseToken && !(await jsonb.renewLease(id, leaseToken, LEASE_TTL_MS))) {
@@ -1253,8 +1580,9 @@ async function deliver({
     precheck: {
       leaseToken,
       humanGuard: guardHumans,
-      // A sales reply computed before «إيقاف» must not follow it.
-      optedOutSince: result.kind !== 'optout' && batch.length ? batch[0].created_at : null,
+      // A sales reply computed before «إيقاف» must not follow it. A batch-less send (a nudge) passes its own.
+      optedOutSince: optedOutSince !== undefined ? optedOutSince
+        : result.kind !== 'optout' && batch.length ? batch[0].created_at : null,
     },
     inboundStatus,
     since: batch.length ? batch[0].created_at : null,
@@ -1318,7 +1646,9 @@ module.exports = {
   collectBatch,
   runBatch,
   deliverResult,
+  deliveredView,
   dispatchIntent,
+  sendMediaFallback,
   applyIntentStatus,
   settleUndelivered,
   reconcileUnconfirmedIntents,

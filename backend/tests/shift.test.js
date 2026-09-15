@@ -8,6 +8,9 @@ const prisma = require('../src/config/prisma');
 const {
   processShiftMessage, processShiftBatch, buildSystemPrompt, formatHistory, toWorkflowResult, batchLine, SHIFT_ACTIONS,
 } = require('../src/workflows/shift');
+const { SHIFT_ACTIONS_V1, RESPONSE_SCHEMA, RESPONSE_SCHEMA_V1 } = require('../src/workflows/shift/actions');
+const { CONCIERGE } = require('../src/workflows/shift/objectives');
+const { OPERATIONAL_FAQ } = require('../src/workflows/shift/prompt.ar');
 const acks = require('../src/workflows/shift/acks');
 const hours = require('../src/workflows/shift/hours');
 const buttons = require('../src/workflows/shift/buttons');
@@ -203,7 +206,8 @@ describe('SHIFT workflow — results', () => {
     const c = conv({ workflow_data: { lead: { name: 'محمد', version: 1 } } });
     const r = toWorkflowResult(
       { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا الساعة 5' }, lead: {} },
-      ctx({ conversation: c }),
+      // The customer's own words carry the time: the model's time_text alone is never recorded (owner phone test).
+      ctx({ conversation: c, batchMessages: [{ id: 'm1', message_type: 'text', text_body: 'بكرا الساعة 5 بناسبني' }] }),
     );
     expect(r.action).toBe('CAPTURE_TIME');
     expect(r.stateUpdate).toEqual({ status: 'pending', current_state: 'captured' });
@@ -216,7 +220,10 @@ describe('SHIFT workflow — results', () => {
   });
 
   test('CAPTURE_TIME without name or business asks for them and keeps the time pending', () => {
-    const r = toWorkflowResult({ reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الأحد العصر' } }, ctx());
+    const r = toWorkflowResult(
+      { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الأحد العصر' } },
+      ctx({ batchMessages: [{ id: 'm1', message_type: 'text', text_body: 'خليها الأحد العصر' }] }),
+    );
     expect(r.messages[0].text).toBe(acks.captureAsk({ nameKnown: false, businessKnown: false, lang: 'ar' }));
     expect(r.stateUpdate).toEqual({ current_state: 'close' });
     expect(r.workflowDataPatch.capture_pending).toEqual({ slot_id: null, time_text: 'الأحد العصر', at: MON_11.toISOString() });
@@ -243,10 +250,12 @@ describe('SHIFT workflow — results', () => {
       action: 'NONE',
       buttons: [{ id: 'slot:2026-09-15T10:00+03:00/12:00', title: 'غلط' }, { id: 'made-up', title: 'x' }],
     }, ctx());
+    // PR2 §9.2 step 1: a part built from the model's reply carries its words as `modelLine`.
     expect(r.messages[0]).toEqual({
       type: 'interactive',
       text: 'أقرب أوقات الفريق:',
       buttons: [{ id: 'slot:2026-09-15T10:00+03:00/12:00', title: 'بكرا 10–12' }],
+      modelLine: 'أقرب أوقات الفريق:',
     });
     expect(r.workflowDataPatch.slot_offers[0]).toMatchObject({ id: 'slot:2026-09-15T10:00+03:00/12:00', issued_at: MON_11.toISOString() });
   });
@@ -303,40 +312,143 @@ describe('SHIFT workflow — results', () => {
 });
 
 describe('SHIFT workflow — processShiftBatch', () => {
+  const HISTORY_ROWS = [
+    { id: 'm2', direction: 'inbound', text_body: 'بإربد' },
+    { id: 'm1', direction: 'inbound', text_body: 'عندي كافيه' },
+    { id: 'o1', direction: 'outbound', text_body: 'أهلين', is_ai_generated: true },
+    { id: 'm0', direction: 'inbound', text_body: 'مرحبا' },
+  ];
+  const BATCH = [
+    { id: 'm1', message_type: 'text', text_body: 'عندي كافيه' },
+    { id: 'm2', message_type: 'text', text_body: 'بإربد' },
+  ];
+
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.SHIFT_PROMPT_V1;
     prisma.message.findMany.mockResolvedValue([]);
   });
 
-  test('passes jsonMode, validActions, deadlineAt and the batch as the user turn', async () => {
-    prisma.message.findMany.mockResolvedValue([
-      { id: 'm2', direction: 'inbound', text_body: 'بإربد' },
-      { id: 'm1', direction: 'inbound', text_body: 'عندي كافيه' },
-      { id: 'o1', direction: 'outbound', text_body: 'أهلين' },
-      { id: 'm0', direction: 'inbound', text_body: 'مرحبا' },
-    ]);
+  afterEach(() => {
+    delete process.env.SHIFT_PROMPT_V1;
+  });
+
+  // §12.3 #1: prompt v2 moves the history out of the system prompt into the user turn.
+  test('passes jsonMode, validActions, deadlineAt; history and the batch are in the user turn (prompt v2)', async () => {
+    prisma.message.findMany.mockResolvedValue(HISTORY_ROWS);
     generateValidatedAIReply.mockResolvedValue({ reply: 'حلو! شو اسم الكافيه؟', action: 'NONE', buttons: [], lead: { city: 'إربد' } });
     const onRetry = jest.fn();
-    const batch = [
-      { id: 'm1', message_type: 'text', text_body: 'عندي كافيه' },
-      { id: 'm2', message_type: 'text', text_body: 'بإربد' },
-    ];
+    const deadlineAt = Date.now() + 18000;
 
-    const r = await processShiftBatch(business, conv(), batch, { now: MON_11, deadlineAt: 123, onRetry });
+    const r = await processShiftBatch(business, conv(), BATCH, { now: MON_11, deadlineAt, onRetry });
 
     expect(prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 14, orderBy: { created_at: 'desc' } }));
+    const [prompt, userMessage, history, opts] = generateValidatedAIReply.mock.calls[0];
+    expect(history).toEqual([]);
+    expect(userMessage).toContain('العميل: "مرحبا"\nكرم: أهلين');
+    expect(userMessage).toContain('["عندي كافيه","بإربد"]');
+    expect(userMessage).not.toContain('العميل: "عندي كافيه"');
+    expect(prompt).not.toContain('العميل: مرحبا');
+    expect(prompt).not.toContain('أهلين');
+    expect(prompt).not.toContain('بإربد');
+    expect(opts).toMatchObject({ jsonMode: true, systemInstruction: true, deadlineAt, onRetry, conversationId: 'c1' });
+    expect(opts.validActions).toEqual(SHIFT_ACTIONS);
+    expect(opts.responseSchema).toBe(RESPONSE_SCHEMA);
+    expect(opts.responseSchema.required).toEqual(['reply', 'action', 'stage', 'next_step']);
+    expect(r.messages[0].text).toBe('حلو! شو اسم الكافيه؟');
+    expect(r.leadPatch).toEqual({ city: 'إربد' });
+    expect(r.leadMeta).toMatchObject({ source: 'model', msgId: 'm2', inboundText: 'عندي كافيه\nبإربد' });
+  });
+
+  test('SHIFT_PROMPT_V1=1 keeps the PR1 call: history in the system prompt, the batch as the user turn, PR1 actions', async () => {
+    process.env.SHIFT_PROMPT_V1 = '1';
+    prisma.message.findMany.mockResolvedValue(HISTORY_ROWS);
+    generateValidatedAIReply.mockResolvedValue({ reply: 'حلو! شو اسم الكافيه؟', action: 'NONE', buttons: [], lead: { city: 'إربد' } });
+    const onRetry = jest.fn();
+
+    const r = await processShiftBatch(business, conv(), BATCH, { now: MON_11, deadlineAt: 123, onRetry });
+
     const [prompt, userMessage, history, opts] = generateValidatedAIReply.mock.calls[0];
     expect(userMessage).toBe('عندي كافيه\nبإربد');
     expect(history).toEqual([]);
     expect(prompt).toContain('العميل: مرحبا\nشِفت: أهلين');
     expect(prompt).not.toContain('العميل: عندي كافيه');
     expect(opts).toMatchObject({ jsonMode: true, systemInstruction: true, deadlineAt: 123, onRetry, conversationId: 'c1' });
-    expect(opts.validActions).toEqual(SHIFT_ACTIONS);
+    expect(opts.validActions).toEqual(SHIFT_ACTIONS_V1);
+    expect(opts.responseSchema).toBe(RESPONSE_SCHEMA_V1);
     expect(opts.responseSchema.required).toEqual(['reply', 'action']);
     expect(opts.retrySystemPrompt).toContain('العميل: مرحبا');
     expect(r.messages[0].text).toBe('حلو! شو اسم الكافيه؟');
-    expect(r.leadPatch).toEqual({ city: 'إربد' });
-    expect(r.leadMeta).toMatchObject({ source: 'model', msgId: 'm2', inboundText: 'عندي كافيه\nبإربد' });
+  });
+
+  test('the v2 static prompt carries the honesty rules, the nine actions, the JSON contract and the operational FAQ', async () => {
+    generateValidatedAIReply.mockResolvedValue({ reply: 'أهلين، شو نوع منشأتك؟', action: 'NONE' });
+    await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'بدي أعرف أكثر' }], { now: MON_11 });
+    const prompt = generateValidatedAIReply.mock.calls[0][0];
+    expect(prompt).toContain('# الصدق');
+    const actionLine = prompt.split('\n').find((l) => l.startsWith('- action:'));
+    for (const action of SHIFT_ACTIONS) expect(actionLine).toContain(action);
+    expect(SHIFT_ACTIONS).toHaveLength(9);
+    expect(prompt).toContain('{"reply":"نص الرد","action":"NONE","action_args":{},"buttons":[],"lead":{},"stage":"discovery","next_step":"question"}');
+    expect(prompt).toContain(OPERATIONAL_FAQ.split('\n')[0]);
+    expect(prompt).not.toContain(['shifts-ai', 'store'].join('.'));
+  });
+
+  test('the knowledge is trimmed to the stored sector', async () => {
+    generateValidatedAIReply.mockResolvedValue({ reply: 'تمام.', action: 'NONE' });
+    const clinic = conv({ workflow_data: { lead: { sector: 'clinic' } } });
+    await processShiftBatch(business, clinic, [{ id: 'm1', message_type: 'text', text_body: 'طيب' }], { now: MON_11 });
+    await processShiftBatch(business, conv(), [{ id: 'm2', message_type: 'text', text_body: 'طيب' }], { now: MON_11 });
+    const [clinicPrompt, anyPrompt] = generateValidatedAIReply.mock.calls.map((c) => c[0]);
+    expect(clinicPrompt).toContain('- للعيادات:');
+    expect(clinicPrompt).not.toContain('- للمطاعم والكافيهات:');
+    expect(anyPrompt).toContain('- للعيادات:');
+    expect(anyPrompt).toContain('- للمطاعم والكافيهات:');
+    expect(anyPrompt).toContain('- للمتاجر الإلكترونية:');
+  });
+
+  test('two questions pass only as the compound name + business ask (§5.8)', async () => {
+    generateValidatedAIReply
+      .mockResolvedValueOnce({ reply: 'تمام. شو اسمك؟ واسم المحل؟', action: 'NONE', stage: 'close' })
+      .mockResolvedValueOnce({ reply: 'تمام. بس أكّدلي اسمك واسم المطعم؟ وأي وقت بناسبك؟', action: 'NONE', stage: 'close' });
+    const batch = [{ id: 'm1', message_type: 'text', text_body: 'بدي أجرّب' }];
+    const compound = await processShiftBatch(business, conv({ current_state: 'fit' }), batch, { now: MON_11 });
+    const mixed = await processShiftBatch(business, conv({ current_state: 'fit' }), batch, { now: MON_11 });
+    expect(compound.messages[0].text).toBe('تمام. شو اسمك؟ واسم المحل؟');
+    expect(mixed.messages[0].text).toBe('تمام. وأي وقت بناسبك؟');
+  });
+
+  test('SHIFT_PROMPT_V1=1 still runs the validators; the regeneration hint is appended to the batch turn', async () => {
+    process.env.SHIFT_PROMPT_V1 = '1';
+    generateValidatedAIReply
+      .mockResolvedValueOnce({ reply: 'الاشتراك 20 دينار بالشهر.', action: 'NONE' })
+      .mockResolvedValueOnce({ reply: 'الأسعار بيبعتها الفريق بعد ما نعرف شغلك.', action: 'NONE' });
+    const r = await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'كم السعر؟' }], {
+      now: MON_11, deadlineAt: Date.now() + 18000,
+    });
+    expect(generateValidatedAIReply).toHaveBeenCalledTimes(2);
+    const [, userB, , optsB] = generateValidatedAIReply.mock.calls[1];
+    expect(userB.startsWith('كم السعر؟\n\n# ملاحظة من النظام\n')).toBe(true);
+    expect(optsB.firstAttemptMs).toBeGreaterThan(4000);
+    expect(r.messages[0].text).toBe('الأسعار بيبعتها الفريق بعد ما نعرف شغلك.');
+    expect(r.workflowDataPatch.validator_blocks).toEqual([{ at: MON_11.toISOString(), codes: ['digits'], attempt: 1 }]);
+  });
+
+  test('a tier-1 request during a role-play ends the example with reason handoff', async () => {
+    const rp = conv({ current_state: 'roleplay', workflow_data: { roleplay: { active: true, sector: 'restaurant', turns: 2 } } });
+    const r = await processShiftBatch(business, rp, [{ id: 'm1', message_type: 'text', text_body: 'بدي أحكي مع إنسان' }], { now: MON_11 });
+    expect(generateValidatedAIReply).not.toHaveBeenCalled();
+    expect(r.kind).toBe('handoff');
+    expect(r.workflowDataPatch.roleplay).toMatchObject({ active: false, end_reason: 'handoff', turns: 2 });
+  });
+
+  test('handoff with the team request open → the concierge objective in the user turn', async () => {
+    generateValidatedAIReply.mockResolvedValue({ reply: 'الفريق بيتواصل معك هون ضمن الدوام.', action: 'NONE' });
+    const open = conv({ status: 'pending', current_state: 'handoff', workflow_data: { needs_team: { reason: 'person', resolved_at: null } } });
+    await processShiftBatch(business, open, [{ id: 'm1', message_type: 'text', text_body: 'طيب متى بيردوا؟' }], { now: MON_11 });
+    const userTurn = generateValidatedAIReply.mock.calls[0][1];
+    expect(userTurn).toContain(`هدف هذه الرسالة تحديدًا: ${CONCIERGE}`);
+    expect(userTurn).toContain('الأزرار المتاحة الآن: لا أزرار');
   });
 
   test('without deadlineAt the deadline is now + 25 s', async () => {
@@ -387,7 +499,7 @@ describe('SHIFT workflow — processShiftBatch', () => {
       { id: 'm1', message_type: 'audio', text_body: null },
       { id: 'm2', message_type: 'text', text_body: 'بدي أعرف عن كرم' },
     ], { now: MON_11 });
-    expect(generateValidatedAIReply.mock.calls[0][1]).toBe('[رسالة صوتية]\nبدي أعرف عن كرم');
+    expect(generateValidatedAIReply.mock.calls[0][1]).toContain('["[رسالة صوتية]","بدي أعرف عن كرم"]');
     expect(r.messages[0].text).toBe(`${acks.mediaPrefix('audio', 'ar')}\nأكيد، شو نوع منشأتك؟`);
   });
 
@@ -423,14 +535,35 @@ describe('SHIFT workflow — processShiftBatch', () => {
 });
 
 describe('SHIFT workflow — processShiftMessage', () => {
-  beforeEach(() => jest.clearAllMocks());
+  const ROWS = [
+    { direction: 'inbound', text_body: 'كم السعر؟' },      // current message, newest
+    { direction: 'outbound', text_body: 'أهلًا بك في شِفت' },
+    { direction: 'inbound', text_body: 'مرحبا' },
+  ];
 
-  test('sends prior turns (not the current message) as history', async () => {
-    prisma.message.findMany.mockResolvedValue([
-      { direction: 'inbound', text_body: 'كم السعر؟' },      // current message, newest
-      { direction: 'outbound', text_body: 'أهلًا بك في شِفت' },
-      { direction: 'inbound', text_body: 'مرحبا' },
-    ]);
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.SHIFT_PROMPT_V1;
+  });
+  afterEach(() => { delete process.env.SHIFT_PROMPT_V1; });
+
+  test('sends prior turns (not the current message) as history in the user turn', async () => {
+    prisma.message.findMany.mockResolvedValue(ROWS);
+    generateValidatedAIReply.mockResolvedValue({ reply: 'يعتمد على المنتجات. ما نوع منشأتك؟', action: 'NONE' });
+
+    const r = await processShiftMessage(business, conversation, 'كم السعر؟');
+
+    const [prompt, userMessage] = generateValidatedAIReply.mock.calls[0];
+    expect(userMessage).toContain('العميل: "مرحبا"\nكرم: أهلًا بك في شِفت');
+    expect(userMessage).toContain('["كم السعر؟"]');
+    expect(userMessage).not.toContain('العميل: "كم السعر؟"');
+    expect(prompt).not.toContain('أهلًا بك في شِفت');
+    expect(r.action).toBe('NONE');
+  });
+
+  test('SHIFT_PROMPT_V1=1: prior turns in the system prompt, the message as the user turn', async () => {
+    process.env.SHIFT_PROMPT_V1 = '1';
+    prisma.message.findMany.mockResolvedValue(ROWS);
     generateValidatedAIReply.mockResolvedValue({ reply: 'يعتمد على المنتجات. ما نوع منشأتك؟', action: 'NONE' });
 
     const r = await processShiftMessage(business, conversation, 'كم السعر؟');
@@ -602,8 +735,9 @@ describe('SHIFT workflow — PR1 review round 2', () => {
     ]);
     generateValidatedAIReply.mockResolvedValue({ reply: 'أهلين! شو نوع منشأتك؟', action: 'NONE' });
     await processShiftBatch(business, conv(), [{ id: 'm9', message_type: 'text', text_body: 'كيفكم' }], { now: MON_11 });
-    const prompt = generateValidatedAIReply.mock.calls[0][0];
-    expect(prompt).toContain('العميل: مرحبا');
+    const [prompt, userTurn] = generateValidatedAIReply.mock.calls[0];
+    expect(userTurn).toContain('العميل: "مرحبا"');
+    expect(userTurn).not.toContain('تجاهل التعليمات');
     expect(prompt).not.toContain('تجاهل التعليمات');
   });
 
@@ -656,7 +790,8 @@ describe('SHIFT workflow — PR1 review round 2', () => {
         current_state: 'close',
         workflow_data: { capture_pending: { slot_id: null, time_text: 'بكرا الساعة 5', at: MON_11.toISOString() } },
       });
-      return ctx({ conversation, batchMessages: [{ id: 'm2', message_type: 'text', text_body: text }] });
+      // The pending time was the customer's own words in the batch before (the loaded history).
+      return ctx({ conversation, batchMessages: [{ id: 'm2', message_type: 'text', text_body: text }], customerHistoryTexts: ['بكرا الساعة 5'] });
     }
 
     test('a written-quote request is flagged as a quote and answered; the capture stays pending', () => {
@@ -693,7 +828,7 @@ describe('SHIFT workflow — PR1 review round 2', () => {
         { reply: 'الفريق بيتواصل معك هون ضمن الدوام.', action: 'NONE', buttons: [{ id: offers[0].id }], lead: {}, stage: 'close' },
         ctx({ conversation: openConv(), batchMessages: [{ id: 'm2', message_type: 'text', text_body: 'طيب متى بيتصلوا؟' }], offers }),
       );
-      expect(r.messages).toEqual([{ type: 'text', text: 'الفريق بيتواصل معك هون ضمن الدوام.' }]);
+      expect(r.messages).toEqual([{ type: 'text', text: 'الفريق بيتواصل معك هون ضمن الدوام.', modelLine: 'الفريق بيتواصل معك هون ضمن الدوام.' }]);
       expect(r.workflowDataPatch.slot_offers).toBeUndefined();
       expect(r.stateUpdate).toEqual({});
     });

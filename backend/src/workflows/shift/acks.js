@@ -7,7 +7,7 @@
  * "undefined".
  */
 
-const { PRIVACY_SHORT } = require('../../config/site');
+const { PRIVACY_SHORT, SITE_HOST } = require('../../config/site');
 const hours = require('./hours');
 
 const ARABIC_LETTER_RE = /[؀-ۿ]/g;
@@ -269,13 +269,159 @@ function mediaPrefix(type, lang, { captioned = false } = {}) {
   return `${MEDIA_NOUNS_AR[type] || 'وصلتني رسالتك'} كمان 🙏 هون بقرأ النص بس.`;
 }
 
+/** The customer agreed to a call without a time and there are no slots to offer: ask, record nothing. */
+function callTimeAsk(lang) {
+  return isEn(lang) ? 'Which day and time suit you?' : 'أي يوم ووقت بناسبك؟';
+}
+
 /** Body of a slot-buttons message when the model line is empty. */
 function slotsBody(lang) {
   return isEn(lang) ? "The team's nearest times:" : 'أقرب أوقات الفريق:';
 }
 
+// ─── PR2 additions (contract §7.3) ───────────────────────────────────────────
+// OWNER-APPROVAL-PENDING: the Arabic below needs the owner's sign-off and a native reviewer pass
+// before merge (contract §13). Every string states only what the server does or asks — no digits,
+// no promises beyond what a staff task backs.
+
+/** Body of the sector list on a bare greeting; the intro only when the bot has not introduced itself. */
+function sectorListBody(disclosed, lang) {
+  if (isEn(lang)) {
+    return disclosed
+      ? 'What kind of business do you run?'
+      : `Hi 👋 I'm Karam, SHIFT's AI assistant — ${SITE_HOST}. What kind of business do you run?`;
+  }
+  return disclosed ? 'شو نوع شغلك؟' : `أهلًا وسهلًا 👋 أنا كرم، مساعد شِفت الذكي — ${SITE_HOST}. شو نوع شغلك؟`;
+}
+
+function sectorListLabel(lang) {
+  return isEn(lang) ? 'Choose a sector' : 'اختر القطاع';
+}
+
+function sectorListSectionTitle(lang) {
+  return isEn(lang) ? 'Sectors' : 'القطاعات';
+}
+
+/** Rows of the sector list (ids are the `sector:*` button ids of contract §9.1). */
+function sectorListRows(lang) {
+  if (isEn(lang)) {
+    return [
+      { id: 'sector:clinic', title: 'Clinic' },
+      { id: 'sector:restaurant', title: 'Restaurant or café' },
+      { id: 'sector:store', title: 'Online store' },
+      { id: 'sector:other', title: 'Something else', description: "Salon, gym, kids' centre, real estate…" },
+    ];
+  }
+  return [
+    { id: 'sector:clinic', title: 'عيادة' },
+    { id: 'sector:restaurant', title: 'مطعم أو كافيه' },
+    { id: 'sector:store', title: 'متجر إلكتروني' },
+    { id: 'sector:other', title: 'نشاط آخر', description: 'صالون، جيم، مركز أطفال، عقارات…' },
+  ];
+}
+
+/** The complete sector-list part; `text` defaults to sectorListBody when the model line is empty. */
+function sectorListPart(lang, { text, disclosed = false } = {}) {
+  const body = typeof text === 'string' && text.trim() ? text : sectorListBody(disclosed, lang);
+  return {
+    type: 'list',
+    text: body,
+    buttonLabel: sectorListLabel(lang),
+    sections: [{ title: sectorListSectionTitle(lang), rows: sectorListRows(lang) }],
+  };
+}
+
+function sectorTextAsk(lang) {
+  return isEn(lang) ? 'Great. What kind of business exactly?' : 'تمام. شو نوع النشاط بالضبط؟';
+}
+
+const SECTOR_ACKS = {
+  clinic: { ar: 'تمام، عيادة.', en: 'Got it, a clinic.' },
+  restaurant: { ar: 'تمام، مطعم أو كافيه.', en: 'Got it, a restaurant or café.' },
+  store: { ar: 'تمام، متجر إلكتروني.', en: 'Got it, an online store.' },
+};
+
+/** `other` has no ack of its own (it is followed by sectorTextAsk); it gets a neutral «تمام.». */
+function sectorAck(sector, lang) {
+  const row = SECTOR_ACKS[sector];
+  if (!row) return isEn(lang) ? 'Got it.' : 'تمام.';
+  return isEn(lang) ? row.en : row.ar;
+}
+
+function consentAsk(lang) {
+  return isEn(lang)
+    ? 'Would you like the team to follow up with you in two days?'
+    : 'بتحب يتواصل معك الفريق بعد يومين؟';
+}
+
+function consentButtons(lang) {
+  return isEn(lang)
+    ? [{ id: 'followup_yes', title: 'Sure' }, { id: 'followup_no', title: 'No' }]
+    : [{ id: 'followup_yes', title: 'أكيد' }, { id: 'followup_no', title: 'لا' }];
+}
+
+// True only because the followup_yes handler creates a staff task in the same result (contract §9.1).
+function consentYes(lang) {
+  return isEn(lang)
+    ? 'Sure — the team will follow up with you in two days during working hours.'
+    : 'تمام، الفريق بيتواصل معك بعد يومين ضمن الدوام.';
+}
+
+function consentNo(lang) {
+  return isEn(lang) ? "No problem. We're here if you need us." : 'ولا يهمك. إذا احتجتنا إحنا هون.';
+}
+
+/** Lead-in before flagAck('quote') on the «عرض مكتوب» button. */
+function quoteWrittenLead(lang) {
+  return isEn(lang) ? 'Sure, no call needed.' : 'تمام، بدون مكالمة.';
+}
+
+/** Lead-in before slotsBody + slot buttons on the «مكالمة» button. */
+function callChoiceLead(lang) {
+  return isEn(lang) ? 'Sure.' : 'تمام.';
+}
+
+function roleplayContinue(lang) {
+  return isEn(lang) ? 'Sure, carry on as a customer.' : 'تمام، كمّل كزبون.';
+}
+
+function sampleAlreadySent(lang) {
+  return isEn(lang)
+    ? 'The example is just above 👆 Would you like to try it on your own business?'
+    : 'المثال وصلك فوق 👆 بتحب تجرّبه على شغلك أنت؟';
+}
+
+const TRANSCRIBED_PREFIX = {
+  audio: { ar: '(سمعت رسالتك الصوتية)', en: '(I listened to your voice note)' },
+  image: { ar: '(شفت الصورة)', en: '(I saw the image)' },
+};
+
+/** Prefix for a reply built on a transcript (SHIFT_MEDIA=1). Only audio and image are transcribed; others → ''. */
+function mediaTranscribedPrefix(type, lang) {
+  const row = TRANSCRIBED_PREFIX[type];
+  if (!row) return '';
+  return isEn(lang) ? row.en : row.ar;
+}
+
 module.exports = {
   pickLanguage,
+  ENGLISH_DIGIT_TOKENS_RE,
+  sectorListBody,
+  sectorListLabel,
+  sectorListSectionTitle,
+  sectorListRows,
+  sectorListPart,
+  sectorTextAsk,
+  sectorAck,
+  consentAsk,
+  consentButtons,
+  consentYes,
+  consentNo,
+  quoteWrittenLead,
+  callChoiceLead,
+  roleplayContinue,
+  sampleAlreadySent,
+  mediaTranscribedPrefix,
   hoursSegment,
   contactSegment,
   windowText,
@@ -299,4 +445,5 @@ module.exports = {
   mediaPrefix,
   purposeLine,
   slotsBody,
+  callTimeAsk,
 };
