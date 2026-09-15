@@ -124,7 +124,8 @@ function inboundData(businessId, conversationId, waMsg, senderWaId, status, { ca
     direction: 'inbound',
     message_type: waMsg.type || 'text',
     text_body: waMsg.text?.body || waMsg.interactive?.button_reply?.title || waMsg.interactive?.list_reply?.title
-      || (captions ? mediaCaption(waMsg) : null) || null,
+      // PR3 (SHIFT only): a template quick reply («بدي أغيّر الموعد») is `type: 'button'` with `button.text`.
+      || (captions ? mediaCaption(waMsg) || waMsg.button?.text : null) || null,
     media_id: waMsg.image?.id || waMsg.audio?.id || waMsg.video?.id || waMsg.document?.id || null,
     media_mime_type: waMsg.image?.mime_type || waMsg.audio?.mime_type || null,
     location: waMsg.location || null,

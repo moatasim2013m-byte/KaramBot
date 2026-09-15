@@ -75,6 +75,34 @@ function isHotLead(conv) {
   return Number(conv?.workflow_data?.lead?.score) >= HOT_LEAD_SCORE;
 }
 
+// PR3: a sales call booked in Google Calendar (workflow_data.booking), shown in Amman time.
+const BOOKING_STATUS_LABELS = { booked: 'محجوزة', rescheduled: 'تغيّر موعدها', cancelled: 'ملغية' };
+const REMINDER_LABELS = { d1: 'قبل بيوم', h1: 'قبل بساعة' };
+const REMINDER_SKIP_LABELS = {
+  template: 'القالب مش معتمد', billing: 'بدها طريقة دفع', opted_out: 'العميل أوقف المتابعة', staff: 'مستلمة من الفريق',
+  late: 'فات وقته', precheck: 'انوقف قبل الإرسال',
+};
+
+function activeBooking(conv, now = Date.now()) {
+  const b = conv?.workflow_data?.booking;
+  if (!b || !['booked', 'rescheduled'].includes(b.status)) return null;
+  return new Date(b.end).getTime() > now ? b : null;
+}
+
+function bookingTime(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('ar-JO', { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Amman' });
+}
+
+function reminderText(r) {
+  if (!r) return 'لسا';
+  if (r.sent_at) return r.via === 'template' ? 'انبعت (قالب)' : 'انبعت';
+  if (r.skipped) return `ما انبعت — ${REMINDER_SKIP_LABELS[r.skipped] || r.skipped}`;
+  if (r.failed) return `فشل — ${r.failed}`;
+  return 'لسا';
+}
+
 function formatDate(value) {
   if (!value) return '';
   const d = new Date(value);
@@ -153,6 +181,8 @@ function ConvItem({ conv, active, onClick, isShift }) {
   const roleplayActive = isShift && conv.workflow_data?.roleplay?.active === true;
   const hot = isShift && isHotLead(conv);
   const fromSite = isShift && !!conv.workflow_data?.prefill;
+  const booked = isShift ? activeBooking(conv) : null;
+  const reminderBlocked = isShift && !!conv.metadata?.reminder_blocked && !!booked;
 
   return (
     <button
@@ -187,8 +217,16 @@ function ConvItem({ conv, active, onClick, isShift }) {
         {conv.ai_enabled ? <Bot size={10} className="text-green-400" /> : <BotOff size={10} className="text-gray-300" />}
         {conv.customer_wa_id}
       </div>
-      {(needsTeam || conv.awaiting_staff > 0 || gaveUp || roleplayActive || fromSite) && (
+      {(needsTeam || conv.awaiting_staff > 0 || gaveUp || roleplayActive || fromSite || booked) && (
         <div className="flex flex-wrap gap-1 mt-1">
+          {booked && (
+            <span className="text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5">
+              مكالمة محجوزة: {bookingTime(booked.start)}
+            </span>
+          )}
+          {reminderBlocked && (
+            <span className="text-[10px] bg-red-100 text-red-700 rounded px-1.5 py-0.5">التذكير ما انبعت</span>
+          )}
           {roleplayActive && (
             <span className="text-[10px] bg-purple-100 text-purple-700 rounded px-1.5 py-0.5">مثال جاري</span>
           )}
@@ -217,6 +255,7 @@ function ConvItem({ conv, active, onClick, isShift }) {
 function partTag(msg, isShift) {
   if (!isShift || msg.direction !== 'outbound') return '';
   if (msg.message_type === 'image') return 'صورة';
+  if (msg.message_type === 'template') return 'قالب';
   if (msg.message_type === 'interactive') return 'أزرار';
   return '';
 }
@@ -358,6 +397,26 @@ function LeadDetails({ conversation }) {
   const source = sourceText(lead);
   const tasks = (Array.isArray(wd.staff_tasks) ? wd.staff_tasks : []).filter((t) => t && !t.done_at);
   const rows = [];
+  const call = wd.booking && typeof wd.booking === 'object' && wd.booking.start ? wd.booking : null;
+
+  if (call) {
+    const past = new Date(call.end).getTime() <= Date.now() && call.status !== 'cancelled';
+    rows.push(['المكالمة', (
+      <div className="space-y-0.5">
+        <div className={call.status === 'cancelled' ? 'text-gray-400 line-through' : 'text-emerald-700'}>
+          {bookingTime(call.start)} · {past ? 'صار وقتها' : (BOOKING_STATUS_LABELS[call.status] || call.status)}
+        </div>
+        {call.status !== 'cancelled' && (
+          <div className="text-gray-500">
+            التذكير: {Object.entries(REMINDER_LABELS).map(([k, label]) => `${label} ${reminderText(call.reminders?.[k])}`).join(' · ')}
+          </div>
+        )}
+        {call.change_requested && <div className="text-orange-700">طلب تغيير ما انعمل بالتقويم — راجع مع العميل</div>}
+        {call.cancel_requested_at && <div className="text-orange-700">طلب إلغاء ما انعمل بالتقويم — راجع مع العميل</div>}
+        {call.details_pending && call.status !== 'cancelled' && <div className="text-gray-400">الاسم أو اسم المحل ناقص بالتقويم</div>}
+      </div>
+    )]);
+  }
 
   if (needs.length) {
     rows.push(['الاحتياج', (

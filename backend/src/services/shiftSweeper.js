@@ -30,6 +30,8 @@ const followups = require('../workflows/shift/followups');
 const roleplay = require('../workflows/shift/roleplay');
 const { staffTask } = require('../workflows/shift/buttons');
 const { expectedLanguage } = require('../workflows/shift/validators');
+// PR3: sales-call booking reminders (d1 / h1) and the call-time-passed bookkeeping.
+const booking = require('../workflows/shift/booking');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -64,6 +66,12 @@ const STAFF_TASKS_CAP = 20;
 const UNDELIVERED_OUTBOUND = ['failed', 'cancelled', 'ambiguous_unreconciled'];
 const SKIPPED_INBOUND_TYPES = ['reaction', 'system', 'ephemeral'];
 const WINDOW_TASK_SUMMARY = 'النافذة مسكّرة — اتصل';
+// Bookings are at most ~5 team days ahead; a reschedule can push one further. Conversations with a message in
+// this span are scanned (workflow_data has no JSON-path filter in Prisma).
+const BOOKING_LOOKBACK_MS = 14 * 24 * HOUR_MS;
+// The call is over this long after its end: its meeting request resolves itself.
+const BOOKING_PASSED_AFTER_MS = 15 * MINUTE_MS;
+const REMINDER_KINDS = ['d1', 'h1'];
 
 let running = false;
 let last = { at: null, report: null };
@@ -72,7 +80,8 @@ function emptyReport() {
   return {
     stuck_inbound: null, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
     pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0,
-    roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0, errors: [],
+    roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
+    reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0, errors: [],
   };
 }
 
@@ -369,6 +378,8 @@ async function sweepSlaNotes(business, teamHours, now, report) {
     const wd = workflowData(conv);
     const nt = wd.needs_team;
     if (!nt || nt.resolved_at || nt.sla_note_done_at || nt.reason === 'ai_failure' || wd.marketing_opted_out_at) return;
+    // PR3: a call booked in the calendar needs no «not picked up yet» note or SLA alert: the time is confirmed.
+    if (nt.reason === 'meeting' && booking.activeBooking(wd, now)) return;
     // Claimed by PR1's first sweeper, which had no attempt counter: its claim meant the note was handled.
     if (nt.sla_note_sent_at && nt.sla_note_attempt === undefined) return;
     // Another sweep is on it (or died less than NOTE_CLAIM_TTL_MS ago).
@@ -520,7 +531,11 @@ async function sweepWindowFlags(business, now, report) {
     },
   });
   await each(report, `window ${business.id}`, convs, async (conv) => {
-    let eligible = conv.status === 'pending' || conv.status === 'human_takeover';
+    const wdw = workflowData(conv);
+    // PR3: pending only because of a booked call → staff owe no message before the window closes.
+    const bookedOnly = conv.status === 'pending' && wdw.needs_team && wdw.needs_team.reason === 'meeting'
+      && !wdw.needs_team.resolved_at && !!booking.activeBooking(wdw, now);
+    let eligible = (conv.status === 'pending' && !bookedOnly) || conv.status === 'human_takeover';
     if (!eligible) {
       const waiting = await prisma.message.count({
         where: { conversation_id: conv.id, direction: 'inbound', status: 'awaiting_staff' },
@@ -804,6 +819,163 @@ async function sweepNudges(business, teamHours, now, report) {
   });
 }
 
+// ─── 9. Booking reminders (PR3 design §5) ────────────────────────────────────
+
+function reminderKey(kind) {
+  return `booking_reminder_${kind}`;
+}
+
+/**
+ * Settle one reminder on the booking it was for (same event, same start): the value replaces
+ * `booking.reminders[kind]` inside the stored reminders, read fresh so a sibling kind is kept.
+ */
+async function settleReminder(convId, b, kind, value) {
+  const fresh = await prisma.conversation.findUnique({ where: { id: convId } });
+  const stored = workflowData(fresh).booking;
+  if (!stored || stored.event_id !== b.event_id || stored.start !== b.start) return false;
+  const reminders = stored.reminders && typeof stored.reminders === 'object' ? stored.reminders : {};
+  return jsonb.mergeObjectKey('conversations', convId, 'workflow_data', 'booking',
+    { reminders: { ...reminders, [kind]: value } }, { match: { event_id: b.event_id, start: b.start } });
+}
+
+/**
+ * Once per (event, start, kind), reclaimable like the awaiting note: metadata.booking_reminder_<kind> holds
+ * `${event_id}|${start}#${attempt}`. A claim younger than NOTE_CLAIM_TTL_MS belongs to a live sweep; an older
+ * one whose sweep died is taken over, and its intent row (if any) is never sent again. A reschedule changes the
+ * start, so the new time is claimed afresh. Returns {attempt, value} or null.
+ */
+async function claimReminder(conv, b, kind, now) {
+  const meta = metadataOf(conv);
+  const key = reminderKey(kind);
+  const base = `${b.event_id}|${b.start}`;
+  const stored = typeof meta[key] === 'string' ? meta[key] : '';
+  let attempt = 1;
+  if (stored.startsWith(`${base}#`)) {
+    const claimedAt = meta[`${key}_claimed_at`] ? toMs(meta[`${key}_claimed_at`]) : NaN;
+    if (Number.isFinite(claimedAt) && now.getTime() - claimedAt < NOTE_CLAIM_TTL_MS) return null;
+    attempt = (parseInt(stored.slice(base.length + 1), 10) || 1) + 1;
+  }
+  await jsonb.patchJson('conversations', conv.id, 'metadata', { [`${key}_claimed_at`]: now.toISOString() });
+  const value = `${base}#${attempt}`;
+  return (await jsonb.claimValue('conversations', conv.id, 'metadata', key, value)) ? { attempt, value } : null;
+}
+
+async function sendReminder(business, conv, b, kind, now, report) {
+  const wd = workflowData(conv);
+  const at = now.toISOString();
+  if (wd.marketing_opted_out_at) {
+    if (await settleReminder(conv.id, b, kind, { skipped: 'opted_out', at })) report.reminders_skipped += 1;
+    return;
+  }
+  // A staff member holds the conversation (and may have changed the call by hand): no bot reminder.
+  if (conv.status === 'human_takeover') {
+    if (await settleReminder(conv.id, b, kind, { skipped: 'staff', at })) report.reminders_skipped += 1;
+    return;
+  }
+  // D1 save-only: no bot message, not even a reminder (staff see the booking in the calendar).
+  if (!notesAllowed(business, conv)) return;
+
+  const claim = await claimReminder(conv, b, kind, now);
+  if (!claim) return;
+  const batchKey = `booking_reminder:${kind}:${b.event_id}:${b.start}`;
+  const madeAt = new Date(toMs(b.rescheduled_at || b.booked_at) - MINUTE_MS);
+  if (claim.attempt > 1 && await noteIntentExists(conv.id, batchKey, madeAt)) {
+    // The sweep that died had written the intent: it may have been sent; never send it twice.
+    await settleReminder(conv.id, b, kind, { sent_at: at, via: 'recovered' });
+    return;
+  }
+
+  const lang = booking.reminderLang(wd, b);
+  // Inside the window a free-form message; outside it only the approved template may be sent.
+  const inWindow = isWithinServiceWindow(conv.last_inbound_at, now, { marginMs: NOTE_WINDOW_MARGIN_MS });
+  const part = inWindow ? booking.reminderPart(kind, b, now, lang) : booking.templatePart(kind, b, now, lang);
+  const dispatch = await replyBatcher.dispatchIntent({
+    business,
+    conversation: conv,
+    kind: 'booking_reminder',
+    parts: [part],
+    batchIds: [],
+    batchKey,
+    since: madeAt,
+    // The customer asked for this call; the reminder goes out while nobody has claimed the conversation, never
+    // after an opt-out stored since the booking, and only while this sweep still holds the claim.
+    precheck: {
+      humanGuard: false,
+      optedOutSince: b.booked_at || null,
+      claim: [{ column: 'metadata', path: [reminderKey(kind)], value: claim.value }],
+    },
+    now,
+  });
+  const outcome = dispatch && dispatch.outcome;
+  const via = inWindow ? 'text' : 'template';
+  if (DELIVERED_OUTCOMES.includes(outcome)) {
+    const sentPart = (dispatch.parts || []).find((p) => p.intentId);
+    await settleReminder(conv.id, b, kind, { sent_at: at, via, intent_id: sentPart ? sentPart.intentId : null });
+    report.reminders_sent += 1;
+    return;
+  }
+  if (outcome === 'aborted') {
+    const fresh = await prisma.conversation.findUnique({ where: { id: conv.id } });
+    // Taken over by another sweep: the send and the settle are its to finish.
+    if (metadataOf(fresh)[reminderKey(kind)] !== claim.value) return;
+    await settleReminder(conv.id, b, kind, { skipped: 'precheck', at });
+    report.reminders_skipped += 1;
+    return;
+  }
+  const reason = ((dispatch && dispatch.parts) || []).map((p) => p.reason).find(Boolean) || (dispatch && dispatch.noToken ? 'no_token' : 'failed');
+  if (!inWindow && ['template', 'billing'].includes(reason)) {
+    // Not approved yet, paused, or no payment method: skipped (never retried), flagged, staff told once per booking.
+    await settleReminder(conv.id, b, kind, { skipped: reason, at });
+    await jsonb.patchJson('conversations', conv.id, 'metadata', { reminder_blocked: { kind, reason, at, event_id: b.event_id } });
+    report.reminders_skipped += 1;
+    if (await jsonb.claimValue('conversations', conv.id, 'metadata', 'reminder_blocked_alert_for', b.event_id)) {
+      await sendStaffAlert({
+        reason: 'reminder_blocked', business, conversation: conv, now,
+        summary: `${kind}: ${reason === 'billing' ? 'واتساب بدو طريقة دفع' : 'القالب shift_call_reminder مش معتمد أو موقوف'} — المكالمة ${b.start}`,
+      });
+    }
+    return;
+  }
+  await settleReminder(conv.id, b, kind, { failed: reason, at });
+  report.reminders_failed += 1;
+}
+
+async function sweepBookings(business, teamHours, now, report) {
+  const convs = await prisma.conversation.findMany({
+    where: { business_id: business.id, last_message_at: { gte: ago(now, BOOKING_LOOKBACK_MS) } },
+  });
+  await each(report, `bookings ${business.id}`, convs, async (conv) => {
+    const wd = workflowData(conv);
+    const b = wd.booking && typeof wd.booking === 'object' ? wd.booking : null;
+    if (!b || !b.event_id || !['booked', 'rescheduled'].includes(b.status)) return;
+    const at = now.toISOString();
+
+    if (!b.passed_at && now.getTime() >= toMs(b.end) + BOOKING_PASSED_AFTER_MS) {
+      const marked = await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'booking',
+        { passed_at: at }, { match: { event_id: b.event_id, start: b.start, status: b.status } });
+      if (!marked) return;
+      report.bookings_passed += 1;
+      const nt = wd.needs_team;
+      // The call time passed: its meeting request is done (staff can still reopen the conversation).
+      if (nt && nt.reason === 'meeting' && !nt.resolved_at) {
+        await jsonb.resolveNeedsTeam(conv.id, { match: { reason: 'meeting', at: nt.at }, resolvedAt: at });
+      }
+      return;
+    }
+
+    const due = booking.reminderDue(b, now);
+    for (const kind of due.late) {
+      if (await settleReminder(conv.id, b, kind, { skipped: 'late', at })) report.reminders_skipped += 1;
+    }
+    if (!due.due) return;
+    // Re-read after a late settle so the send sees the reminders as stored.
+    const current = due.late.length ? (await prisma.conversation.findUnique({ where: { id: conv.id } })) || conv : conv;
+    const fresh = workflowData(current).booking;
+    if (!fresh || fresh.event_id !== b.event_id || fresh.start !== b.start) return;
+    await sendReminder(business, current, fresh, due.due, now, report);
+  });
+}
+
 // ─── run ─────────────────────────────────────────────────────────────────────
 
 // Order matters: settled or un-paused rows are back to `received` before the orphan step schedules
@@ -819,6 +991,8 @@ const STEPS = [
   // PR2: idle role-plays end before the nudge step, so a just-ended example can get its resume nudge.
   ['roleplay_idle', sweepRoleplayIdle],
   ['nudges', sweepNudges],
+  // PR3: booking reminders and passed calls.
+  ['bookings', sweepBookings],
 ];
 
 /**
@@ -869,6 +1043,40 @@ async function runSweep({ now = new Date() } = {}) {
   }
 }
 
+/** PR3 status fields: calendar configuration, upcoming bookings and reminder outcomes (recent conversations). */
+async function bookingStatus(business, now) {
+  const cfg = booking.bookingConfig(business);
+  const convs = await prisma.conversation.findMany({
+    where: { business_id: business.id, last_message_at: { gte: ago(now, BOOKING_LOOKBACK_MS) } },
+  });
+  const reminders = { d1_sent: 0, h1_sent: 0, template_sent: 0, skipped: 0, template_blocked: 0, failed: 0 };
+  let upcoming = 0;
+  for (const c of convs) {
+    const b = workflowData(c).booking;
+    if (!b || typeof b !== 'object') continue;
+    if (booking.activeBooking(workflowData(c), now) && toMs(b.start) > now.getTime()) upcoming += 1;
+    for (const kind of REMINDER_KINDS) {
+      const r = b.reminders && b.reminders[kind];
+      if (!r) continue;
+      if (r.sent_at) {
+        reminders[`${kind}_sent`] += 1;
+        if (r.via === 'template') reminders.template_sent += 1;
+      } else if (r.skipped) {
+        reminders.skipped += 1;
+        if (r.skipped === 'template' || r.skipped === 'billing') reminders.template_blocked += 1;
+      } else if (r.failed) {
+        reminders.failed += 1;
+      }
+    }
+  }
+  return {
+    calendar_configured: cfg.configured,
+    booking_enabled: cfg.enabled,
+    bookings_upcoming: upcoming,
+    reminders,
+  };
+}
+
 async function getShiftStatus({ now = new Date() } = {}) {
   const [business] = await prisma.business.findMany({ where: { business_type: 'shift', status: 'active' } });
   if (!business) return { workflow_active: false, business: null };
@@ -902,6 +1110,7 @@ async function getShiftStatus({ now = new Date() } = {}) {
     return !!(n && typeof n === 'object' && !n.sent_at && !n.dropped_at);
   }).length;
   const roleplaysActive = convs.filter((c) => roleplay.isActive(workflowData(c))).length;
+  const bookingStats = await bookingStatus(business, now);
   const iso = (row) => (row && row.created_at ? new Date(row.created_at).toISOString() : null);
 
   return {
@@ -922,6 +1131,7 @@ async function getShiftStatus({ now = new Date() } = {}) {
     ambiguous,
     nudges_pending: nudgesPending,
     roleplays_active: roleplaysActive,
+    ...bookingStats,
     sweep: lastSweep(),
     now: new Date(now).toISOString(),
   };

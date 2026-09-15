@@ -16,6 +16,8 @@ const handoff = require('./handoff');
 const assets = require('./assets');
 const roleplay = require('./roleplay');
 const validators = require('./validators');
+// PR3: `book:<iso>` and the booking controls are routable ids, answered by booking.js (async, calendar).
+const booking = require('./booking');
 
 const SLOT_OFFER_TTL_MS = 12 * 60 * 60 * 1000;
 const SLOT_ID_RE = /^slot:(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})([+-]\d{2}:\d{2})\/(\d{2}:\d{2})$/;
@@ -60,7 +62,7 @@ function parseSlotId(id) {
 
 function isShiftButtonId(id) {
   if (typeof id !== 'string') return false;
-  return id === 'lead_talk' || id === 'slot:other' || SLOT_ID_RE.test(id) || PR2_ID_RE.test(id);
+  return id === 'lead_talk' || id === 'slot:other' || SLOT_ID_RE.test(id) || PR2_ID_RE.test(id) || booking.isBookingId(id);
 }
 
 function minutesToHm(minutes) {
@@ -312,7 +314,8 @@ function quoteWrittenResult(c) {
 
 function leadCallResult(c) {
   const { lang, at, now, teamHours } = c;
-  const offers = slotOffers(teamHours, now, lang).slice(0, 3);
+  // PR3: the batcher passes the calendar's free slots when booking is on; otherwise PR2's windows.
+  const offers = (Array.isArray(c.offers) && c.offers.length ? c.offers : slotOffers(teamHours, now, lang)).slice(0, 3);
   return buttonResult({
     messages: [{
       type: 'interactive',
@@ -458,7 +461,8 @@ function withLastBot(id, result, conversation, now) {
 }
 
 function handleButton(id, ctx = {}) {
-  if (!isShiftButtonId(id)) return null;
+  // Booking taps need the calendar (async): replyBatcher.answerTaps sends them to booking.handleBookingTap.
+  if (!isShiftButtonId(id) || booking.isBookingId(id)) return null;
   const { business = { ai_config: {} }, conversation = { workflow_data: {} }, now = new Date(), messageId = null } = ctx;
   const wd = conversation.workflow_data || {};
   const lead = wd.lead || {};
@@ -615,6 +619,20 @@ function assertButtons() {
     }
   }
 
+  // PR3 booking offers: every 30-minute start over a fortnight, both languages, plus the fixed controls.
+  for (let step = 0; step < 14 * 48; step++) {
+    const at = new Date(base + step * 30 * 60 * 1000);
+    for (const lang of ['ar', 'en']) {
+      const title = booking.offerTitle(at, new Date(base), th.tz, lang);
+      checkTitle(title, MAX_TITLE, 'booking offer');
+      checkId(booking.bookId(at), 'booking offer');
+    }
+  }
+  for (const b of booking.staticButtons()) {
+    checkTitle(b.title, MAX_TITLE, 'booking');
+    checkId(b.id, 'booking');
+  }
+
   const followups = loadFollowups();
   if (followups && typeof followups.staticTitles === 'function') {
     for (const title of followups.staticTitles()) checkTitle(title, MAX_TITLE, 'nudge');
@@ -655,4 +673,6 @@ module.exports = {
   roleplayObject,
   samplesSent,
   assertButtons,
+  stageLocked,
+  endingRoleplay,
 };

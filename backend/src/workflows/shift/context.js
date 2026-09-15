@@ -18,6 +18,7 @@ const hours = require('./hours');
 const roleplay = require('./roleplay');
 const acks = require('./acks');
 const objectives = require('./objectives');
+const booking = require('./booking');
 
 const { stripHeaders, fenceValue, fencedJson } = objectives;
 
@@ -304,6 +305,8 @@ function buildUserTurn(ctx = {}) {
     `عرّفت بنفسك: ${disclosed ? 'نعم' : 'لا — عرّف بجملة واحدة'}`,
     `أُرسل سابقًا: ${samples} · أسئلة الاكتشاف المطروحة: ${questionsAsked}/2 · ردودك حتى الآن: ${Number(wd.bot_turns) || 0}`,
     `حالة الفريق: ${teamStatusLine(wd)}`,
+    // PR3: only when a booking exists, so turns without one are unchanged.
+    ...[booking.contextLine(wd, now)].filter(Boolean),
     `الأزرار المتاحة الآن: ${buttonsLine}`,
     clockLine(c.business, now),
   ].join('\n'));
