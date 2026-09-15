@@ -13,6 +13,8 @@ jest.mock('../src/services/replyBatcher', () => ({
   scheduleReply: jest.fn(),
   deliverResult: jest.fn(),
   dispatchIntent: jest.fn(),
+  // The real view needs intent rows; the sweeper tests seed the flags they mean as delivered.
+  deliveredView: jest.fn(async (conv) => conv),
   reconcileUnconfirmedIntents: jest.fn(),
   isShiftReplyAllowed: jest.fn(),
   // The real rule: the sweeper must agree with the batcher on when a person is talking.
@@ -914,7 +916,9 @@ describe('runSweep', () => {
     const report = await runSweep({ now: NOW });
     expect(report).toEqual({
       stuck_inbound: { reprocessed: 0 }, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
-      pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0, errors: [],
+      pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0,
+      // PR2 (contract §11.1): the idle role-play and nudge steps report their own counters.
+      roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0, errors: [],
     });
   });
 
@@ -972,6 +976,8 @@ describe('getShiftStatus', () => {
       received_backlog: 1,
       unconfirmed: 1,
       ambiguous: 2,
+      nudges_pending: 0,
+      roleplays_active: 0,
       sweep: lastSweep(),
       now: NOW.toISOString(),
     });
@@ -989,3 +995,547 @@ describe('getShiftStatus', () => {
     expect(status).toMatchObject({ workflow_active: false, reply_mode: null, bot_live: false });
   });
 });
+
+// ─── PR2 (contract §11.1): idle role-play and the single in-window nudge ─────
+
+// Amman local wall time → Date (Asia/Amman is UTC+3 all year).
+const amman = (s) => new Date(`${s}:00+03:00`);
+
+describe('7. idle role-play (PR2)', () => {
+  afterEach(() => {
+    delete process.env.SHIFT_ROLEPLAY;
+  });
+
+  function seedRoleplay({ lastTurn, stage = 'roleplay', active = true, extra = {} } = {}) {
+    return seedConversation({
+      current_state: stage,
+      last_inbound_at: lastTurn, last_message_at: lastTurn,
+      workflow_data: {
+        roleplay: {
+          active, sector: 'restaurant', business_name: 'مطعم الساحة', facts: ['شاورما 3 دنانير'],
+          started_at: before(20 * MIN).toISOString(), last_turn_at: lastTurn.toISOString(), turns: 2,
+          setup_asks: 1, ended_at: null, end_reason: null,
+        },
+        ...extra,
+      },
+    });
+  }
+
+  test('15 min idle → deactivated silently: stage close, end_reason idle, zero deliver calls', async () => {
+    seedBusiness();
+    const conv = seedRoleplay({ lastTurn: before(15 * MIN) });
+
+    const report = await runSweep({ now: NOW });
+
+    const stored = storedConversation(conv.id);
+    expect(stored.current_state).toBe('close');
+    expect(stored.workflow_data.roleplay).toMatchObject({
+      active: false, end_reason: 'idle', ended_at: NOW.toISOString(), business_name: 'مطعم الساحة', turns: 2,
+    });
+    expect(report.roleplay_idle).toBe(1);
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+    expect(replyBatcher.dispatchIntent).not.toHaveBeenCalled();
+    expect(alerts.sendStaffAlert).not.toHaveBeenCalled();
+  });
+
+  test('14:59 idle → still active', async () => {
+    seedBusiness();
+    const conv = seedRoleplay({ lastTurn: before(15 * MIN - 1000) });
+    const report = await runSweep({ now: NOW });
+    expect(storedConversation(conv.id).current_state).toBe('roleplay');
+    expect(storedConversation(conv.id).workflow_data.roleplay.active).toBe(true);
+    expect(report.roleplay_idle).toBe(0);
+  });
+
+  test('SHIFT_ROLEPLAY=0 → an active role-play ends on the next sweep with end_reason disabled', async () => {
+    process.env.SHIFT_ROLEPLAY = '0';
+    seedBusiness();
+    const conv = seedRoleplay({ lastTurn: before(MIN) });
+    await runSweep({ now: NOW });
+    expect(storedConversation(conv.id).current_state).toBe('close');
+    expect(storedConversation(conv.id).workflow_data.roleplay).toMatchObject({ active: false, end_reason: 'disabled' });
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+  });
+
+  test('a setup older than 15 min with no role-play started → close; a younger one stays', async () => {
+    seedBusiness();
+    const setupObj = { active: false, sector: 'clinic', business_name: null, facts: [], started_at: null, last_turn_at: null, turns: 0, setup_asks: 1, ended_at: null, end_reason: null };
+    const old = seedConversation({
+      customer_wa_id: '962790000001', current_state: 'roleplay_setup', last_inbound_at: before(20 * MIN),
+      workflow_data: { roleplay: setupObj, last_bot: { stage: 'roleplay_setup', next_step: 'question', at: before(16 * MIN).toISOString() } },
+    });
+    const young = seedConversation({
+      customer_wa_id: '962790000002', current_state: 'roleplay_setup', last_inbound_at: before(20 * MIN),
+      workflow_data: { roleplay: setupObj, last_bot: { stage: 'roleplay_setup', next_step: 'question', at: before(5 * MIN).toISOString() } },
+    });
+
+    const report = await runSweep({ now: NOW });
+
+    expect(storedConversation(old.id).current_state).toBe('close');
+    expect(storedConversation(old.id).workflow_data.roleplay).toEqual(setupObj);
+    expect(storedConversation(young.id).current_state).toBe('roleplay_setup');
+    expect(report.roleplay_idle).toBe(1);
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+  });
+
+  test('a customer message waiting for its batch, or a live reply lease → not idle', async () => {
+    seedBusiness();
+    const waiting = seedRoleplay({ lastTurn: before(20 * MIN) });
+    seedMessage({ conversation_id: waiting.id, status: 'received', text_body: 'بدي 2 شاورما', created_at: before(10 * 1000) });
+    const leased = seedConversation({
+      customer_wa_id: '962790000002', current_state: 'roleplay', last_inbound_at: before(20 * MIN),
+      metadata: { lease_token: 't', reply_lease_until: at(30 * 1000).toISOString() },
+      workflow_data: { roleplay: { active: true, last_turn_at: before(20 * MIN).toISOString(), turns: 1 } },
+    });
+
+    await runSweep({ now: NOW });
+
+    expect(storedConversation(waiting.id).workflow_data.roleplay.active).toBe(true);
+    expect(storedConversation(leased.id).workflow_data.roleplay.active).toBe(true);
+  });
+
+  test('the stage moved (handoff) after the read → the stage is never overwritten, the example still ends', async () => {
+    seedBusiness();
+    const conv = seedRoleplay({ lastTurn: before(20 * MIN) });
+    const stale = JSON.parse(JSON.stringify(storedConversation(conv.id)));
+    stale.last_inbound_at = new Date(stale.last_inbound_at);
+    storedConversation(conv.id).current_state = 'handoff';
+    const real = db.prisma.conversation.findMany;
+    jest.spyOn(db.prisma.conversation, 'findMany').mockImplementation(async (args) => (
+      args && args.where && args.where.OR ? [stale] : real(args)));
+
+    const report = await runSweep({ now: NOW });
+
+    expect(storedConversation(conv.id).current_state).toBe('handoff');
+    // A handoff ends the example (§3.2): the object is ended first, conditional on the one read.
+    expect(storedConversation(conv.id).workflow_data.roleplay).toMatchObject({ active: false, end_reason: 'idle' });
+    expect(report.roleplay_idle).toBe(1);
+  });
+
+  test('review r2 #12: a live example left in a stage outside the example ends as done, stage untouched', async () => {
+    seedBusiness();
+    const conv = seedRoleplay({ lastTurn: before(2 * MIN) });
+    storedConversation(conv.id).current_state = 'captured';
+    storedConversation(conv.id).status = 'pending';
+    storedConversation(conv.id).last_message_at = before(2 * MIN);
+
+    await runSweep({ now: NOW });
+
+    expect(storedConversation(conv.id).current_state).toBe('captured');
+    expect(storedConversation(conv.id).workflow_data.roleplay).toMatchObject({ active: false, end_reason: 'done' });
+  });
+
+  test('review minor: the role-play object is ended before the stage moves (a failed stage write leaves no live example)', async () => {
+    seedBusiness();
+    const conv = seedRoleplay({ lastTurn: before(20 * MIN) });
+    jest.spyOn(db.prisma.conversation, 'updateMany').mockRejectedValueOnce(new Error('pgbouncer: connection reset'));
+
+    await runSweep({ now: NOW });
+
+    expect(storedConversation(conv.id).workflow_data.roleplay.active).toBe(false);
+    expect(storedConversation(conv.id).current_state).toBe('roleplay');
+  });
+});
+
+describe('8. the single in-window nudge (PR2, eval #10)', () => {
+  // Eval #10: the fit message went out Thursday 20:30 (Amman); the customer went quiet.
+  const THU_2030 = amman('2026-09-17T20:30');
+
+  afterEach(() => {
+    delete process.env.SHIFT_NUDGES;
+  });
+
+  // deliverResult persists workflowDataPatch before sending (PR1 note path); the mock does the same.
+  function deliverWritesState(outcome = 'sent') {
+    replyBatcher.deliverResult.mockImplementation(async ({ conversation, result }) => {
+      if (result.workflowDataPatch) await db.jsonb.patchJson('conversations', conversation.id, 'workflow_data', result.workflowDataPatch);
+      if (outcome === 'sent') {
+        db.seed({ messages: [{ business_id: BIZ, conversation_id: conversation.id, direction: 'outbound', status: 'sent', text_body: result.messages[0].text, is_ai_generated: true, raw_payload: { kind: result.kind } }] });
+      }
+      return { outcome, parts: [] };
+    });
+  }
+
+  function seedQuiet({ inboundAt = THU_2030, wd = {}, conv = {} } = {}) {
+    const c = seedConversation({
+      current_state: 'fit', last_inbound_at: inboundAt, last_message_at: new Date(inboundAt.getTime() + 30 * 1000),
+      workflow_data: {
+        lead: { name: 'سامي', sector: 'clinic', need: ['بيضيعوا مواعيد يوم الجمعة'], language: 'ar' },
+        last_bot: { stage: 'fit', next_step: 'question', at: new Date(inboundAt.getTime() + 30 * 1000).toISOString() },
+        ...wd,
+      },
+      ...conv,
+    });
+    const inbound = seedMessage({ conversation_id: c.id, text_body: 'الاستقبال بترد بالنهار وأنا بالليل', created_at: inboundAt });
+    seedMessage({ conversation_id: c.id, direction: 'outbound', status: 'sent', is_ai_generated: true, text_body: 'بدك أوريك مثال؟', created_at: new Date(inboundAt.getTime() + 30 * 1000) });
+    return { conv: c, inbound };
+  }
+
+  // Sweeps every 15 min between two Amman wall times (inclusive); returns the sweep times that delivered.
+  async function sweepEvery15(fromLocal, toLocal) {
+    const delivered = [];
+    for (let t = amman(fromLocal).getTime(); t <= amman(toLocal).getTime(); t += 15 * MIN) {
+      const before = replyBatcher.deliverResult.mock.calls.length;
+      await runSweep({ now: new Date(t) });
+      if (replyBatcher.deliverResult.mock.calls.length > before) delivered.push(new Date(t));
+    }
+    return delivered;
+  }
+
+  test('exactly one nudge, Friday 16:30, through deliverResult (PR1 note path) with the stage text and buttons', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const { conv, inbound } = seedQuiet();
+
+    const delivered = await sweepEvery15('2026-09-17T20:45', '2026-09-18T23:00');
+
+    expect(delivered).toEqual([amman('2026-09-18T16:30')]);
+    expect(replyBatcher.deliverResult).toHaveBeenCalledTimes(1);
+    const [arg] = replyBatcher.deliverResult.mock.calls[0];
+    expect(arg).toMatchObject({ batch: [], windowMarginMs: NOTE_WINDOW_MARGIN_MS, humanGuard: true, now: amman('2026-09-18T16:30') });
+    // Review minor: «إيقاف» stored after the silence this nudge follows is refused by the pre-send check.
+    expect(arg.optedOutSince).toBe(THU_2030.toISOString());
+    expect(arg.conversation.id).toBe(conv.id);
+    expect(arg.result).toMatchObject({ kind: 'nudge', action: 'NUDGE' });
+    expect(arg.result.messages).toHaveLength(1);
+    const part = arg.result.messages[0];
+    expect(part.text).toBe('أستاذ سامي، بخصوص اللي حكيتلي عنه (بيضيعوا مواعيد يوم الجمعة) — بدك أوريك كيف بيرد كرم لما الزبون يسأل «في موعد بكرا؟»');
+    expect(part.buttons.map((b) => b.id)).toEqual(['sample_roleplay:clinic', 'send_sample_now', 'nudge_not_now']);
+    expect(part.buttons.map((b) => b.title)).toEqual(['جرّبني كزبون', 'ابعت مثال', 'مش هلأ']);
+    expect(part.text).not.toMatch(/واتساب|نافذة|24/);
+    expect(arg.result.workflowDataPatch).toEqual({
+      nudge: expect.objectContaining({ for_inbound_id: inbound.id, kind: 'stage', sent_at: amman('2026-09-18T16:30').toISOString() }),
+      nudges_sent: 1,
+    });
+    const stored = storedConversation(conv.id);
+    expect(stored.metadata.nudge_sent_for).toBe(inbound.id);
+    expect(stored.workflow_data.nudge.sent_at).toBe(amman('2026-09-18T16:30').toISOString());
+    expect(stored.workflow_data.nudges_sent).toBe(1);
+  });
+
+  test('a due time inside the Friday prayer block waits: none 11:00–13:59, one at 14:00', async () => {
+    seedBusiness();
+    deliverWritesState();
+    // Thursday 15:30 + 20 h = Friday 11:30, inside the block → the next friendly minute is 14:00.
+    seedQuiet({ inboundAt: amman('2026-09-17T15:30') });
+
+    const delivered = await sweepEvery15('2026-09-18T09:00', '2026-09-18T15:00');
+
+    expect(delivered).toEqual([amman('2026-09-18T14:00')]);
+  });
+
+  test('the planned nudge is stored with its due time, and the report counts the send', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const { conv, inbound } = seedQuiet();
+
+    let report = await runSweep({ now: amman('2026-09-17T21:00') });
+    expect(storedConversation(conv.id).workflow_data.nudge).toEqual({
+      due_at: amman('2026-09-18T16:30').toISOString(), kind: 'stage', stage: 'fit', for_inbound_id: inbound.id,
+      for_inbound_at: THU_2030.toISOString(), sent_at: null, dropped_at: null, drop_reason: null,
+    });
+    expect(report).toMatchObject({ nudges_sent: 0, nudges_dropped: 0 });
+
+    report = await runSweep({ now: amman('2026-09-18T16:30') });
+    expect(report).toMatchObject({ nudges_sent: 1, nudges_dropped: 0 });
+  });
+
+  test('none after opt-out (planned or not)', async () => {
+    seedBusiness();
+    deliverWritesState();
+    // Saturday: «لا تبعتولي شي», the deterministic opt-out ack went out after it.
+    const { conv } = seedQuiet({
+      inboundAt: amman('2026-09-19T10:00'),
+      wd: { marketing_opted_out_at: amman('2026-09-19T10:00').toISOString() },
+      conv: { current_state: 'closed' },
+    });
+    await sweepEvery15('2026-09-19T10:15', '2026-09-20T09:00');
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+    expect(storedConversation(conv.id).workflow_data.nudge).toBeUndefined();
+
+    // A nudge planned before the opt-out is dropped, never sent.
+    db.reset();
+    seedBusiness();
+    const planned = seedQuiet();
+    await runSweep({ now: amman('2026-09-17T21:00') });
+    storedConversation(planned.conv.id).workflow_data.marketing_opted_out_at = amman('2026-09-18T09:00').toISOString();
+    const report = await runSweep({ now: amman('2026-09-18T16:30') });
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+    expect(storedConversation(planned.conv.id).workflow_data.nudge).toMatchObject({ sent_at: null, drop_reason: 'optout' });
+    expect(report.nudges_dropped).toBe(1);
+  });
+
+  test('two concurrent sweeps → one deliverResult; a stale reader loses the nudge_sent_for claim', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const { conv } = seedQuiet();
+    await runSweep({ now: amman('2026-09-17T21:00') });
+    const due = amman('2026-09-18T16:30');
+
+    const [a, b] = await Promise.all([runSweep({ now: due }), runSweep({ now: due })]);
+    expect([a.skipped, b.skipped]).toContain('already_running');
+    expect(replyBatcher.deliverResult).toHaveBeenCalledTimes(1);
+
+    // Another instance read the conversation before the send was recorded: the DB claim stops it.
+    const stored = storedConversation(conv.id);
+    stored.workflow_data.nudge = { ...stored.workflow_data.nudge, sent_at: null };
+    await runSweep({ now: new Date(due.getTime() + 1000) });
+    expect(replyBatcher.deliverResult).toHaveBeenCalledTimes(1);
+  });
+
+  test('window drop → staff call task + window_closing alert, once; never a send', async () => {
+    seedBusiness();
+    deliverWritesState();
+    // Last inbound Tuesday 02:00: due 22:00 → next friendly minute Wednesday 09:00, past the 01:30 ceiling.
+    const { conv, inbound } = seedQuiet({ inboundAt: amman('2026-09-15T02:00') });
+
+    const first = await runSweep({ now: amman('2026-09-15T02:15') });
+    await runSweep({ now: amman('2026-09-15T02:30') });
+    await sweepEvery15('2026-09-15T09:00', '2026-09-16T01:45');
+
+    const wd = storedConversation(conv.id).workflow_data;
+    expect(wd.nudge).toMatchObject({ for_inbound_id: inbound.id, sent_at: null, drop_reason: 'window', dropped_at: amman('2026-09-15T02:15').toISOString() });
+    expect(wd.staff_tasks).toEqual([{
+      kind: 'window_closed', summary: 'النافذة مسكّرة — اتصل', due_at: amman('2026-09-15T02:15').toISOString(),
+      at: amman('2026-09-15T02:15').toISOString(), done_at: null,
+    }]);
+    expect(alertsFor('window_closing').filter((x) => x.conversation.id === conv.id)).toHaveLength(1);
+    expect(storedConversation(conv.id).metadata.nudge_drop_for).toBe(inbound.id);
+    expect(first.nudges_dropped).toBe(1);
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+  });
+
+  test('staff task appends keep existing tasks and cap the list at 20', async () => {
+    seedBusiness();
+    const old = Array.from({ length: 20 }, (_, i) => ({ kind: 'call', summary: `t${i}`, due_at: null, at: null, done_at: null }));
+    const { conv } = seedQuiet({ inboundAt: amman('2026-09-15T02:00'), wd: { staff_tasks: old } });
+    await runSweep({ now: amman('2026-09-15T02:15') });
+    const tasks = storedConversation(conv.id).workflow_data.staff_tasks;
+    expect(tasks).toHaveLength(20);
+    expect(tasks[0].summary).toBe('t1');
+    expect(tasks[19].kind).toBe('window_closed');
+  });
+
+  test('SHIFT_NUDGES=0 → nothing planned, nothing sent', async () => {
+    process.env.SHIFT_NUDGES = '0';
+    seedBusiness();
+    deliverWritesState();
+    const { conv } = seedQuiet();
+    await sweepEvery15('2026-09-17T21:00', '2026-09-18T20:00');
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+    expect(storedConversation(conv.id).workflow_data.nudge).toBeUndefined();
+  });
+
+  test('a newer inbound or a staff message drops the planned nudge; a settled nudge is not re-patched', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const staffCase = seedQuiet();
+    const inboundCase = seedQuiet({ conv: { customer_wa_id: '962790000002' } });
+    await runSweep({ now: amman('2026-09-17T21:00') });
+
+    seedMessage({ conversation_id: staffCase.conv.id, direction: 'outbound', sent_by_user_id: 'u1', status: 'sent', text_body: 'أهلين', created_at: amman('2026-09-18T09:00') });
+    // A newer customer message the batcher has not answered yet (no new bot turn, so no new plan).
+    seedMessage({ conversation_id: inboundCase.conv.id, status: 'received', text_body: 'طيب', created_at: amman('2026-09-18T09:00') });
+    storedConversation(inboundCase.conv.id).last_inbound_at = amman('2026-09-18T09:00');
+
+    await runSweep({ now: amman('2026-09-18T16:30') });
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+    expect(storedConversation(staffCase.conv.id).workflow_data.nudge).toMatchObject({ drop_reason: 'staff', dropped_at: amman('2026-09-18T16:30').toISOString() });
+    expect(storedConversation(inboundCase.conv.id).workflow_data.nudge).toMatchObject({ drop_reason: 'inbound' });
+
+    const spy = jest.spyOn(db.jsonb, 'mergeObjectKey');
+    const patch = jest.spyOn(db.jsonb, 'patchJson');
+    const report = await runSweep({ now: amman('2026-09-18T16:45') });
+    expect(spy.mock.calls.filter(([, id, , key]) => key === 'nudge' && id === staffCase.conv.id)).toHaveLength(0);
+    expect(patch.mock.calls.filter(([, id, , p]) => id === staffCase.conv.id && p && 'nudge' in p)).toHaveLength(0);
+    expect(report.nudges_dropped).toBe(0);
+  });
+
+  test('human_takeover or the D1 gate closed → skipped', async () => {
+    seedBusiness();
+    deliverWritesState();
+    seedQuiet({ conv: { status: 'human_takeover' } });
+    const gated = seedQuiet({ conv: { customer_wa_id: '962790000002' } });
+    replyBatcher.isShiftReplyAllowed.mockImplementation((b, wa) => wa !== gated.conv.customer_wa_id);
+    await sweepEvery15('2026-09-17T21:00', '2026-09-18T20:00');
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
+  });
+
+  test('deliverResult reports window_closed → the nudge is settled as a window drop with the staff task', async () => {
+    seedBusiness();
+    deliverWritesState('window_closed');
+    const { conv } = seedQuiet();
+    const report = await runSweep({ now: amman('2026-09-18T16:30') });
+    expect(replyBatcher.deliverResult).toHaveBeenCalledTimes(1);
+    expect(storedConversation(conv.id).workflow_data.nudge).toMatchObject({ sent_at: null, drop_reason: 'window' });
+    expect(storedConversation(conv.id).workflow_data.staff_tasks).toHaveLength(1);
+    expect(report).toMatchObject({ nudges_sent: 0, nudges_dropped: 1 });
+    await runSweep({ now: amman('2026-09-18T16:45') });
+    expect(replyBatcher.deliverResult).toHaveBeenCalledTimes(1);
+  });
+
+  test('an English lead gets the English nudge; an idle role-play gets the resume buttons', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const en = seedQuiet({ wd: { lead: { name: 'Sam', sector: 'store', language: 'en' } } });
+    db.store.messages.find((m) => m.conversation_id === en.conv.id && m.direction === 'inbound').text_body = 'Can you track Aramex deliveries?';
+    const rp = seedQuiet({
+      conv: { customer_wa_id: '962790000002', current_state: 'close' },
+      wd: { roleplay: { active: false, business_name: 'مطعم الساحة', end_reason: 'idle', ended_at: amman('2026-09-18T16:00').toISOString() } },
+    });
+
+    await runSweep({ now: amman('2026-09-18T16:30') });
+
+    const parts = Object.fromEntries(replyBatcher.deliverResult.mock.calls.map(([a]) => [a.conversation.id, a.result.messages[0]]));
+    expect(parts[en.conv.id].text).toMatch(/^[^؀-ۿ]+$/);
+    expect(parts[en.conv.id].buttons.map((b) => b.id)).toEqual(['sample_roleplay:store', 'send_sample_now', 'nudge_not_now']);
+    expect(parts[rp.conv.id].buttons.map((b) => b.id)).toEqual(['roleplay_continue', 'end_roleplay']);
+  });
+});
+
+describe('getShiftStatus (PR2 counters)', () => {
+  test('nudges_pending counts unsettled nudges; roleplays_active counts active examples', async () => {
+    seedBusiness();
+    const nudge = (extra) => ({ due_at: at(HOUR).toISOString(), kind: 'stage', for_inbound_id: 'm1', sent_at: null, dropped_at: null, ...extra });
+    seedConversation({ customer_wa_id: '962790000001', workflow_data: { nudge: nudge() } });
+    seedConversation({ customer_wa_id: '962790000002', workflow_data: { nudge: nudge({ sent_at: NOW.toISOString() }) } });
+    seedConversation({ customer_wa_id: '962790000003', workflow_data: { nudge: nudge({ dropped_at: NOW.toISOString() }), roleplay: { active: true } } });
+    seedConversation({ customer_wa_id: '962790000004', workflow_data: { roleplay: { active: false } } });
+
+    const status = await getShiftStatus({ now: NOW });
+    expect(status).toMatchObject({ nudges_pending: 1, roleplays_active: 1 });
+  });
+});
+
+// ─── Review round 1 ──────────────────────────────────────────────────────────
+
+describe('review minor: an example that goes idle gets its resume nudge', () => {
+  function seedLiveExample(extraWd = {}) {
+    const inboundAt = before(2 * MIN);
+    const conv = seedConversation({
+      current_state: 'roleplay', last_inbound_at: inboundAt, last_message_at: before(MIN),
+      workflow_data: {
+        lead: { name: 'سامي', business_name: 'مطعم الساحة', sector: 'restaurant' },
+        roleplay: {
+          active: true, sector: 'restaurant', business_name: 'مطعم الساحة', facts: ['شاورما 3 دنانير'],
+          started_at: before(10 * MIN).toISOString(), last_turn_at: inboundAt.toISOString(), turns: 2, setup_asks: 1, ended_at: null, end_reason: null,
+        },
+        last_bot: { stage: 'roleplay', next_step: 'question', at: before(MIN).toISOString() },
+        ...extraWd,
+      },
+    });
+    const inbound = seedMessage({ conversation_id: conv.id, text_body: 'في توصيل؟', created_at: inboundAt });
+    seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'sent', is_ai_generated: true, text_body: 'التوصيل داخل إربد. شو بتحب تطلب؟', created_at: before(MIN) });
+    return { conv, inbound };
+  }
+
+  test('bot asks in character → sweep plans nothing → 15 min idle → the example ends and roleplay_resume is planned 2 h after the silence', async () => {
+    seedBusiness();
+    const { conv, inbound } = seedLiveExample();
+
+    await runSweep({ now: NOW });
+    expect(storedConversation(conv.id).workflow_data.nudge).toBeUndefined();
+
+    await runSweep({ now: at(15 * MIN) });
+    const wd = storedConversation(conv.id).workflow_data;
+    expect(storedConversation(conv.id).current_state).toBe('close');
+    expect(wd.roleplay).toMatchObject({ active: false, end_reason: 'idle' });
+    expect(wd.nudge).toMatchObject({ kind: 'roleplay_resume', for_inbound_id: inbound.id, sent_at: null, dropped_at: null });
+    expect(new Date(wd.nudge.due_at).getTime() - before(2 * MIN).getTime()).toBe(2 * HOUR);
+  });
+
+  test('an unsent nudge planned before the example went idle is replaced by the resume nudge', async () => {
+    seedBusiness();
+    const { conv, inbound } = seedLiveExample();
+    const stale = { due_at: at(20 * HOUR).toISOString(), kind: 'stage', stage: 'roleplay', for_inbound_id: null, for_inbound_at: before(2 * MIN).toISOString(), sent_at: null, dropped_at: null, drop_reason: null };
+    storedConversation(conv.id).workflow_data.nudge = { ...stale, for_inbound_id: inbound.id };
+
+    await runSweep({ now: at(15 * MIN) });
+
+    expect(storedConversation(conv.id).workflow_data.nudge).toMatchObject({ kind: 'roleplay_resume', for_inbound_id: inbound.id });
+  });
+});
+
+describe('review round 2 (sweeper)', () => {
+  afterEach(() => {
+    delete process.env.SHIFT_NUDGES;
+    replyBatcher.deliveredView.mockImplementation(async (conv) => conv);
+  });
+
+  function deliverWritesState() {
+    replyBatcher.deliverResult.mockImplementation(async ({ conversation, result }) => {
+      if (result.workflowDataPatch) await db.jsonb.patchJson('conversations', conversation.id, 'workflow_data', result.workflowDataPatch);
+      db.seed({ messages: [{ business_id: BIZ, conversation_id: conversation.id, direction: 'outbound', status: 'sent', text_body: result.messages[0].text, is_ai_generated: true, raw_payload: { kind: result.kind } }] });
+      return { outcome: 'sent', parts: [] };
+    });
+  }
+  const nudgeCalls = () => replyBatcher.deliverResult.mock.calls.map(([a]) => a).filter((a) => a.result && a.result.kind === 'nudge');
+
+  test('r2 #9: an unsent_reply escalation (awaiting_staff, pending) gets no sales nudge', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const inboundAt = amman('2026-09-14T10:00'); // Monday, team hours
+    const botAt = new Date(inboundAt.getTime() + 3 * MIN); // the requeued run wrote last_bot state-first
+    const conv = seedConversation({
+      status: 'pending', current_state: 'discovery', last_inbound_at: inboundAt, last_message_at: inboundAt,
+      workflow_data: {
+        lead: { name: 'سامي', sector: 'clinic', need: ['بيضيعوا مواعيد'], language: 'ar' },
+        last_bot: { stage: 'discovery', next_step: 'question', at: botAt.toISOString() },
+        needs_team: { reason: 'unsent_reply', summary: 'رد البوت ما وصل', at: new Date(inboundAt.getTime() + 6 * MIN).toISOString() },
+      },
+    });
+    const inbound = seedMessage({ conversation_id: conv.id, text_body: 'كم بتكلف الباقة للعيادة؟', created_at: inboundAt, status: 'awaiting_staff' });
+    // Both attempts settled undelivered (D18) → excluded from newestDeliveredOutbound.
+    for (const [createdAt, settled] of [[new Date(inboundAt.getTime() + 30 * 1000), 'requeued'], [botAt, 'escalated']]) {
+      seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'ambiguous_unreconciled', is_ai_generated: true, text_body: 'شو نوع العيادة؟', created_at: createdAt, raw_payload: { batch_key: 'k', settled, batch_ids: [inbound.id] } });
+    }
+
+    for (let t = amman('2026-09-14T10:15').getTime(); t <= amman('2026-09-15T09:30').getTime(); t += 15 * MIN) {
+      await runSweep({ now: new Date(t) });
+    }
+
+    expect(storedConversation(conv.id).status).toBe('pending');
+    expect(nudgeCalls()).toHaveLength(0);
+  });
+
+  test('minor: the nudge is planned from the delivered view (a failed sample card → the 2 h sample touch)', async () => {
+    seedBusiness();
+    deliverWritesState();
+    const inboundAt = amman('2026-09-14T10:00');
+    const conv = seedConversation({
+      current_state: 'sample', last_inbound_at: inboundAt, last_message_at: new Date(inboundAt.getTime() + 30 * 1000),
+      workflow_data: {
+        lead: { name: 'سامي', sector: 'clinic', language: 'ar' },
+        last_bot: { stage: 'sample', next_step: 'buttons', at: new Date(inboundAt.getTime() + 30 * 1000).toISOString() },
+        samples_sent: { image: 'clinic', page: null, accepted_at: inboundAt.toISOString() },
+      },
+    });
+    seedMessage({ conversation_id: conv.id, text_body: 'ابعت مثال', created_at: inboundAt });
+    seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'sent', is_ai_generated: true, text_body: 'تمام', created_at: new Date(inboundAt.getTime() + 30 * 1000) });
+    replyBatcher.deliveredView.mockImplementation(async (c) => ({ ...c, workflow_data: { ...c.workflow_data, samples_sent: { ...c.workflow_data.samples_sent, image: null } } }));
+
+    await runSweep({ now: new Date(inboundAt.getTime() + 5 * MIN) });
+
+    expect(storedConversation(conv.id).workflow_data.nudge).toMatchObject({ kind: 'sample_touch' });
+    expect(storedConversation(conv.id).workflow_data.samples_sent.image).toBe('clinic'); // the view is never written back
+  });
+
+  test('minor: «خلص» that ended a live example with SHIFT_ROLEPLAY=0 (no reply by design) raises no unanswered alert', async () => {
+    seedBusiness();
+    const inboundAt = before(3 * MIN);
+    const conv = seedConversation({
+      current_state: 'close', last_inbound_at: inboundAt,
+      workflow_data: { roleplay: { active: false, sector: 'restaurant', started_at: before(20 * MIN).toISOString(), ended_at: before(3 * MIN - 2000).toISOString(), end_reason: 'disabled' } },
+    });
+    seedMessage({ conversation_id: conv.id, status: 'answered', text_body: 'خلص', created_at: inboundAt });
+
+    await runSweep({ now: NOW });
+    expect(alertsFor('inbound_without_outbound')).toHaveLength(0);
+
+    // A later message nobody answered still alerts.
+    seedMessage({ conversation_id: conv.id, status: 'received', text_body: 'مرحبا؟', created_at: before(2 * MIN) });
+        await runSweep({ now: new Date(NOW.getTime() + MIN) });
+    expect(alertsFor('inbound_without_outbound')).toHaveLength(1);
+  });
+});
+

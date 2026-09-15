@@ -183,6 +183,119 @@ describe('pickLanguage', () => {
   });
 });
 
+describe('PR2 acks (contract §7.3)', () => {
+  const { SITE_HOST } = require('../src/config/site');
+  const OLD_HOST = ['shifts-ai', 'store'].join('.');
+  const LATIN = /[A-Za-z]/;
+  const DIGIT = /[0-9٠-٩]/;
+  const cp = (s) => Array.from(s).length;
+
+  const strings = (lang) => [
+    acks.sectorListBody(false, lang),
+    acks.sectorListBody(true, lang),
+    acks.sectorListLabel(lang),
+    acks.sectorListSectionTitle(lang),
+    ...acks.sectorListRows(lang).flatMap((r) => [r.title, r.description].filter(Boolean)),
+    acks.sectorTextAsk(lang),
+    ...['clinic', 'restaurant', 'store', 'other', undefined].map((s) => acks.sectorAck(s, lang)),
+    acks.consentAsk(lang),
+    ...acks.consentButtons(lang).map((b) => b.title),
+    acks.consentYes(lang),
+    acks.consentNo(lang),
+    acks.quoteWrittenLead(lang),
+    acks.callChoiceLead(lang),
+    acks.roleplayContinue(lang),
+    acks.sampleAlreadySent(lang),
+    acks.mediaTranscribedPrefix('audio', lang),
+    acks.mediaTranscribedPrefix('image', lang),
+  ];
+
+  test('Arabic: no Latin letters except SITE_HOST, no digits, never «وصل للفريق» / «معلّم كأولوية»', () => {
+    for (const text of strings('ar')) {
+      expect(typeof text).toBe('string');
+      expect(text.trim()).not.toBe('');
+      expect(text.split(SITE_HOST).join('')).not.toMatch(LATIN);
+      expect(text).not.toMatch(DIGIT);
+      expect(text).not.toMatch(/وصل للفريق|معلّم كأولوية|معلم كأولوية/);
+      expect(text).not.toContain(OLD_HOST);
+      expect(text).not.toMatch(/undefined|null|هنا/);
+    }
+  });
+
+  test('English: no Arabic letters, no digits', () => {
+    for (const text of strings('en')) {
+      expect(typeof text).toBe('string');
+      expect(text.trim()).not.toBe('');
+      expect(text).not.toMatch(ARABIC);
+      expect(text).not.toMatch(DIGIT);
+      expect(text).not.toMatch(/reached the team|flagged as priority|undefined|null/i);
+    }
+  });
+
+  test('button titles ≤ 20 code points, list rows ≤ 24, descriptions ≤ 72, label ≤ 20', () => {
+    for (const lang of ['ar', 'en']) {
+      for (const b of acks.consentButtons(lang)) expect(cp(b.title)).toBeLessThanOrEqual(20);
+      for (const r of acks.sectorListRows(lang)) {
+        expect(cp(r.title)).toBeLessThanOrEqual(24);
+        if (r.description) expect(cp(r.description)).toBeLessThanOrEqual(72);
+      }
+      expect(cp(acks.sectorListLabel(lang))).toBeLessThanOrEqual(20);
+      expect(cp(acks.sectorListSectionTitle(lang))).toBeLessThanOrEqual(24);
+    }
+  });
+
+  test('exact wording of the table', () => {
+    expect(acks.sectorListBody(false, 'ar')).toBe(`أهلًا وسهلًا 👋 أنا كرم، مساعد شِفت الذكي — ${SITE_HOST}. شو نوع شغلك؟`);
+    expect(acks.sectorListBody(false, 'ar')).toContain('shifts-ai.com');
+    expect(acks.sectorListBody(true, 'ar')).toBe('شو نوع شغلك؟');
+    expect(acks.sectorListBody(false, 'en')).toBe(`Hi 👋 I'm Karam, SHIFT's AI assistant — ${SITE_HOST}. What kind of business do you run?`);
+    expect(acks.sectorListBody(true, 'en')).toBe('What kind of business do you run?');
+    expect(acks.sectorListRows('ar')).toEqual([
+      { id: 'sector:clinic', title: 'عيادة' },
+      { id: 'sector:restaurant', title: 'مطعم أو كافيه' },
+      { id: 'sector:store', title: 'متجر إلكتروني' },
+      { id: 'sector:other', title: 'نشاط آخر', description: 'صالون، جيم، مركز أطفال، عقارات…' },
+    ]);
+    expect(acks.sectorListRows('en').map((r) => r.title)).toEqual(['Clinic', 'Restaurant or café', 'Online store', 'Something else']);
+    expect(acks.sectorTextAsk('ar')).toBe('تمام. شو نوع النشاط بالضبط؟');
+    expect(acks.sectorAck('clinic', 'ar')).toBe('تمام، عيادة.');
+    expect(acks.sectorAck('restaurant', 'ar')).toBe('تمام، مطعم أو كافيه.');
+    expect(acks.sectorAck('store', 'en')).toBe('Got it, an online store.');
+    expect(acks.consentAsk('ar')).toBe('بتحب يتواصل معك الفريق بعد يومين؟');
+    expect(acks.consentButtons('ar')).toEqual([{ id: 'followup_yes', title: 'أكيد' }, { id: 'followup_no', title: 'لا' }]);
+    expect(acks.consentButtons('en').map((b) => b.title)).toEqual(['Sure', 'No']);
+    expect(acks.consentYes('ar')).toBe('تمام، الفريق بيتواصل معك بعد يومين ضمن الدوام.');
+    expect(acks.consentNo('ar')).toBe('ولا يهمك. إذا احتجتنا إحنا هون.');
+    expect(acks.quoteWrittenLead('ar')).toBe('تمام، بدون مكالمة.');
+    expect(acks.callChoiceLead('en')).toBe('Sure.');
+    expect(acks.roleplayContinue('ar')).toBe('تمام، كمّل كزبون.');
+    expect(acks.sampleAlreadySent('ar')).toBe('المثال وصلك فوق 👆 بتحب تجرّبه على شغلك أنت؟');
+    expect(acks.mediaTranscribedPrefix('audio', 'ar')).toBe('(سمعت رسالتك الصوتية)');
+    expect(acks.mediaTranscribedPrefix('image', 'en')).toBe('(I saw the image)');
+    expect(acks.mediaTranscribedPrefix('video', 'ar')).toBe('');
+  });
+
+  test('sectorListPart builds a valid list part in both languages', () => {
+    const wa = require('../src/services/whatsapp');
+    for (const lang of ['ar', 'en']) {
+      const part = acks.sectorListPart(lang);
+      expect(part.type).toBe('list');
+      expect(part.text).toBe(acks.sectorListBody(false, lang));
+      expect(() => wa.assertStructuredLimits(part)).not.toThrow();
+    }
+    expect(acks.sectorListPart('ar', { disclosed: true }).text).toBe('شو نوع شغلك؟');
+    expect(acks.sectorListPart('ar', { text: 'أهلًا 👋 شو نوع شغلك؟' }).text).toBe('أهلًا 👋 شو نوع شغلك؟');
+    expect(acks.sectorListPart('ar', { text: '  ' }).text).toBe(acks.sectorListBody(false, 'ar'));
+  });
+
+  test('PR1 strings are unchanged by the PR2 additions', () => {
+    expect(acks.slotsBody('ar')).toBe('أقرب أوقات الفريق:');
+    expect(acks.notNow('ar')).toBe('تمام، الوقت إلك. لو رجعت بأي وقت بنكمّل من نفس النقطة.');
+    expect(acks.optOut('ar')).toBe('تمام، أوقفت المتابعة. إذا احتجتنا إحنا هون.');
+    expect('Can we talk at 5pm?'.replace(acks.ENGLISH_DIGIT_TOKENS_RE, ' ')).not.toMatch(/5pm/);
+  });
+});
+
 describe('hours helpers', () => {
   test('resolveTeamHours falls back per key', () => {
     expect(hours.resolveTeamHours(undefined)).toEqual(TH);

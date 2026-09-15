@@ -46,6 +46,17 @@ const LEAD_FIELDS = [
   { key: 'interest', label: 'الاهتمام', options: INTEREST_LABELS },
 ];
 
+// PR2 read-only lead details (contract §11.2).
+const OBJECTION_LABELS = {
+  price: 'السعر', staff: 'عندي موظف', ai_errors: 'أخطاء AI', customers: 'الزباين بحبوا إنسان',
+  small: 'صغار', later: 'لاحقًا', references: 'أسماء عملاء', other: 'غير ذلك',
+};
+const SOURCE_LABELS = { site: 'الموقع', ctwa: 'إعلان واتساب', ad: 'إعلان', referral: 'إحالة' };
+const STAFF_TASK_LABELS = { call: 'اتصال', followup_consent: 'متابعة بعد يومين', window_closed: 'النافذة مسكّرة — اتصل' };
+const ESTIMATE_UNITS = { msgs_per_day: 'رسالة/يوم', jod_per_month: 'دينار/شهر' };
+// Same threshold as the batcher's hot_lead alert (replyBatcher HOT_LEAD_SCORE).
+const HOT_LEAD_SCORE = 6;
+
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 // The batcher stops retrying after this many failed deliveries (replyBatcher MAX_REPLY_FAILURES).
 const MAX_REPLY_FAILURES = 3;
@@ -58,6 +69,43 @@ function replyGaveUp(conv) {
 function openNeedsTeam(conv) {
   const nt = conv?.workflow_data?.needs_team;
   return nt && !nt.resolved_at ? nt : null;
+}
+
+function isHotLead(conv) {
+  return Number(conv?.workflow_data?.lead?.score) >= HOT_LEAD_SCORE;
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('ar-JO', { day: 'numeric', month: 'numeric' });
+}
+
+// §14 #7: consent and site estimates may sit beside the lead (workflow_data) when mergeLead dropped them.
+function leadConsent(conversation) {
+  const wd = conversation?.workflow_data || {};
+  return wd.lead?.consent || wd.lead_consent || null;
+}
+
+function siteEstimates(conversation) {
+  const wd = conversation?.workflow_data || {};
+  const list = Array.isArray(wd.lead?.site_estimates) && wd.lead.site_estimates.length ? wd.lead.site_estimates : wd.site_estimates;
+  return (Array.isArray(list) ? list : []).filter((e) => e && e.value !== undefined && e.value !== null && e.value !== '');
+}
+
+function estimatesText(list) {
+  const parts = list.map((e) => `~${e.value}${ESTIMATE_UNITS[e.unit] ? ` ${ESTIMATE_UNITS[e.unit]}` : ''}`);
+  return `الحاسبة: ${parts.join(' · ')} (تقدير الموقع)`;
+}
+
+function sourceText(lead) {
+  const src = lead?.source;
+  if (!src || typeof src !== 'object') return '';
+  const label = SOURCE_LABELS[src.type] || src.type || '';
+  const ref = src.referral && typeof src.referral === 'object' ? (src.referral.headline || src.referral.source_url || '') : '';
+  const detail = src.attribution || ref;
+  const inferred = src.confidence === 'inferred' || lead?._prov?.source?.confirmed === false;
+  return [label, detail].filter(Boolean).join(' · ') + (inferred ? ' (مستنتج)' : '');
 }
 
 // Pending (needs the team) first, then newest activity — the same order the API returns per page.
@@ -102,6 +150,9 @@ function ConvItem({ conv, active, onClick, isShift }) {
   const unsentReply = openRequest?.reason === 'unsent_reply';
   const needsTeam = conv.status === 'pending' && !unsentReply ? openRequest : null;
   const gaveUp = isShift && (replyGaveUp(conv) || unsentReply);
+  const roleplayActive = isShift && conv.workflow_data?.roleplay?.active === true;
+  const hot = isShift && isHotLead(conv);
+  const fromSite = isShift && !!conv.workflow_data?.prefill;
 
   return (
     <button
@@ -122,6 +173,7 @@ function ConvItem({ conv, active, onClick, isShift }) {
       </div>
       <div className="flex items-center justify-between">
         <div className="font-medium text-sm text-gray-800 truncate">
+          {hot && <span className="ml-1" title="عميل ساخن">🔥</span>}
           {conv.profile_name || conv.customer_wa_id}
         </div>
         {conv.unread_count > 0 && (
@@ -135,8 +187,14 @@ function ConvItem({ conv, active, onClick, isShift }) {
         {conv.ai_enabled ? <Bot size={10} className="text-green-400" /> : <BotOff size={10} className="text-gray-300" />}
         {conv.customer_wa_id}
       </div>
-      {(needsTeam || conv.awaiting_staff > 0 || gaveUp) && (
+      {(needsTeam || conv.awaiting_staff > 0 || gaveUp || roleplayActive || fromSite) && (
         <div className="flex flex-wrap gap-1 mt-1">
+          {roleplayActive && (
+            <span className="text-[10px] bg-purple-100 text-purple-700 rounded px-1.5 py-0.5">مثال جاري</span>
+          )}
+          {fromSite && (
+            <span className="text-[10px] bg-sky-100 text-sky-700 rounded px-1.5 py-0.5">نسخة من الموقع</span>
+          )}
           {gaveUp && (
             <span className="text-[10px] bg-red-100 text-red-700 rounded px-1.5 py-0.5">بدون رد</span>
           )}
@@ -154,8 +212,18 @@ function ConvItem({ conv, active, onClick, isShift }) {
   );
 }
 
-function MessageBubble({ msg }) {
+// PR2 parts are stored with a text summary (whatsapp.partSummary): buttons, lists and CTA links as
+// `interactive`, sample images as `image`. SHIFT only; other tenants' bubbles stay as they were.
+function partTag(msg, isShift) {
+  if (!isShift || msg.direction !== 'outbound') return '';
+  if (msg.message_type === 'image') return 'صورة';
+  if (msg.message_type === 'interactive') return 'أزرار';
+  return '';
+}
+
+function MessageBubble({ msg, isShift }) {
   const isOut = msg.direction === 'outbound';
+  const tag = partTag(msg, isShift);
   const time = new Date(msg.created_at).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
   const awaitingStaff = !isOut && msg.status === 'awaiting_staff';
   const unconfirmedSend = isOut && (msg.status === 'ambiguous' || msg.status === 'ambiguous_unreconciled');
@@ -167,6 +235,9 @@ function MessageBubble({ msg }) {
   return (
     <div className={`flex ${isOut ? 'justify-start' : 'justify-end'} mb-2`}>
       <div className={`max-w-xs lg:max-w-md px-3 py-2 text-sm ${isOut ? 'msg-outbound' : 'msg-inbound'}`}>
+        {tag && (
+          <span className="inline-block text-[10px] bg-white/20 border border-current rounded px-1 mb-1 opacity-80">{tag}</span>
+        )}
         <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text_body || '[مرفق]'}</div>
         <div className={`text-xs mt-1 flex items-center gap-1 ${isOut ? 'text-green-200' : 'text-gray-400'} justify-end`}>
           {awaitingStaff && <span className="text-amber-600">بانتظار الموظف ·</span>}
@@ -269,6 +340,64 @@ function LeadFieldRow({ field, lead, onSave }) {
           <Pencil size={10} className="text-gray-300 group-hover:text-gray-500" />
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Read-only PR2 details under the editable fields. Staff tasks are listed without a «تم» button: the lead
+ * PATCH route only accepts whitelisted lead fields, not workflow_data.staff_tasks (contract §11.2 fallback).
+ */
+function LeadDetails({ conversation }) {
+  const wd = conversation.workflow_data || {};
+  const lead = wd.lead || {};
+  const needs = (Array.isArray(lead.need) ? lead.need : []).filter(Boolean);
+  const objections = (Array.isArray(lead.objections) ? lead.objections : []).filter(Boolean);
+  const consent = leadConsent(conversation);
+  const estimates = siteEstimates(conversation);
+  const source = sourceText(lead);
+  const tasks = (Array.isArray(wd.staff_tasks) ? wd.staff_tasks : []).filter((t) => t && !t.done_at);
+  const rows = [];
+
+  if (needs.length) {
+    rows.push(['الاحتياج', (
+      <ul className="list-disc pr-4 space-y-0.5">
+        {needs.map((n, i) => <li key={i}>{n}</li>)}
+      </ul>
+    )]);
+  }
+  if (lead.budget_note) rows.push(['ملاحظة الميزانية', lead.budget_note]);
+  if (consent && (consent.answer === 'yes' || consent.answer === 'no')) {
+    rows.push(['المتابعة', consent.answer === 'yes'
+      ? `موافق على متابعة بعد يومين${formatDate(consent.at) ? ` · ${formatDate(consent.at)}` : ''}`
+      : 'رفض المتابعة']);
+  }
+  if (objections.length) rows.push(['الاعتراضات', objections.map((o) => OBJECTION_LABELS[o] || o).join('، ')]);
+  if (source) rows.push(['المصدر', source]);
+  if (estimates.length) rows.push(['تقدير الموقع', estimatesText(estimates)]);
+  if (tasks.length) {
+    rows.push(['مهام الفريق', (
+      <ul className="space-y-0.5">
+        {tasks.map((t, i) => (
+          <li key={i} className="text-orange-700">
+            {STAFF_TASK_LABELS[t.kind] || t.kind}
+            {t.summary && t.summary !== STAFF_TASK_LABELS[t.kind] ? ` — ${t.summary}` : ''}
+            {formatDate(t.due_at) ? ` · ${formatDate(t.due_at)}` : ''}
+          </li>
+        ))}
+      </ul>
+    )]);
+  }
+  if (!rows.length) return null;
+
+  return (
+    <div className="mt-1 pt-1 border-t border-gray-100">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-start gap-2 py-1 text-xs">
+          <span className="w-24 flex-shrink-0 text-gray-400">{label}</span>
+          <div className="flex-1 text-gray-700">{value}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -393,6 +522,7 @@ function LeadCard({ conversation, onChanged }) {
           {LEAD_FIELDS.map(field => (
             <LeadFieldRow key={field.key} field={field} lead={lead} onSave={saveField} />
           ))}
+          <LeadDetails conversation={conversation} />
         </div>
       )}
     </div>
@@ -410,6 +540,8 @@ export default function InboxPage() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // PR2: «🔥 عملاء ساخنين» filters the loaded list in the browser (no server-side score query yet).
+  const [hotOnly, setHotOnly] = useState(false);
   const messagesEndRef = useRef(null);
   const selectedId = selected?.id;
   // The conversation staff currently have open. A response that arrives after they switched (or
@@ -530,6 +662,8 @@ export default function InboxPage() {
     setMessages([]);
   };
 
+  const visibleConversations = isShift && hotOnly ? conversations.filter(isHotLead) : conversations;
+
   return (
     <div className="flex h-full gap-0 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden" style={{ height: 'calc(100vh - 120px)' }}>
       {/* Conversation list */}
@@ -557,12 +691,21 @@ export default function InboxPage() {
             <option value="pending">معلق</option>
             <option value="resolved">محلول</option>
           </select>
+          {isShift && (
+            <button
+              type="button"
+              onClick={() => setHotOnly(v => !v)}
+              className={`mt-2 text-xs rounded-full px-3 py-1 border ${hotOnly ? 'bg-orange-100 border-orange-300 text-orange-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+            >
+              🔥 عملاء ساخنين
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {conversations.length === 0 && (
+          {visibleConversations.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">لا توجد محادثات</div>
           )}
-          {conversations.map(conv => (
+          {visibleConversations.map(conv => (
             <ConvItem
               key={conv.id}
               conv={conv}
@@ -653,7 +796,7 @@ export default function InboxPage() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
             {loadingMsgs && <div className="text-center text-gray-400 py-8">جاري التحميل...</div>}
-            {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
+            {messages.map(msg => <MessageBubble key={msg.id} msg={msg} isShift={isShift} />)}
             <div ref={messagesEndRef} />
           </div>
 

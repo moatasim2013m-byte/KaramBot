@@ -14,6 +14,10 @@ jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb
 jest.mock('../src/services/whatsapp', () => ({
   sendText: jest.fn(),
   sendInteractiveButtons: jest.fn(),
+  // PR2 shapes (image header, list, CTA URL, image) go through sendStructured (§10.2 #2).
+  sendStructured: jest.fn(),
+  // The real summary (§4.3): the intent rows must show what the Inbox shows.
+  partSummary: jest.fn((...args) => jest.requireActual('../src/services/whatsapp').partSummary(...args)),
   sendTextMessage: jest.fn(),
   markAsRead: jest.fn(),
   normalizePhone: jest.fn((p) => (p ? String(p).replace(/\D/g, '') : p)),
@@ -114,6 +118,9 @@ beforeEach(() => {
   delete process.env.SHIFT_BATCH_CAP_MS;
   whatsapp.sendText.mockReset().mockImplementation(async () => okSend());
   whatsapp.sendInteractiveButtons.mockReset().mockImplementation(async () => okSend());
+  whatsapp.sendStructured.mockReset().mockImplementation(async () => okSend());
+  delete process.env.SHIFT_MEDIA;
+  delete process.env.SHIFT_ROLEPLAY;
   whatsapp.markAsRead.mockReset().mockResolvedValue(true);
   alerts.sendStaffAlert.mockReset().mockResolvedValue({ webhook: 'skipped', whatsapp: [] });
   shift.processShiftBatch.mockReset().mockImplementation(async () => textResult());
@@ -2077,3 +2084,467 @@ describe('messageProcessor with the SHIFT number', () => {
     expect(alertReasons()).toEqual(['billing']);
   });
 });
+
+// ─── PR2: structured parts, fallbacks, multi-part fencing, media (contract §10.2) ──
+
+describe('PR2 parts through the intent protocol (§10.2)', () => {
+  const assets = require('../src/workflows/shift/assets');
+  const acksMod = require('../src/workflows/shift/acks');
+  const roleplayMod = require('../src/workflows/shift/roleplay');
+  const media = require('../src/workflows/shift/media');
+
+  const partsResult = (messages, extra = {}) => textResult('x', { messages, ...extra });
+  const lastArg = (args) => args[args.length - 1];
+
+  function tap(conv, id, title) {
+    seq += 1;
+    return db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'inbound', status: 'received',
+        message_type: 'interactive', text_body: title, meta_message_id: `wamid.tap2_${seq}`,
+        interactive_reply: { type: 'button_reply', button_reply: { id, title } }, created_at: new Date(),
+      }],
+    }).messages[0];
+  }
+
+  test('sample card → cta_url → follow-up: three intent rows, each written before its Graph call and sent as its callback data', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'أي أوريني');
+    const card = assets.sampleCard('restaurant', 'ar', { roleplayOn: true });
+    const page = assets.pagePart('restaurant', 'ar');
+    // The follow-up's 1 s delay is covered by its own test below.
+    const follow = { ...assets.pageFollowUp('restaurant', 'ar', { roleplayOn: true }), delayMs: 0 };
+    shift.processShiftBatch.mockImplementation(async () => partsResult([card, page, follow]));
+    const seen = [];
+    const record = async (...args) => {
+      const { callbackData } = lastArg(args);
+      seen.push({ id: callbackData, status: row(callbackData) && row(callbackData).status, rows: botOutbound(conv).length });
+      return okSend();
+    };
+    whatsapp.sendStructured.mockImplementation(record);
+    whatsapp.sendText.mockImplementation(record);
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r).toEqual({ outcome: 'sent', sent: 3 });
+    const intents = botOutbound(conv);
+    expect(intents.map((m) => m.raw_payload.batch_key)).toEqual([`${a.id}:0`, `${a.id}:1`, `${a.id}:2`]);
+    expect(seen).toEqual(intents.map((m, i) => ({ id: m.id, status: 'sending', rows: i + 1 })));
+    expect(intents.map((m) => m.status)).toEqual(['sent', 'sent', 'sent']);
+    // The image-header card and the CTA URL are PR2 shapes; the plain follow-up keeps PR1's sendText.
+    expect(whatsapp.sendStructured.mock.calls.map((c) => c[3])).toEqual([card, page]);
+    expect(whatsapp.sendText.mock.calls[0][3]).toBe(follow.text);
+    expect(whatsapp.sendInteractiveButtons).not.toHaveBeenCalled();
+    // §4.3 summaries and the raw_payload fields staff see; metadata is never stored.
+    expect(intents[0]).toMatchObject({
+      message_type: 'interactive',
+      text_body: `[صورة] ${card.text}\n[جرّبه كزبون] [افتح صفحة المطاعم] [احكي مع الفريق]`,
+    });
+    expect(intents[0].raw_payload).toMatchObject({ part_type: 'interactive', image_link: card.header.image.link, buttons: card.buttons });
+    expect(intents[1]).toMatchObject({ message_type: 'interactive', text_body: `${page.text}\n[${page.displayText}] ${page.url}` });
+    expect(intents[1].raw_payload).toMatchObject({ part_type: 'cta_url', url: page.url });
+    expect(intents[2]).toMatchObject({ message_type: 'text', text_body: follow.text });
+    for (const m of intents) expect(JSON.stringify(m.raw_payload)).not.toMatch(/modelLine|"ack"|"fallback"|serverButtons|delayMs/);
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('list and image parts: summaries, rows and image link on the intent rows', async () => {
+    const { conv } = seedShift();
+    seedInbound(conv, 'مرحبا');
+    const list = acksMod.sectorListPart('ar', {});
+    const image = assets.imagePart('clinic', 'ar');
+    const imageEn = assets.imagePart('store', 'en');
+    shift.processShiftBatch.mockImplementation(async () => partsResult([list, image, imageEn]));
+
+    await batcher.runBatch(conv.id);
+
+    const [l, i, e] = botOutbound(conv);
+    expect(l).toMatchObject({ message_type: 'interactive', text_body: `${list.text}\n[اختر القطاع]: عيادة · مطعم أو كافيه · متجر إلكتروني · نشاط آخر` });
+    expect(l.raw_payload.rows.map((r) => r.id)).toEqual(['sector:clinic', 'sector:restaurant', 'sector:store', 'sector:other']);
+    expect(i).toMatchObject({ message_type: 'image', text_body: `[صورة] ${image.text}` });
+    expect(i.raw_payload).toMatchObject({ part_type: 'image', image_link: image.image.link });
+    expect(e.text_body).toBe(`[image] ${imageEn.text}`);
+    expect(whatsapp.sendStructured.mock.calls.map((c) => c[3].type)).toEqual(['list', 'image', 'image']);
+  });
+
+  test('an image header Graph rejects (400) → a `:fb` intent row and one send of the same buttons without the header', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'أي');
+    const card = assets.sampleCard('clinic', 'ar', { roleplayOn: true });
+    shift.processShiftBatch.mockImplementation(async () => partsResult([card]));
+    whatsapp.sendStructured.mockReset()
+      .mockImplementationOnce(async () => ({ ...failSend('rejected'), code: 131009, httpStatus: 400 }))
+      .mockImplementationOnce(async () => okSend());
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r).toEqual({ outcome: 'sent', sent: 1 });
+    expect(whatsapp.sendStructured).toHaveBeenCalledTimes(2);
+    const [first, second] = botOutbound(conv);
+    expect(first).toMatchObject({ status: 'failed' });
+    expect(first.raw_payload).toMatchObject({ batch_key: `${a.id}:0`, reason: 'rejected' });
+    expect(second.raw_payload).toMatchObject({ batch_key: `${a.id}:0:fb`, fallback_of: first.id, batch_ids: [a.id] });
+    expect(second.status).toBe('sent');
+    expect(second.text_body.startsWith('[صورة]')).toBe(false);
+    const [, , , sentPart, opts] = whatsapp.sendStructured.mock.calls[1];
+    expect(sentPart.header).toBeUndefined();
+    expect(sentPart.buttons).toEqual(card.buttons);
+    expect(opts).toEqual({ callbackData: second.id });
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('an ambiguous first part → no fallback and no immediate retry (D18)', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'أي');
+    shift.processShiftBatch.mockImplementation(async () => partsResult([assets.sampleCard('clinic', 'ar', { roleplayOn: true })]));
+    whatsapp.sendStructured.mockImplementation(async () => failSend('ambiguous'));
+
+    await batcher.runBatch(conv.id);
+
+    expect(whatsapp.sendStructured).toHaveBeenCalledTimes(1);
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['ambiguous']);
+    expect(row(a.id).status).toBe('unconfirmed');
+  });
+
+  test('the fence fails before part 2 → one send, the rows are covered, part 2 is never created', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'بدي أشوف');
+    shift.processShiftBatch.mockImplementation(async () => partsResult([{ type: 'text', text: 'الجزء الأول' }, { type: 'text', text: 'الجزء الثاني' }]));
+    whatsapp.sendText.mockImplementation(async () => {
+      // A staff claim lands between the two parts.
+      Object.assign(convRow(conv.id), { status: 'human_takeover', ai_enabled: false });
+      return okSend();
+    });
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ outcome: 'sent', sent: 1 });
+    expect(botOutbound(conv).map((m) => m.text_body)).toEqual(['الجزء الأول']);
+    expect(row(a.id).status).toBe('answered');
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('part skipped after fence'));
+  });
+
+  test('a later part waits its delayMs before its pre-send check', async () => {
+    const { conv } = seedShift();
+    seedInbound(conv, 'تمام');
+    shift.processShiftBatch.mockImplementation(async () => partsResult([{ type: 'text', text: 'أول' }, { type: 'text', text: 'ثاني', delayMs: 150 }]));
+    const at = [];
+    whatsapp.sendText.mockImplementation(async () => {
+      at.push(Date.now());
+      return okSend();
+    });
+
+    await batcher.runBatch(conv.id);
+
+    expect(at).toHaveLength(2);
+    expect(at[1] - at[0]).toBeGreaterThanOrEqual(140);
+  });
+
+  test('at most three parts of the five known types are sent', async () => {
+    const { conv } = seedShift();
+    seedInbound(conv, 'تمام');
+    shift.processShiftBatch.mockImplementation(async () => partsResult([
+      { type: 'video', text: 'غير معروف' },
+      { type: 'text', text: 'واحد' },
+      { type: 'text', text: '   ' },
+      { type: 'text', text: 'اثنين' },
+      { type: 'text', text: 'ثلاثة' },
+      { type: 'text', text: 'أربعة' },
+    ]));
+
+    await batcher.runBatch(conv.id);
+
+    expect(whatsapp.sendText.mock.calls.map((c) => c[3])).toEqual(['واحد', 'اثنين', 'ثلاثة']);
+    expect(whatsapp.sendStructured).not.toHaveBeenCalled();
+  });
+
+  test('media enrichment runs only with SHIFT_MEDIA=1; its transcript is saved on the row and reaches the workflow', async () => {
+    const spy = jest.spyOn(media, 'enrichBatch');
+    const off = seedShift();
+    seedInbound(off.conv, null, { message_type: 'audio', media_id: 'media-0', raw_payload: { id: 'wamid.v0', type: 'audio' } });
+    await batcher.runBatch(off.conv.id);
+    expect(spy).not.toHaveBeenCalled();
+
+    process.env.SHIFT_MEDIA = '1';
+    const { conv } = seedShift();
+    const voice = seedInbound(conv, null, { message_type: 'audio', media_id: 'media-1', raw_payload: { id: 'wamid.v1', type: 'audio' } });
+    const shiftMedia = { type: 'audio', text: 'عندي مطعم بإربد', status: 'ok', at: new Date().toISOString(), ms: 5 };
+    spy.mockImplementation(async (business, token, batch) => ({
+      batch: batch.map((m) => (m.id === voice.id ? { ...m, shift_media: shiftMedia } : m)),
+      updates: [{ id: voice.id, shift_media: shiftMedia }],
+    }));
+    shift.processShiftBatch.mockClear();
+
+    await batcher.runBatch(conv.id);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][1]).toBe('plain_test_token');
+    expect(row(voice.id).raw_payload).toEqual({ id: 'wamid.v1', type: 'audio', shift_media: shiftMedia });
+    expect(shift.processShiftBatch.mock.calls[0][2][0].shift_media).toEqual(shiftMedia);
+    expect(row(voice.id).status).toBe('answered');
+  });
+
+  test('a skipped_reply result (role-play switched off, «خلص») sends nothing, applies its patch and answers the row', async () => {
+    const { conv } = seedShift({
+      conversation: { current_state: 'roleplay', workflow_data: { roleplay: { active: true, sector: 'restaurant', turns: 2 } } },
+    });
+    const a = seedInbound(conv, 'خلص');
+    shift.processShiftBatch.mockImplementation(async () => ({
+      kind: 'skipped_reply', action: 'END_ROLEPLAY', messages: [],
+      stateUpdate: { current_state: 'close' },
+      workflowDataPatch: { roleplay: { active: false, sector: 'restaurant', turns: 2, end_reason: 'disabled' }, nudge: null },
+      leadPatch: null, leadMeta: null, needsTeam: null, alert: null,
+    }));
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r).toEqual({ outcome: 'skipped_reply', sent: 0 });
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(whatsapp.sendStructured).not.toHaveBeenCalled();
+    expect(shift.toWorkflowResult).not.toHaveBeenCalled();
+    expect(botOutbound(conv)).toHaveLength(0);
+    expect(convRow(conv.id).current_state).toBe('close');
+    expect(convRow(conv.id).workflow_data.roleplay).toMatchObject({ active: false, end_reason: 'disabled' });
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('«إيقاف» during a role-play ends the example (optout) and clears the planned nudge (§10.3)', async () => {
+    const { conv } = seedShift({
+      conversation: {
+        current_state: 'roleplay',
+        workflow_data: { roleplay: { active: true, sector: 'restaurant', turns: 2 }, nudge: { kind: 'stage', due_at: new Date().toISOString() } },
+      },
+    });
+    seedInbound(conv, 'إيقاف');
+
+    await batcher.runBatch(conv.id);
+
+    const wd = convRow(conv.id).workflow_data;
+    expect(wd.marketing_opted_out_at).toBeTruthy();
+    expect(wd.roleplay).toMatchObject({ active: false, end_reason: 'optout', turns: 2 });
+    expect(wd.nudge).toBeNull();
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+  });
+
+  test('a PR2 tap is answered with the tap\'s language and the role-play flag', async () => {
+    const on = seedShift();
+    tap(on.conv, 'sample_roleplay:clinic', 'Try it as a customer');
+    await batcher.runBatch(on.conv.id);
+    expect(whatsapp.sendText.mock.calls[0][3]).toBe(roleplayMod.setupAsk('clinic', 'en'));
+    expect(convRow(on.conv.id).current_state).toBe('roleplay_setup');
+
+    process.env.SHIFT_ROLEPLAY = '0';
+    whatsapp.sendText.mockClear();
+    const off = seedShift();
+    tap(off.conv, 'sample_roleplay:clinic', 'Try it as a customer');
+    await batcher.runBatch(off.conv.id);
+    const [, , , pagePart] = whatsapp.sendStructured.mock.calls[0];
+    expect(pagePart).toMatchObject({ type: 'cta_url' });
+    expect(pagePart.url).toContain('/en/clinics');
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Review round 1 ──────────────────────────────────────────────────────────
+
+describe('review r1-7: "already sent" flags are only trusted when the send may have arrived', () => {
+  const shiftAcks = require('../src/workflows/shift/acks');
+
+  function tapRow(conv, id, title) {
+    seq += 1;
+    return db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'inbound', status: 'received',
+        message_type: 'interactive', text_body: title, meta_message_id: `wamid.tap${seq}`,
+        interactive_reply: { type: 'button_reply', button_reply: { id, title } }, created_at: new Date(),
+      }],
+    }).messages[0];
+  }
+
+  const failAll = () => {
+    whatsapp.sendStructured.mockImplementation(async () => failSend('rate_limit', true));
+    whatsapp.sendInteractiveButtons.mockImplementation(async () => failSend('rate_limit', true));
+    whatsapp.sendText.mockImplementation(async () => failSend('rate_limit', true));
+  };
+  const okAll = () => {
+    whatsapp.sendStructured.mockReset().mockImplementation(async () => okSend());
+    whatsapp.sendInteractiveButtons.mockReset().mockImplementation(async () => okSend());
+    whatsapp.sendText.mockReset().mockImplementation(async () => okSend());
+  };
+
+  test('send_sample_now: the card send fails → the rerun sends the card again, not «المثال وصلك فوق 👆»', async () => {
+    const { conv } = seedShift({
+      business: { ai_config: { samples_vetted: ['restaurant'] } },
+      conversation: { current_state: 'fit', workflow_data: { lead: { sector: 'restaurant' } } },
+    });
+    const tap = tapRow(conv, 'send_sample_now', 'ابعت مثال');
+    failAll();
+
+    const first = await batcher.runBatch(conv.id);
+    expect(first.outcome).toBe('failed');
+    expect(row(tap.id).status).toBe('received');
+    // State before send (D17): the flag is stored although nothing arrived.
+    expect(convRow(conv.id).workflow_data.samples_sent.image).toBe('restaurant');
+
+    okAll();
+    await batcher.runBatch(conv.id);
+
+    expect(whatsapp.sendText.mock.calls.map((c) => c[3])).not.toContain(shiftAcks.sampleAlreadySent('ar'));
+    const [, , , card] = whatsapp.sendStructured.mock.calls[0];
+    expect(card.header).toMatchObject({ type: 'image' });
+    expect(row(tap.id).status).toBe('answered');
+    expect(convRow(conv.id).workflow_data.samples_sent.image).toBe('restaurant');
+  });
+
+  test('a card that arrived keeps the pointer on a second tap', async () => {
+    const { conv } = seedShift({
+      business: { ai_config: { samples_vetted: ['restaurant'] } },
+      conversation: { current_state: 'fit', workflow_data: { lead: { sector: 'restaurant' } } },
+    });
+    tapRow(conv, 'send_sample_now', 'ابعت مثال');
+    await batcher.runBatch(conv.id);
+    expect(whatsapp.sendStructured).toHaveBeenCalledTimes(1);
+
+    tapRow(conv, 'send_sample_now', 'ابعت مثال');
+    await batcher.runBatch(conv.id);
+    expect(whatsapp.sendStructured).toHaveBeenCalledTimes(1);
+    expect(whatsapp.sendText.mock.calls.map((c) => c[3])).toContain(shiftAcks.sampleAlreadySent('ar'));
+  });
+
+  test('deliveredView withdraws only on evidence: flags with no intent rows at all are kept', async () => {
+    const { conv } = seedShift({
+      conversation: {
+        workflow_data: {
+          samples_sent: { image: 'clinic' }, disclosed_at: new Date().toISOString(),
+          roleplay: { active: true, sector: 'clinic', business_name: 'عيادة', started_at: new Date().toISOString() },
+        },
+      },
+    });
+    const view = await batcher.deliveredView(convRow(conv.id));
+    expect(view.workflow_data.samples_sent.image).toBe('clinic');
+    expect(view.workflow_data.disclosed_at).toBeTruthy();
+    expect(view.workflow_data.roleplay.start_undelivered).toBeUndefined();
+  });
+
+  test('minor: an English [No] tap with no stored language is answered in English', async () => {
+    const { conv } = seedShift({ conversation: { current_state: 'close', workflow_data: { lead: { sector: 'store' } } } });
+    tapRow(conv, 'followup_no', 'No');
+
+    await batcher.runBatch(conv.id);
+
+    expect(whatsapp.sendText.mock.calls[0][3]).toBe(shiftAcks.consentNo('en'));
+  });
+});
+
+describe('review round 2 (batcher)', () => {
+  const assets = require('../src/workflows/shift/assets');
+  const roleplayMod = require('../src/workflows/shift/roleplay');
+  const statusEntry = (status) => ({ changes: [{ value: { metadata: { phone_number_id: 'pnid_shift' }, statuses: [status] } }] });
+  const failedStatus = (intent, code = 131053) => statusEntry({
+    id: intent.meta_message_id, status: 'failed', recipient_id: CUSTOMER, biz_opaque_callback_data: intent.id,
+    errors: [{ code, title: 'Media upload error' }],
+  });
+  const headerless = () => whatsapp.sendStructured.mock.calls.map((c) => c[3]).filter((p) => p.type === 'interactive' && !p.header);
+
+  describe('r2 #8: an image Graph accepted and then failed to fetch still gets its header-less fallback', () => {
+    test('card only: 200, then a failed 131053 status → the fallback goes out as its own intent; the row stays answered', async () => {
+      const { conv } = seedShift();
+      const a = seedInbound(conv, 'ابعت مثال');
+      const card = assets.sampleCard('clinic', 'ar', { roleplayOn: true });
+      shift.processShiftBatch.mockImplementation(async () => textResult('x', { messages: [card] }));
+
+      expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+      const [first] = botOutbound(conv);
+      expect(first.raw_payload.fallback_part).toEqual({ type: 'interactive', text: card.text, footer: card.footer, buttons: card.buttons });
+
+      await processInboundMessage(failedStatus(first));
+      batcher.cancelAll();
+
+      expect(headerless()).toHaveLength(1);
+      expect(headerless()[0]).toMatchObject({ text: card.text, footer: card.footer, buttons: card.buttons });
+      const fb = botOutbound(conv).find((m) => m.id !== first.id);
+      expect(fb.raw_payload).toMatchObject({ fallback_of: first.id, batch_key: `${first.raw_payload.batch_key}:fb:0` });
+      expect(fb.raw_payload.fallback_part).toBeUndefined();
+      expect(row(first.id).status).toBe('failed');
+      expect(row(a.id).status).toBe('answered');
+      expect(alertReasons()).not.toContain('unsent_reply');
+
+      // A repeated webhook for the same failure sends nothing more.
+      await processInboundMessage(failedStatus({ ...first, status: 'sent' }));
+      expect(headerless()).toHaveLength(1);
+    });
+
+    test('[line, card]: the card fails after acceptance → the fallback is sent, not lost as «covered»', async () => {
+      const { conv } = seedShift();
+      seedInbound(conv, 'بدي أشوف مثال');
+      const card = assets.sampleCard('restaurant', 'ar', { roleplayOn: true });
+      shift.processShiftBatch.mockImplementation(async () => textResult('x', { messages: [{ type: 'text', text: 'هاي مثال:' }, card] }));
+
+      await batcher.runBatch(conv.id);
+      const cardIntent = botOutbound(conv).find((m) => m.raw_payload.part_index === 1);
+      await processInboundMessage(failedStatus(cardIntent));
+      batcher.cancelAll();
+
+      expect(headerless()).toHaveLength(1);
+      expect(row(cardIntent.id).status).toBe('failed');
+    });
+
+    test('a failure a header-less resend cannot fix (131047, window) takes the normal D19 path', async () => {
+      const { conv } = seedShift();
+      const a = seedInbound(conv, 'ابعت مثال');
+      shift.processShiftBatch.mockImplementation(async () => textResult('x', { messages: [assets.sampleCard('clinic', 'ar', { roleplayOn: true })] }));
+
+      await batcher.runBatch(conv.id);
+      const [first] = botOutbound(conv);
+      await processInboundMessage(failedStatus(first, 131047));
+      batcher.cancelAll();
+
+      expect(headerless()).toHaveLength(0);
+      expect(row(a.id).status).toBe('received');
+    });
+  });
+
+  test('minor: a delayed follow-up is not sent when the part it hangs on failed for good', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'ابعتلي الصفحة');
+    whatsapp.sendStructured.mockImplementation(async () => failSend('rejected'));
+    shift.processShiftBatch.mockImplementation(async () => textResult('x', {
+      messages: [assets.pagePart('restaurant', 'ar'), assets.pageFollowUp('restaurant', 'ar', { roleplayOn: true })],
+    }));
+
+    const report = await batcher.runBatch(conv.id);
+
+    expect(report.outcome).toBe('failed');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(row(a.id).status).toBe('received');
+  });
+
+  test('r2 #0: the end note after a silent idle end that never arrived is said again on the rerun (deliveredView)', async () => {
+    const announcedAt = new Date(Date.now() - 60 * 1000);
+    const { conv } = seedShift({
+      conversation: {
+        current_state: 'close',
+        workflow_data: {
+          roleplay: {
+            active: false, sector: 'restaurant', business_name: 'مطعم الساحة', started_at: new Date(Date.now() - HOUR).toISOString(),
+            ended_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), end_reason: 'idle', end_announced_at: announcedAt.toISOString(),
+          },
+        },
+      },
+    });
+    db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'outbound', status: 'failed', is_ai_generated: true,
+        message_type: 'text', text_body: `${roleplayMod.endNote('restaurant', 'ar')}\n\nتمام.`, created_at: new Date(announcedAt.getTime() + 500),
+        raw_payload: { kind: 'reply', batch_key: 'k:0', part_index: 0, batch_ids: [] },
+      }],
+    });
+
+    const view = await batcher.deliveredView(convRow(conv.id));
+    expect(view.workflow_data.roleplay.end_announced_at).toBeNull();
+    expect(roleplayMod.endUnannounced(view.workflow_data.roleplay, new Date())).toBe(true);
+    expect(convRow(conv.id).workflow_data.roleplay.end_announced_at).toBe(announcedAt.toISOString());
+  });
+});
+
