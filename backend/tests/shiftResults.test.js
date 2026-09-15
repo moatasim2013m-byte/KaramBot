@@ -481,7 +481,7 @@ describe('modelLine / ack metadata on every composed part', () => {
   });
 
   test('a capture ask built by the server carries no model metadata', () => {
-    const r = toWorkflowResult({ reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا' } }, ctx({ stage: 'close' }));
+    const r = toWorkflowResult({ reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا' } }, ctx({ stage: 'close', texts: ['طيب بكرا'] }));
     expect(r.messages[0]).not.toHaveProperty('modelLine');
   });
 

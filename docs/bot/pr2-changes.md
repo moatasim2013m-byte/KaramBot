@@ -224,6 +224,30 @@ Residual risks:
   replies, not the model's actual phrasing; week-1 Inbox review stays mandatory.
 - The known gaps listed at the end of this file are unchanged.
 
+### Rebase on main (#23) and the call-time honesty fix (2026-09-15)
+
+Rebased onto `main` with hotfix #23. `index.js` keeps PR2's validator loop with the hotfix deadline
+(`SHIFT_AI_DEADLINE_MS`, default 25 s); `aiFailureResult` keeps both conditions: no slot buttons inside the
+role-play sandbox (PR2), and only when `bot_turns > 0` with no `lead.preferred_time` / `capture_pending` (#23).
+The eval replay now expects the #23 wording «تأخر ردّي شوي».
+
+Owner phone test on the PR1 bot: «صح عليكم طيب يلا» (agreeing to a call, no time) came back as CAPTURE_TIME with a
+slot title as `time_text`; the server sent the model's «اختار الوقت المناسب إلك… أقرب أوقات الفريق:» and then
+«سجّلت طلب مكالمة: بيكابو، بكرا 10–12…», with no buttons. The same path existed in PR2 (`results.js` CAPTURE_TIME,
+the `lead.preferred_time` upgrade, a meeting flag, a pending capture, and the base lead patch all took the model's
+time as the customer's). Now:
+
+- A call time is stored or acked only when the customer tapped a slot, or when the customer's own text in the
+  batch (typed or a transcript) carries an explicit day/time (`customerCallTime`). A model time the customer's words
+  only partly back («بكرا» → «بكرا 10–12») gives way to the customer's words; one they do not back is dropped.
+  A pending `time_text` must be in the customer's words in the batch or the loaded history.
+- Agreeing to a call without a time → the slot buttons under «أقرب أوقات الفريق:» (server offers), or
+  «أي يوم ووقت بناسبك؟» when none can be offered. Nothing stored, no capture, no alert.
+- The capture ack never follows a model sentence asking the customer to choose a time (`renderCaptureAck`, so the
+  batcher's re-render too).
+- Tests: `tests/shiftCaptureHonesty.test.js` (AR and EN), two e2e cases in `tests/shiftE2E.test.js`. Four PR1/PR2
+  tests that fed a time only through the model's `time_text` now put it in the customer's text.
+
 ## Environment flags
 
 All optional, read at call time (an env change applies on the next revision), nothing added to

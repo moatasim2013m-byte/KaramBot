@@ -41,9 +41,6 @@ const CLOSE_DECLINE_RE = /ما بدي مكالمة|مش مناسب(ة)? مكال
 const ROLEPLAY_LABEL_RE = /مثال توضيحي|illustrative/i;
 const COMMITMENT_ACTIONS = ['SEND_SAMPLE', 'START_ROLEPLAY', 'CAPTURE_TIME', 'FLAG_FOR_TEAM', 'HANDOFF_TO_HUMAN'];
 const COMMITMENT_OFFER_RE = /أوريك مثال|اوريك مثال|بتحب (أوريك|اوريك|نجرّب|نجرب)|جرّبني|جربني|مكالمة|عرض مكتوب|see an example|try (it|me)|a (short )?call|written quote/i;
-// A model-written preferred_time is upgraded to a call request only when it reads like a time (a digit, a
-// day or a part of the day), never «متى نحكي؟» copied into the field.
-const TIME_HINT_RE = /[0-9٠-٩]|اليوم|بكرا|بكره|بكرة|غدًا|غدا|الأحد|الاحد|الإثنين|الاثنين|الثلاثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت|الصبح|الصباح|الظهر|العصر|المسا|المساء|بالليل|today|tomorrow|morning|noon|afternoon|evening|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\b[ap]m\b/i;
 const SECTOR_TEXT_MAX = 60;
 const BARE_GREETING_MAX_WORDS = 3;
 const PRODUCT_LABELS = Object.entries(prefillParser.PRODUCT_NAME_TO_KEY)
@@ -166,6 +163,181 @@ function preferredTimeText(value) {
   return null;
 }
 
+// ─── the customer's own call time ────────────────────────────────────────────
+//
+// Owner phone test on the PR1 bot (2026-09-15): «صح عليكم طيب يلا» (agreeing to a call, no time) came back
+// as CAPTURE_TIME with a slot title («بكرا 10–12») as time_text, and the server acked «سجّلت طلب مكالمة: بيكابو،
+// بكرا 10–12» under the model's own «اختار الوقت المناسب إلك… أقرب أوقات الفريق:». The model's time_text and
+// lead.preferred_time are proposals: a call time is stored or acked only when the customer tapped a slot
+// (buttons.js) or when the customer's own text carries an explicit day/time the server can see here.
+
+const AR_LETTERS = '\\u0621-\\u064A\\u066E-\\u06D3';
+const NOT_AR_BEFORE = `(?<![${AR_LETTERS}])(?:[وبعف](?=ال|بكر|غد))?`;
+const NOT_AR_AFTER = `(?![${AR_LETTERS}])`;
+const DIGIT = '[0-9٠-٩]';
+const NO_DIGIT_BEFORE = '(?<![0-9٠-٩])';
+const NO_DIGIT_AFTER = '(?![0-9٠-٩])';
+// A number right after a day word is a clock time unless a unit follows («بكرا 5 طلبات» is not 5 o'clock).
+const UNIT_AFTER_AR = `(?!\\s*(?:أيام|ايام|يوم|شهر|أشهر|اشهر|شهور|سنة|سنين|سنوات|دقيقة|دقايق|دقائق|ساعات|أسابيع|اسابيع|موظف|موظفين|فروع|فرع|طلب|طلبات|رسالة|رسائل|رسايل|زبون|زباين|دينار|دنانير|%|٪)${NOT_AR_AFTER})`;
+const HOUR_WORDS_AR = 'واحدة|وحدة|ثنتين|تنتين|اتنين|ثلاث|ثلاثة|تلاتة|تلات|أربع|اربع|أربعة|اربعة|خمس|خمسة|خمسه|ست|ستة|سته|سبع|سبعة|سبعه|ثمان|ثمانية|تمانية|تمنة|تسع|تسعة|تسعه|عشر|عشرة|عشره|حداش|احدعش|إحدعش|اطنعش|طنعش';
+
+const DAY_TERMS = [
+  ['after_tomorrow', 'بعد بكرا|بعد بكره|بعد بكرة|بعد غد|بعد الغد', 'day after tomorrow'],
+  ['today', 'اليوم', 'today'],
+  ['tomorrow', 'بكرا|بكره|بكرة|غدًا|غداً|غدا|الغد', 'tomorrow|tmrw'],
+  ['sun', 'الأحد|الاحد', 'sunday'],
+  ['mon', 'الإثنين|الاثنين|الإتنين|الاتنين|التنين', 'monday'],
+  ['tue', 'الثلاثاء|الثلاثا|التلاتاء|التلاتا', 'tuesday'],
+  ['wed', 'الأربعاء|الاربعاء|الأربعا|الاربعا', 'wednesday'],
+  ['thu', 'الخميس', 'thursday'],
+  ['fri', 'الجمعة|الجمعه', 'friday'],
+  ['sat', 'السبت', 'saturday'],
+  ['next_week', '(?:الأسبوع|الاسبوع)\\s+(?:الجاي|القادم)', 'next week|this week|(?:this|next) weekend'],
+];
+const PART_TERMS = [
+  ['morning', 'الصبح|الصباح|صباحًا|صباحاً|صباحا|الضحى', 'morning'],
+  ['afternoon', 'بعد الظهر|بعد الضهر|العصر', 'afternoon'],
+  ['noon', 'الظهر|الضهر', 'noon|midday'],
+  ['evening', 'المسا|المساء|مساءً|مساءا|مساء|الليلة|الليله', 'evening|tonight'],
+];
+const termRe = (ar, en) => new RegExp(`${NOT_AR_BEFORE}(?:${ar})${NOT_AR_AFTER}|\\b(?:${en})\\b`, 'gi');
+const DAY_RES = DAY_TERMS.map(([key, ar, en]) => [key, termRe(ar, en)]);
+const PART_RES = [
+  ...PART_TERMS.map(([key, ar, en]) => [key, termRe(ar, en)]),
+  ['am', new RegExp(`(?<=${DIGIT}\\s?)(?:ص${NOT_AR_AFTER}|am\\b|a\\.m\\.)`, 'gi')],
+  ['pm', new RegExp(`(?<=${DIGIT}\\s?)(?:م${NOT_AR_AFTER}|pm\\b|p\\.m\\.)`, 'gi')],
+];
+const DAY_ALT_AR = DAY_TERMS.map(([, ar]) => ar).join('|');
+const CLOCK_RES = [
+  new RegExp(`${NOT_AR_BEFORE}(?:الساعة|الساعه)\\s*(?:${DIGIT}{1,2}(?:[:.]${DIGIT}{2})?|(?:${HOUR_WORDS_AR})${NOT_AR_AFTER})(?:\\s*(?:و\\s*)?(?:نص|ربع)${NOT_AR_AFTER})?`, 'g'),
+  new RegExp(`${NO_DIGIT_BEFORE}${DIGIT}{1,2}:${DIGIT}{2}${NO_DIGIT_AFTER}`, 'g'),
+  new RegExp(`${NO_DIGIT_BEFORE}${DIGIT}{1,2}\\s*(?:ص|م|صباحًا|صباحاً|صباحا|مساءً|مساءا|مساء|الصبح|الصباح|المسا|المساء|العصر|الظهر|الضهر)${NOT_AR_AFTER}`, 'g'),
+  new RegExp(`${NOT_AR_BEFORE}(?:${DAY_ALT_AR})\\s*(?:الساعة\\s*|الساعه\\s*)?${DIGIT}{1,2}(?:\\s*[-–—]\\s*${DIGIT}{1,2})?${NO_DIGIT_AFTER}${UNIT_AFTER_AR}`, 'g'),
+  new RegExp(`${NOT_AR_BEFORE}(?:من|بين)\\s+(?:الساعة\\s*)?${DIGIT}{1,2}\\s*(?:و|ل|لـ|لل|الى|إلى|-|–)\\s*${DIGIT}{1,2}${NO_DIGIT_AFTER}${UNIT_AFTER_AR}`, 'g'),
+  new RegExp(`${NOT_AR_BEFORE}(?:بعد|قبل)\\s+(?:الساعة\\s*|الساعه\\s*)?${DIGIT}{1,2}(?:[:.]${DIGIT}{2})?${NO_DIGIT_AFTER}(?=\\s*(?:$|[؟?.!,،\\n]))`, 'g'),
+  /\b\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.|o'?clock)(?![a-z])/gi,
+  /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(?:am|pm|o'?clock)\b/gi,
+  /\b(?:at|after|before|around|by|from|between)\s+\d{1,2}(?::\d{2})?(?:\s*(?:-|–|and|to)\s*\d{1,2}(?::\d{2})?)?(?:\s*(?:am|pm))?\b(?!\s*(?:%|percent|days?|weeks?|months?|years?|hours?|minutes?|mins?|people|staff|employees|branches|orders|messages|customers|clients|jd|jod|dinars?|usd))/gi,
+  new RegExp(`${NO_DIGIT_BEFORE}${DIGIT}{1,2}\\s*/\\s*${DIGIT}{1,2}(?![0-9٠-٩/])`, 'g'),
+];
+const TIME_NEGATION_RE = /(?:^|[\s،,])(?:مش|مو|ما|لا|غير|not|no|except)\s*$/i;
+const RELATIVE_DAYS = ['today', 'tomorrow', 'after_tomorrow'];
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const PART_EQUIV = {
+  am: ['am', 'morning'], morning: ['morning', 'am'], noon: ['noon'],
+  pm: ['pm', 'afternoon', 'evening'], afternoon: ['afternoon', 'pm'], evening: ['evening', 'pm'],
+};
+const PHRASE_MAX = 120;
+
+/** The day/time expressions in a text: their spans, the days, parts of day and numbers inside them. */
+function timeFacts(text) {
+  const s = String(text || '');
+  const hits = [];
+  const scan = (re, onHit) => {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(s))) {
+      if (!m[0]) { re.lastIndex += 1; continue; }
+      // «مش اليوم», "not today": a time the customer rules out is not the one they chose.
+      if (TIME_NEGATION_RE.test(s.slice(Math.max(0, m.index - 8), m.index))) continue;
+      hits.push([m.index, m.index + m[0].length]);
+      if (onHit) onHit();
+    }
+  };
+  const days = new Set();
+  const parts = new Set();
+  for (const [key, re] of DAY_RES) scan(re, () => days.add(key));
+  for (const [key, re] of PART_RES) scan(re, () => parts.add(key));
+  for (const re of CLOCK_RES) scan(re);
+
+  hits.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  const spans = [];
+  for (const h of hits) {
+    const last = spans[spans.length - 1];
+    if (last && (h[0] <= last[1] || /^[ \t،,و]*$/.test(s.slice(last[1], h[0])))) last[1] = Math.max(last[1], h[1]);
+    else spans.push([h[0], h[1]]);
+  }
+  const pieces = spans.map(([a, b]) => s.slice(a, b).trim());
+  const numbers = new Set(pieces.flatMap((p) => extractCustomerNumbers(p)));
+  return { spans, days, parts, numbers, phrase: cutCodePoints(pieces.join(' '), PHRASE_MAX).trim() };
+}
+
+/** Every day, part of day and number of the proposed time is one the customer wrote. */
+function groundedIn(candidate, facts) {
+  const t = preferredTimeText(candidate);
+  if (!t || !facts.spans.length) return null;
+  const m = timeFacts(t);
+  if (!m.spans.length) return null;
+  for (const n of m.numbers) if (!facts.numbers.has(n)) return null;
+  for (const p of m.parts) if (!(PART_EQUIV[p] || [p]).some((q) => facts.parts.has(q))) return null;
+  // «بكرا» written as its weekday («الثلاثاء») is the same day.
+  const relative = RELATIVE_DAYS.some((d) => facts.days.has(d));
+  for (const d of m.days) if (!facts.days.has(d) && !(relative && WEEKDAYS.includes(d))) return null;
+  return t;
+}
+
+function sharesTime(m, facts) {
+  return [...m.numbers].some((n) => facts.numbers.has(n))
+    || [...m.days].some((d) => facts.days.has(d))
+    || [...m.parts].some((p) => (PART_EQUIV[p] || [p]).some((q) => facts.parts.has(q)));
+}
+
+/** What the customer typed or said in this batch. A tap's title is not typed text (taps go through buttons.js). */
+function batchCustomerTexts(c) {
+  const out = [];
+  for (const m of c.batchMessages || []) {
+    if (m.message_type === 'interactive' || m.message_type === 'button') continue;
+    if (typeof m.text_body === 'string' && m.text_body.trim()) out.push(m.text_body);
+    const sm = shiftMediaOf(m, c);
+    if (sm && sm.status === 'ok' && typeof sm.text === 'string' && sm.text.trim()) out.push(sm.text);
+  }
+  return out;
+}
+
+/**
+ * The call time the customer gave in this batch, or null. A proposal the customer's words fully back is kept
+ * as written; one that only shares part of them («بكرا» → «بكرا 10–12») gives way to the customer's own words.
+ */
+function customerCallTime(ctx, candidates, texts) {
+  const c = ctx || {};
+  const facts = timeFacts((texts || batchCustomerTexts(c)).join('\n'));
+  if (!facts.spans.length) return null;
+  const list = (Array.isArray(candidates) ? candidates : [candidates]).map(preferredTimeText).filter(Boolean);
+  for (const t of list) if (groundedIn(t, facts)) return t;
+  for (const t of list) {
+    const m = timeFacts(t);
+    if (m.spans.length && sharesTime(m, facts) && facts.phrase) return facts.phrase;
+  }
+  return null;
+}
+
+/** A stored time the customer picked by tapping a slot (or staff set with a window). */
+function tappedTime(lead) {
+  const pt = lead && lead.preferred_time;
+  return isPlainObject(pt) && (pt.slot_id || pt.start) ? pt : null;
+}
+
+// A line that asks the customer to pick a time cannot stand above «سجّلت طلب مكالمة…» (owner phone test).
+const CHOOSE_TIME_RE = /اختار|اختر|تختار|أي وقت|اي وقت|أي يوم|اي يوم|أي ساعة|اي ساعة|متى بفرغ|متى بتفضى|متى بتفضي|متى بناسبك|متى بيناسبك|إمتى|امتى|وقت بناسبك|وقت بيناسبك|وقت بريحك|الوقت المناسب|وقت مناسب|أقرب أوقات|اقرب أوقات|اقرب اوقات|أقرب اوقات|\bpick\b|\bchoose\b|which (?:day|time)|what time|when (?:are you|you're|would you be) free|when suits|when works|what works|a time that (?:suits|works)|nearest times/i;
+
+function sentencesOf(line) {
+  return String(line || '').split(/(?<=[.!؟?:：])(?=\s)|(?<=\n)/);
+}
+
+function withoutChooseAsk(line) {
+  if (!line) return null;
+  const kept = sentencesOf(line).filter((s) => !CHOOSE_TIME_RE.test(s) && !/[:：]\s*$/.test(s));
+  return kept.join('').trim() || null;
+}
+
+/** The model's own «أقرب أوقات الفريق:» lead-in goes: the server's body line sits above the buttons. */
+function withoutTrailingColon(line) {
+  if (!line) return null;
+  const parts = sentencesOf(line);
+  while (parts.length && /[:：]\s*$/.test(parts[parts.length - 1])) parts.pop();
+  return parts.join('').trim() || null;
+}
+
 function emptyResult(fields) {
   return {
     kind: 'reply',
@@ -224,9 +396,12 @@ function renderCaptureAck(capture, storedLead) {
   const ack = relayed
     ? acks.captureRelayed({ when: capture.when, lang: capture.lang })
     : acks.captureAck({ name: lead.name, businessName: lead.business_name, when: capture.when, lang: capture.lang });
+  // The ack says the time is recorded: a model sentence asking the customer to choose one cannot precede it.
+  const line = withoutChooseAsk(capture.modelLine);
+  const reply = line ? withoutChooseAsk(capture.modelReply || capture.modelLine) : null;
   return {
     relayed,
-    messages: [textMessage(capture.modelLine, ack, capture.modelReply || capture.modelLine)],
+    messages: [textMessage(line, ack, reply)],
     workflowDataPatch: relayed
       ? { requested_time_change: { text: capture.requested?.text || capture.when, at: capture.at } }
       : {},
@@ -404,6 +579,12 @@ function cleanLeadPatch(lead, c) {
       if (Array.isArray(v) && v.length === 0) continue;
       out[k] = v;
     }
+  }
+  if (out.preferred_time !== undefined) {
+    // Only a time the customer wrote in this batch reaches the lead (owner phone test, 2026-09-15).
+    const said = customerCallTime(c, [out.preferred_time]);
+    if (said) out.preferred_time = said;
+    else delete out.preferred_time;
   }
   if (Object.keys(out).length) return out;
   // An empty patch still lets saveLead record the numbers the customer typed (the PR2 digit guard).
@@ -611,6 +792,45 @@ function finishResult(r, c, { aiResult, reply, action, common, baseLeadPatch, pr
   return validators.repairNextStep(out, aiResult, { stage: postStage, now: c.now }).result;
 }
 
+/**
+ * The customer agreed to a call without naming a time (owner phone test, 2026-09-15): the slot buttons under
+ * the server's «أقرب أوقات الفريق:», or «أي يوم ووقت بناسبك؟» when there is nothing to offer (outside team
+ * hours, the team's request open, or right after «وقت ثاني»). Nothing is stored, no capture, no alert.
+ */
+function callTimeAskResult(c, { shown, reply, locked, leadPatch }) {
+  const at = c.now.toISOString();
+  const stateUpdate = locked ? {} : { current_state: 'close' };
+  const askedOther = c.wd.capture_pending && c.wd.capture_pending.slot_id === 'other';
+  const offers = locked || inSandbox(c) || askedOther ? [] : (c.offers || []).slice(0, 3);
+  if (offers.length) {
+    const body = acks.slotsBody(c.lang);
+    const line = withoutTrailingColon(shown);
+    const own = withoutTrailingColon(reply);
+    const part = withMeta({
+      type: 'interactive',
+      text: compose(line, body, INTERACTIVE_LIMIT),
+      buttons: offers.map((o) => ({ id: o.id, title: o.title })),
+      // Server-chosen offers: they stay with the body line even if the model's words are replaced.
+      serverButtons: true,
+    }, line, body, own);
+    return emptyResult({
+      action: 'NONE',
+      messages: [part],
+      stateUpdate,
+      workflowDataPatch: { slot_offers: offers.map((o) => ({ id: o.id, title: o.title, issued_at: at })) },
+      leadPatch,
+    });
+  }
+  const line = withoutChooseAsk(shown);
+  const own = line ? withoutChooseAsk(reply) : null;
+  return emptyResult({
+    action: 'NONE',
+    messages: [textMessage(line, acks.callTimeAsk(c.lang), own)],
+    stateUpdate,
+    leadPatch,
+  });
+}
+
 // ─── the entry point ─────────────────────────────────────────────────────────
 
 function resolveAction(aiResult, c) {
@@ -700,7 +920,10 @@ function toWorkflowResult(aiResult, ctx) {
       ? lead.preferred_time
       : null;
     const expired = !!storedSlot && slotExpired(storedSlot, cp, c.now);
-    let timeText = cp.time_text || preferredTimeText(aiResult.lead?.preferred_time) || preferredTimeText(rawArgs.time_text);
+    // A pending time is the customer's only if their words (this batch or the loaded history) carry it: a
+    // PR1 row may hold a model-invented one. A new time must be in this batch.
+    const pendingText = cp.time_text && groundedIn(cp.time_text, timeFacts(customerTextsOf(c).join('\n'))) ? cp.time_text : null;
+    let timeText = pendingText || customerCallTime(c, [aiResult.lead?.preferred_time, rawArgs.time_text]);
     // An echo of the expired slot's own wording is not a new time.
     if (expired && timeText && normalize(timeText) === normalize(storedSlot.text || '')) timeText = null;
     const answer = { modelLine: answerLine, modelReply: answerLine ? reply : null };
@@ -750,10 +973,11 @@ function toWorkflowResult(aiResult, ctx) {
   // A time the customer stated in this message («Can we speak tomorrow after 4?») is a call request even
   // when the model only wrote it into the lead: the server stores it now and asks for what the capture
   // still needs (eval #7), instead of offering slot buttons over the time the customer already gave.
-  const statedTime = action === 'NONE' && !locked && !inSandbox(c) && stage !== 'captured'
-    ? preferredTimeText(aiResult.lead?.preferred_time)
+  // Only a time the customer's own words carry: never a slot title or «متى نحكي؟» the model copied in.
+  const statedTime = action === 'NONE' && !locked && !inSandbox(c) && stage !== 'captured' && aiResult.lead?.preferred_time
+    ? customerCallTime(c, [aiResult.lead.preferred_time])
     : null;
-  if (statedTime && TIME_HINT_RE.test(statedTime)) {
+  if (statedTime) {
     action = 'CAPTURE_TIME';
     args = { ...args, time_text: statedTime };
   }
@@ -769,9 +993,12 @@ function toWorkflowResult(aiResult, ctx) {
       const reason = FLAG_REASONS.includes(args.reason) ? args.reason : 'unknown';
       if (reason === 'meeting') {
         const preview = mergeLead(lead, leadPatch || {}, leadMeta).lead;
-        const timeText = preferredTimeText(rawArgs.time_text) || preferredTimeText(preview.preferred_time);
+        // A time the customer wrote now, or the slot they tapped before; never the model's own time_text.
+        const said = customerCallTime(c, [rawArgs.time_text, aiResult.lead?.preferred_time]);
+        const tapped = tappedTime(lead);
+        const timeText = said || (tapped && preferredTimeText(tapped));
         if (timeText && (preview.name || preview.business_name)) {
-          const slot = preview.preferred_time?.start ? preview.preferred_time : undefined;
+          const slot = tapped && (!said || normalize(tapped.text || '') === normalize(said)) ? tapped : undefined;
           return finish(captureResult(c, { preferredTime: slot, timeText, modelLine: shown, modelReply: reply, leadPatch }));
         }
       }
@@ -821,7 +1048,10 @@ function toWorkflowResult(aiResult, ctx) {
     }
 
     case 'CAPTURE_TIME': {
-      const timeText = preferredTimeText(args.time_text) || preferredTimeText(aiResult.lead?.preferred_time);
+      // The model's time_text is a proposal: only the customer's own words (or a tap, in buttons.js) set a time.
+      const timeText = customerCallTime(c, [args.time_text, aiResult.lead?.preferred_time]);
+      // Agreeing to a call without naming a time: the slot buttons (or the day/time ask), nothing stored.
+      if (!timeText) return finish(callTimeAskResult(c, { shown, reply, locked, leadPatch }));
       // Re-stating the stored time keeps the stored object (a tapped slot's start/end/slot_id).
       const sameTime = timeText && isPlainObject(lead.preferred_time)
         && normalize(lead.preferred_time.text || '') === normalize(timeText);
@@ -1052,6 +1282,7 @@ module.exports = {
   isStageLocked,
   captureResult,
   renderCaptureAck,
+  customerCallTime,
   toWorkflowResult,
   roleplayEndResult,
   compose,

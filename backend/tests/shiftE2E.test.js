@@ -1015,6 +1015,96 @@ describe('PR2 sales quality end to end', () => {
     expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
   });
 
+  describe('owner phone test (2026-09-15): agreeing to a call without a time records nothing', () => {
+    function tapPayload(id, title) {
+      const tap = inboundPayload({ text: 'x' });
+      tap.entry[0].changes[0].value.messages[0] = {
+        ...tap.entry[0].changes[0].value.messages[0],
+        type: 'interactive',
+        interactive: { type: 'button_reply', button_reply: { id, title } },
+      };
+      delete tap.entry[0].changes[0].value.messages[0].text;
+      return tap;
+    }
+
+    test('AR «صح عليكم طيب يلا» + a CAPTURE_TIME with a slot title → slot buttons, no ack; the tap then records the tapped slot', async () => {
+      const business = seedShiftBusiness();
+      seedConversation(business, {
+        current_state: 'close',
+        workflow_data: { lead: { business_name: 'بيكابو', sector: 'other', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString() },
+      });
+      script({
+        reply: 'ممتاز جداً! عشان ننسّق المكالمة، اختار الوقت المناسب إلك أو احكيلي متى بفرغ وقتك. أقرب أوقات الفريق:',
+        action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا 10–12 بتوقيت عمّان' }, stage: 'close', next_step: 'buttons',
+        lead: { preferred_time: 'بكرا 10–12' },
+      });
+
+      const parts = await say('صح عليكم طيب يلا');
+
+      expect(parts).toHaveLength(1);
+      expect(parts[0].type).toBe('interactive');
+      const body = sendText(parts[0]);
+      expect(body).not.toContain('سجّلت طلب مكالمة');
+      expect(body.endsWith(acks.slotsBody('ar'))).toBe(true);
+      const ids = parts[0].interactive.action.buttons.map((b) => b.reply.id);
+      expect(ids).toEqual(OFFERS.slice(0, 3).map((o) => o.id));
+      let conv = conversationOf();
+      expect(conv.workflow_data.lead.preferred_time).toBeUndefined();
+      expect(conv.workflow_data.needs_team).toBeFalsy();
+      expect(conv.workflow_data.capture_pending == null || conv.workflow_data.capture_pending.time_text == null).toBe(true);
+      expect(conv.current_state).toBe('close');
+      expect(conv.status).toBe('open');
+      expect(inboundRows().map((m) => m.status)).toEqual(['answered']);
+
+      // (a) The customer taps a slot: that time is stored, and the missing name is asked for.
+      const offer = OFFERS[0];
+      await postWebhook(tapPayload(offer.id, offer.title));
+      await settle();
+      await advance(100);
+      expect(sends()).toHaveLength(2);
+      expect(sendText(sends()[1])).not.toContain('سجّلت طلب مكالمة');
+      conv = conversationOf();
+      expect(conv.workflow_data.lead.preferred_time.slot_id).toBe(offer.id);
+      expect(conv.workflow_data.capture_pending).toMatchObject({ slot_id: offer.id });
+
+      // The name arrives → the capture ack names the tapped slot, alone.
+      script({ reply: 'تشرفنا يا سامي.', stage: 'close', lead: { name: 'سامي' } });
+      const last = await say('سامي');
+      expect(last).toHaveLength(1);
+      expect(sendText(last[0])).toContain('سجّلت طلب مكالمة: سامي، بيكابو، ');
+      conv = conversationOf();
+      expect(conv.current_state).toBe('captured');
+      expect(conv.workflow_data.lead.preferred_time.slot_id).toBe(offer.id);
+    });
+
+    test('EN "Sounds good, let\'s do it" + a CAPTURE_TIME with an invented time → English slot buttons, nothing stored', async () => {
+      const business = seedShiftBusiness();
+      seedConversation(business, {
+        current_state: 'close',
+        workflow_data: { lead: { business_name: 'Peekaboo', sector: 'other', language: 'en', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString() },
+      });
+      script({
+        reply: "Great! To arrange the call, pick a time that suits you or tell me when you're free. The team's nearest times:",
+        action: 'CAPTURE_TIME', action_args: { time_text: 'tomorrow 10–12' }, stage: 'close', next_step: 'buttons',
+      });
+
+      const parts = await say("Sounds good, let's do it");
+
+      expect(parts).toHaveLength(1);
+      expect(parts[0].type).toBe('interactive');
+      const body = sendText(parts[0]);
+      expect(body).not.toMatch(/call request noted/i);
+      expect(body).not.toMatch(ARABIC);
+      expect(body.endsWith(acks.slotsBody('en'))).toBe(true);
+      const offersEn = buttons.slotOffers(hours.resolveTeamHours({}), START, 'en');
+      expect(parts[0].interactive.action.buttons.map((b) => b.reply.id)).toEqual(offersEn.slice(0, 3).map((o) => o.id));
+      const conv = conversationOf();
+      expect(conv.workflow_data.lead.preferred_time).toBeUndefined();
+      expect(conv.current_state).toBe('close');
+      expect(conv.status).toBe('open');
+    });
+  });
+
   test('SEND_SAMPLE for a vetted sector → one image-header interactive sent through its own intent row', async () => {
     const business = seedShiftBusiness({ samples_vetted: ['restaurant'] });
     seedConversation(business, {

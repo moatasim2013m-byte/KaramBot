@@ -269,6 +269,11 @@ function mediaPrefix(type, lang, { captioned = false } = {}) {
   return `${MEDIA_NOUNS_AR[type] || 'وصلتني رسالتك'} كمان 🙏 هون بقرأ النص بس.`;
 }
 
+/** The customer agreed to a call without a time and there are no slots to offer: ask, record nothing. */
+function callTimeAsk(lang) {
+  return isEn(lang) ? 'Which day and time suit you?' : 'أي يوم ووقت بناسبك؟';
+}
+
 /** Body of a slot-buttons message when the model line is empty. */
 function slotsBody(lang) {
   return isEn(lang) ? "The team's nearest times:" : 'أقرب أوقات الفريق:';
@@ -440,4 +445,5 @@ module.exports = {
   mediaPrefix,
   purposeLine,
   slotsBody,
+  callTimeAsk,
 };

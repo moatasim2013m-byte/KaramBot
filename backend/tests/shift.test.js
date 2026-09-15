@@ -206,7 +206,8 @@ describe('SHIFT workflow — results', () => {
     const c = conv({ workflow_data: { lead: { name: 'محمد', version: 1 } } });
     const r = toWorkflowResult(
       { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا الساعة 5' }, lead: {} },
-      ctx({ conversation: c }),
+      // The customer's own words carry the time: the model's time_text alone is never recorded (owner phone test).
+      ctx({ conversation: c, batchMessages: [{ id: 'm1', message_type: 'text', text_body: 'بكرا الساعة 5 بناسبني' }] }),
     );
     expect(r.action).toBe('CAPTURE_TIME');
     expect(r.stateUpdate).toEqual({ status: 'pending', current_state: 'captured' });
@@ -219,7 +220,10 @@ describe('SHIFT workflow — results', () => {
   });
 
   test('CAPTURE_TIME without name or business asks for them and keeps the time pending', () => {
-    const r = toWorkflowResult({ reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الأحد العصر' } }, ctx());
+    const r = toWorkflowResult(
+      { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الأحد العصر' } },
+      ctx({ batchMessages: [{ id: 'm1', message_type: 'text', text_body: 'خليها الأحد العصر' }] }),
+    );
     expect(r.messages[0].text).toBe(acks.captureAsk({ nameKnown: false, businessKnown: false, lang: 'ar' }));
     expect(r.stateUpdate).toEqual({ current_state: 'close' });
     expect(r.workflowDataPatch.capture_pending).toEqual({ slot_id: null, time_text: 'الأحد العصر', at: MON_11.toISOString() });
@@ -786,7 +790,8 @@ describe('SHIFT workflow — PR1 review round 2', () => {
         current_state: 'close',
         workflow_data: { capture_pending: { slot_id: null, time_text: 'بكرا الساعة 5', at: MON_11.toISOString() } },
       });
-      return ctx({ conversation, batchMessages: [{ id: 'm2', message_type: 'text', text_body: text }] });
+      // The pending time was the customer's own words in the batch before (the loaded history).
+      return ctx({ conversation, batchMessages: [{ id: 'm2', message_type: 'text', text_body: text }], customerHistoryTexts: ['بكرا الساعة 5'] });
     }
 
     test('a written-quote request is flagged as a quote and answered; the capture stays pending', () => {
