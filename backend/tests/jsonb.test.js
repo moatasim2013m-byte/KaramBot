@@ -30,7 +30,7 @@ describe('patchJson', () => {
     const { text, values } = lastSql(prisma.$executeRaw);
     expect(text).toContain('UPDATE "conversations"');
     expect(text).toContain('SET "workflow_data" = (COALESCE("workflow_data", \'{}\'::jsonb) - ?::text[]) || ?::jsonb');
-    expect(text).toContain('"updated_at" = now()');
+    expect(text).toContain('"updated_at" = timezone(\'UTC\', now())');
     expect(text).toContain('WHERE "id" = ?');
     expect(text).not.toContain('DROP TABLE');
     expect(text).not.toContain('version');
@@ -275,5 +275,34 @@ describe('claims and counters', () => {
 
     prisma.$queryRaw.mockResolvedValue([]);
     expect(await jsonb.incrementCounter('conversations', 'missing', 'metadata', 'reply_failures')).toBeNull();
+  });
+});
+
+describe('updated_at (found on real Postgres, tests/integration/pg.test.js)', () => {
+  // "updated_at" is timestamp WITHOUT time zone holding UTC; `= now()` stored local wall time on a database whose
+  // TimeZone is not UTC. Every writer must store UTC wall time.
+  test('every statement writes updated_at as timezone(UTC, now()), never a bare now()', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ n: 1, due_at: new Date().toISOString(), delay_ms: 0 }]);
+    const calls = [
+      () => jsonb.patchJson('conversations', 'c1', 'metadata', { a: 1 }),
+      () => jsonb.mergeObjectKey('conversations', 'c1', 'workflow_data', 'needs_team', { a: 1 }),
+      () => jsonb.claimFlag('conversations', 'c1', 'metadata', ['a']),
+      () => jsonb.claimValue('conversations', 'c1', 'metadata', 'a', 'v'),
+      () => jsonb.incrementCounter('conversations', 'c1', 'metadata', 'a'),
+      () => jsonb.acquireLease('c1', 't'),
+      () => jsonb.renewLease('c1', 't'),
+      () => jsonb.releaseLease('c1', 't'),
+      () => jsonb.preSendCheck('c1', { leaseToken: 't' }),
+      () => jsonb.touchBatchDue('c1', 1000, 10000),
+      () => jsonb.resolveNeedsTeam('c1', { match: { at: 'x' }, resolvedAt: 'r' }),
+      () => jsonb.writeConversationState('c1', { status: 'open' }),
+    ];
+    for (const call of calls) await call();
+    const texts = [...prisma.$executeRaw.mock.calls, ...prisma.$queryRaw.mock.calls].map(([sql]) => sql.strings.join('?'));
+    expect(texts).toHaveLength(calls.length);
+    for (const text of texts) {
+      expect(text).toContain('"updated_at" = timezone(\'UTC\', now())');
+      expect(text).not.toMatch(/"updated_at" = now\(\)/);
+    }
   });
 });

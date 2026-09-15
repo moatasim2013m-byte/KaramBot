@@ -93,6 +93,24 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
   return conv;
 }
 
+/**
+ * Postgres rejects U+0000 in text columns (22021) and in jsonb (22P05, "\u0000 cannot be converted to text").
+ * One such character in a customer's message made its insert fail on every Meta retry, so the message was never
+ * stored or answered (the in-memory test DB accepted it). Found by tests/integration/pg.test.js. The stored copy
+ * drops the character; the forward of an external-mode payload still sends Meta's original `value`.
+ */
+const NUL_RE = new RegExp(String.fromCharCode(0), 'g');
+function withoutNul(value) {
+  if (typeof value === 'string') return value.includes(String.fromCharCode(0)) ? value.replace(NUL_RE, '') : value;
+  if (Array.isArray(value)) return value.map(withoutNul);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[withoutNul(k)] = withoutNul(v);
+    return out;
+  }
+  return value;
+}
+
 // A caption is what the customer typed with the photo/file («هاد نظامنا الحالي…»).
 function mediaCaption(waMsg) {
   return waMsg.image?.caption || waMsg.video?.caption || waMsg.document?.caption || null;
@@ -256,9 +274,10 @@ async function persistInbound(entry) {
 
   let firstError = null;
 
-  for (const waMsg of messages) {
+  for (const original of messages) {
     try {
-      const contact = contacts.find(c => c.wa_id === waMsg.from) || {};
+      const waMsg = withoutNul(original);
+      const contact = withoutNul(contacts.find(c => c.wa_id === original.from) || {});
       const customerWaId = normalizePhone(waMsg.from);
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
       const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,

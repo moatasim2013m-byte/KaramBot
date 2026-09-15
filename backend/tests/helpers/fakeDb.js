@@ -59,6 +59,19 @@ function prismaError(code, message) {
   return Object.assign(new Error(message), { code });
 }
 
+// Postgres refuses U+0000 in text (22021) and in jsonb (22P05); Prisma surfaces it as an error without a P-code.
+// The fake used to store it, hiding a message that could never be persisted (tests/integration/pg.test.js).
+function hasNul(v) {
+  if (typeof v === 'string') return v.includes(String.fromCharCode(0));
+  if (Array.isArray(v)) return v.some(hasNul);
+  if (isPlainObject(v)) return Object.entries(v).some(([k, val]) => hasNul(k) || hasNul(val));
+  return false;
+}
+
+function rejectNul(data) {
+  if (hasNul(data)) throw new Error('fakeDb: invalid byte sequence for encoding "UTF8": 0x00 (Postgres 22021/22P05)');
+}
+
 function createFakeDb() {
   const store = { businesses: [], conversations: [], messages: [], users: [], orders: [] };
   let fixedNow = null;
@@ -291,8 +304,24 @@ function createFakeDb() {
     return indexed.map((e) => e.row);
   }
 
-  function project(row, include) {
-    const out = clone(row);
+  // Prisma returns only the selected scalar fields (plus selected relations); code that reads a field it did not
+  // select gets undefined on Postgres. The fake used to ignore `select` and hide such reads.
+  function project(row, include, selectSpec) {
+    if (isPlainObject(selectSpec)) {
+      const picked = {};
+      const relations = {};
+      for (const [k, on] of Object.entries(selectSpec)) {
+        if (!on) continue;
+        if (RELATIONS[k]) relations[k] = on;
+        else picked[k] = clone(row[k]);
+      }
+      return Object.keys(relations).length ? { ...picked, ...projectRelations(row, relations) } : picked;
+    }
+    return { ...clone(row), ...(include ? projectRelations(row, include) : {}) };
+  }
+
+  function projectRelations(row, include) {
+    const out = {};
     if (include) {
       for (const [name, spec] of Object.entries(include)) {
         const rel = RELATIONS[name];
@@ -363,16 +392,16 @@ function createFakeDb() {
         guard('findUnique');
         validateWhere(args.where);
         const row = rows().find((r) => matches(r, args.where));
-        return row ? project(row, args.include) : null;
+        return row ? project(row, args.include, args.select) : null;
       },
       async findFirst(args = {}) {
         guard('findFirst');
         const [row] = select({ ...args, take: 1 });
-        return row ? project(row, args.include) : null;
+        return row ? project(row, args.include, args.select) : null;
       },
       async findMany(args = {}) {
         guard('findMany');
-        return select(args).map((r) => project(r, args.include));
+        return select(args).map((r) => project(r, args.include, args.select));
       },
       async count(args = {}) {
         guard('count');
@@ -381,13 +410,15 @@ function createFakeDb() {
       },
       async create(args = {}) {
         guard('create');
+        rejectNul(args.data);
         const row = withDefaults(storeKey, args.data || {});
         checkUnique(storeKey, row, null);
         rows().push(row);
-        return project(row, args.include);
+        return project(row, args.include, args.select);
       },
       async update(args = {}) {
         guard('update');
+        rejectNul(args.data);
         validateWhere(args.where);
         const row = rows().find((r) => matches(r, args.where));
         if (!row) throw prismaError('P2025', 'Record to update not found.');
@@ -395,10 +426,11 @@ function createFakeDb() {
         applyData(next, args.data);
         checkUnique(storeKey, next, row);
         Object.assign(row, next, { updated_at: clock.now() });
-        return project(row, args.include);
+        return project(row, args.include, args.select);
       },
       async updateMany(args = {}) {
         guard('updateMany');
+        rejectNul(args.data);
         validateWhere(args.where);
         const targets = rows().filter((r) => matches(r, args.where));
         for (const row of targets) {
@@ -531,6 +563,7 @@ function createFakeDb() {
       ident(table, TABLES);
       ident(column, COLUMNS);
       checkFailure('jsonb.patchJson');
+      rejectNul(patch);
       const removeKeys = Array.isArray(remove) ? remove.filter((k) => typeof k === 'string') : [];
       // JSON round-trip mirrors `::jsonb`: undefined keys drop, Dates become ISO strings.
       const parsed = JSON.parse(JSON.stringify(patch || {}));
@@ -554,6 +587,7 @@ function createFakeDb() {
       ident(column, COLUMNS);
       checkPath([key]);
       checkFailure('jsonb.mergeObjectKey');
+      rejectNul(patch);
       const parsed = JSON.parse(JSON.stringify(patch || {}));
       if (Object.keys(parsed).length === 0) return false;
       const row = conversationRow(id);
@@ -729,6 +763,7 @@ function createFakeDb() {
     } = {}) {
       if (typeof status !== 'string' || !status) throw new Error('jsonb: writeConversationState needs a status');
       checkFailure('jsonb.writeConversationState');
+      rejectNul([patch, needsTeam]);
       const row = conversationRow(conversationId);
       if (!row || row.status === 'human_takeover') return { ok: false, needsTeam: null };
       const prio = (reason) => (typeof reason === 'string' && Object.prototype.hasOwnProperty.call(priorities, reason)

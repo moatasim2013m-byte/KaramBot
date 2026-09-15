@@ -122,6 +122,29 @@ describe('where / orderBy / data', () => {
     })).rejects.toMatchObject({ code: 'P2002' });
   });
 
+  test('U+0000 in text or JSON is rejected like Postgres (22021 / 22P05)', async () => {
+    const { biz, conv } = seedConversation();
+    const NUL = String.fromCharCode(0);
+    await expect(prisma.message.create({ data: { business_id: biz.id, conversation_id: conv.id, direction: 'inbound', text_body: `a${NUL}` } }))
+      .rejects.toThrow('0x00');
+    await expect(prisma.message.create({ data: { business_id: biz.id, conversation_id: conv.id, direction: 'inbound', raw_payload: { t: [`${NUL}`] } } }))
+      .rejects.toThrow('0x00');
+    await expect(prisma.conversation.update({ where: { id: conv.id }, data: { profile_name: NUL } })).rejects.toThrow('0x00');
+    await expect(prisma.conversation.updateMany({ where: { id: conv.id }, data: { profile_name: NUL } })).rejects.toThrow('0x00');
+    await expect(db.jsonb.patchJson('conversations', conv.id, 'metadata', { a: NUL })).rejects.toThrow('0x00');
+    expect(await prisma.message.count({ where: { conversation_id: conv.id } })).toBe(0);
+  });
+
+  test('select returns only the selected fields, like Prisma on Postgres', async () => {
+    const { conv } = seedConversation();
+    const row = await prisma.conversation.findUnique({ where: { id: conv.id }, select: { workflow_data: true } });
+    expect(row).toEqual({ workflow_data: {} });
+    const [first] = await prisma.conversation.findMany({ where: { id: conv.id }, select: { id: true, status: true } });
+    expect(first).toEqual({ id: conv.id, status: 'open' });
+    const full = await prisma.conversation.findFirst({ where: { id: conv.id } });
+    expect(full).toHaveProperty('metadata');
+  });
+
   test('updateMany counts only matching rows; failNext rejects once', async () => {
     const { biz, conv } = seedConversation();
     db.seed({

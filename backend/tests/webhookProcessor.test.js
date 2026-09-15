@@ -186,6 +186,20 @@ describe('D24 — persistInbound is atomic', () => {
     expect(writes).toEqual([['message.create', true], ['conversation.update', true]]);
   });
 
+  test('a U+0000 in the message or contact name is dropped before insert (Postgres rejects it; found on real PG)', async () => {
+    seedBusiness();
+    const NUL = String.fromCharCode(0);
+    const entry = entryFor('pnid_shift', { id: 'wamid.nul1', type: 'text', text: { body: `مر${NUL}حبا` } });
+    entry.changes[0].value.contacts[0].profile.name = `محمد${NUL}`;
+    const { items } = await persistInbound(entry);
+    expect(items[0]).toMatchObject({ created: true, claimed: true });
+    expect(inboundRows()[0].text_body).toBe('مرحبا');
+    expect(inboundRows()[0].raw_payload.text.body).toBe('مرحبا');
+    expect(db.store.conversations[0].profile_name).toBe('محمد');
+    // Meta's original payload is untouched (an external-mode forward sends it as received).
+    expect(entry.changes[0].value.messages[0].text.body).toContain(NUL);
+  });
+
   test('counters fail → the insert rolls back with them; the retry saves, counts and processes the message once', async () => {
     seedBusiness();
     const entry = entryFor('pnid_shift', { id: 'wamid.a2', type: 'text', text: { body: 'مرحبا' } });

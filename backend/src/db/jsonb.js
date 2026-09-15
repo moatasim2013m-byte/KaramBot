@@ -20,6 +20,10 @@ const prisma = require('../config/prisma');
 const TABLES = ['conversations'];
 const COLUMNS = ['workflow_data', 'metadata'];
 const LEASE_TTL_MS = 60000;
+// "updated_at" is Prisma's `timestamp(3)` WITHOUT time zone, holding UTC. `now()` is timestamptz, and assigning
+// it converts with the session TimeZone: on a database/role whose TimeZone is not UTC, `= now()` stored local
+// wall time (Asia/Amman: 3 h in the future). Found by tests/integration/pg.test.js; UTC wall time is stored instead.
+const UPDATED_AT = Prisma.raw(`"updated_at" = timezone('UTC', now())`);
 
 function ident(name, allowed) {
   if (typeof name !== 'string' || !allowed.includes(name)) {
@@ -57,7 +61,7 @@ async function patchJson(table, id, column, patch, { ifVersion, remove = [] } = 
 
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE ${T}
 SET ${C} = (COALESCE(${C}, '{}'::jsonb) - ${removeKeys}::text[]) || ${json}::jsonb,
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${id}${versionClause}`);
   return { ok: count === 1, count };
 }
@@ -78,7 +82,7 @@ async function claimFlag(table, id, column, path) {
     : Prisma.empty;
 
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE ${T}
-SET ${C} = jsonb_set(${C}, ${path}::text[], to_jsonb(now()), true), "updated_at" = now()
+SET ${C} = jsonb_set(${C}, ${path}::text[], to_jsonb(now()), true), ${UPDATED_AT}
 WHERE "id" = ${id}
   AND (${C} #>> ${path}::text[]) IS NULL${parentClause}`);
   return count === 1;
@@ -104,7 +108,7 @@ async function mergeObjectKey(table, id, column, key, patch, { match } = {}) {
 
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE ${T}
 SET ${C} = jsonb_set(${C}, ARRAY[${key}::text], (${C} -> ${key}::text) || ${json}::jsonb, false),
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${id}
   AND jsonb_typeof(${C} -> ${key}::text) = 'object'${matchClause}`);
   return count === 1;
@@ -118,7 +122,7 @@ async function claimValue(table, id, column, key, value) {
   const v = value === null || value === undefined ? null : String(value);
 
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE ${T}
-SET ${C} = COALESCE(${C}, '{}'::jsonb) || jsonb_build_object(${key}::text, ${v}::text), "updated_at" = now()
+SET ${C} = COALESCE(${C}, '{}'::jsonb) || jsonb_build_object(${key}::text, ${v}::text), ${UPDATED_AT}
 WHERE "id" = ${id} AND (${C} ->> ${key}::text) IS DISTINCT FROM ${v}::text`);
   return count === 1;
 }
@@ -133,7 +137,7 @@ async function incrementCounter(table, id, column, key, by = 1) {
   const rows = await prisma.$queryRaw(Prisma.sql`UPDATE ${T}
 SET ${C} = jsonb_set(COALESCE(${C}, '{}'::jsonb), ARRAY[${key}::text],
                   to_jsonb(COALESCE((${C} ->> ${key}::text)::int, 0) + ${step}::int), true),
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${id}
 RETURNING (${C} ->> ${key}::text)::int AS n`);
   const n = Array.isArray(rows) && rows[0] ? rows[0].n : null;
@@ -149,7 +153,7 @@ async function acquireLease(conversationId, token, ttlMs = LEASE_TTL_MS) {
 SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object(
       'lease_token', ${String(token)}::text,
       'reply_lease_until', now() + (${ttl(ttlMs)}::int * interval '1 millisecond')),
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${conversationId}
   AND ( "metadata" ->> 'lease_token' IS NULL
      OR "metadata" ->> 'reply_lease_until' IS NULL
@@ -166,7 +170,7 @@ WHERE "id" = ${conversationId}
 async function renewLease(conversationId, token, ttlMs = LEASE_TTL_MS) {
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE "conversations"
 SET "metadata" = "metadata" || jsonb_build_object('reply_lease_until', now() + (${ttl(ttlMs)}::int * interval '1 millisecond')),
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${conversationId} AND "metadata" ->> 'lease_token' = ${String(token)}::text
   AND ("metadata" ->> 'reply_lease_until')::timestamptz > now()`);
   return count === 1;
@@ -191,7 +195,7 @@ async function preSendCheck(conversationId, {
   // Without a lease there is nothing to renew: a no-op SET keeps updated_at (Inbox ordering) untouched.
   const setClause = hasLease
     ? Prisma.sql`"metadata" = "metadata" || jsonb_build_object('reply_lease_until', now() + (${ttl(ttlMs)}::int * interval '1 millisecond')),
-    "updated_at" = now()`
+    ${UPDATED_AT}`
     : Prisma.sql`"metadata" = "metadata"`;
   const leaseClause = hasLease
     ? Prisma.sql`
@@ -258,7 +262,7 @@ SET "workflow_data" = CASE
       ELSE COALESCE("workflow_data", '{}'::jsonb) || ${json}::jsonb
     END,${stateClause}
     "status" = ${status}::text,
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${conversationId} AND "status" <> 'human_takeover'
 RETURNING ("workflow_data" #>> '{needs_team,reason}') AS needs_team_reason, ("workflow_data" #>> '{needs_team,at}') AS needs_team_at`);
   const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -284,7 +288,7 @@ async function touchBatchDue(conversationId, quietMs, capMs) {
 SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object(
       'batch_first_at', ${firstAt},
       'batch_due_at', LEAST(now() + (${quiet}::int * interval '1 millisecond'), ${firstAt} + (${cap}::int * interval '1 millisecond'))),
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${conversationId}
 RETURNING ("metadata" ->> 'batch_due_at') AS due_at,
   GREATEST(0, (EXTRACT(EPOCH FROM (("metadata" ->> 'batch_due_at')::timestamptz - now())) * 1000))::int AS delay_ms`);
@@ -305,7 +309,7 @@ async function resolveNeedsTeam(conversationId, { match, resolvedAt }) {
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE "conversations"
 SET "workflow_data" = jsonb_set("workflow_data", ARRAY['needs_team'], ("workflow_data" -> 'needs_team') || jsonb_build_object('resolved_at', ${String(resolvedAt)}::text), false),
     "status" = CASE WHEN "status" = 'pending' THEN 'open' ELSE "status" END,
-    "updated_at" = now()
+    ${UPDATED_AT}
 WHERE "id" = ${conversationId}
   AND jsonb_typeof("workflow_data" -> 'needs_team') = 'object'
   AND ("workflow_data" -> 'needs_team') @> ${JSON.stringify(match)}::jsonb
@@ -315,7 +319,7 @@ WHERE "id" = ${conversationId}
 
 async function releaseLease(conversationId, token) {
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE "conversations"
-SET "metadata" = "metadata" - 'lease_token' - 'reply_lease_until', "updated_at" = now()
+SET "metadata" = "metadata" - 'lease_token' - 'reply_lease_until', ${UPDATED_AT}
 WHERE "id" = ${conversationId} AND "metadata" ->> 'lease_token' = ${String(token)}::text`);
   return count === 1;
 }
