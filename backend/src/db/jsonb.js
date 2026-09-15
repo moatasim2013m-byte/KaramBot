@@ -158,11 +158,158 @@ WHERE "id" = ${conversationId}
   return count === 1;
 }
 
+/**
+ * D20 / GPT-6 #2: only a lease that is still ours AND unexpired is renewed. An expired token that
+ * nobody replaced yet must not come back to life: another instance may already have read the lease
+ * as free, and a stalled worker renewing it would then send next to that instance's run.
+ */
 async function renewLease(conversationId, token, ttlMs = LEASE_TTL_MS) {
   const count = await prisma.$executeRaw(Prisma.sql`UPDATE "conversations"
 SET "metadata" = "metadata" || jsonb_build_object('reply_lease_until', now() + (${ttl(ttlMs)}::int * interval '1 millisecond')),
     "updated_at" = now()
-WHERE "id" = ${conversationId} AND "metadata" ->> 'lease_token' = ${String(token)}::text`);
+WHERE "id" = ${conversationId} AND "metadata" ->> 'lease_token' = ${String(token)}::text
+  AND ("metadata" ->> 'reply_lease_until')::timestamptz > now()`);
+  return count === 1;
+}
+
+/**
+ * D20 pre-send fence: ONE conditional statement run right before every Graph call, so nothing a
+ * staff member or another worker commits before it can be talked over by a stale bot send.
+ * - `leaseToken`: the caller still owns an unexpired lease (the lease is renewed in the same row lock).
+ * - `humanGuard`: not claimed / human_takeover, AI on, no staff pause (`human_active_until`) running.
+ * - `optedOutSince`: the customer has not opted out after this instant (a sales reply generated before
+ *   «إيقاف» must not follow it).
+ * - `claim`: [{column, path, value}] — each jsonb path still holds this value as text. A sweeper note is
+ *   fenced on its claim: a sweep that stalled past NOTE_CLAIM_TTL_MS and was taken over must not send
+ *   the note the taking-over sweep already sent.
+ * Returns true when the row matched (safe to send), false otherwise. Never sends anything itself.
+ */
+async function preSendCheck(conversationId, {
+  leaseToken = null, ttlMs = LEASE_TTL_MS, humanGuard = true, optedOutSince = null, claim = null,
+} = {}) {
+  const hasLease = leaseToken !== null && leaseToken !== undefined && leaseToken !== '';
+  // Without a lease there is nothing to renew: a no-op SET keeps updated_at (Inbox ordering) untouched.
+  const setClause = hasLease
+    ? Prisma.sql`"metadata" = "metadata" || jsonb_build_object('reply_lease_until', now() + (${ttl(ttlMs)}::int * interval '1 millisecond')),
+    "updated_at" = now()`
+    : Prisma.sql`"metadata" = "metadata"`;
+  const leaseClause = hasLease
+    ? Prisma.sql`
+  AND "metadata" ->> 'lease_token' = ${String(leaseToken)}::text
+  AND ("metadata" ->> 'reply_lease_until')::timestamptz > now()`
+    : Prisma.empty;
+  const humanClause = humanGuard
+    ? Prisma.sql`
+  AND "status" <> 'human_takeover' AND "ai_enabled" = true
+  AND (("metadata" ->> 'human_active_until') IS NULL OR ("metadata" ->> 'human_active_until')::timestamptz <= now())`
+    : Prisma.empty;
+  const since = optedOutSince ? new Date(optedOutSince) : null;
+  const optOutClause = since && !Number.isNaN(since.getTime())
+    ? Prisma.sql`
+  AND (("workflow_data" ->> 'marketing_opted_out_at') IS NULL OR ("workflow_data" ->> 'marketing_opted_out_at')::timestamptz <= ${since.toISOString()}::timestamptz)`
+    : Prisma.empty;
+  const claims = (Array.isArray(claim) ? claim : claim ? [claim] : []).map((c) => {
+    const C = ident(c && c.column, COLUMNS);
+    checkPath(c.path);
+    return Prisma.sql`
+  AND (${C} #>> ${c.path}::text[]) = ${String(c.value)}::text`;
+  });
+  const claimClause = claims.length ? Prisma.join(claims, '') : Prisma.empty;
+
+  const count = await prisma.$executeRaw(Prisma.sql`UPDATE "conversations"
+SET ${setClause}
+WHERE "id" = ${conversationId}${leaseClause}${humanClause}${optOutClause}${claimClause}`);
+  return count === 1;
+}
+
+/**
+ * D27 / GPT-6 #13 (bot side): a result's status, current_state and workflow_data in ONE statement,
+ * never over a staff claim (`human_takeover` → no row, the caller does not send).
+ * `needsTeam` is merged against the entry stored at write time with results.mergeNeedsTeam's rule
+ * (replace when missing, resolved, claimed or of strictly lower priority), not against the copy read
+ * before the model call. Two statements (status, then needs_team) let staff resolve the old request in
+ * between: the resolve moved pending → open and the bot's new request then sat unresolved on an open
+ * conversation, invisible to the needs-team filter and the SLA sweep. A candidate the stale copy
+ * rejected is recorded when staff resolved that copy meanwhile, instead of being lost.
+ * `currentState` undefined leaves current_state alone. `patch` must not carry needs_team.
+ * Returns {ok, needsTeam: {reason, at} | null} (needsTeam = the entry stored after the write).
+ */
+async function writeConversationState(conversationId, {
+  status, currentState, patch = {}, needsTeam = null, priorities = {}, defaultPriority = 1,
+} = {}) {
+  if (typeof status !== 'string' || !status) throw new Error('jsonb: writeConversationState needs a status');
+  const json = JSON.stringify(patch || {});
+  const entry = needsTeam && typeof needsTeam === 'object' ? JSON.stringify(needsTeam) : null;
+  const prio = (reason) => (Object.prototype.hasOwnProperty.call(priorities, reason) ? priorities[reason] : defaultPriority);
+  const entryPriority = entry ? prio(needsTeam.reason) : 0;
+  const stateClause = currentState === undefined
+    ? Prisma.empty
+    : Prisma.sql`
+    "current_state" = ${currentState === null ? null : String(currentState)}::text,`;
+
+  const rows = await prisma.$queryRaw(Prisma.sql`UPDATE "conversations"
+SET "workflow_data" = CASE
+      WHEN ${entry}::jsonb IS NOT NULL AND (
+           jsonb_typeof("workflow_data" -> 'needs_team') IS DISTINCT FROM 'object'
+        OR ("workflow_data" #>> '{needs_team,resolved_at}') IS NOT NULL
+        OR ("workflow_data" #>> '{needs_team,claimed_at}') IS NOT NULL
+        OR COALESCE((${JSON.stringify(priorities)}::jsonb ->> ("workflow_data" #>> '{needs_team,reason}'))::int, ${defaultPriority}::int) < ${entryPriority}::int)
+      THEN COALESCE("workflow_data", '{}'::jsonb) || ${json}::jsonb || jsonb_build_object('needs_team', ${entry}::jsonb)
+      ELSE COALESCE("workflow_data", '{}'::jsonb) || ${json}::jsonb
+    END,${stateClause}
+    "status" = ${status}::text,
+    "updated_at" = now()
+WHERE "id" = ${conversationId} AND "status" <> 'human_takeover'
+RETURNING ("workflow_data" #>> '{needs_team,reason}') AS needs_team_reason, ("workflow_data" #>> '{needs_team,at}') AS needs_team_at`);
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if (!row) return { ok: false, needsTeam: null };
+  return { ok: true, needsTeam: row.needs_team_at || row.needs_team_reason ? { reason: row.needs_team_reason, at: row.needs_team_at } : null };
+}
+
+/**
+ * D25 / GPT-6 #9: the burst's quiet deadline lives in the DB, so every instance debounces the same
+ * burst. Each inbound pushes `batch_due_at` to now() + quiet window, never past `batch_first_at` + cap;
+ * a deadline already in the past means the previous burst is over and this fragment starts a new one.
+ * Returns {dueAt, delayMs} with the delay measured on DB time (instance clocks may be skewed), or null
+ * when the conversation does not exist.
+ */
+async function touchBatchDue(conversationId, quietMs, capMs) {
+  const quiet = Math.max(0, Math.round(Number(quietMs)) || 0);
+  const cap = Math.max(0, Math.round(Number(capMs)) || 0);
+  const fresh = Prisma.sql`("metadata" ->> 'batch_due_at') IS NULL OR ("metadata" ->> 'batch_first_at') IS NULL
+       OR ("metadata" ->> 'batch_due_at')::timestamptz < now()`;
+  const firstAt = Prisma.sql`CASE WHEN ${fresh} THEN now() ELSE ("metadata" ->> 'batch_first_at')::timestamptz END`;
+
+  const rows = await prisma.$queryRaw(Prisma.sql`UPDATE "conversations"
+SET "metadata" = COALESCE("metadata", '{}'::jsonb) || jsonb_build_object(
+      'batch_first_at', ${firstAt},
+      'batch_due_at', LEAST(now() + (${quiet}::int * interval '1 millisecond'), ${firstAt} + (${cap}::int * interval '1 millisecond'))),
+    "updated_at" = now()
+WHERE "id" = ${conversationId}
+RETURNING ("metadata" ->> 'batch_due_at') AS due_at,
+  GREATEST(0, (EXTRACT(EPOCH FROM (("metadata" ->> 'batch_due_at')::timestamptz - now())) * 1000))::int AS delay_ms`);
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if (!row) return null;
+  return { dueAt: new Date(row.due_at), delayMs: Number(row.delay_ms) || 0 };
+}
+
+/**
+ * D27 / GPT-6 #13: staff «تم التواصل». Stamps needs_team.resolved_at AND moves a pending conversation to
+ * open in ONE statement, only while the stored request is still the one staff resolved (`match`, e.g.
+ * {reason, at}) and unresolved. Two statements would let the bot record a newer request (and set
+ * pending) in between, and the second write would then hide that request as open.
+ * Returns true when the row was updated.
+ */
+async function resolveNeedsTeam(conversationId, { match, resolvedAt }) {
+  if (!match || typeof match !== 'object' || !Object.keys(match).length) throw new Error('jsonb: resolveNeedsTeam needs a match');
+  const count = await prisma.$executeRaw(Prisma.sql`UPDATE "conversations"
+SET "workflow_data" = jsonb_set("workflow_data", ARRAY['needs_team'], ("workflow_data" -> 'needs_team') || jsonb_build_object('resolved_at', ${String(resolvedAt)}::text), false),
+    "status" = CASE WHEN "status" = 'pending' THEN 'open' ELSE "status" END,
+    "updated_at" = now()
+WHERE "id" = ${conversationId}
+  AND jsonb_typeof("workflow_data" -> 'needs_team') = 'object'
+  AND ("workflow_data" -> 'needs_team') @> ${JSON.stringify(match)}::jsonb
+  AND ("workflow_data" #>> '{needs_team,resolved_at}') IS NULL`);
   return count === 1;
 }
 
@@ -182,5 +329,9 @@ module.exports = {
   acquireLease,
   renewLease,
   releaseLease,
+  preSendCheck,
+  touchBatchDue,
+  resolveNeedsTeam,
+  writeConversationState,
   LEASE_TTL_MS,
 };

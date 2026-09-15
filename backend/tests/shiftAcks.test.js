@@ -52,6 +52,17 @@ describe('after-hours opening words', () => {
   });
 });
 
+describe('captureRelayed (D26)', () => {
+  test('says the new time was passed to the team, never that it was noted', () => {
+    const ar = acks.captureRelayed({ when: 'الخميس الساعة 5', lang: 'ar' });
+    expect(ar).toContain('الخميس الساعة 5');
+    expect(ar).toContain('للفريق');
+    expect(ar).not.toContain('سجّلت');
+    expect(acks.captureRelayed({ when: 'Thursday 5 pm', lang: 'en' })).toMatch(/passed .*to the team/i);
+    expect(acks.captureRelayed({ lang: 'ar' })).not.toContain('undefined');
+  });
+});
+
 describe('captureAck', () => {
   test('all segments', () => {
     expect(acks.captureAck({ name: 'محمد', businessName: 'كافيه زيتون', when: 'بكرا بين 10 و12 (الثلاثاء 15/9)', lang: 'ar' })).toBe(
@@ -95,6 +106,7 @@ describe('English outputs contain no Arabic script', () => {
       acks.flagAck('quote', { teamHours: TH, lang: 'en' }),
       acks.flagAck('demo', { teamHours: TH, lang: 'en' }),
       acks.captureAck({ when: 'tomorrow', lang: 'en' }),
+      acks.captureRelayed({ when: 'Thursday 5 pm', lang: 'en' }),
       acks.captureAsk({ lang: 'en', sector: 'clinic' }),
       acks.captureAsk({ nameKnown: true, lang: 'en' }),
       acks.captureAsk({ businessKnown: true, lang: 'en' }),

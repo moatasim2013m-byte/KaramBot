@@ -25,6 +25,7 @@ const axios = require('axios');
 const db = require('./helpers/fakeDb').getFakeDb();
 const app = require('../src/app');
 const batcher = require('../src/services/replyBatcher');
+const { reprocessStuckInbound } = require('../src/services/messageProcessor');
 const { processRestaurantMessage } = require('../src/workflows/restaurant');
 const { encrypt } = require('../src/utils/tokenCrypto');
 
@@ -169,15 +170,17 @@ describe('a slow persist answered 500, then Meta retries', () => {
   });
 });
 
-describe('a persist that saved the message but failed on the counters', () => {
-  test('external-mode tenant: the retry forwards it once and counts it once', async () => {
+// D24 / GPT-6 #1: the row and the counters are one transaction, so a counter failure leaves nothing behind
+// (the fakeDb's interactive $transaction rolls back like Postgres).
+describe('a persist whose counter update failed', () => {
+  test('external-mode tenant: nothing is kept, and the retry saves, forwards and counts it once', async () => {
     seedBusiness({ name: 'My Restaurant', business_type: 'restaurant', wa_phone_number_id: 'pnid_ext', ai_config: { reply_mode: 'external', forward_url: FORWARD_URL } });
     db.failNext('conversation.update', Object.assign(new Error('transient'), { code: 'P1001' }));
     const body = payload('pnid_ext', 'wamid.half1');
 
     expect((await post(body)).status).toBe(500);
     await wait(50);
-    expect(inbound()).toHaveLength(1);
+    expect(inbound()).toHaveLength(0);
     expect(forwards()).toHaveLength(0);
 
     expect((await post(body)).status).toBe(200);
@@ -206,23 +209,30 @@ function slowFirstCounters(ms = 300) {
   });
 }
 
-describe('a persist that stopped before claiming the message', () => {
-  test('external-mode tenant: the retry claims it and forwards it once', async () => {
+// D24: a commit whose outcome is unknown (the connection dropped during COMMIT) answers 500, and Meta's
+// retry finds a stored duplicate. The row is `processing`, so the sweep's reprocessStuckInbound forwards it.
+describe('a persist that committed but did not hear back', () => {
+  test('external-mode tenant: nobody forwards it at once; reprocessStuckInbound forwards it once after 2 min', async () => {
     seedBusiness({ name: 'Ext', business_type: 'restaurant', wa_phone_number_id: 'pnid_ext', ai_config: { reply_mode: 'external', forward_url: FORWARD_URL } });
-    // The claim statement itself fails: the row is saved but still `persisting`.
-    db.failNext('message.updateMany', Object.assign(new Error('transient'), { code: 'P1001' }));
-    const body = payload('pnid_ext', 'wamid.claim1');
+    const real = db.prisma.$transaction;
+    jest.spyOn(db.prisma, '$transaction').mockImplementationOnce(async (fn, options) => {
+      await real.call(db.prisma, fn, options);
+      throw Object.assign(new Error('Connection terminated during COMMIT'), { code: 'P1017' });
+    });
+    const body = payload('pnid_ext', 'wamid.commit1');
 
     expect((await post(body)).status).toBe(500);
-    await wait(50);
-    expect(inbound().map((m) => m.status)).toEqual(['persisting']);
-    expect(forwards()).toHaveLength(0);
-
     expect((await post(body)).status).toBe(200);
     await wait(50);
-    expect(inbound().map((m) => m.status)).toEqual(['delivered']);
-    expect(forwards()).toHaveLength(1);
+    expect(inbound().map((m) => m.status)).toEqual(['processing']);
+    expect(forwards()).toHaveLength(0);
     expect(db.store.conversations[0].unread_count).toBe(1);
+
+    const report = await reprocessStuckInbound({ now: new Date(Date.now() + 3 * 60 * 1000) });
+    expect(report.reprocessed).toBe(1);
+    expect(forwards()).toHaveLength(1);
+    expect(forwards()[0][1].messages).toEqual(body.entry[0].changes[0].value.messages);
+    expect(inbound().map((m) => m.status)).toEqual(['delivered']);
   });
 });
 

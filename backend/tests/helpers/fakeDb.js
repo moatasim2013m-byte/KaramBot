@@ -412,12 +412,69 @@ function createFakeDb() {
     };
   }
 
+  /**
+   * Interactive transaction client. Postgres rolls a failed transaction back and D24 (persistInbound)
+   * relies on it, so every write made through `tx` is journalled and undone if the callback throws.
+   * No isolation: other code sees the writes before the commit (enough for the single-writer tests).
+   * Methods are looked up on `prisma` at call time, so jest spies and failNext still apply inside a tx.
+   */
+  function txClient(journal) {
+    const tx = {};
+    for (const name of Object.keys(MODELS)) {
+      const storeKey = MODELS[name];
+      const snapshotWhere = (where) => store[storeKey].filter((r) => matches(r, where)).map((r) => ({ id: r.id, before: clone(r) }));
+      tx[name] = {
+        findUnique: (a) => prisma[name].findUnique(a),
+        findFirst: (a) => prisma[name].findFirst(a),
+        findMany: (a) => prisma[name].findMany(a),
+        count: (a) => prisma[name].count(a),
+        async create(a) {
+          const created = await prisma[name].create(a);
+          journal.push(() => {
+            const i = store[storeKey].findIndex((r) => r.id === created.id);
+            if (i >= 0) store[storeKey].splice(i, 1);
+          });
+          return created;
+        },
+        async update(a) {
+          const before = snapshotWhere(a && a.where).slice(0, 1);
+          const out = await prisma[name].update(a);
+          journal.push(() => restoreRows(storeKey, before));
+          return out;
+        },
+        async updateMany(a) {
+          const before = snapshotWhere(a && a.where);
+          const out = await prisma[name].updateMany(a);
+          journal.push(() => restoreRows(storeKey, before));
+          return out;
+        },
+      };
+    }
+    return tx;
+  }
+
+  function restoreRows(storeKey, snapshots) {
+    for (const { id, before } of snapshots) {
+      const row = store[storeKey].find((r) => r.id === id);
+      if (!row) continue;
+      for (const k of Object.keys(row)) delete row[k];
+      Object.assign(row, clone(before));
+    }
+  }
+
   const prisma = {
     $transaction(arg) {
       checkFailure('$transaction');
       if (Array.isArray(arg)) return Promise.all(arg);
-      // Interactive form (legacy restaurant path only): no isolation, the fake client is the tx.
-      if (typeof arg === 'function') return Promise.resolve().then(() => arg(prisma));
+      if (typeof arg === 'function') {
+        const journal = [];
+        return Promise.resolve()
+          .then(() => arg(txClient(journal)))
+          .catch((err) => {
+            for (const undo of journal.reverse()) undo();
+            throw err;
+          });
+      }
       throw new Error('fakeDb: $transaction expects an array or a function');
     },
     $executeRaw() { throw new Error(RAW_SQL_ERROR); },
@@ -584,11 +641,115 @@ function createFakeDb() {
       checkFailure('jsonb.renewLease');
       const row = conversationRow(conversationId);
       if (!row || !isPlainObject(row.metadata) || row.metadata.lease_token !== String(token)) return false;
+      // D20: an expired lease is never renewed, even before someone else takes it.
+      const until = row.metadata.reply_lease_until ? new Date(row.metadata.reply_lease_until).getTime() : NaN;
+      if (!(until > clock.now().getTime())) return false;
       writeColumn(row, 'metadata', {
         ...clone(row.metadata),
         reply_lease_until: new Date(clock.now().getTime() + ttl(ttlMs)).toISOString(),
       });
       return true;
+    },
+
+    async preSendCheck(conversationId, { leaseToken = null, ttlMs = LEASE_TTL_MS, humanGuard = true, optedOutSince = null, claim = null } = {}) {
+      checkFailure('jsonb.preSendCheck');
+      const claims = Array.isArray(claim) ? claim : claim ? [claim] : [];
+      for (const c of claims) {
+        ident(c && c.column, COLUMNS);
+        checkPath(c.path);
+      }
+      const row = conversationRow(conversationId);
+      if (!row) return false;
+      // `#>> path = value::text`: a missing path is NULL and never equal.
+      for (const c of claims) {
+        let v = row[c.column];
+        for (const k of c.path) v = isPlainObject(v) ? v[k] : undefined;
+        if (textOf(v) === null || textOf(v) !== String(c.value)) return false;
+      }
+      const meta = isPlainObject(row.metadata) ? row.metadata : {};
+      const wd = isPlainObject(row.workflow_data) ? row.workflow_data : {};
+      const now = clock.now().getTime();
+      const hasLease = leaseToken !== null && leaseToken !== undefined && leaseToken !== '';
+      if (hasLease) {
+        const until = meta.reply_lease_until ? new Date(meta.reply_lease_until).getTime() : NaN;
+        if (meta.lease_token !== String(leaseToken) || !(until > now)) return false;
+      }
+      if (humanGuard) {
+        if (row.status === 'human_takeover' || row.ai_enabled !== true) return false;
+        if (meta.human_active_until && new Date(meta.human_active_until).getTime() > now) return false;
+      }
+      const since = optedOutSince ? new Date(optedOutSince).getTime() : NaN;
+      if (Number.isFinite(since) && wd.marketing_opted_out_at && new Date(wd.marketing_opted_out_at).getTime() > since) {
+        return false;
+      }
+      if (hasLease) {
+        writeColumn(row, 'metadata', { ...clone(meta), reply_lease_until: new Date(now + ttl(ttlMs)).toISOString() });
+      }
+      return true;
+    },
+
+    async touchBatchDue(conversationId, quietMs, capMs) {
+      checkFailure('jsonb.touchBatchDue');
+      const row = conversationRow(conversationId);
+      if (!row) return null;
+      const meta = isPlainObject(row.metadata) ? row.metadata : {};
+      const now = clock.now().getTime();
+      const quiet = Math.max(0, Math.round(Number(quietMs)) || 0);
+      const cap = Math.max(0, Math.round(Number(capMs)) || 0);
+      const prevDue = meta.batch_due_at ? new Date(meta.batch_due_at).getTime() : NaN;
+      const fresh = !meta.batch_due_at || !meta.batch_first_at || prevDue < now;
+      const firstAt = fresh ? now : new Date(meta.batch_first_at).getTime();
+      const due = Math.min(now + quiet, firstAt + cap);
+      writeColumn(row, 'metadata', {
+        ...clone(meta),
+        batch_first_at: new Date(firstAt).toISOString(),
+        batch_due_at: new Date(due).toISOString(),
+      });
+      return { dueAt: new Date(due), delayMs: Math.max(0, due - now) };
+    },
+
+    async resolveNeedsTeam(conversationId, { match, resolvedAt }) {
+      if (!isPlainObject(match) || !Object.keys(match).length) throw new Error('jsonb: resolveNeedsTeam needs a match');
+      checkFailure('jsonb.resolveNeedsTeam');
+      const row = conversationRow(conversationId);
+      const nt = row && isPlainObject(row.workflow_data) ? row.workflow_data.needs_team : null;
+      if (!isPlainObject(nt) || (nt.resolved_at !== null && nt.resolved_at !== undefined)) return false;
+      const wanted = JSON.parse(JSON.stringify(match));
+      if (!Object.entries(wanted).every(([k, v]) => Object.prototype.hasOwnProperty.call(nt, k)
+        && JSON.stringify(nt[k]) === JSON.stringify(v))) return false;
+      // One statement in SQL: both columns change together or neither does.
+      row.workflow_data = { ...clone(row.workflow_data), needs_team: { ...clone(nt), resolved_at: String(resolvedAt) } };
+      if (row.status === 'pending') row.status = 'open';
+      row.updated_at = clock.now();
+      return true;
+    },
+
+    async writeConversationState(conversationId, {
+      status, currentState, patch = {}, needsTeam = null, priorities = {}, defaultPriority = 1,
+    } = {}) {
+      if (typeof status !== 'string' || !status) throw new Error('jsonb: writeConversationState needs a status');
+      checkFailure('jsonb.writeConversationState');
+      const row = conversationRow(conversationId);
+      if (!row || row.status === 'human_takeover') return { ok: false, needsTeam: null };
+      const prio = (reason) => (typeof reason === 'string' && Object.prototype.hasOwnProperty.call(priorities, reason)
+        ? Number(priorities[reason]) : defaultPriority);
+      const wd = isPlainObject(row.workflow_data) ? clone(row.workflow_data) : {};
+      const stored = wd.needs_team;
+      Object.assign(wd, JSON.parse(JSON.stringify(patch || {})));
+      const entry = isPlainObject(needsTeam) ? JSON.parse(JSON.stringify(needsTeam)) : null;
+      // Same test as the SQL CASE: evaluated on the needs_team stored before this write.
+      const replace = entry && (!isPlainObject(stored)
+        || (stored.resolved_at !== null && stored.resolved_at !== undefined)
+        || (stored.claimed_at !== null && stored.claimed_at !== undefined)
+        || prio(stored.reason) < prio(entry.reason));
+      if (replace) wd.needs_team = entry;
+      // One statement in SQL: every column changes together or none does.
+      row.workflow_data = wd;
+      if (currentState !== undefined) row.current_state = currentState === null ? null : String(currentState);
+      row.status = status;
+      row.updated_at = clock.now();
+      const nt = isPlainObject(wd.needs_team) ? wd.needs_team : null;
+      return { ok: true, needsTeam: nt && (nt.at || nt.reason) ? { reason: textOf(nt.reason), at: textOf(nt.at) } : null };
     },
 
     async releaseLease(conversationId, token) {
@@ -630,11 +791,13 @@ function createFakeDb() {
   return { prisma, jsonb, store, seed, reset, clock, failNext };
 }
 
-let instance = null;
+// Kept on the test file's global, not in this module: jest.isolateModules (a second "instance" of the
+// service code in the same test) re-evaluates this helper, and both instances must share one database.
+const INSTANCE_KEY = Symbol.for('karambot.fakeDb');
 
 function getFakeDb() {
-  if (!instance) instance = createFakeDb();
-  return instance;
+  if (!global[INSTANCE_KEY]) global[INSTANCE_KEY] = createFakeDb();
+  return global[INSTANCE_KEY];
 }
 
 module.exports = { getFakeDb, createFakeDb };

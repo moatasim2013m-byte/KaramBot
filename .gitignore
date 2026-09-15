@@ -14,3 +14,6 @@ credentials.json
 
 # Allow the committed example env file (placeholders only — never real secrets)
 !backend/.env.example
+
+# Local Cloud SQL proxy binary (31 MB) — never commit
+backend/cloud-sql-proxy

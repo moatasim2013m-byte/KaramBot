@@ -69,6 +69,18 @@ describe('markAsRead', () => {
   });
 });
 
+describe('legacy senders on the webhook path (D24)', () => {
+  test('sendTextMessage and markAsRead time out well under the 2 min stuck-row re-run', async () => {
+    axios.post.mockResolvedValue({ status: 200, data: { messages: [{ id: 'wamid.l' }] } });
+    await wa.sendTextMessage('PNID', 'TOKEN', '962790000000', 'مرحبا');
+    await wa.markAsRead('PNID', 'TOKEN', 'wamid.in');
+    for (const [, , config] of axios.post.mock.calls) {
+      expect(config.timeout).toBeGreaterThan(0);
+      expect(config.timeout).toBeLessThanOrEqual(30000);
+    }
+  });
+});
+
 describe('assertInteractiveLimits', () => {
   const ok = [{ id: 'a', title: 'أ' }];
   const expectLimits = (fn) => {
@@ -160,10 +172,19 @@ describe('structured senders', () => {
     expect(result).toMatchObject({ ok: false, reason: 'ambiguous', retryable: false, httpStatus: null, code: null });
   });
 
-  test('7. HTTP 503 → server, retryable', async () => {
-    axios.post.mockRejectedValue(axiosError({ status: 503 }));
-    const result = await wa.sendText('PNID', 'TOKEN', '962790000000', 'مرحبا');
-    expect(result).toMatchObject({ ok: false, reason: 'server', retryable: true, httpStatus: 503 });
+  test('7. GPT-6 #4: a generic HTTP 5xx may hide an accepted message → ambiguous, never retried at once', async () => {
+    // An intermediary can answer 502/503 after Graph accepted the POST; a resend could reach the customer twice.
+    for (const status of [500, 502, 503, 504]) {
+      axios.post.mockReset().mockRejectedValue(axiosError({ status }));
+      const result = await wa.sendText('PNID', 'TOKEN', '962790000000', 'مرحبا');
+      expect(result).toMatchObject({ ok: false, reason: 'ambiguous', retryable: false, httpStatus: status });
+    }
+  });
+
+  test('GPT-6 #4: documented rejection codes stay proven rejections even on a 5xx; only pre-request errors retry', async () => {
+    expect(wa.classifySendError(axiosError({ status: 503, graph: { code: 130429 } }))).toMatchObject({ reason: 'rate_limit', retryable: false });
+    expect(wa.classifySendError(axiosError({ code: 'ECONNREFUSED' }))).toMatchObject({ reason: 'network', retryable: true });
+    expect(wa.classifySendError(axiosError({ status: 400, graph: { code: 100 } }))).toMatchObject({ reason: 'rejected', retryable: false });
   });
 
   test('classifySendError covers every row of the table', () => {
@@ -185,7 +206,7 @@ describe('structured senders', () => {
     for (const code of ['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN']) {
       expect(c(axiosError({ code }))).toMatchObject({ reason: 'network', retryable: true });
     }
-    expect(c(axiosError({ status: 500 }))).toMatchObject({ reason: 'server', retryable: true });
+    expect(c(axiosError({ status: 500 }))).toMatchObject({ reason: 'ambiguous', retryable: false });
     expect(c(axiosError({ status: 400, graph: { code: 100 } }))).toMatchObject({ reason: 'rejected', retryable: false, code: 100 });
     expect(c(new Error('weird'))).toMatchObject({ reason: 'rejected', code: null, httpStatus: null });
   });
@@ -224,6 +245,39 @@ describe('structured senders', () => {
     const result = await wa.sendInteractiveButtons('PNID', 'TOKEN', '962790000000', 'نص', [{ id: 'a', title: 'ا'.repeat(21) }]);
     expect(result).toMatchObject({ ok: false, id: null, reason: 'invalid_payload', retryable: false, code: null, httpStatus: null });
     expect(axios.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('biz_opaque_callback_data (D17)', () => {
+  beforeEach(() => {
+    axios.post.mockResolvedValue({ status: 200, data: { messages: [{ id: 'wamid.cb' }] } });
+  });
+
+  test('sendText and sendInteractiveButtons send the intent id as a top-level string field', async () => {
+    await wa.sendText('PNID', 'TOKEN', '962790000000', 'مرحبا', { callbackData: 'cintent01' });
+    expect(axios.post.mock.calls[0][1]).toMatchObject({ type: 'text', biz_opaque_callback_data: 'cintent01' });
+
+    await wa.sendInteractiveButtons('PNID', 'TOKEN', '962790000000', 'نص', [{ id: 'a', title: 'أ' }], { callbackData: 'cintent02' });
+    expect(axios.post.mock.calls[1][1]).toMatchObject({ type: 'interactive', biz_opaque_callback_data: 'cintent02' });
+  });
+
+  test('legacy senders accept it too; absent → the payload is unchanged', async () => {
+    await wa.sendTextMessage('PNID', 'TOKEN', '962790000000', 'مرحبا', { callbackData: 'c3' });
+    expect(axios.post.mock.calls[0][1].biz_opaque_callback_data).toBe('c3');
+    await wa.sendButtonMessage('PNID', 'TOKEN', '962790000000', 'نص', [{ title: 'نعم' }], { callbackData: 'c4' });
+    expect(axios.post.mock.calls[1][1].biz_opaque_callback_data).toBe('c4');
+    await wa.sendListMessage('PNID', 'TOKEN', '962790000000', 'نص', 'اختر', [], { callbackData: 'c5' });
+    expect(axios.post.mock.calls[2][1].biz_opaque_callback_data).toBe('c5');
+    await wa.sendTemplateMessage('PNID', 'TOKEN', '962790000000', 'hello', 'ar', [], { callbackData: 'c6' });
+    expect(axios.post.mock.calls[3][1].biz_opaque_callback_data).toBe('c6');
+
+    await wa.sendText('PNID', 'TOKEN', '962790000000', 'مرحبا');
+    expect(axios.post.mock.calls[4][1]).not.toHaveProperty('biz_opaque_callback_data');
+  });
+
+  test('a value over 512 characters is not sent (a cut id would correlate with nothing)', async () => {
+    await wa.sendText('PNID', 'TOKEN', '962790000000', 'مرحبا', { callbackData: 'x'.repeat(513) });
+    expect(axios.post.mock.calls[0][1]).not.toHaveProperty('biz_opaque_callback_data');
   });
 });
 

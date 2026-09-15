@@ -14,7 +14,10 @@ const app = require('../src/app');
 const { runSweep, getShiftStatus } = require('../src/services/shiftSweeper');
 
 const TOKEN = 'sweep-token-0123456789';
-const REPORT = { orphans: 1, sla_notes: 0, awaiting_notes: 0, window_flags: 0, ambiguous_alerts: 0, unanswered_alerts: 0, errors: [] };
+const REPORT = {
+  stuck_inbound: null, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
+  pause_requeued: 0, orphans: 1, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0, errors: [],
+};
 const STATUS = { business: { id: 'biz_shift', name: 'SHIFT' }, workflow_active: true };
 
 beforeEach(() => {

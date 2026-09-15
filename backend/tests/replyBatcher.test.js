@@ -549,7 +549,7 @@ describe('runBatch', () => {
     expect(botOutbound(conv)).toHaveLength(1);
   });
 
-  test('13. ambiguous send → row ambiguous, inbound answered, alert, no retry', async () => {
+  test('13. ambiguous send → row ambiguous, inbound unconfirmed (D18: not answered), no alert yet, no retry', async () => {
     whatsapp.sendText.mockImplementation(async () => failSend('ambiguous'));
     const { conv } = seedShift();
     const a = seedInbound(conv, 'مرحبا');
@@ -561,14 +561,15 @@ describe('runBatch', () => {
     expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
     expect(botOutbound(conv)[0].status).toBe('ambiguous');
     expect(botOutbound(conv)[0].meta_message_id).toBeNull();
-    expect(row(a.id).status).toBe('answered');
-    expect(alertReasons()).toEqual(['ambiguous_send']);
+    expect(row(a.id).status).toBe('unconfirmed');
+    // Staff hear of it only if it stays unconfirmed (reconcileUnconfirmedIntents escalates).
+    expect(alertReasons()).toEqual([]);
     expect(batcher.hasPendingTimer(conv.id)).toBe(false);
   });
 
-  test('14. retryable 5xx → exactly one immediate retry', async () => {
+  test('14. an error proving the request never left (retryable) → exactly one immediate retry', async () => {
     whatsapp.sendText
-      .mockImplementationOnce(async () => failSend('server', true))
+      .mockImplementationOnce(async () => failSend('network', true))
       .mockImplementationOnce(async () => okSend());
     const { conv } = seedShift();
     const a = seedInbound(conv, 'مرحبا');
@@ -753,7 +754,7 @@ describe('sends left at `sending` (crash or unrecorded result)', () => {
     }).messages[0];
   }
 
-  test('process killed mid-send → the next run flags the row ambiguous and alerts, never resends', async () => {
+  test('process killed mid-send → the next run flags the row ambiguous, never resends, never calls it answered', async () => {
     const { conv } = seedShift();
     const a = seedInbound(conv, 'مرحبا', { ageMs: 5 * 60 * 1000 });
     const stale = seedStaleSending(conv, [a.id]);
@@ -763,8 +764,9 @@ describe('sends left at `sending` (crash or unrecorded result)', () => {
 
     expect(r).toEqual({ outcome: 'recovered', sent: 0 });
     expect(row(stale.id).status).toBe('ambiguous');
-    expect(row(a.id).status).toBe('answered');
-    expect(alertReasons()).toEqual(['ambiguous_send']);
+    // GPT-6 #3: it may never have reached Graph; reconcileUnconfirmedIntents settles it after 2 min.
+    expect(row(a.id).status).toBe('unconfirmed');
+    expect(alertReasons()).toEqual([]);
     expect(whatsapp.sendText).not.toHaveBeenCalled();
     expect(shift.processShiftBatch).not.toHaveBeenCalled();
   });
@@ -788,7 +790,8 @@ describe('sends left at `sending` (crash or unrecorded result)', () => {
     await settle();
     expect(second).toEqual({ outcome: 'recovered', sent: 0 });
     expect(botOutbound(conv).map((m) => m.status)).toEqual(['ambiguous']);
-    expect(alertReasons()).toEqual(['ambiguous_send']);
+    expect(row(a.id).status).toBe('unconfirmed');
+    expect(alertReasons()).toEqual([]);
   });
 
   test('one DB blip on the status update is retried: the failure is recorded and the next run resends', async () => {
@@ -817,8 +820,11 @@ describe('sends left at `sending` (crash or unrecorded result)', () => {
     await settle();
     expect(plain.parts).toEqual([{ index: 0, status: 'deduped', reason: null, id: null }]);
     expect(row(stale.id).status).toBe('sending');
+    // Deduplicated against an unconfirmed intent: waiting for its confirmation, not answered.
+    expect(row(a.id).status).toBe('unconfirmed');
     expect(alertReasons()).toEqual([]);
 
+    row(a.id).status = 'received';
     await db.jsonb.acquireLease(conv.id, 'tok_1');
     const leased = await batcher.deliverResult({
       business: biz, conversation: convRow(conv.id), result: textResult(), batch: [row(a.id)], leaseToken: 'tok_1',
@@ -826,7 +832,7 @@ describe('sends left at `sending` (crash or unrecorded result)', () => {
     await settle();
     expect(leased.outcome).toBe('deduped');
     expect(row(stale.id).status).toBe('ambiguous');
-    expect(alertReasons()).toEqual(['ambiguous_send']);
+    expect(alertReasons()).toEqual([]);
     expect(whatsapp.sendText).not.toHaveBeenCalled();
   });
 });
@@ -1026,6 +1032,731 @@ describe('writes made while the model generates', () => {
   });
 });
 
+// ─── GPT-6 external review (decisions D17–D26) ───────────────────────────────
+
+describe('GPT-6 #2: lease and human-state fencing right before Graph (D20)', () => {
+  // Runs `mutate` right after the batcher's workflow_data write, i.e. after every earlier check.
+  function afterStateWrite(mutate) {
+    const real = db.jsonb.patchJson;
+    jest.spyOn(db.jsonb, 'patchJson').mockImplementation(async (...args) => {
+      const r = await real(...args);
+      if (args[2] === 'workflow_data') mutate();
+      return r;
+    });
+  }
+
+  test('a staff claim committed after the state writes → no Graph call, rows awaiting_staff, intent cancelled', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'بدي عرض سعر');
+    afterStateWrite(() => Object.assign(convRow(conv.id), { status: 'human_takeover', ai_enabled: false }));
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r).toEqual({ outcome: 'awaiting_staff', sent: 0 });
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(row(a.id).status).toBe('awaiting_staff');
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['cancelled']);
+  });
+
+  test('a staff pause (human_active_until) written after the state writes → no Graph call', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    afterStateWrite(() => {
+      convRow(conv.id).metadata = { ...convRow(conv.id).metadata, human_active_until: new Date(Date.now() + 30 * 60000).toISOString() };
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('awaiting_staff');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(row(a.id).status).toBe('awaiting_staff');
+  });
+
+  test('another worker took the lease during the state writes → no Graph call, rows left `received` for it', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    afterStateWrite(() => {
+      convRow(conv.id).metadata = { ...convRow(conv.id).metadata, lease_token: 'other', reply_lease_until: new Date(Date.now() + 60000).toISOString() };
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('lease_lost');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(row(a.id).status).toBe('received');
+    expect(convRow(conv.id).metadata.lease_token).toBe('other');
+  });
+
+  test('a failed renewal while the model retries ends the run before any write or send', async () => {
+    const { conv } = seedShift();
+    seedInbound(conv, 'مرحبا');
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, opts) => {
+      convRow(conv.id).metadata = { ...convRow(conv.id).metadata, reply_lease_until: new Date(Date.now() - 1000).toISOString() };
+      await opts.onRetry();
+      return textResult('رد', { stateUpdate: { current_state: 'fit' } });
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('lease_lost');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(convRow(conv.id).current_state).toBeNull();
+  });
+});
+
+describe('GPT-6 #3/#4: an unconfirmed send never counts as an answer (D17/D18)', () => {
+  const MIN = 60 * 1000;
+  const later = (ms) => new Date(Date.now() + ms);
+
+  test('the intent row id is sent as biz_opaque_callback_data', async () => {
+    const { conv } = seedShift();
+    seedInbound(conv, 'مرحبا');
+    await batcher.runBatch(conv.id);
+    const [intent] = botOutbound(conv);
+    expect(whatsapp.sendText.mock.calls[0][4]).toEqual({ callbackData: intent.id });
+  });
+
+  test('#4: an ambiguous 5xx is not retried; #3: its rows are `unconfirmed`, not answered', async () => {
+    whatsapp.sendText.mockImplementation(async () => ({ ...failSend('ambiguous'), httpStatus: 502 }));
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r.outcome).toBe('ambiguous');
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    expect(botOutbound(conv)[0]).toMatchObject({ status: 'ambiguous', meta_message_id: null });
+    expect(row(a.id).status).toBe('unconfirmed');
+    expect(batcher.hasPendingTimer(conv.id)).toBe(false);
+  });
+
+  test('#3: a `sending` intent left by a run that died before Graph → rows unconfirmed, never answered nor resent', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 60 * 1000 });
+    const [dead] = db.seed({
+      messages: [{
+        business_id: conv.business_id, conversation_id: conv.id, direction: 'outbound', status: 'sending',
+        text_body: 'أهلًا', is_ai_generated: true, created_at: new Date(Date.now() - 30000),
+        raw_payload: { kind: 'reply', batch_key: `${a.id}:0`, part_index: 0, batch_ids: [a.id], buttons: null },
+      }],
+    }).messages;
+
+    expect(await batcher.runBatch(conv.id)).toEqual({ outcome: 'recovered', sent: 0 });
+    expect(row(a.id).status).toBe('unconfirmed');
+    expect(row(dead.id).status).toBe('ambiguous');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+  });
+
+  test('reconcile after 2 min: the rows go back to `received` once and a new send answers them', async () => {
+    whatsapp.sendText.mockReset()
+      .mockImplementationOnce(async () => failSend('ambiguous'))
+      .mockImplementation(async () => okSend());
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    await batcher.runBatch(conv.id);
+
+    expect(await batcher.reconcileUnconfirmedIntents({ now: later(1 * MIN) })).toMatchObject({ requeued: 0, escalated: 0 });
+    expect(row(a.id).status).toBe('unconfirmed');
+
+    expect(await batcher.reconcileUnconfirmedIntents({ now: later(3 * MIN) })).toMatchObject({ requeued: 1, escalated: 0 });
+    batcher.cancelAll();
+    expect(row(a.id).status).toBe('received');
+    expect(botOutbound(conv)[0].status).toBe('ambiguous_unreconciled');
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+    expect(row(a.id).status).toBe('answered');
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+    expect(botOutbound(conv).map((m) => m.raw_payload.batch_key)).toEqual([`${a.id}:0`, `${a.id}:0`]);
+  });
+
+  test('a second unconfirmed send for the same batch key → awaiting_staff, needs_team unsent_reply, pending, alert', async () => {
+    whatsapp.sendText.mockImplementation(async () => failSend('ambiguous'));
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+
+    await batcher.runBatch(conv.id);
+    await batcher.reconcileUnconfirmedIntents({ now: later(3 * MIN) });
+    batcher.cancelAll();
+    await batcher.runBatch(conv.id);
+    expect(row(a.id).status).toBe('unconfirmed');
+
+    const report = await batcher.reconcileUnconfirmedIntents({ now: later(6 * MIN) });
+    await settle();
+
+    expect(report).toMatchObject({ requeued: 0, escalated: 1 });
+    expect(row(a.id).status).toBe('awaiting_staff');
+    const c = convRow(conv.id);
+    expect(c.status).toBe('pending');
+    expect(c.workflow_data.needs_team).toMatchObject({ reason: 'unsent_reply', resolved_at: null });
+    expect(alertReasons()).toEqual(['unsent_reply']);
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+    // A later sweep does not escalate or requeue it again.
+    expect(await batcher.reconcileUnconfirmedIntents({ now: later(9 * MIN) })).toMatchObject({ requeued: 0, escalated: 0 });
+  });
+
+  test('a requeued intent confirmed late still used the batch key\'s budget', async () => {
+    whatsapp.sendText.mockImplementation(async () => failSend('ambiguous'));
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    await batcher.runBatch(conv.id);
+    await batcher.reconcileUnconfirmedIntents({ now: later(3 * MIN) });
+    batcher.cancelAll();
+    await batcher.runBatch(conv.id);
+    const [first] = botOutbound(conv);
+    // The first send's `delivered` arrives only now; the rows it covers are answered by it.
+    await batcher.applyIntentStatus({ intentId: first.id, wamid: 'wamid.late1', status: 'delivered' });
+    row(a.id).status = 'unconfirmed';
+
+    expect(await batcher.reconcileUnconfirmedIntents({ now: later(6 * MIN) })).toMatchObject({ requeued: 0, escalated: 1 });
+  });
+
+  describe('rows stranded `unconfirmed` by a crash mid-settlement', () => {
+    function seedStranded(conv, intentFields, payload = {}) {
+      const a = seedInbound(conv, 'مرحبا', { ageMs: 10 * MIN, status: 'unconfirmed', updated_at: new Date(Date.now() - 6 * MIN) });
+      const [intent] = db.seed({
+        messages: [{
+          business_id: conv.business_id, conversation_id: conv.id, direction: 'outbound', text_body: 'أهلًا',
+          is_ai_generated: true, created_at: new Date(Date.now() - 9 * MIN), meta_message_id: 'wamid.s1',
+          raw_payload: { kind: 'reply', batch_key: `${a.id}:0`, part_index: 0, batch_ids: [a.id], inbound_status: 'answered', ...payload },
+          ...intentFields,
+        }],
+      }).messages;
+      return { a, intent };
+    }
+
+    test('D19 crash: rows moved for a failed send, its intent still `sent` → requeued once, intent failed', async () => {
+      const { conv } = seedShift();
+      const { a, intent } = seedStranded(conv, { status: 'sent' });
+
+      expect(await batcher.reconcileUnconfirmedIntents({ now: new Date() })).toMatchObject({ requeued: 1, escalated: 0 });
+      batcher.cancelAll();
+      expect(row(a.id).status).toBe('received');
+      expect(row(intent.id)).toMatchObject({ status: 'failed', raw_payload: expect.objectContaining({ settled: 'requeued' }) });
+      // The requeued run is not deduplicated against the failed intent: the customer gets a reply.
+      expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+      expect(row(a.id).status).toBe('answered');
+    });
+
+    test('settleUndelivered crashed after its escalate claim → rows handed to staff with unsent_reply', async () => {
+      const { conv } = seedShift();
+      const { a } = seedStranded(conv, { status: 'ambiguous_unreconciled', meta_message_id: null }, { settled: 'escalated' });
+
+      expect(await batcher.reconcileUnconfirmedIntents({ now: new Date() })).toMatchObject({ requeued: 0, escalated: 1 });
+      await settle();
+      expect(row(a.id).status).toBe('awaiting_staff');
+      expect(convRow(conv.id).workflow_data.needs_team).toMatchObject({ reason: 'unsent_reply' });
+      expect(alertReasons()).toEqual(['unsent_reply']);
+      expect(await batcher.reconcileUnconfirmedIntents({ now: new Date() })).toMatchObject({ requeued: 0, escalated: 0 });
+    });
+
+    test('rows touched less than 5 min ago, or still covered by an unconfirmed send, are left alone', async () => {
+      const { conv } = seedShift();
+      const { a } = seedStranded(conv, { status: 'sent' });
+      row(a.id).updated_at = new Date(Date.now() - 2 * MIN);
+      expect(await batcher.reconcileUnconfirmedIntents({ now: new Date() })).toMatchObject({ requeued: 0, escalated: 0 });
+      expect(row(a.id).status).toBe('unconfirmed');
+    });
+  });
+
+  test('dispatchIntent: dedupe, callback data, and a retry that the pre-send check refuses', async () => {
+    const { biz, conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    whatsapp.sendText.mockReset().mockImplementationOnce(async () => {
+      // The request never left (retryable), and staff claim before the retry.
+      Object.assign(convRow(conv.id), { status: 'human_takeover', ai_enabled: false });
+      return failSend('network', true);
+    });
+
+    const r = await batcher.dispatchIntent({
+      business: biz, conversation: convRow(conv.id), kind: 'button', parts: [{ type: 'text', text: 'تمام' }],
+      batchIds: [a.id], batchKey: a.id, precheck: { humanGuard: true },
+    });
+
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    expect(r.outcome).toBe('failed');
+    expect(r.parts[0]).toMatchObject({ status: 'failed', reason: 'network' });
+    expect(row(r.parts[0].intentId)).toMatchObject({ status: 'failed', raw_payload: expect.objectContaining({ kind: 'button', batch_key: `${a.id}:0` }) });
+    expect(row(a.id).status).toBe('received');
+
+    // A confirmed intent for the same key is never sent twice; the rows take its outcome.
+    Object.assign(convRow(conv.id), { status: 'open', ai_enabled: true });
+    whatsapp.sendText.mockImplementation(async () => okSend());
+    const sent = await batcher.dispatchIntent({
+      business: biz, conversation: convRow(conv.id), kind: 'button', parts: [{ type: 'text', text: 'تمام' }],
+      batchIds: [a.id], batchKey: a.id, since: a.created_at,
+    });
+    expect(sent.outcome).toBe('sent');
+    expect(whatsapp.sendText.mock.calls[1][4]).toEqual({ callbackData: sent.parts[0].intentId });
+    const again = await batcher.dispatchIntent({
+      business: biz, conversation: convRow(conv.id), kind: 'button', parts: [{ type: 'text', text: 'تمام' }],
+      batchIds: [a.id], batchKey: a.id, since: a.created_at,
+    });
+    expect(again.outcome).toBe('deduped');
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('an echoed sent/delivered status for the intent id confirms it: wamid stored, rows answered', async () => {
+    whatsapp.sendText.mockImplementation(async () => failSend('ambiguous'));
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    await batcher.runBatch(conv.id);
+    const [intent] = botOutbound(conv);
+
+    expect(await batcher.applyIntentStatus({ intentId: intent.id, wamid: 'wamid.echo', status: 'delivered' })).toMatchObject({ matched: true });
+    expect(row(intent.id)).toMatchObject({ status: 'delivered', meta_message_id: 'wamid.echo' });
+    expect(row(a.id).status).toBe('answered');
+    // A late `sent` never moves a delivered row back.
+    await batcher.applyIntentStatus({ intentId: intent.id, wamid: 'wamid.echo', status: 'sent' });
+    expect(row(intent.id).status).toBe('delivered');
+    expect(await batcher.applyIntentStatus({ intentId: 'nope', wamid: 'wamid.x', status: 'sent' })).toMatchObject({ matched: false });
+  });
+});
+
+describe('GPT-6 #5: opt-out, reactions and taps from durable `received` rows (D23)', () => {
+  test('a STOP row still `received` (the instance died first) → deterministic opt-out, fixed ack, no AI', async () => {
+    const { conv } = seedShift();
+    const hello = seedInbound(conv, 'مرحبا', { ageMs: 8000 });
+    const stop = seedInbound(conv, 'إيقاف');
+    let atSend = null;
+    whatsapp.sendText.mockImplementation(async () => {
+      atSend = {
+        optedOut: convRow(conv.id).workflow_data.marketing_opted_out_at,
+        stopStatus: row(stop.id).status,
+        intents: botOutbound(conv).map((m) => [m.status, m.raw_payload.kind]),
+      };
+      return okSend();
+    });
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r.sent).toBe(1);
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+    expect(whatsapp.sendText.mock.calls[0][3]).toBe('تمام، أوقفت المتابعة. إذا احتجتنا إحنا هون.');
+    // State and the ack's intent are persisted while the command row is still `received`.
+    expect(atSend).toEqual({ optedOut: expect.any(String), stopStatus: 'received', intents: [['sending', 'optout']] });
+    expect([row(hello.id).status, row(stop.id).status]).toEqual(['skipped', 'skipped']);
+    expect(convRow(conv.id).current_state).toBe('closed');
+  });
+
+  test('the opt-out state write fails → nothing sent, rows stay `received`; the next run completes it', async () => {
+    const { conv } = seedShift();
+    const stop = seedInbound(conv, 'stop');
+    db.failNext('jsonb.patchJson', new Error('jsonb down'));
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('failed');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(row(stop.id).status).toBe('received');
+
+    await batcher.runBatch(conv.id);
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+    expect(row(stop.id).status).toBe('skipped');
+    expect(typeof convRow(conv.id).workflow_data.marketing_opted_out_at).toBe('string');
+  });
+
+  test('a STOP row found after the 24 h window closed → the opt-out is still stored, no ack is sent', async () => {
+    const { conv } = seedShift({ conversation: { last_inbound_at: new Date(Date.now() - 25 * HOUR) } });
+    const stop = seedInbound(conv, 'إيقاف', { ageMs: 25 * HOUR });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('window_closed');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+    expect(row(stop.id).status).toBe('skipped');
+    expect(typeof convRow(conv.id).workflow_data.marketing_opted_out_at).toBe('string');
+    expect(convRow(conv.id).current_state).toBe('closed');
+  });
+
+  test('a reaction row left `received` is skipped without an AI call or a send', async () => {
+    const { conv } = seedShift();
+    const r = seedInbound(conv, null, { message_type: 'reaction' });
+    await batcher.runBatch(conv.id);
+    expect(row(r.id).status).toBe('skipped');
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+  });
+
+  test('a STOP arriving while the model generates → no sales reply, the opt-out is handled in the same run', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'بدي أعرف الأسعار');
+    let stop;
+    shift.processShiftBatch.mockImplementation(async () => {
+      stop = seedInbound(conv, 'إيقاف', { ageMs: 0 });
+      return textResult('الأسعار حسب الحجم');
+    });
+
+    await batcher.runBatch(conv.id);
+
+    expect(whatsapp.sendText.mock.calls.map((c) => c[3])).toEqual(['تمام، أوقفت المتابعة. إذا احتجتنا إحنا هون.']);
+    expect([row(a.id).status, row(stop.id).status]).toEqual(['skipped', 'skipped']);
+  });
+});
+
+describe('GPT-6 #9: one debounce across instances, one fallback per burst (D25)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+  });
+
+  test('a run before metadata.batch_due_at does nothing and re-arms for the deadline', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 0 });
+    convRow(conv.id).metadata = { batch_due_at: new Date(Date.now() + 3000).toISOString() };
+
+    expect(await batcher.runBatch(conv.id)).toEqual({ outcome: 'not_due', sent: 0 });
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+    expect(batcher.hasPendingTimer(conv.id)).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(2999);
+    await settle();
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    await until(() => row(a.id).status === 'answered');
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+  });
+
+  test('touchBatchDue arms this instance by the DB deadline; a later fragment on another instance pushes it', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا', { ageMs: 0 });
+    expect(await batcher.touchBatchDue(conv.id, 1500)).toMatchObject({ delayMs: 1500 });
+    expect(convRow(conv.id).metadata.batch_due_at).toEqual(expect.any(String));
+
+    await jest.advanceTimersByTimeAsync(1000);
+    // Instance B saved the next fragment and pushed the shared deadline (its own timer is elsewhere).
+    const b = seedInbound(conv, 'عندي عيادة', { ageMs: 0 });
+    await db.jsonb.touchBatchDue(conv.id, 2500, 10000);
+
+    await jest.advanceTimersByTimeAsync(500); // A's timer fires early → reschedules
+    await settle();
+    expect(shift.processShiftBatch).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(2000);
+    await until(() => row(b.id).status === 'answered');
+    expect(shift.processShiftBatch).toHaveBeenCalledTimes(1);
+    expect(shift.processShiftBatch.mock.calls[0][2].map((m) => m.id)).toEqual([a.id, b.id]);
+  });
+
+  test('AI failure: the fallback covers every fragment received before dispatch; no second fallback', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'بدي أعرف أكثر', { ageMs: 0 });
+    let b;
+    let c;
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) => {
+      b = seedInbound(conv, 'عن الحجوزات', { ageMs: 0 });
+      c = seedInbound(conv, 'وكمان الأسعار', { ageMs: 0 });
+      return toWorkflowResult(null, { business, conversation, batchMessages: batch, now });
+    });
+
+    const r = await batcher.runBatch(conv.id);
+    await jest.advanceTimersByTimeAsync(100);
+    await settle();
+
+    expect(r.outcome).toBe('fallback');
+    expect(shift.processShiftBatch).toHaveBeenCalledTimes(1);
+    expect(botOutbound(conv)).toHaveLength(1);
+    expect(botOutbound(conv)[0].raw_payload.batch_ids).toEqual([a.id, b.id, c.id]);
+    expect([a, b, c].map((m) => row(m.id).status)).toEqual(['answered', 'answered', 'answered']);
+    expect(batcher.hasPendingTimer(conv.id)).toBe(false);
+  });
+});
+
+describe('GPT-6 #12: capture acks from what was persisted (D26)', () => {
+  const acks = require('../src/workflows/shift/acks');
+  const leadModule = require('../src/workflows/shift/lead');
+  const captureAi = { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الساعة 5' }, lead: {} };
+
+  function seedLead() {
+    const { biz, conv } = seedShift({
+      conversation: { current_state: 'close', workflow_data: { lead: { name: 'محمد', business_name: 'زيتون', version: 1 }, bot_turns: 2 } },
+    });
+    const a = seedInbound(conv, 'خليها الساعة 5');
+    return { biz, conv, a };
+  }
+
+  test('staff set the call time while the model generated → «passed to the team», staff time kept, request stored', async () => {
+    const { biz, conv } = seedLead();
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) => {
+      await leadModule.saveLead(conv.id, { preferred_time: 'بكرا الساعة 10' }, { source: 'staff', msgId: null, at: now.toISOString(), inboundText: '' });
+      // The result was computed from the conversation as read before the staff edit.
+      return toWorkflowResult(captureAi, { business: biz, conversation, batchMessages: batch, now });
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+
+    const text = whatsapp.sendText.mock.calls[0][3];
+    expect(text).toContain(acks.captureRelayed({ when: 'الساعة 5', lang: 'ar' }));
+    expect(text).not.toContain('سجّلت طلب مكالمة');
+    const wd = convRow(conv.id).workflow_data;
+    expect(wd.lead.preferred_time.text).toBe('بكرا الساعة 10');
+    expect(wd.requested_time_change).toMatchObject({ text: 'الساعة 5' });
+  });
+
+  test('a lead save that fails aborts the capture ack: nothing sent, rows stay `received`, failure counted', async () => {
+    const { conv, a } = seedLead();
+    shift.processShiftBatch.mockImplementation(async (business, conversation, batch, { now }) => (
+      toWorkflowResult(captureAi, { business, conversation, batchMessages: batch, now })));
+    jest.spyOn(leadModule, 'saveLead').mockResolvedValue({ ok: false, lead: null, changed: [] });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('failed');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(row(a.id).status).toBe('received');
+    expect(convRow(conv.id).metadata.reply_failures).toBe(1);
+  });
+});
+
+describe('GPT-6 #7 re-verification: a status that races the POST (D19)', () => {
+  const MIN = 60 * 1000;
+  const later = (ms) => new Date(Date.now() + ms);
+  const statusEntry = (status) => ({ changes: [{ value: { metadata: { phone_number_id: 'pnid_shift' }, statuses: [status] } }] });
+  const failedFor = (intentId, wamid = 'wamid.accepted') => statusEntry({
+    id: wamid, status: 'failed', recipient_id: CUSTOMER, biz_opaque_callback_data: intentId, errors: [{ code: 131000 }],
+  });
+  afterEach(() => batcher.cancelAll());
+
+  test('`failed` processed while the POST is in flight → its wamid does not make it `sent`; rows requeued, a new send answers', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    whatsapp.sendText.mockImplementationOnce(async (pnid, token, to, text, { callbackData }) => {
+      await processInboundMessage(failedFor(callbackData));
+      return { ...okSend(), id: 'wamid.accepted' };
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('failed');
+    batcher.cancelAll();
+    const [first] = botOutbound(conv);
+    expect(first).toMatchObject({ status: 'failed', meta_message_id: 'wamid.accepted' });
+    expect(first.raw_payload.settled).toBe('requeued');
+    expect(row(a.id).status).toBe('received');
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+    expect(row(a.id).status).toBe('answered');
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['failed', 'sent']);
+  });
+
+  test('`failed` processed after the wamid was recorded but before the commit → the rows take its requeue', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    const real = db.prisma.message.updateMany;
+    let injected = false;
+    jest.spyOn(db.prisma.message, 'updateMany').mockImplementation(async (args) => {
+      if (!injected && args && args.data && args.data.status === 'answered') {
+        injected = true;
+        const [intent] = botOutbound(conv);
+        expect(intent.status).toBe('sent');
+        await processInboundMessage(failedFor(intent.id, intent.meta_message_id));
+      }
+      return real.call(db.prisma.message, args);
+    });
+
+    await batcher.runBatch(conv.id);
+
+    expect(injected).toBe(true);
+    const [intent] = botOutbound(conv);
+    expect(intent.status).toBe('failed');
+    expect(intent.raw_payload.settled).toBe('requeued');
+    expect(row(a.id).status).toBe('received');
+  });
+
+  test('a second failure for the requeued batch arriving mid-POST → awaiting_staff + unsent_reply, not answered', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    whatsapp.sendText.mockImplementation(async (pnid, token, to, text, { callbackData }) => {
+      await processInboundMessage(failedFor(callbackData, `wamid.acc${callbackData}`));
+      return { ...okSend(), id: `wamid.acc${callbackData}` };
+    });
+
+    await batcher.runBatch(conv.id);
+    batcher.cancelAll();
+    await batcher.runBatch(conv.id);
+    await settle();
+
+    expect(row(a.id).status).toBe('awaiting_staff');
+    expect(botOutbound(conv).map((m) => [m.status, m.raw_payload.settled])).toEqual([['failed', 'requeued'], ['failed', 'escalated']]);
+    expect(convRow(conv.id)).toMatchObject({ status: 'pending', workflow_data: { needs_team: { reason: 'unsent_reply' } } });
+    expect(alertReasons()).toContain('unsent_reply');
+  });
+
+  test('`delivered` echoed while the POST is in flight stays `delivered` (never regresses to sent)', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    whatsapp.sendText.mockImplementationOnce(async (pnid, token, to, text, { callbackData }) => {
+      await processInboundMessage(statusEntry({ id: 'wamid.echo', status: 'delivered', recipient_id: CUSTOMER, biz_opaque_callback_data: callbackData }));
+      return { ...okSend(), id: 'wamid.echo' };
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+    expect(botOutbound(conv)[0]).toMatchObject({ status: 'delivered', meta_message_id: 'wamid.echo' });
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('an echoed `sent` beats an ambiguous POST result → the part is confirmed, rows answered', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    whatsapp.sendText.mockImplementationOnce(async (pnid, token, to, text, { callbackData }) => {
+      await processInboundMessage(statusEntry({ id: 'wamid.echo', status: 'sent', recipient_id: CUSTOMER, biz_opaque_callback_data: callbackData }));
+      return failSend('ambiguous');
+    });
+
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+    expect(botOutbound(conv)[0]).toMatchObject({ status: 'sent', meta_message_id: 'wamid.echo' });
+    expect(row(a.id).status).toBe('answered');
+  });
+
+  test('refused before Graph after another worker marked the intent ambiguous → cancelled, rows back to received at once', async () => {
+    const { conv } = seedShift();
+    const a = seedInbound(conv, 'مرحبا');
+    const realCheck = db.jsonb.preSendCheck;
+    jest.spyOn(db.jsonb, 'preSendCheck').mockImplementationOnce(async (...args) => {
+      // Worker B took the expired lease; its recoverCovered flipped this `sending` intent and parked the row.
+      const [intent] = botOutbound(conv);
+      intent.status = 'ambiguous';
+      row(a.id).status = 'unconfirmed';
+      convRow(conv.id).metadata = { ...convRow(conv.id).metadata, lease_token: 'worker_b', reply_lease_until: new Date(Date.now() + 60000).toISOString() };
+      return realCheck(...args);
+    });
+
+    expect(await batcher.runBatch(conv.id)).toEqual({ outcome: 'lease_lost', sent: 0 });
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(botOutbound(conv).map((m) => m.status)).toEqual(['cancelled']);
+    expect(row(a.id).status).toBe('received');
+    expect(batcher.hasPendingTimer(conv.id)).toBe(true);
+    batcher.cancelAll();
+
+    // Worker B is done; the next run answers without waiting for reconcile or spending the retry budget.
+    const meta = { ...convRow(conv.id).metadata };
+    delete meta.lease_token;
+    delete meta.reply_lease_until;
+    convRow(conv.id).metadata = meta;
+    expect((await batcher.runBatch(conv.id)).outcome).toBe('sent');
+    expect(row(a.id).status).toBe('answered');
+    expect(await batcher.reconcileUnconfirmedIntents({ now: later(3 * MIN) })).toMatchObject({ requeued: 0, escalated: 0, unreconciled: 0 });
+  });
+
+  test('an opt-out ack unconfirmed twice is dropped: row skipped, no team request, not pending, ambiguous_send alert', async () => {
+    whatsapp.sendText.mockImplementation(async () => failSend('ambiguous'));
+    const { conv } = seedShift();
+    const stop = seedInbound(conv, 'إيقاف');
+
+    await batcher.runBatch(conv.id);
+    expect(row(stop.id).status).toBe('unconfirmed');
+    expect(await batcher.reconcileUnconfirmedIntents({ now: later(3 * MIN) })).toMatchObject({ requeued: 1 });
+    batcher.cancelAll();
+    await batcher.runBatch(conv.id);
+    expect(row(stop.id).status).toBe('unconfirmed');
+
+    const report = await batcher.reconcileUnconfirmedIntents({ now: later(6 * MIN) });
+    await settle();
+
+    expect(report).toMatchObject({ requeued: 0, escalated: 0, unreconciled: 1 });
+    expect(row(stop.id).status).toBe('skipped');
+    const c = convRow(conv.id);
+    expect(c.status).not.toBe('pending');
+    expect(c.workflow_data.needs_team).toBeUndefined();
+    expect(typeof c.workflow_data.marketing_opted_out_at).toBe('string');
+    expect(alertReasons()).toEqual(['ambiguous_send']);
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+    expect(botOutbound(conv).map((m) => m.raw_payload.settled)).toEqual(['requeued', 'dropped']);
+  });
+});
+
+describe('GPT-6 #13 re-verification: a team request and its pending status are one write (D27)', () => {
+  const { needsTeamEntry } = require('../src/workflows/shift/results');
+  const OLD_AT = '2026-09-15T08:00:00.000Z';
+
+  function seedQuotePending() {
+    const oldReq = needsTeamEntry('quote', 'سعر', OLD_AT);
+    const { biz, conv } = seedShift({ conversation: { status: 'pending', workflow_data: { needs_team: oldReq } } });
+    const a = seedInbound(conv, 'بدي احكي مع حدا');
+    return { biz, conv, a, oldReq };
+  }
+  function handoff(newReq) {
+    return {
+      kind: 'handoff', action: 'HANDOFF_TO_HUMAN', messages: [{ type: 'text', text: 'وصلت طلبك للفريق' }],
+      stateUpdate: { status: 'pending', current_state: 'handoff' }, workflowDataPatch: { needs_team: newReq, bot_turns: 1 },
+      needsTeam: newReq, needsTeamCandidate: newReq, alert: null,
+    };
+  }
+  const resolveOld = (conv, oldReq) => db.jsonb.resolveNeedsTeam(conv.id, { match: { reason: oldReq.reason, at: oldReq.at }, resolvedAt: new Date().toISOString() });
+
+  test('staff resolve the old request just before the bot writes → the new request is recorded, pending', async () => {
+    const { biz, conv, a, oldReq } = seedQuotePending();
+    const newReq = needsTeamEntry('person', 'بدو شخص', new Date().toISOString());
+    const real = db.jsonb.writeConversationState;
+    jest.spyOn(db.jsonb, 'writeConversationState').mockImplementation(async (...args) => {
+      expect(await resolveOld(conv, oldReq)).toBe(true);
+      return real(...args);
+    });
+
+    const r = await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result: handoff(newReq), batch: [a], now: new Date() });
+
+    expect(r.outcome).toBe('sent');
+    const c = convRow(conv.id);
+    expect(c.workflow_data.needs_team).toMatchObject({ reason: 'person', at: newReq.at, resolved_at: null });
+    expect(c).toMatchObject({ status: 'pending', current_state: 'handoff' });
+    expect(c.workflow_data.bot_turns).toBe(1);
+  });
+
+  test('staff resolve the old request right after the bot writes → the resolve no longer matches, pending stays', async () => {
+    const { biz, conv, a, oldReq } = seedQuotePending();
+    const newReq = needsTeamEntry('person', 'بدو شخص', new Date().toISOString());
+    const real = db.jsonb.writeConversationState;
+    let resolved = null;
+    jest.spyOn(db.jsonb, 'writeConversationState').mockImplementation(async (...args) => {
+      const out = await real(...args);
+      resolved = await resolveOld(conv, oldReq);
+      return out;
+    });
+
+    await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result: handoff(newReq), batch: [a], now: new Date() });
+
+    expect(resolved).toBe(false);
+    const c = convRow(conv.id);
+    expect(c.workflow_data.needs_team).toMatchObject({ reason: 'person', resolved_at: null });
+    expect(c.status).toBe('pending');
+  });
+
+  test('stale copy: an equal-priority request staff resolved while the model generated → the new one is recorded', async () => {
+    const { biz, conv, a, oldReq } = seedQuotePending();
+    const now = new Date();
+    // Computed from the conversation as read before the model call: the quote is still open there, so
+    // the new quote request is "already on the list" (no needs_team in the patch).
+    const result = toWorkflowResult(
+      { reply: 'أكيد، بنبعتلك عرض مفصّل', action: 'FLAG_FOR_TEAM', action_args: { reason: 'quote', summary: 'عرض لفرعين' } },
+      { business: biz, conversation: { ...convRow(conv.id) }, batchMessages: [a], now },
+    );
+    expect(result.needsTeam).toBeNull();
+    expect(await resolveOld(conv, oldReq)).toBe(true);
+    expect(convRow(conv.id).status).toBe('open');
+
+    await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result, batch: [a], now });
+
+    const c = convRow(conv.id);
+    expect(c.status).toBe('pending');
+    expect(c.workflow_data.needs_team).toMatchObject({ reason: 'quote', summary: 'عرض لفرعين', at: now.toISOString(), resolved_at: null });
+  });
+
+  test('an equal-priority request still open at write time is kept as it is (its SLA claim fields too)', async () => {
+    const { biz, conv, a, oldReq } = seedQuotePending();
+    convRow(conv.id).workflow_data.needs_team.sla_note_attempt = 1;
+    const result = toWorkflowResult(
+      { reply: 'أكيد', action: 'FLAG_FOR_TEAM', action_args: { reason: 'quote', summary: 'ثاني' } },
+      { business: biz, conversation: { ...convRow(conv.id) }, batchMessages: [a], now: new Date() },
+    );
+
+    await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result, batch: [a], now: new Date() });
+
+    expect(convRow(conv.id).workflow_data.needs_team).toMatchObject({ reason: 'quote', at: oldReq.at, summary: 'سعر', sla_note_attempt: 1 });
+    expect(convRow(conv.id).status).toBe('pending');
+  });
+
+  test('a staff claim made before the write → nothing written, nothing sent, rows awaiting_staff', async () => {
+    const { biz, conv, a } = seedQuotePending();
+    convRow(conv.id).status = 'human_takeover';
+    convRow(conv.id).ai_enabled = false;
+    const newReq = needsTeamEntry('person', 'بدو شخص', new Date().toISOString());
+
+    const r = await batcher.deliverResult({ business: biz, conversation: convRow(conv.id), result: handoff(newReq), batch: [a], now: new Date() });
+
+    expect(r.outcome).toBe('awaiting_staff');
+    expect(whatsapp.sendText).not.toHaveBeenCalled();
+    expect(convRow(conv.id).workflow_data.needs_team.reason).toBe('quote');
+    expect(convRow(conv.id).status).toBe('human_takeover');
+    expect(row(a.id).status).toBe('awaiting_staff');
+  });
+});
+
 describe('messageProcessor with the SHIFT number', () => {
   function entryFor(pnid, waMsg) {
     return {
@@ -1068,12 +1799,17 @@ describe('messageProcessor with the SHIFT number', () => {
     expect(db.store.conversations[0].unread_count).toBe(1);
   });
 
-  test('persistInbound keeps delivered for restaurant and external-mode SHIFT', async () => {
+  test('persistInbound saves restaurant and external-mode SHIFT rows as processing; delivered once handled (D24)', async () => {
     seedBusiness({ business_type: 'restaurant', wa_phone_number_id: 'pnid_rest' });
     seedBusiness({ wa_phone_number_id: 'pnid_ext', ai_config: { reply_mode: 'external' } });
     await persistInbound(entryFor('pnid_rest', { id: 'wamid.r1', type: 'text', text: { body: 'hi' } }));
-    await persistInbound(entryFor('pnid_ext', { id: 'wamid.e1', type: 'text', text: { body: 'hi' } }));
-    expect(inboundRows().map((m) => m.status)).toEqual(['delivered', 'delivered']);
+    const ext = entryFor('pnid_ext', { id: 'wamid.e1', type: 'text', text: { body: 'hi' } });
+    const persisted = await persistInbound(ext);
+    // Until the forward/workflow ran, a crash leaves them visible to reprocessStuckInbound.
+    expect(inboundRows().map((m) => m.status)).toEqual(['processing', 'processing']);
+
+    await processInboundMessage(ext, { persisted });
+    expect(inboundRows().map((m) => m.status)).toEqual(['processing', 'delivered']);
   });
 
   test('persistInbound throws on a DB error (the webhook answers 500)', async () => {
@@ -1163,7 +1899,7 @@ describe('messageProcessor with the SHIFT number', () => {
     expect(whatsapp.markAsRead).toHaveBeenLastCalledWith('pnid_shift', 'plain_test_token', 'wamid.ty2', { typing: false });
   });
 
-  test('a persist that saved the message but not the counters: the retry processes it and counts it once', async () => {
+  test('a persist whose counter update failed keeps nothing; the retry saves, counts and processes it once (D24)', async () => {
     seedBusiness();
     const entry = entryFor('pnid_shift', { id: 'wamid.h1', type: 'text', text: { body: 'مرحبا' } });
     db.failNext('conversation.update', Object.assign(new Error('transient'), { code: 'P1001' }));
@@ -1171,10 +1907,11 @@ describe('messageProcessor with the SHIFT number', () => {
     const err = await persistInbound(entry).catch((e) => e);
     expect(err.message).toBe('transient');
     expect(err.persisted.items).toEqual([]);
-    expect(inboundRows()).toHaveLength(1);
+    // One transaction: the insert was rolled back with the counters, so Meta's retry is not a duplicate.
+    expect(inboundRows()).toHaveLength(0);
 
     const retry = await persistInbound(entry);
-    expect(retry.items[0]).toMatchObject({ created: false, recovered: true });
+    expect(retry.items[0]).toMatchObject({ created: true, claimed: true });
     expect(db.store.conversations[0].unread_count).toBe(1);
     await processInboundMessage(entry, { persisted: retry });
     expect(batcher.hasPendingTimer(db.store.conversations[0].id)).toBe(true);
@@ -1182,7 +1919,8 @@ describe('messageProcessor with the SHIFT number', () => {
     // A later duplicate of a completed persist is not processed again.
     batcher.cancelAll();
     const dup = await persistInbound(entry);
-    expect(dup.items[0]).toMatchObject({ created: false, recovered: false });
+    expect(dup.items[0]).toMatchObject({ created: false, claimed: false });
+    expect(db.store.conversations[0].unread_count).toBe(1);
   });
 
   test('a failure on one message still hands back the messages saved before it', async () => {
@@ -1281,7 +2019,7 @@ describe('messageProcessor with the SHIFT number', () => {
     expect(lead._prov.source.confirmed).toBe(false);
   });
 
-  test('a status webhook reconciles the oldest ambiguous send; billing failures raise the banner', async () => {
+  test('a status webhook confirms an ambiguous send by its echoed callback id; billing failures raise the banner', async () => {
     const biz = seedBusiness();
     const [conv] = db.seed({ conversations: [{ business_id: biz.id, customer_wa_id: CUSTOMER, last_inbound_at: new Date() }] }).conversations;
     const [amb] = db.seed({
@@ -1289,7 +2027,11 @@ describe('messageProcessor with the SHIFT number', () => {
     }).messages;
 
     const statusEntry = (status) => ({ changes: [{ value: { metadata: { phone_number_id: 'pnid_shift' }, statuses: [status] } }] });
-    await processInboundMessage(statusEntry({ id: 'wamid.late', status: 'delivered', recipient_id: CUSTOMER }));
+    // D17: without the echoed id the recipient alone matches nothing.
+    await processInboundMessage(statusEntry({ id: 'wamid.other', status: 'delivered', recipient_id: CUSTOMER }));
+    expect(row(amb.id)).toMatchObject({ meta_message_id: null, status: 'ambiguous' });
+
+    await processInboundMessage(statusEntry({ id: 'wamid.late', status: 'delivered', recipient_id: CUSTOMER, biz_opaque_callback_data: amb.id }));
     expect(row(amb.id)).toMatchObject({ meta_message_id: 'wamid.late', status: 'delivered' });
 
     await processInboundMessage(statusEntry({

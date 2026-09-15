@@ -146,6 +146,19 @@ function captureAck({ name, businessName, when, lang } = {}) {
   return `سجّلت طلب مكالمة${detail ? `: ${detail}` : ''} — طلب مش موعد مؤكد، الفريق بيأكد الساعة بالضبط معك هون. إذا بتفضّل اتصال بدل الرسائل، اكتبلي.`;
 }
 
+/**
+ * D26: the customer asked for a new call time but the stored one is owned by staff (they set or
+ * confirmed it), so the lead keeps staff's time. Only the request was recorded and passed on: the
+ * wording must not say the time changed.
+ */
+function captureRelayed({ when, lang } = {}) {
+  const w = clean(when);
+  if (isEn(lang)) {
+    return `I've passed ${w ? `your new time (${w} Amman time)` : 'your request for a new time'} to the team — the time they have is unchanged until they confirm with you here.`;
+  }
+  return `وصّلت ${w ? `طلبك للوقت الجديد (${w} بتوقيت عمّان)` : 'طلب تغيير الوقت'} للفريق — الوقت المعتمد عندهم ما بتغيّر لحد ما يأكدوا معك هون.`;
+}
+
 const SECTOR_NOUNS = { restaurant: 'المطعم', clinic: 'العيادة', store: 'المتجر', other: 'المحل' };
 
 function purposeLine(lang) {
@@ -272,6 +285,7 @@ module.exports = {
   handoffRepeat,
   flagAck,
   captureAck,
+  captureRelayed,
   captureAsk,
   slotOther,
   expiredSlot,

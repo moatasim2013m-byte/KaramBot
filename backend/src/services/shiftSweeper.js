@@ -3,8 +3,14 @@
  *
  * Triggered every minute by Cloud Scheduler (POST /api/internal/sweep) and by an in-process
  * setInterval. Both can fire together and several Cloud Run instances can run at once, so every
- * customer note and staff alert is claimed atomically in the DB (claimFlag / claimValue / a status
- * transition) before it is sent: a concurrent sweep loses the claim and does nothing.
+ * customer note and staff alert is claimed atomically in the DB (a compare-and-set on the stored
+ * request, claimValue, or a status transition) before it is sent: a concurrent sweep loses the claim
+ * and does nothing.
+ *
+ * GPT-6 #11: a claim is not a completed note. It names the request it was taken for, records when,
+ * and the note itself is a send intent (replyBatcher.dispatchIntent) keyed by that request. A sweep
+ * that died between its claim and the intent row leaves a claim older than NOTE_CLAIM_TTL_MS with no
+ * intent: the next sweep takes it over. When the intent row exists, the note is never sent again.
  *
  * The sweeper never generates AI replies itself: orphaned batches are handed back to the
  * batcher, and the only customer-visible texts are the two fixed notes from acks.js.
@@ -21,6 +27,11 @@ const { resolveModel } = require('../ai/provider');
 const { graphVersion } = require('./whatsapp');
 
 const MINUTE_MS = 60 * 1000;
+// A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
+const NOTE_CLAIM_TTL_MS = 2 * MINUTE_MS;
+// D24: non-SHIFT rows still `processing` after this are re-processed by the message processor.
+const STUCK_INBOUND_AGE_MS = 2 * MINUTE_MS;
+const PAUSE_REQUEUE_LIMIT = 200;
 const HOUR_MS = 60 * MINUTE_MS;
 const ORPHAN_AGE_MS = 30 * 1000;
 const ORPHAN_LIMIT = 100;
@@ -30,11 +41,6 @@ const MAX_REPLY_FAILURES = 3;
 const SLA_TEAM_MINUTES = 15;
 const AWAITING_AGE_MS = 10 * MINUTE_MS;
 const AWAITING_LIMIT = 200;
-const AMBIGUOUS_AGE_MS = 10 * MINUTE_MS;
-const AMBIGUOUS_LIMIT = 200;
-// An intent row still `sending` after this belongs to a process that died mid-send: a live send
-// finishes in well under a minute (two 10 s Graph attempts).
-const SENDING_STALE_MS = 2 * MINUTE_MS;
 // Flag the window while staff can still reply for free (22–24 h after the last inbound).
 const WINDOW_FLAG_FROM_MS = 22 * HOUR_MS;
 const WINDOW_FLAG_TO_MS = 24 * HOUR_MS;
@@ -48,8 +54,8 @@ let last = { at: null, report: null };
 
 function emptyReport() {
   return {
-    orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0,
-    ambiguous_alerts: 0, unanswered_alerts: 0, errors: [],
+    stuck_inbound: null, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
+    pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0, errors: [],
   };
 }
 
@@ -57,16 +63,59 @@ function lastSweep() {
   return { at: last.at, report: last.report };
 }
 
-/** «تمام شكرًا», «ok thanks»: ≤ 3 words without a question. Empty text (media) is not a closer. */
+/*
+ * D22 / GPT-6 #10: a closer is a message made only of thanks / acknowledgement phrases. Word count is
+ * not a test («price please», «كم السعر» are requests in two words), so anything outside this list
+ * earns the customer a note: a needless «رسالتك وصلت» costs less than a silence.
+ * Stored normalised (see normaliseCloserText): no hamza forms, ة → ه, ى → ي, no tashkeel, lower case.
+ */
+const CLOSER_PHRASES = [
+  'شكرا', 'شكرا جزيلا', 'شكرا كتير', 'شكرا كثير', 'مشكور', 'مشكوره', 'مشكورين', 'مشكورة',
+  'يعطيك العافيه', 'يعطيكم العافيه', 'الله يعطيك العافيه', 'الله يعطيكم العافيه', 'تسلم', 'تسلمي', 'تسلمو', 'تسلموا',
+  'الله يسلمك', 'جزاك الله خير', 'جزاك الله خيرا', 'بارك الله فيك', 'تمام', 'ماشي', 'اوكي', 'اوك', 'حاضر', 'ممتاز',
+  'ان شاء الله', 'انشالله', 'ok', 'okay', 'okey', 'k', 'thanks', 'thank you', 'thanks a lot', 'thank you so much', 'thx',
+  'ty', 'great', 'perfect', 'cool', 'noted', 'got it', 'sure', 'alright', 'fine',
+  '👍', '🙏', '👌', '❤', '🌹', '💐', '😊', '🙂', '🤝', '✅',
+];
+const CLOSER_EMOJI_RE = /(👍|🙏|👌|❤|🌹|💐|😊|🙂|🤝|✅)/gu;
+
+function normaliseCloserText(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '') // tashkeel, tatweel
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, '') // skin tones, variation selectors, joiners
+    .replace(CLOSER_EMOJI_RE, ' $1 ')
+    .replace(/[.,!،؛;:~…\-_"'()]+/g, ' ')
+    .replace(/(\p{L})\1{2,}/gu, '$1') // «شكراااا», «okkk»
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const CLOSER_RE = (() => {
+  const alternatives = [...new Set(CLOSER_PHRASES.map(normaliseCloserText))]
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  return new RegExp(`^(?:${alternatives})(?: (?:${alternatives}))*$`, 'u');
+})();
+
+/** «تمام شكرًا», «ok thanks», «👍»: only closing phrases, no question. Empty text (media) is not a closer. */
 function isCloser(text) {
   if (typeof text !== 'string') return false;
-  const s = text.trim();
-  if (!s || /[?؟]/.test(s)) return false;
-  return s.split(/\s+/).filter(Boolean).length <= 3;
+  if (/[?؟]/.test(text)) return false;
+  const s = normaliseCloserText(text);
+  return !!s && CLOSER_RE.test(s);
 }
 
 function ago(now, ms) {
   return new Date(now.getTime() - ms);
+}
+
+function toMs(value) {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
 
 function workflowData(conv) {
@@ -100,28 +149,26 @@ function notesAllowed(business, conv) {
   return replyBatcher.isShiftReplyAllowed(business, conv.customer_wa_id);
 }
 
-function noteResult(kind, text) {
-  return {
-    kind,
-    action: 'NONE',
-    messages: [{ type: 'text', text }],
-    stateUpdate: {},
-    workflowDataPatch: {},
-    leadPatch: null,
-    needsTeam: null,
-    alert: null,
-  };
+/**
+ * D17/D21: a note is a send intent keyed by the request it answers (`${batchKey}:0` dedupes it), sent
+ * only after the protocol's pre-send check. Returns the delivery outcome for the staff alert; a thrown
+ * error leaves the claim to be taken over (GPT-6 #11).
+ */
+async function sendNote({ business, conversation, kind, text, batchKey, since, precheck, now }) {
+  // Notes stop 30 min before the 24 h window closes, so staff still have time to answer for free.
+  if (!isWithinServiceWindow(conversation.last_inbound_at, now, { marginMs: NOTE_WINDOW_MARGIN_MS })) return 'window_closed';
+  const dispatch = await replyBatcher.dispatchIntent({
+    business, conversation, kind, parts: [{ type: 'text', text }], batchIds: [], batchKey, precheck, since, now,
+  });
+  return dispatch.outcome;
 }
 
-async function deliverNote({ business, conversation, kind, text, now }) {
-  return replyBatcher.deliverResult({
-    business,
-    conversation,
-    result: noteResult(kind, text),
-    batch: [],
-    windowMarginMs: NOTE_WINDOW_MARGIN_MS,
-    now,
+// Any intent for this note, whatever became of it: once one exists the note may have been sent.
+async function noteIntentExists(conversationId, batchKey, since) {
+  const rows = await prisma.message.findMany({
+    where: { conversation_id: conversationId, direction: 'outbound', created_at: { gte: since } },
   });
+  return rows.some((m) => m.raw_payload && m.raw_payload.batch_key === `${batchKey}:0`);
 }
 
 // One failing conversation must not stop the rest of the step.
@@ -140,6 +187,85 @@ function newestStaffOutbound(conversationId, extraWhere = {}) {
   return prisma.message.findFirst({
     where: { conversation_id: conversationId, direction: 'outbound', sent_by_user_id: { not: null }, ...extraWhere },
     orderBy: { created_at: 'desc' },
+  });
+}
+
+// ─── 0. Sends without a confirmation (D18) ───────────────────────────────────
+
+/**
+ * `sending`/`ambiguous` intents older than 2 minutes are settled by the batcher's protocol: rows
+ * requeued once, then handed to staff (needs_team unsent_reply). The sweeper never flips them itself.
+ */
+async function sweepUnconfirmed(business, now, report) {
+  const r = await replyBatcher.reconcileUnconfirmedIntents({ now, businessId: business.id });
+  report.unconfirmed_requeued += r.requeued || 0;
+  report.unconfirmed_escalated += r.escalated || 0;
+  report.ambiguous_alerts += r.unreconciled || 0;
+  for (const e of r.errors || []) report.errors.push(`unconfirmed ${business.id}: ${e}`);
+}
+
+// ─── 1a. A temporary staff pause expired (D22) ───────────────────────────────
+
+// Inbound rows the batcher handed to staff after its reply stayed unconfirmed twice (D18/D19): they
+// wait for a person even when nobody holds the conversation, so the pause step must not requeue them.
+// A D19 escalation leaves its intent `failed` (the processor restores it after settling), a D18 one
+// `ambiguous_unreconciled`: both carry raw_payload.settled.
+async function escalatedRowIds(conversationId) {
+  const intents = await prisma.message.findMany({
+    where: { conversation_id: conversationId, direction: 'outbound', status: { in: ['ambiguous_unreconciled', 'failed'] } },
+  });
+  const ids = new Set();
+  for (const m of intents) {
+    const p = m.raw_payload || {};
+    if (p.settled === 'escalated' && Array.isArray(p.batch_ids)) p.batch_ids.forEach((id) => ids.add(id));
+  }
+  return ids;
+}
+
+/**
+ * GPT-6 #10: a staff message pauses the bot for 30 min without taking the conversation. Messages the
+ * batcher parked meanwhile would wait for a person forever; once the pause is over and nobody claimed
+ * the conversation, they go back to `received` and the batcher answers them. The batcher re-checks the
+ * human state before it replies (and again right before Graph), so a claim made after this read only
+ * parks them again.
+ */
+async function sweepExpiredPauses(business, now, report) {
+  // Paged by conversation like the orphan step: rows of long staff-held chats stay awaiting_staff and
+  // must not hide a newer conversation whose pause just ended.
+  const seen = new Set();
+  for (let page = 0; page < ORPHAN_MAX_PAGES; page += 1) {
+    const rows = await prisma.message.findMany({
+      where: {
+        business_id: business.id, direction: 'inbound', status: 'awaiting_staff',
+        ...(seen.size && { conversation_id: { notIn: [...seen] } }),
+      },
+      orderBy: { created_at: 'asc' },
+      take: PAUSE_REQUEUE_LIMIT,
+    });
+    const convIds = [...new Set(rows.map((m) => m.conversation_id))];
+    convIds.forEach((id) => seen.add(id));
+    await requeueExpiredPauses(business, convIds, now, report);
+    if (rows.length < PAUSE_REQUEUE_LIMIT) break;
+  }
+}
+
+async function requeueExpiredPauses(business, convIds, now, report) {
+  await each(report, `pause ${business.id}`, convIds, async (convId) => {
+    const conv = await prisma.conversation.findUnique({ where: { id: convId } });
+    // Save-only / external: the batcher would only mark them skipped; keep them visible for staff.
+    if (!conv || !notesAllowed(business, conv)) return;
+    if (replyBatcher.isHumanActive(conv, await newestStaffOutbound(convId), now)) return;
+    const keep = await escalatedRowIds(convId);
+    const { count } = await prisma.message.updateMany({
+      where: {
+        conversation_id: convId, direction: 'inbound', status: 'awaiting_staff',
+        ...(keep.size && { id: { notIn: [...keep] } }),
+      },
+      data: { status: 'received' },
+    });
+    if (!count) return;
+    report.pause_requeued += count;
+    replyBatcher.scheduleReply(convId, { reason: 'sweep' });
   });
 }
 
@@ -192,35 +318,114 @@ async function sweepOrphans(business, now, report) {
 
 // ─── 2. SLA note for an unclaimed needs_team ─────────────────────────────────
 
+/**
+ * The claim lives inside the request it is for: a compare-and-set on needs_team matching its
+ * `at`/`reason` and the claim fields as read. A request replaced meanwhile fails the match, so an old
+ * sweep can never mark a newer request's note as sent (GPT-6 #11).
+ * needs_team fields: sla_note_sent_at (claim time of the latest attempt), sla_note_attempt,
+ * sla_note_done_at (note dispatched or deliberately skipped, alert sent).
+ */
+async function claimSlaNote(conv, nt, now) {
+  const match = { at: nt.at, reason: nt.reason };
+  // Absent keys cannot be matched by @>; every entry from needsTeamEntry carries them as null.
+  if ('sla_note_sent_at' in nt) match.sla_note_sent_at = nt.sla_note_sent_at ?? null;
+  if (nt.sla_note_attempt !== undefined) match.sla_note_attempt = nt.sla_note_attempt;
+  if ('resolved_at' in nt) match.resolved_at = null;
+  if ('claimed_at' in nt) match.claimed_at = null;
+  const attempt = (Number(nt.sla_note_attempt) || 0) + 1;
+  const claimed = await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team',
+    { sla_note_sent_at: now.toISOString(), sla_note_attempt: attempt }, { match });
+  return claimed ? attempt : null;
+}
+
+// The SLA note claim is still this sweep's: same request, same attempt.
+async function ownsSlaClaim(conversationId, nt, attempt) {
+  const fresh = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  const stored = workflowData(fresh).needs_team;
+  return !!stored && stored.at === nt.at && stored.reason === nt.reason && Number(stored.sla_note_attempt) === attempt;
+}
+
 async function sweepSlaNotes(business, teamHours, now, report) {
   if (!isWithinTeamHours(teamHours, now)) return;
   const convs = await prisma.conversation.findMany({ where: { business_id: business.id, status: 'pending' } });
   await each(report, `sla ${business.id}`, convs, async (conv) => {
     const wd = workflowData(conv);
     const nt = wd.needs_team;
-    if (!nt || nt.resolved_at || nt.sla_note_sent_at || nt.reason === 'ai_failure' || wd.marketing_opted_out_at) return;
+    if (!nt || nt.resolved_at || nt.sla_note_done_at || nt.reason === 'ai_failure' || wd.marketing_opted_out_at) return;
+    // Claimed by PR1's first sweeper, which had no attempt counter: its claim meant the note was handled.
+    if (nt.sla_note_sent_at && nt.sla_note_attempt === undefined) return;
+    // Another sweep is on it (or died less than NOTE_CLAIM_TTL_MS ago).
+    if (nt.sla_note_sent_at && now.getTime() - toMs(nt.sla_note_sent_at) < NOTE_CLAIM_TTL_MS) return;
     if (!nt.at || teamMinutesBetween(teamHours, new Date(nt.at), now) < SLA_TEAM_MINUTES) return;
     if (!notesAllowed(business, conv)) return;
     const staff = await newestStaffOutbound(conv.id, { created_at: { gt: new Date(nt.at) } });
     if (staff) return;
 
-    const claimed = await jsonb.claimFlag('conversations', conv.id, 'workflow_data', ['needs_team', 'sla_note_sent_at']);
-    if (!claimed) return;
+    const attempt = await claimSlaNote(conv, nt, now);
+    if (!attempt) return;
+    const batchKey = `sla_note:${nt.reason}:${nt.at}`;
+    const since = new Date(nt.at);
     // A call request with a time already noted: the note's «write me a time» would re-ask a fact the
     // customer confirmed, and the call may well be tomorrow. Staff still get the alert.
     const timeNoted = nt.reason === 'meeting' && !!(wd.lead && wd.lead.preferred_time);
-    const delivery = timeNoted
-      ? { outcome: 'skipped' }
-      : await deliverNote({ business, conversation: conv, kind: 'sla_note', text: slaNote(await langFor(conv)), now });
-    if (!timeNoted) report.sla_notes += 1;
+    let outcome = 'skipped';
+    if (!timeNoted) {
+      if (attempt > 1 && await noteIntentExists(conv.id, batchKey, since)) {
+        // The sweep that died had already written the intent: finish its bookkeeping, never resend.
+        outcome = 'already_dispatched';
+      } else {
+        outcome = await sendNote({
+          business, conversation: conv, kind: 'sla_note', text: slaNote(await langFor(conv)), batchKey, since, now,
+          // «not picked up yet» is false once staff claim or write: the pre-send check refuses then.
+          // The claim is part of the same check: a sweep that stalled past NOTE_CLAIM_TTL_MS and was
+          // taken over (the other sweep sent the note) must not send it a second time.
+          precheck: {
+            humanGuard: true,
+            optedOutSince: since,
+            claim: [
+              { column: 'workflow_data', path: ['needs_team', 'at'], value: nt.at },
+              { column: 'workflow_data', path: ['needs_team', 'sla_note_attempt'], value: attempt },
+            ],
+          },
+        });
+        if (outcome === 'aborted' && !(await ownsSlaClaim(conv.id, nt, attempt))) return;
+        if (outcome !== 'window_closed') report.sla_notes += 1;
+      }
+    }
+    // Alert before the done mark: a crash in between repeats the staff alert, never the customer note.
     await sendStaffAlert({
       reason: 'sla_breached', business, conversation: conv, now,
-      summary: `${nt.reason}${nt.summary ? ` — ${nt.summary}` : ''} (note: ${delivery?.outcome || 'unknown'})`,
+      summary: `${nt.reason}${nt.summary ? ` — ${nt.summary}` : ''} (note: ${outcome})`,
     });
+    await jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team',
+      { sla_note_done_at: now.toISOString() }, { match: { at: nt.at, reason: nt.reason } });
   });
 }
 
 // ─── 3. Note while the customer waits for a staff member ────────────────────
+
+/**
+ * Once per silence (keyed by its first row), reclaimable. metadata.awaiting_note_for holds
+ * `${rowId}#${attempt}`: claimValue lets exactly one of the sweeps that read the same state write the
+ * same next value. The claim time is written just before, so a live claim always has one; a sweep that
+ * crashed leaves it to age past NOTE_CLAIM_TTL_MS. awaiting_note_done_for marks the silence finished.
+ * Returns the attempt number, or null when this sweep must not act.
+ */
+async function claimAwaitingNote(conv, rowId, now) {
+  const meta = metadataOf(conv);
+  if (meta.awaiting_note_done_for === rowId) return null;
+  const stored = typeof meta.awaiting_note_for === 'string' ? meta.awaiting_note_for : '';
+  let attempt = 1;
+  if (stored === rowId) return null; // PR1's first sweeper: a bare id meant the note was handled.
+  if (stored.startsWith(`${rowId}#`)) {
+    const claimedAt = meta.awaiting_note_claimed_at ? toMs(meta.awaiting_note_claimed_at) : NaN;
+    if (Number.isFinite(claimedAt) && now.getTime() - claimedAt < NOTE_CLAIM_TTL_MS) return null;
+    attempt = (parseInt(stored.slice(rowId.length + 1), 10) || 1) + 1;
+  }
+  await jsonb.patchJson('conversations', conv.id, 'metadata', { awaiting_note_claimed_at: now.toISOString() });
+  const claimed = await jsonb.claimValue('conversations', conv.id, 'metadata', 'awaiting_note_for', `${rowId}#${attempt}`);
+  return claimed ? attempt : null;
+}
 
 async function sweepAwaitingNotes(business, teamHours, now, report) {
   if (!isWithinTeamHours(teamHours, now)) return;
@@ -245,22 +450,46 @@ async function sweepAwaitingNotes(business, teamHours, now, report) {
     const conv = await prisma.conversation.findUnique({ where: { id: convId } });
     if (!conv || !notesAllowed(business, conv)) return;
 
-    // Keyed by the first message of the silence: once per silence, again after the next staff reply.
-    const claimed = await jsonb.claimValue('conversations', convId, 'metadata', 'awaiting_note_for', silence[0].id);
-    if (!claimed) return;
-    report.awaiting_notes += 1;
+    const attempt = await claimAwaitingNote(conv, silence[0].id, now);
+    if (!attempt) return;
+    const batchKey = `awaiting_note:${silence[0].id}`;
+    const silenceStart = new Date(silence[0].created_at);
 
     let staffName = null;
     if (conv.assigned_staff_id) {
       const user = await prisma.user.findUnique({ where: { id: conv.assigned_staff_id }, select: { name: true } });
       staffName = user?.name || null;
     }
-    const text = awaitingStaffNote({ staffName, lang: await langFor(conv) });
-    const delivery = await deliverNote({ business, conversation: conv, kind: 'awaiting_note', text, now });
+    let outcome;
+    if (attempt > 1 && await noteIntentExists(convId, batchKey, silenceStart)) {
+      outcome = 'already_dispatched';
+    } else {
+      const claimValue = `${silence[0].id}#${attempt}`;
+      outcome = await sendNote({
+        business, conversation: conv, kind: 'awaiting_note', text: awaitingStaffNote({ staffName, lang: await langFor(conv) }),
+        batchKey,
+        since: silenceStart,
+        // The customer is waiting for the person who holds the conversation: no human guard. Nothing
+        // after an opt-out during this silence, and only while this sweep still holds the claim.
+        precheck: {
+          humanGuard: false,
+          optedOutSince: silenceStart,
+          claim: [{ column: 'metadata', path: ['awaiting_note_for'], value: claimValue }],
+        },
+        now,
+      });
+      if (outcome === 'aborted') {
+        const fresh = await prisma.conversation.findUnique({ where: { id: convId } });
+        // Taken over by another sweep: the note, alert and done mark are its to finish.
+        if (metadataOf(fresh).awaiting_note_for !== claimValue) return;
+      }
+      report.awaiting_notes += 1;
+    }
     await sendStaffAlert({
       reason: 'awaiting_staff', business, conversation: conv, now,
-      summary: `${silence.length} message(s) waiting${staffName ? ` for ${staffName}` : ''} (note: ${delivery?.outcome || 'unknown'})`,
+      summary: `${silence.length} message(s) waiting${staffName ? ` for ${staffName}` : ''} (note: ${outcome})`,
     });
+    await jsonb.patchJson('conversations', convId, 'metadata', { awaiting_note_done_for: silence[0].id });
   });
 }
 
@@ -296,37 +525,6 @@ async function sweepWindowFlags(business, now, report) {
   });
 }
 
-// ─── 5. Sends that never got a wamid or a status webhook ─────────────────────
-
-async function sweepAmbiguous(business, now, report) {
-  // A send whose process died between the intent row and the Graph result (notes and opt-out acks
-  // included, which run without the batcher's lease): nobody knows whether it arrived.
-  const stale = await prisma.message.findMany({
-    where: { business_id: business.id, direction: 'outbound', status: 'sending', created_at: { lt: ago(now, SENDING_STALE_MS) } },
-    orderBy: { created_at: 'asc' },
-    take: AMBIGUOUS_LIMIT,
-  });
-  const rows = await prisma.message.findMany({
-    where: { business_id: business.id, direction: 'outbound', status: 'ambiguous', created_at: { lt: ago(now, AMBIGUOUS_AGE_MS) } },
-    orderBy: { created_at: 'asc' },
-    take: AMBIGUOUS_LIMIT,
-  });
-  await each(report, `ambiguous ${business.id}`, [...stale, ...rows], async (row) => {
-    // The status transition is the once-only claim. Never re-send: the customer may already have it.
-    const { count } = await prisma.message.updateMany({
-      where: { id: row.id, status: row.status },
-      data: { status: 'ambiguous_unreconciled' },
-    });
-    if (count !== 1) return;
-    report.ambiguous_alerts += 1;
-    const conv = await prisma.conversation.findUnique({ where: { id: row.conversation_id } });
-    await sendStaffAlert({
-      reason: 'ambiguous_send', business, conversation: conv || { id: row.conversation_id }, now,
-      summary: (row.text_body || '').slice(0, 200),
-    });
-  });
-}
-
 // ─── 6. Inbound with no outbound after it (any mode, any gate) ───────────────
 
 async function sweepUnanswered(business, now, report) {
@@ -343,11 +541,12 @@ async function sweepUnanswered(business, now, report) {
     });
     // Reactions need no answer; awaiting_staff has its own note and alert.
     if (!inb || inb.message_type === 'reaction' || inb.status === 'awaiting_staff') return;
-    // A failed send, or one never recorded, did not answer the customer.
+    // A failed send, one never recorded, one the pre-send check cancelled, or one D18 treated as
+    // undelivered did not answer the customer.
     const outbound = await prisma.message.findFirst({
       where: {
         conversation_id: conv.id, direction: 'outbound', created_at: { gte: inb.created_at },
-        status: { notIn: ['failed', 'sending'] },
+        status: { notIn: ['failed', 'sending', 'cancelled', 'ambiguous_unreconciled'] },
       },
       orderBy: { created_at: 'desc' },
     });
@@ -365,14 +564,27 @@ async function sweepUnanswered(business, now, report) {
 
 // ─── run ─────────────────────────────────────────────────────────────────────
 
+// Order matters: settled or un-paused rows are back to `received` before the orphan step schedules
+// runs, and before the awaiting note would tell a customer the bot is about to answer to keep waiting.
 const STEPS = [
+  ['unconfirmed', (b, th, now, r) => sweepUnconfirmed(b, now, r)],
+  ['expired_pauses', (b, th, now, r) => sweepExpiredPauses(b, now, r)],
   ['orphans', (b, th, now, r) => sweepOrphans(b, now, r)],
   ['sla_notes', sweepSlaNotes],
   ['awaiting_notes', sweepAwaitingNotes],
   ['window_flags', (b, th, now, r) => sweepWindowFlags(b, now, r)],
-  ['ambiguous', (b, th, now, r) => sweepAmbiguous(b, now, r)],
   ['unanswered', (b, th, now, r) => sweepUnanswered(b, now, r)],
 ];
+
+/**
+ * D24: restaurant, clinic and external-mode rows claimed as `processing` whose forward/workflow never
+ * finished. Not per SHIFT business: those tenants have no SHIFT row. Required lazily: the processor
+ * loads the whole webhook path, which the status route and the tests of the other steps do not need.
+ */
+async function sweepStuckInbound(now) {
+  const { reprocessStuckInbound } = require('./messageProcessor');
+  return reprocessStuckInbound({ olderThanMs: STUCK_INBOUND_AGE_MS, now });
+}
 
 async function runSweep({ now = new Date() } = {}) {
   // Scheduler and setInterval can overlap inside one instance; the DB claims cover other instances.
@@ -380,6 +592,13 @@ async function runSweep({ now = new Date() } = {}) {
   running = true;
   const report = emptyReport();
   try {
+    try {
+      report.stuck_inbound = await sweepStuckInbound(now);
+    } catch (err) {
+      report.errors.push(`stuck_inbound: ${err.message}`);
+      console.error('[sweep] stuck_inbound failed:', err.message);
+    }
+
     let businesses = [];
     try {
       businesses = await prisma.business.findMany({ where: { business_type: 'shift', status: 'active' } });
@@ -415,7 +634,7 @@ async function getShiftStatus({ now = new Date() } = {}) {
     where: { business_id: business.id, direction },
     orderBy: { created_at: 'desc' },
   });
-  const [lastIn, lastOut, pending, awaitingStaff, receivedBacklog, ambiguous] = await Promise.all([
+  const [lastIn, lastOut, pending, awaitingStaff, receivedBacklog, unconfirmed, ambiguous] = await Promise.all([
     newest('inbound'),
     newest('outbound'),
     prisma.conversation.count({ where: { business_id: business.id, status: 'pending' } }),
@@ -423,6 +642,8 @@ async function getShiftStatus({ now = new Date() } = {}) {
     prisma.message.count({
       where: { business_id: business.id, direction: 'inbound', status: 'received', created_at: { lt: ago(now, BACKLOG_AGE_MS) } },
     }),
+    // D18: customer messages whose covering reply has no confirmation yet.
+    prisma.message.count({ where: { business_id: business.id, direction: 'inbound', status: 'unconfirmed' } }),
     prisma.message.count({
       where: { business_id: business.id, direction: 'outbound', status: { in: ['ambiguous', 'ambiguous_unreconciled'] } },
     }),
@@ -443,6 +664,7 @@ async function getShiftStatus({ now = new Date() } = {}) {
     pending,
     awaiting_staff: awaitingStaff,
     received_backlog: receivedBacklog,
+    unconfirmed,
     ambiguous,
     sweep: lastSweep(),
     now: new Date(now).toISOString(),

@@ -81,7 +81,8 @@ function buildHandoff({ business, conversation, now = new Date(), lang = 'ar', t
   const at = now.toISOString();
   const cleanSummary = String(summary || '').slice(0, 200);
   const ack = acks.handoffAck({ teamHours, contact: business?.ai_config?.contact, now, lang });
-  const needs = mergeNeedsTeam(wd.needs_team, needsTeamEntry(reason === 'complaint' ? 'complaint' : 'person', cleanSummary, at));
+  const candidate = needsTeamEntry(reason === 'complaint' ? 'complaint' : 'person', cleanSummary, at);
+  const needs = mergeNeedsTeam(wd.needs_team, candidate);
 
   return {
     kind: 'handoff',
@@ -98,6 +99,8 @@ function buildHandoff({ business, conversation, now = new Date(), lang = 'ar', t
     leadPatch: null,
     leadMeta: null,
     needsTeam: needs,
+    // D27: the batcher merges this against needs_team as stored when it writes the pending status.
+    needsTeamCandidate: candidate,
     alert: { reason: 'handoff', summary: cleanSummary },
   };
 }

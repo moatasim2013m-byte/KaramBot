@@ -2,7 +2,8 @@
  * services/shiftSweeper.js (pr1-contracts §8.1): the never-silent safety net.
  * One in-memory DB backs Prisma and db/jsonb, so the atomic claims behave as in production.
  * The batcher (built by another slice) and staff alerts are mocked: these tests pin what the
- * sweeper decides, not how a note is sent.
+ * sweeper decides, not how a note is sent. The dispatchIntent mock writes the intent row a real
+ * dispatch writes first, because the sweeper's crash recovery (GPT-6 #11) looks for it.
  */
 require('./setup');
 
@@ -11,7 +12,15 @@ jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb
 jest.mock('../src/services/replyBatcher', () => ({
   scheduleReply: jest.fn(),
   deliverResult: jest.fn(),
+  dispatchIntent: jest.fn(),
+  reconcileUnconfirmedIntents: jest.fn(),
   isShiftReplyAllowed: jest.fn(),
+  // The real rule: the sweeper must agree with the batcher on when a person is talking.
+  isHumanActive: jest.fn((...args) => jest.requireActual('../src/services/replyBatcher').isHumanActive(...args)),
+}));
+// D24: owned by the processor slice; the sweeper only has to call it every run.
+jest.mock('../src/services/messageProcessor', () => ({
+  reprocessStuckInbound: jest.fn(),
 }));
 jest.mock('../src/services/alerts', () => ({
   sendStaffAlert: jest.fn(),
@@ -19,6 +28,7 @@ jest.mock('../src/services/alerts', () => ({
 }));
 
 const replyBatcher = require('../src/services/replyBatcher');
+const messageProcessor = require('../src/services/messageProcessor');
 const alerts = require('../src/services/alerts');
 const acks = require('../src/workflows/shift/acks');
 const { NOTE_WINDOW_MARGIN_MS } = require('../src/utils/serviceWindow');
@@ -65,18 +75,39 @@ function storedConversation(id) {
   return db.store.conversations.find((c) => c.id === id);
 }
 
+function statusOf(id) {
+  return db.store.messages.find((m) => m.id === id).status;
+}
+
 function alertsFor(reason) {
   return alerts.sendStaffAlert.mock.calls.map(([arg]) => arg).filter((a) => a.reason === reason);
 }
 
 function notesOf(kind) {
-  return replyBatcher.deliverResult.mock.calls.map(([arg]) => arg).filter((a) => a.result.kind === kind);
+  return replyBatcher.dispatchIntent.mock.calls.map(([arg]) => arg).filter((a) => a.kind === kind);
 }
+
+// What dispatchIntent does before Graph: an outbound intent row carrying `${batchKey}:0`.
+async function fakeDispatch({ business, conversation, kind, parts, batchKey }) {
+  const [row] = db.seed({
+    messages: [{
+      business_id: business.id, conversation_id: conversation.id, direction: 'outbound', status: 'sent',
+      text_body: parts[0].text, is_ai_generated: true,
+      raw_payload: { kind, batch_key: batchKey ? `${batchKey}:0` : null, part_index: 0, batch_ids: [] },
+    }],
+  }).messages;
+  return { outcome: 'sent', parts: [{ index: 0, status: 'sent', reason: null, id: 'wamid.note', intentId: row.id }] };
+}
+
+const at = (ms) => new Date(NOW.getTime() + ms);
 
 beforeEach(() => {
   db.reset();
   jest.clearAllMocks();
   replyBatcher.deliverResult.mockResolvedValue({ outcome: 'sent', parts: [] });
+  replyBatcher.dispatchIntent.mockImplementation(fakeDispatch);
+  replyBatcher.reconcileUnconfirmedIntents.mockResolvedValue({ requeued: 0, escalated: 0, unreconciled: 0, errors: [] });
+  messageProcessor.reprocessStuckInbound.mockResolvedValue({ reprocessed: 0 });
   replyBatcher.isShiftReplyAllowed.mockReturnValue(true);
   alerts.sendStaffAlert.mockResolvedValue({ webhook: 'skipped', whatsapp: [] });
   alerts.alertChannelConfigured.mockReturnValue(false);
@@ -105,6 +136,22 @@ describe('isCloser', () => {
     expect(isCloser('طيب متى رح تحكوني')).toBe(false);
     expect(isCloser('')).toBe(false);
     expect(isCloser(null)).toBe(false);
+  });
+
+  // GPT-6 #10 / D22: word count is not a closer test — «price please» is a request in two words.
+  test('short requests are not closers', () => {
+    expect(isCloser('price please')).toBe(false);
+    expect(isCloser('كم السعر')).toBe(false);
+    expect(isCloser('بدي عرض')).toBe(false);
+    expect(isCloser('وينكم')).toBe(false);
+    expect(isCloser('تمام بس كم السعر')).toBe(false);
+  });
+
+  test('the explicit phrase list, with spelling variants, emoji and repeats', () => {
+    for (const text of ['شكراً', 'شكرا جزيلا', 'مشكور 🙏', 'يعطيك العافية', 'الله يعطيك العافيه', '👍', '👍🏽',
+      'OK', 'Okay, thanks!', 'thank you', 'تسلم', 'تمام تمام', 'شكراااا', 'تمام 👌']) {
+      expect([text, isCloser(text)]).toEqual([text, true]);
+    }
   });
 });
 
@@ -183,6 +230,102 @@ describe('1. orphaned batches', () => {
   });
 });
 
+describe('1a. temporary staff pause expired (D22, GPT-6 #10)', () => {
+  function seedStaff() {
+    db.seed({ users: [{ id: 'user_1', name: 'رنا', business_id: BIZ }] });
+  }
+
+  test('pause over and nobody claimed the conversation → its awaiting rows go back to received and a run is scheduled', async () => {
+    seedBusiness();
+    seedStaff();
+    // Staff wrote at 10:00 without taking over; the customer asked at 10:05; nobody answered.
+    const conv = seedConversation({ metadata: { human_active_until: before(5 * MIN).toISOString() } });
+    seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'sent', sent_by_user_id: 'user_1', created_at: before(35 * MIN) });
+    const q = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'price please', created_at: before(30 * MIN) });
+
+    const report = await runSweep({ now: NOW });
+
+    expect(statusOf(q.id)).toBe('received');
+    expect(replyBatcher.scheduleReply).toHaveBeenCalledWith(conv.id, { reason: 'sweep' });
+    expect(report.pause_requeued).toBe(1);
+    // Answered by the bot now, not told to keep waiting.
+    expect(notesOf('awaiting_note')).toHaveLength(0);
+  });
+
+  test('pause still running, a staff message under 30 min old, claimed, or AI off → rows stay awaiting_staff', async () => {
+    seedBusiness();
+    seedStaff();
+    const paused = seedConversation({ customer_wa_id: '962790000031', metadata: { human_active_until: at(10 * MIN).toISOString() } });
+    const talking = seedConversation({ customer_wa_id: '962790000032' });
+    seedMessage({ conversation_id: talking.id, direction: 'outbound', status: 'sent', sent_by_user_id: 'user_1', created_at: before(10 * MIN) });
+    const claimed = seedConversation({ customer_wa_id: '962790000033', status: 'human_takeover', ai_enabled: false, assigned_staff_id: 'user_1' });
+    const aiOff = seedConversation({ customer_wa_id: '962790000034', ai_enabled: false });
+    const rows = [paused, talking, claimed, aiOff].map((c) => seedMessage({
+      conversation_id: c.id, status: 'awaiting_staff', text_body: 'وينكم؟', created_at: before(5 * MIN),
+    }));
+
+    const report = await runSweep({ now: NOW });
+
+    expect(rows.map((r) => statusOf(r.id))).toEqual(['awaiting_staff', 'awaiting_staff', 'awaiting_staff', 'awaiting_staff']);
+    expect(report.pause_requeued).toBe(0);
+    expect(replyBatcher.scheduleReply).not.toHaveBeenCalled();
+  });
+
+  test('rows handed to staff because the bot reply stayed unconfirmed (D18) are not requeued', async () => {
+    seedBusiness();
+    const conv = seedConversation({ status: 'pending' });
+    const escalated = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'مرحبا', created_at: before(20 * MIN) });
+    seedMessage({
+      conversation_id: conv.id, direction: 'outbound', status: 'ambiguous_unreconciled', is_ai_generated: true, created_at: before(19 * MIN),
+      raw_payload: { kind: 'reply', batch_key: `${escalated.id}:0`, batch_ids: [escalated.id], settled: 'escalated' },
+    });
+
+    await runSweep({ now: NOW });
+
+    expect(statusOf(escalated.id)).toBe('awaiting_staff');
+    expect(replyBatcher.scheduleReply).not.toHaveBeenCalled();
+  });
+
+  test('rows handed to staff after a second `failed` status (D19, intent left `failed`) are not requeued', async () => {
+    seedBusiness();
+    const conv = seedConversation({ status: 'pending' });
+    const escalated = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'مرحبا', created_at: before(20 * MIN) });
+    seedMessage({
+      conversation_id: conv.id, direction: 'outbound', status: 'failed', is_ai_generated: true, created_at: before(19 * MIN),
+      raw_payload: { kind: 'reply', batch_key: `${escalated.id}:0`, batch_ids: [escalated.id], settled: 'escalated' },
+    });
+
+    await runSweep({ now: NOW });
+
+    expect(statusOf(escalated.id)).toBe('awaiting_staff');
+    expect(replyBatcher.scheduleReply).not.toHaveBeenCalled();
+  });
+
+  test('200+ rows parked in a claimed chat do not hide a newer conversation whose pause ended', async () => {
+    seedBusiness();
+    seedStaff();
+    const held = seedConversation({ customer_wa_id: '962790000041', status: 'human_takeover', ai_enabled: false, assigned_staff_id: 'user_1' });
+    for (let i = 0; i < 205; i += 1) {
+      seedMessage({ conversation_id: held.id, status: 'awaiting_staff', text_body: `سؤال ${i}`, created_at: before(3 * HOUR - i * 1000) });
+    }
+    const expired = seedConversation({ customer_wa_id: '962790000042', metadata: { human_active_until: before(MIN).toISOString() } });
+    const q = seedMessage({ conversation_id: expired.id, status: 'awaiting_staff', text_body: 'وينكم؟', created_at: before(20 * MIN) });
+
+    await runSweep({ now: NOW });
+
+    expect(statusOf(q.id)).toBe('received');
+  });
+
+  test('D1 gate closed for this customer → not requeued (the batcher would only skip them)', async () => {
+    seedBusiness();
+    replyBatcher.isShiftReplyAllowed.mockReturnValue(false);
+    const conv = seedConversation();
+    const q = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'وينكم؟', created_at: before(40 * MIN) });
+    await runSweep({ now: NOW });
+    expect(statusOf(q.id)).toBe('awaiting_staff');
+  });
+});
+
 describe('2. SLA note', () => {
   function seedPending(needsTeam = {}, extra = {}) {
     return seedConversation({
@@ -197,25 +340,30 @@ describe('2. SLA note', () => {
     });
   }
 
-  test('16 team-minutes, no staff outbound → one note + alert, claim stored', async () => {
+  const storedNeedsTeam = (id) => storedConversation(id).workflow_data.needs_team;
+
+  test('16 team-minutes, no staff outbound → one note through dispatchIntent + alert, claim stored', async () => {
     seedBusiness();
     const conv = seedPending();
+    const requestAt = conv.workflow_data.needs_team.at;
 
     const report = await runSweep({ now: NOW });
 
     const notes = notesOf('sla_note');
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatchObject({ batch: [], windowMarginMs: NOTE_WINDOW_MARGIN_MS, now: NOW });
-    expect(notes[0].conversation.id).toBe(conv.id);
-    expect(notes[0].result).toEqual({
-      kind: 'sla_note', action: 'NONE', messages: [{ type: 'text', text: acks.slaNote('ar') }],
-      stateUpdate: {}, workflowDataPatch: {}, leadPatch: null, needsTeam: null, alert: null,
+    // D17/D21: an intent tied to this request, behind the pre-send check (a claim made meanwhile stops it).
+    expect(notes[0]).toMatchObject({
+      kind: 'sla_note', parts: [{ type: 'text', text: acks.slaNote('ar') }], batchIds: [],
+      batchKey: `sla_note:quote:${requestAt}`, since: new Date(requestAt), now: NOW,
+      precheck: { humanGuard: true, optedOutSince: new Date(requestAt) },
     });
+    expect(notes[0].conversation.id).toBe(conv.id);
+    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
     expect(alertsFor('sla_breached')).toHaveLength(1);
     expect(report.sla_notes).toBe(1);
-    expect(storedConversation(conv.id).workflow_data.needs_team.sla_note_sent_at).toEqual(expect.any(String));
-    // Siblings of the claimed key survive.
-    expect(storedConversation(conv.id).workflow_data.needs_team.reason).toBe('quote');
+    expect(storedNeedsTeam(conv.id)).toMatchObject({
+      reason: 'quote', at: requestAt, sla_note_sent_at: NOW.toISOString(), sla_note_attempt: 1, sla_note_done_at: NOW.toISOString(),
+    });
 
     await runSweep({ now: new Date(NOW.getTime() + MIN) });
     expect(notesOf('sla_note')).toHaveLength(1);
@@ -243,7 +391,7 @@ describe('2. SLA note', () => {
     seedBusiness();
     seedPending({}, { lead: { language: 'en' } });
     await runSweep({ now: NOW });
-    expect(notesOf('sla_note')[0].result.messages[0].text).toBe(acks.slaNote('en'));
+    expect(notesOf('sla_note')[0].parts[0].text).toBe(acks.slaNote('en'));
   });
 
   test('no lead language: the note follows the customer\'s newest text', async () => {
@@ -251,7 +399,7 @@ describe('2. SLA note', () => {
     const conv = seedPending();
     seedMessage({ conversation_id: conv.id, text_body: 'Hi, can I get a quote for my clinic?', created_at: before(20 * MIN) });
     await runSweep({ now: NOW });
-    expect(notesOf('sla_note')[0].result.messages[0].text).toBe(acks.slaNote('en'));
+    expect(notesOf('sla_note')[0].parts[0].text).toBe(acks.slaNote('en'));
   });
 
   test('two concurrent runSweep calls → one note', async () => {
@@ -264,19 +412,98 @@ describe('2. SLA note', () => {
     expect([a.skipped, b.skipped]).toContain('already_running');
   });
 
-  test('the DB claim is once-only even when the in-process guard does not apply', async () => {
+  // Another instance's sweep read the same unclaimed request and claimed it first.
+  test('a sweep holding a stale unclaimed copy loses the claim (compare-and-set on the stored entry)', async () => {
     seedBusiness();
     const conv = seedPending();
-    const jsonb = require('../src/db/jsonb');
-    const path = ['needs_team', 'sla_note_sent_at'];
-    const claims = await Promise.all([
-      jsonb.claimFlag('conversations', conv.id, 'workflow_data', path),
-      jsonb.claimFlag('conversations', conv.id, 'workflow_data', path),
-    ]);
-    expect(claims.filter(Boolean)).toHaveLength(1);
+    const stale = JSON.parse(JSON.stringify(storedConversation(conv.id)));
+    Object.assign(storedConversation(conv.id).workflow_data.needs_team, { sla_note_sent_at: before(30 * 1000).toISOString(), sla_note_attempt: 1 });
+    jest.spyOn(db.prisma.conversation, 'findMany').mockImplementationOnce(async () => [stale]);
 
     await runSweep({ now: NOW });
+
     expect(notesOf('sla_note')).toHaveLength(0);
+    expect(alertsFor('sla_breached')).toHaveLength(0);
+    expect(storedNeedsTeam(conv.id)).toMatchObject({ sla_note_attempt: 1, sla_note_sent_at: before(30 * 1000).toISOString() });
+  });
+
+  // GPT-6 #11: the old sweep must not mark the NEW request's note as sent while acting on the old one.
+  test('the request was replaced between the read and the claim → no note, the new request is untouched', async () => {
+    seedBusiness();
+    const conv = seedPending();
+    const stale = JSON.parse(JSON.stringify(storedConversation(conv.id)));
+    storedConversation(conv.id).workflow_data.needs_team = {
+      reason: 'person', summary: 'بدو حدا', at: before(MIN).toISOString(), resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null,
+    };
+    jest.spyOn(db.prisma.conversation, 'findMany').mockImplementationOnce(async () => [stale]);
+
+    await runSweep({ now: NOW });
+
+    expect(notesOf('sla_note')).toHaveLength(0);
+    expect(storedNeedsTeam(conv.id)).toEqual({
+      reason: 'person', summary: 'بدو حدا', at: before(MIN).toISOString(), resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null,
+    });
+  });
+
+  test('a sweep that dies after its claim and before the intent row → reclaimed after 2 min, exactly one note', async () => {
+    seedBusiness();
+    const conv = seedPending();
+    replyBatcher.dispatchIntent.mockRejectedValueOnce(new Error('instance killed'));
+
+    const first = await runSweep({ now: NOW });
+    expect(first.errors.some((e) => e.includes('instance killed'))).toBe(true);
+    expect(alertsFor('sla_breached')).toHaveLength(0);
+    expect(storedNeedsTeam(conv.id)).toMatchObject({ sla_note_sent_at: NOW.toISOString(), sla_note_attempt: 1 });
+    expect(storedNeedsTeam(conv.id).sla_note_done_at).toBeUndefined();
+
+    // Inside the claim's 2 minutes another sweep may still be working on it.
+    await runSweep({ now: at(MIN) });
+    expect(notesOf('sla_note')).toHaveLength(1);
+
+    await runSweep({ now: at(3 * MIN) });
+    expect(notesOf('sla_note')).toHaveLength(2);
+    expect(db.store.messages.filter((m) => m.raw_payload && m.raw_payload.kind === 'sla_note')).toHaveLength(1);
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+    expect(storedNeedsTeam(conv.id)).toMatchObject({ sla_note_attempt: 2, sla_note_done_at: at(3 * MIN).toISOString() });
+
+    await runSweep({ now: at(10 * MIN) });
+    expect(notesOf('sla_note')).toHaveLength(2);
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+  });
+
+  test('a sweep that dies after the intent row was written → the reclaim finishes the bookkeeping and never sends again', async () => {
+    seedBusiness();
+    const conv = seedPending();
+    replyBatcher.dispatchIntent.mockImplementationOnce(async (args) => {
+      await fakeDispatch(args);
+      throw new Error('instance killed after dispatch');
+    });
+
+    await runSweep({ now: NOW });
+    await runSweep({ now: at(3 * MIN) });
+
+    expect(notesOf('sla_note')).toHaveLength(1);
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+    expect(storedNeedsTeam(conv.id).sla_note_done_at).toBe(at(3 * MIN).toISOString());
+  });
+
+  test("a claim written by PR1's first sweeper (no attempt counter) counts as handled", async () => {
+    seedBusiness();
+    seedPending({ sla_note_sent_at: before(20 * MIN).toISOString() });
+    await runSweep({ now: NOW });
+    expect(notesOf('sla_note')).toHaveLength(0);
+    expect(alertsFor('sla_breached')).toHaveLength(0);
+  });
+
+  test('24 h window closing within the note margin → no note, staff still alerted', async () => {
+    seedBusiness();
+    seedPending({}, {});
+    const conv = db.store.conversations[0];
+    conv.last_inbound_at = before(24 * HOUR - NOTE_WINDOW_MARGIN_MS + MIN);
+    await runSweep({ now: NOW });
+    expect(notesOf('sla_note')).toHaveLength(0);
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+    expect(alertsFor('sla_breached')[0].summary).toContain('window_closed');
   });
 
   test('after hours → no note', async () => {
@@ -337,6 +564,66 @@ describe('2. SLA note', () => {
   });
 });
 
+describe('2b/3b. note dispatch is fenced on the claim (takeover after NOTE_CLAIM_TTL_MS)', () => {
+  test('SLA note: the pre-send check carries the request and attempt; a claim lost meanwhile → no alert, no done mark', async () => {
+    seedBusiness();
+    const requestAt = before(16 * MIN).toISOString();
+    const conv = seedConversation({
+      status: 'pending',
+      workflow_data: { needs_team: { reason: 'quote', summary: 's', at: requestAt, resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null } },
+    });
+    replyBatcher.dispatchIntent.mockImplementationOnce(async (args) => {
+      expect(args.precheck.claim).toEqual([
+        { column: 'workflow_data', path: ['needs_team', 'at'], value: requestAt },
+        { column: 'workflow_data', path: ['needs_team', 'sla_note_attempt'], value: 1 },
+      ]);
+      // Another sweep took the claim over while this one stalled; the real pre-send check refuses.
+      storedConversation(conv.id).workflow_data.needs_team.sla_note_attempt = 2;
+      return { outcome: 'aborted', parts: [{ index: 0, status: 'aborted', reason: 'precheck', id: null, intentId: 'x' }] };
+    });
+
+    await runSweep({ now: NOW });
+
+    expect(alertsFor('sla_breached')).toHaveLength(0);
+    expect(storedConversation(conv.id).workflow_data.needs_team.sla_note_done_at).toBeUndefined();
+  });
+
+  test('SLA note refused for another reason (staff claimed) while the claim is still ours → alert and done mark as before', async () => {
+    seedBusiness();
+    const conv = seedConversation({
+      status: 'pending',
+      workflow_data: { needs_team: { reason: 'quote', summary: 's', at: before(16 * MIN).toISOString(), resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null } },
+    });
+    replyBatcher.dispatchIntent.mockResolvedValueOnce({ outcome: 'aborted', parts: [] });
+
+    await runSweep({ now: NOW });
+
+    expect(alertsFor('sla_breached')).toHaveLength(1);
+    expect(storedConversation(conv.id).workflow_data.needs_team.sla_note_done_at).toBe(NOW.toISOString());
+  });
+
+  test('awaiting note: fenced on awaiting_note_for and on an opt-out during the silence; a lost claim → no alert', async () => {
+    seedBusiness();
+    db.seed({ users: [{ id: 'user_1', name: 'رنا', business_id: BIZ }] });
+    const conv = seedConversation({ status: 'human_takeover', ai_enabled: false, assigned_staff_id: 'user_1' });
+    const q = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'وينكم؟', created_at: before(11 * MIN) });
+    replyBatcher.dispatchIntent.mockImplementationOnce(async (args) => {
+      expect(args.precheck).toEqual({
+        humanGuard: false,
+        optedOutSince: new Date(q.created_at),
+        claim: [{ column: 'metadata', path: ['awaiting_note_for'], value: `${q.id}#1` }],
+      });
+      storedConversation(conv.id).metadata = { ...storedConversation(conv.id).metadata, awaiting_note_for: `${q.id}#2` };
+      return { outcome: 'aborted', parts: [] };
+    });
+
+    await runSweep({ now: NOW });
+
+    expect(alertsFor('awaiting_staff')).toHaveLength(0);
+    expect(storedConversation(conv.id).metadata.awaiting_note_done_for).toBeUndefined();
+  });
+});
+
 describe('3. awaiting-staff note', () => {
   function seedTakeover() {
     db.seed({ users: [{ id: 'user_1', name: 'رنا', business_id: BIZ }] });
@@ -354,11 +641,12 @@ describe('3. awaiting-staff note', () => {
 
     const notes = notesOf('awaiting_note');
     expect(notes).toHaveLength(1);
-    expect(notes[0].result.messages[0].text).toBe(acks.awaitingStaffNote({ staffName: 'رنا', lang: 'ar' }));
-    expect(notes[0]).toMatchObject({ batch: [], windowMarginMs: NOTE_WINDOW_MARGIN_MS });
+    expect(notes[0].parts).toEqual([{ type: 'text', text: acks.awaitingStaffNote({ staffName: 'رنا', lang: 'ar' }) }]);
+    // Sent while staff hold the conversation (humanGuard off), tied to this silence.
+    expect(notes[0]).toMatchObject({ batchIds: [], batchKey: `awaiting_note:${q.id}`, precheck: { humanGuard: false } });
     expect(alertsFor('awaiting_staff')).toHaveLength(1);
     expect(report.awaiting_notes).toBe(1);
-    expect(storedConversation(conv.id).metadata.awaiting_note_for).toBe(q.id);
+    expect(storedConversation(conv.id).metadata).toMatchObject({ awaiting_note_for: `${q.id}#1`, awaiting_note_done_for: q.id });
     // The rows stay awaiting_staff until a staff member replies.
     expect(db.store.messages.find((m) => m.id === q.id).status).toBe('awaiting_staff');
 
@@ -408,6 +696,43 @@ describe('3. awaiting-staff note', () => {
     expect(alertsFor('awaiting_staff')).toHaveLength(0);
   });
 
+  // GPT-6 #10: «price please» used to be silenced as a ≤ 3-word closer.
+  test('a short request is not a closer → note', async () => {
+    seedBusiness();
+    const conv = seedTakeover();
+    seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'price please', created_at: before(15 * MIN) });
+    await runSweep({ now: NOW });
+    expect(notesOf('awaiting_note')).toHaveLength(1);
+  });
+
+  test('a sweep that dies after its claim → reclaimed after 2 min, one note', async () => {
+    seedBusiness();
+    const conv = seedTakeover();
+    const q = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'وينكم؟', created_at: before(11 * MIN) });
+    replyBatcher.dispatchIntent.mockRejectedValueOnce(new Error('instance killed'));
+
+    await runSweep({ now: NOW });
+    await runSweep({ now: at(MIN) });
+    expect(notesOf('awaiting_note')).toHaveLength(1);
+    expect(alertsFor('awaiting_staff')).toHaveLength(0);
+
+    await runSweep({ now: at(3 * MIN) });
+    await runSweep({ now: at(4 * MIN) });
+    expect(notesOf('awaiting_note')).toHaveLength(2);
+    expect(db.store.messages.filter((m) => m.raw_payload && m.raw_payload.kind === 'awaiting_note')).toHaveLength(1);
+    expect(alertsFor('awaiting_staff')).toHaveLength(1);
+    expect(storedConversation(conv.id).metadata).toMatchObject({ awaiting_note_for: `${q.id}#2`, awaiting_note_done_for: q.id });
+  });
+
+  test("a claim written by PR1's first sweeper (bare row id) counts as handled", async () => {
+    seedBusiness();
+    const conv = seedTakeover();
+    const q = seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'وينكم؟', created_at: before(30 * MIN) });
+    storedConversation(conv.id).metadata = { awaiting_note_for: q.id };
+    await runSweep({ now: NOW });
+    expect(notesOf('awaiting_note')).toHaveLength(0);
+  });
+
   test('younger than 10 min or after hours → none', async () => {
     seedBusiness();
     const conv = seedTakeover();
@@ -420,12 +745,12 @@ describe('3. awaiting-staff note', () => {
     expect(notesOf('awaiting_note')).toHaveLength(0);
   });
 
-  test('no assigned staff → «الفريق»', async () => {
+  test('no assigned staff (a staff pause still running) → «الفريق»', async () => {
     seedBusiness();
-    const conv = seedConversation({ status: 'open' });
+    const conv = seedConversation({ status: 'open', metadata: { human_active_until: at(15 * MIN).toISOString() } });
     seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', text_body: 'متى بتردوا؟', created_at: before(11 * MIN) });
     await runSweep({ now: NOW });
-    expect(notesOf('awaiting_note')[0].result.messages[0].text).toBe(acks.awaitingStaffNote({ lang: 'ar' }));
+    expect(notesOf('awaiting_note')[0].parts[0].text).toBe(acks.awaitingStaffNote({ lang: 'ar' }));
   });
 });
 
@@ -451,7 +776,8 @@ describe('4. window closing', () => {
 
   test('open conversation with an awaiting_staff inbound is eligible; without one it is not', async () => {
     seedBusiness();
-    const withRow = seedConversation({ customer_wa_id: '962790000001', last_inbound_at: before(23 * HOUR) });
+    // The staff pause keeps the row parked (otherwise step 1a hands it back to the bot first).
+    const withRow = seedConversation({ customer_wa_id: '962790000001', last_inbound_at: before(23 * HOUR), metadata: { human_active_until: at(10 * MIN).toISOString() } });
     const without = seedConversation({ customer_wa_id: '962790000002', last_inbound_at: before(23 * HOUR) });
     seedMessage({ conversation_id: withRow.id, status: 'awaiting_staff', text_body: 'تمام', created_at: before(23 * HOUR) });
 
@@ -470,53 +796,30 @@ describe('4. window closing', () => {
   });
 });
 
-describe('5. ambiguous sends', () => {
-  test('ambiguous for 11 min → ambiguous_unreconciled + alert once; 5 min → untouched', async () => {
+describe('5. unconfirmed intents (D18)', () => {
+  test('every run hands unconfirmed intents to the batcher protocol, per SHIFT business, and reports its counts', async () => {
     seedBusiness();
-    const conv = seedConversation();
-    const old = seedMessage({
-      conversation_id: conv.id, direction: 'outbound', status: 'ambiguous', text_body: 'أهلًا', created_at: before(11 * MIN),
-    });
-    const young = seedMessage({
-      conversation_id: conv.id, direction: 'outbound', status: 'ambiguous', text_body: 'أهلًا', created_at: before(5 * MIN),
-    });
+    replyBatcher.reconcileUnconfirmedIntents.mockResolvedValue({ requeued: 2, escalated: 1, unreconciled: 3, errors: ['i1: boom'] });
 
     const report = await runSweep({ now: NOW });
 
-    expect(db.store.messages.find((m) => m.id === old.id).status).toBe('ambiguous_unreconciled');
-    expect(db.store.messages.find((m) => m.id === young.id).status).toBe('ambiguous');
-    expect(alertsFor('ambiguous_send')).toHaveLength(1);
-    expect(alertsFor('ambiguous_send')[0].conversation.id).toBe(conv.id);
-    expect(report.ambiguous_alerts).toBe(1);
-    // Never re-sends.
-    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
-    expect(replyBatcher.scheduleReply).not.toHaveBeenCalled();
-
-    await runSweep({ now: new Date(NOW.getTime() + MIN) });
-    expect(alertsFor('ambiguous_send')).toHaveLength(1);
+    expect(replyBatcher.reconcileUnconfirmedIntents).toHaveBeenCalledTimes(1);
+    expect(replyBatcher.reconcileUnconfirmedIntents).toHaveBeenCalledWith({ now: NOW, businessId: BIZ });
+    expect(report).toMatchObject({ unconfirmed_requeued: 2, unconfirmed_escalated: 1, ambiguous_alerts: 3 });
+    expect(report.errors).toContain(`unconfirmed ${BIZ}: i1: boom`);
   });
 
-  test('a send left at `sending` for 3 min (process died mid-send) → ambiguous_unreconciled + alert once; 30 s → untouched', async () => {
+  test('the sweeper no longer flips old ambiguous or sending intents itself (their inbound rows would stay unconfirmed)', async () => {
     seedBusiness();
     const conv = seedConversation();
-    const dead = seedMessage({
-      conversation_id: conv.id, direction: 'outbound', status: 'sending', text_body: 'رسالتك وصلت', created_at: before(3 * MIN),
-      raw_payload: { kind: 'awaiting_note', batch_ids: [] },
-    });
-    const live = seedMessage({
-      conversation_id: conv.id, direction: 'outbound', status: 'sending', text_body: 'أهلًا', created_at: before(30 * 1000),
-    });
+    const old = seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'ambiguous', text_body: 'أهلًا', created_at: before(11 * MIN) });
+    const dead = seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'sending', text_body: 'أهلًا', created_at: before(3 * MIN) });
 
-    const report = await runSweep({ now: NOW });
+    await runSweep({ now: NOW });
 
-    expect(db.store.messages.find((m) => m.id === dead.id).status).toBe('ambiguous_unreconciled');
-    expect(db.store.messages.find((m) => m.id === live.id).status).toBe('sending');
-    expect(alertsFor('ambiguous_send')).toHaveLength(1);
-    expect(report.ambiguous_alerts).toBe(1);
-    expect(replyBatcher.deliverResult).not.toHaveBeenCalled();
-
-    await runSweep({ now: new Date(NOW.getTime() + MIN) });
-    expect(alertsFor('ambiguous_send')).toHaveLength(1);
+    expect(statusOf(old.id)).toBe('ambiguous');
+    expect(statusOf(dead.id)).toBe('sending');
+    expect(alertsFor('ambiguous_send')).toHaveLength(0);
   });
 });
 
@@ -543,11 +846,15 @@ describe('6. inbound without outbound', () => {
     seedMessage({ conversation_id: failed.id, direction: 'outbound', status: 'failed', text_body: 'أهلًا', created_at: before(4 * MIN) });
     const sending = seedConversation({ customer_wa_id: '962790000012', last_inbound_at: before(5 * MIN) });
     seedMessage({ conversation_id: sending.id, status: 'received', text_body: 'مرحبا', created_at: before(5 * MIN) });
-    // Younger than the stale-send threshold, so step 5 has not flagged it yet.
+    // Younger than the 2 min after which reconcileUnconfirmedIntents settles it.
     seedMessage({ conversation_id: sending.id, direction: 'outbound', status: 'sending', text_body: 'أهلًا', created_at: before(90 * 1000) });
+    // Refused by the pre-send check: it never left the server.
+    const cancelled = seedConversation({ customer_wa_id: '962790000013', last_inbound_at: before(5 * MIN) });
+    seedMessage({ conversation_id: cancelled.id, status: 'received', text_body: 'مرحبا', created_at: before(5 * MIN) });
+    seedMessage({ conversation_id: cancelled.id, direction: 'outbound', status: 'cancelled', text_body: 'أهلًا', created_at: before(4 * MIN) });
 
     await runSweep({ now: NOW });
-    expect(alertsFor('inbound_without_outbound').map((a) => a.conversation.id).sort()).toEqual([failed.id, sending.id].sort());
+    expect(alertsFor('inbound_without_outbound').map((a) => a.conversation.id).sort()).toEqual([failed.id, sending.id, cancelled.id].sort());
   });
 
   test("fires with reply_mode 'external' and with the bot gate closed", async () => {
@@ -570,7 +877,7 @@ describe('6. inbound without outbound', () => {
     const reaction = seedConversation({ customer_wa_id: '962790000002', last_inbound_at: before(5 * MIN) });
     seedMessage({ conversation_id: reaction.id, message_type: 'reaction', status: 'skipped', created_at: before(5 * MIN) });
 
-    const awaiting = seedConversation({ customer_wa_id: '962790000003', last_inbound_at: before(5 * MIN) });
+    const awaiting = seedConversation({ customer_wa_id: '962790000003', last_inbound_at: before(5 * MIN), metadata: { human_active_until: at(20 * MIN).toISOString() } });
     seedMessage({ conversation_id: awaiting.id, status: 'awaiting_staff', text_body: 'وين؟', created_at: before(5 * MIN) });
 
     const young = seedConversation({ customer_wa_id: '962790000004', last_inbound_at: before(MIN) });
@@ -606,8 +913,26 @@ describe('runSweep', () => {
   test('report shape', async () => {
     const report = await runSweep({ now: NOW });
     expect(report).toEqual({
-      orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, ambiguous_alerts: 0, unanswered_alerts: 0, errors: [],
+      stuck_inbound: { reprocessed: 0 }, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
+      pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0, errors: [],
     });
+  });
+
+  test('D24: stuck non-SHIFT inbound is re-processed once per run, even with no SHIFT business', async () => {
+    seedBusiness({ business_type: 'restaurant' });
+    const report = await runSweep({ now: NOW });
+    expect(messageProcessor.reprocessStuckInbound).toHaveBeenCalledTimes(1);
+    expect(messageProcessor.reprocessStuckInbound).toHaveBeenCalledWith({ olderThanMs: 2 * MIN, now: NOW });
+    expect(report.stuck_inbound).toEqual({ reprocessed: 0 });
+    expect(replyBatcher.reconcileUnconfirmedIntents).not.toHaveBeenCalled();
+  });
+
+  test('a failing reprocessStuckInbound is reported and the SHIFT steps still run', async () => {
+    seedBusiness();
+    messageProcessor.reprocessStuckInbound.mockRejectedValue(new Error('processor down'));
+    const report = await runSweep({ now: NOW });
+    expect(report.errors).toContain('stuck_inbound: processor down');
+    expect(replyBatcher.reconcileUnconfirmedIntents).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -625,6 +950,7 @@ describe('getShiftStatus', () => {
     seedMessage({ conversation_id: conv.id, status: 'received', created_at: before(2 * MIN) });
     seedMessage({ conversation_id: conv.id, status: 'received', created_at: before(10 * 1000) });
     seedMessage({ conversation_id: conv.id, status: 'awaiting_staff', created_at: before(MIN) });
+    seedMessage({ conversation_id: conv.id, status: 'unconfirmed', created_at: before(3 * MIN) });
     seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'ambiguous', created_at: before(20 * MIN) });
     seedMessage({ conversation_id: conv.id, direction: 'outbound', status: 'ambiguous_unreconciled', created_at: before(3 * MIN) });
 
@@ -644,6 +970,7 @@ describe('getShiftStatus', () => {
       pending: 1,
       awaiting_staff: 1,
       received_backlog: 1,
+      unconfirmed: 1,
       ambiguous: 2,
       sweep: lastSweep(),
       now: NOW.toISOString(),

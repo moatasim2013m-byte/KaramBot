@@ -73,7 +73,15 @@ jest.mock('../src/config/prisma', () => {
   const ALL_BUSINESSES   = [BIZ_A, BIZ_B];
   const ALL_CONVS        = [CONV_A, CONV_B];
 
-  return {
+  const matchesValue = (value, cond) => (cond && typeof cond === 'object' && Array.isArray(cond.in)
+    ? cond.in.includes(value)
+    : value === cond);
+
+  const mock = {
+    // D24: persistInbound writes the row and the counters in one interactive transaction. No isolation
+    // is needed here: the callback runs against this same mock.
+    $transaction: jest.fn((arg) => (typeof arg === 'function' ? arg(mock) : Promise.all(arg))),
+
     // Exposed for test assertions
     __BIZ_A: BIZ_A,
     __BIZ_B: BIZ_B,
@@ -126,10 +134,10 @@ jest.mock('../src/config/prisma', () => {
     },
 
     message: {
-      // Applies status transitions by id (the inbound persist claim: `persisting` → final status).
+      // Applies status transitions by id (`processing` → `delivered` once the workflow ran, D24).
       updateMany: jest.fn(({ where, data } = {}) => {
-        const rows = [...msgByMetaId.values()].filter((m) => where?.id && m.id === where.id
-          && (where.status === undefined || m.status === where.status));
+        const rows = [...msgByMetaId.values()].filter((m) => where?.id && matchesValue(m.id, where.id)
+          && (where.status === undefined || matchesValue(m.status, where.status)));
         rows.forEach((m) => Object.assign(m, data));
         return Promise.resolve({ count: rows.length });
       }),
@@ -154,6 +162,7 @@ jest.mock('../src/config/prisma', () => {
 
     $disconnect: jest.fn(() => Promise.resolve()),
   };
+  return mock;
 });
 
 // ─── Requires (after mocks are declared) ──────────────────────────────────────

@@ -84,13 +84,16 @@ Restaurant/clinic keep their existing full-column `stateUpdate` writes.
 
 | Direction | Business | Values and transitions |
 |---|---|---|
-| inbound | restaurant, clinic, generic, any `reply_mode='external'` (incl. SHIFT if set) | `delivered` (unchanged) |
-| inbound | SHIFT, not external | `received` → `answered` (a bot outbound covering it was sent or is ambiguous) · `awaiting_staff` (human-active guard) · `skipped` (reaction, unsupported type, opt-out command, window closed, D1 gate closed) |
-| outbound | bot (SHIFT) | `sending` (intent row) → `sent` (Graph accepted, `meta_message_id`=wamid) → `delivered`/`read`/`failed` (status webhook) · `failed` (definite send failure) · `ambiguous` (timeout, no wamid) → reconciled to `sent\|delivered\|read\|failed` by the status webhook, or → `ambiguous_unreconciled` by the sweeper after 10 min (alert once) |
+| inbound | restaurant, clinic, generic, any `reply_mode='external'` (incl. SHIFT if set) | `processing` (D24: inserted with the counters in one transaction) → `delivered` (today's value) once the forward/workflow ran or was attempted · `processing` older than 2 min → `reprocessing` (the one re-run by `reprocessStuckInbound`) → `delivered`; `reprocessing` older than 2 min → `delivered` + error log (given up) |
+| inbound | SHIFT, not external | `received` → `answered` (a covering intent got a wamid, or an echoed `sent/delivered/read`) · `unconfirmed` (D18: the covering intent is `sending`/`ambiguous`; → `answered` on confirmation, → `received` once after 2 min, → `awaiting_staff` the second time) · `awaiting_staff` (human-active guard, or D18 escalation) · `skipped` (reaction, unsupported type, opt-out command — once its ack intent exists —, window closed, D1 gate closed) |
+| outbound | bot (SHIFT) | `sending` (intent row; its id is `biz_opaque_callback_data`) → `sent` (Graph returned a wamid) → `delivered`/`read`/`failed` (status webhook) · `failed` (proven rejection) · `cancelled` (D20 pre-send check refused; never reached Graph) · `ambiguous` (timeout / generic 5xx, no wamid) → confirmed by the echoed status (`replyBatcher.applyIntentStatus`), or → `ambiguous_unreconciled` by `reconcileUnconfirmedIntents` after 2 min (`raw_payload.settled` = `requeued` \| `escalated` \| `unreconciled` \| `dropped` (an opt-out ack given up on)) |
 | outbound | staff, ingest, restaurant/clinic bot | `sent` (unchanged) |
 
-Only `replyBatcher.deliverResult` moves inbound SHIFT rows out of `received` (plus `messageProcessor` for `skipped`, and
-the staff `/send` route for `awaiting_staff → answered`).
+Only `replyBatcher` moves inbound SHIFT rows out of `received` (`deliverResult`/`dispatchIntent`, `runBatch` for
+reactions and opt-outs, `applyIntentStatus`, `reconcileUnconfirmedIntents`; plus `messageProcessor` for `skipped` in D1
+save-only mode and for `answered → unconfirmed` on a D19 `failed` status, and the staff `/send` route for
+`awaiting_staff → answered`). Outbound bot intents with a `failed` status webhook keep `raw_payload.settled` /
+`status_error`.
 
 ### 1.3 `workflow_data` shape (SHIFT)
 
@@ -105,8 +108,11 @@ the staff `/send` route for `awaiting_staff → answered`).
     _prov: { <field>: { source /* model|button|staff|referral */, source_msg_id, at, confirmed /* bool */ } },
     version /* int, starts at 1 on first write */
   },
-  needs_team: { reason /* quote|meeting|demo|person|complaint|unknown|ai_failure */, summary, at,
-                resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null },
+  needs_team: { reason /* unsent_reply|quote|meeting|demo|person|complaint|unknown|ai_failure */, summary, at,
+                resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null,
+                // sweeper (GPT-6 #11), added on claim: sla_note_sent_at = claim time of the latest attempt,
+                sla_note_attempt /* int */, sla_note_done_at /* note dispatched or skipped, alert sent */ },
+  requested_time_change: { text, at } | null,   // D26: a call time the customer asked for that a staff-owned time blocked
   handoff: { requested_at, reason /* person|complaint|abuse */, tier /* 1|2 */ },
   slot_offers: [{ id: 'slot:2026-09-15T10:00+03:00/12:00', title: 'بكرا 10–12', issued_at }],
   capture_pending: { slot_id /* id|'other'|null */, time_text, at } | null,
@@ -117,8 +123,8 @@ the staff `/send` route for `awaiting_staff → answered`).
 
 All timestamps are ISO-8601 strings. JS writers use `date.toISOString()`; SQL writers use `to_jsonb(now())`
 (Postgres prints `2026-09-14T08:00:00.123456+00:00`). Readers always use `new Date(value)`.
-`needs_team` priority (higher wins while unresolved): `person = complaint (5) > meeting (4) > quote (3) > demo (2) >
-unknown (1) > ai_failure (0)`. A new needs_team replaces the stored one only if the stored one is missing, resolved, or
+`needs_team` priority (higher wins while unresolved): `unsent_reply (6) > person = complaint (5) > meeting (4) > quote (3) >
+demo (2) > unknown (1) > ai_failure (0)`. A new needs_team replaces the stored one only if the stored one is missing, resolved, or
 of strictly lower priority (helper `mergeNeedsTeam` in `shift/results.js`).
 
 ### 1.4 `metadata` shape (SHIFT)
@@ -126,11 +132,14 @@ of strictly lower priority (helper `mergeNeedsTeam` in `shift/results.js`).
 ```js
 {
   lease_token: null, reply_lease_until: null,   // §4.1 lease; reply_lease_until written with DB now()
+  batch_first_at: null, batch_due_at: null,     // D25: the burst's shared quiet deadline (jsonb.touchBatchDue, DB now())
   reply_failures: 0,                            // consecutive failed deliveries; ≥3 → sweeper stops retrying
-  human_active_until: null,                     // staff send / claim ack: now + 30 min
+  human_active_until: null,                     // staff send / SHIFT claim: now + 30 min, written BEFORE Graph (D21)
   billing_blocked_at: null,                     // last send failure with reason 'billing' (Inbox banner)
   window_flag_for: null, window_closing_at: null, // sweeper once-per-inbound claim + Inbox flag
-  awaiting_note_for: null,                      // sweeper once-per-silence claim (inbound id)
+  awaiting_note_for: null,                      // sweeper claim `${first silence row id}#${attempt}` (a bare id = PR1's first sweeper, handled)
+  awaiting_note_claimed_at: null,               // written just before each claim; a claim older than 2 min with no intent is taken over
+  awaiting_note_done_for: null,                 // silence whose note was dispatched (or skipped) and alerted
   unanswered_alert_for: null                    // sweeper once-per-inbound claim (inbound id)
 }
 ```
@@ -171,10 +180,10 @@ No module in this PR may call `prisma.$queryRaw`, `$executeRaw`, `$queryRawUnsaf
 | `shift/lead.js` (`saveLead`) | `conversation.findUnique({where:{id}, select:{workflow_data:true}})` |
 | `shift/index.js` | `message.findMany({where:{conversation_id}, orderBy:{created_at:'desc'}, take, select:{id,direction,text_body,sent_by_user_id,message_type}})` |
 | `services/alerts.js` | `conversation.findFirst({where:{business_id, customer_wa_id}})`, `message.create` (alert outbound row) |
-| `services/replyBatcher.js` | `conversation.findUnique({where:{id}})`, `business.findUnique({where:{id}})`, `message.findMany({where:{conversation_id, direction, status?, created_at?:{gt}}, orderBy:{created_at}, take})`, `message.findFirst({where:{conversation_id, direction:'outbound', sent_by_user_id:{not:null}}, orderBy:{created_at:'desc'}})`, `message.create`, `message.update({where:{id}})`, `message.updateMany({where:{id:{in}, status}})`, `conversation.update({where:{id}, data:{status?, current_state?, last_message_at?}})` |
-| `services/messageProcessor.js` | existing calls + `message.findFirst({where:{conversation_id, direction:'outbound', status?, sent_by_user_id?:{not:null}}, orderBy:{created_at}})`, `message.update({where:{id}, data:{status}})`, `message.updateMany({where:{conversation_id, direction:'inbound', status:'received'}, data:{status:'skipped'}})`, `conversation.findFirst({where:{business_id, customer_wa_id}})` |
+| `services/replyBatcher.js` | `conversation.findUnique({where:{id}})`, `business.findUnique({where:{id}})`, `message.findMany({where:{conversation_id, direction, status?, created_at?:{gt}}, orderBy:{created_at}, take})`, `message.findFirst({where:{conversation_id, direction:'outbound', sent_by_user_id:{not:null}}, orderBy:{created_at:'desc'}})`, `message.create`, `message.update({where:{id, status?:{in}}})` (P2025 = settled by a status webhook first), `message.updateMany({where:{id:{in}, status}})`, `message.updateMany({where:{id, meta_message_id:null}})`, `conversation.update({where:{id}, data:{current_state?, last_message_at?}})` (a status goes through `jsonb.writeConversationState`) |
+| `services/messageProcessor.js` | existing calls + `$transaction(async (tx) => …, {maxWait, timeout})` (persist: `tx.message.create`, `tx.conversation.updateMany/update`), `message.findUnique({where:{id}})` / `({where:{meta_message_id}})`, `message.findMany({where:{conversation_id, direction:'outbound', created_at:{gte}}})`, `message.findMany({where:{direction:'inbound', status, created_at|updated_at:{lt}}, orderBy:{created_at}, take})`, `message.update({where:{id}, data:{status}})`, `message.updateMany({where:{id | id:{in}, status? | status:{in}, direction?}, data:{status, raw_payload?}})`, `conversation.findUnique({where:{id}})`, `conversation.findFirst({where:{business_id, customer_wa_id}})`, `business.findUnique({where:{id}, select})` |
 | `routes/inbox.js` | existing calls + `message.findMany({where:{conversation_id:{in}, direction:'inbound', status:'awaiting_staff'}, select:{conversation_id:true}})`, `message.count({where:{business_id, direction:'inbound', status:'awaiting_staff'}})`, `message.updateMany({where:{conversation_id, direction:'inbound', status:'awaiting_staff'}})`, `user.findUnique({where:{id}, select:{name:true}})`, `conversation.findUnique({where:{id}})` |
-| `services/shiftSweeper.js` | `business.findMany({where:{business_type:'shift', status:'active'}})`, `conversation.findMany({where:{business_id, status?, last_inbound_at?:{gte,lte}}})`, `conversation.findUnique({where:{id}})`, `message.findMany({where:{business_id, direction, status, created_at:{lt}}, orderBy:{created_at:'asc'}, take})`, `message.findFirst({where:{conversation_id, direction, sent_by_user_id?:{not:null}, created_at?:{gt\|gte}}, orderBy:{created_at:'desc'}})`, `message.updateMany({where:{id, status:'ambiguous'}, data:{status:'ambiguous_unreconciled'}})`, `message.count(...)`, `user.findUnique` |
+| `services/shiftSweeper.js` | `business.findMany({where:{business_type:'shift', status:'active'}})`, `conversation.findMany({where:{business_id, status?, last_inbound_at?:{gte,lte}}})`, `conversation.findUnique({where:{id}})`, `message.findMany({where:{business_id, direction, status, created_at?:{lt}, conversation_id?:{notIn}}, orderBy:{created_at:'asc'}, take})`, `message.findMany({where:{conversation_id, direction:'outbound', status?:'ambiguous_unreconciled', created_at?:{gte}}})` (JS filter on `raw_payload`), `message.findFirst({where:{conversation_id, direction, sent_by_user_id?:{not:null}, created_at?:{gt\|gte}}, orderBy:{created_at:'desc'}})`, `message.updateMany({where:{conversation_id, direction:'inbound', status:'awaiting_staff', id?:{notIn}}, data:{status:'received'}})`, `message.count(...)`, `user.findUnique` |
 
 ### 2.2 `backend/tests/helpers/fakeDb.js` (owner L1b)
 
@@ -213,12 +222,15 @@ Fake Prisma surface (exactly the calls in §2.1, nothing more):
 - `data` support: plain values, `{increment: n}`; `update` stamps `updated_at`; `message.create` throws
   `{code:'P2002'}` on a duplicate non-null `meta_message_id`; `conversation.create` throws P2002 on a duplicate
   `(business_id, customer_wa_id)`.
-- `$transaction(arrayOfPromises)` → `Promise.all` in order; `$executeRaw`/`$queryRaw` throw
+- `$transaction(arrayOfPromises)` → `Promise.all` in order. `$transaction(async (tx) => …)` (interactive, D24): `tx`
+  exposes the same model methods (looked up on `prisma` at call time, so spies and `failNext` apply); every
+  `create`/`update`/`updateMany` made through `tx` is journalled and undone in reverse order if the callback throws, like
+  a Postgres rollback. No isolation (other code sees uncommitted writes). `$executeRaw`/`$queryRaw` throw
   `Error('fakeDb: raw SQL is only allowed inside db/jsonb.js')`.
 - Returned objects are copies (mutating a result never changes the store).
 
 `tests/fakeDb.test.js` covers: where operators, P2002 paths, lease semantics with `clock.advance`, `patchJson`
-sibling preservation, `ifVersion` mismatch, `claimFlag`/`claimValue` once-only.
+sibling preservation, `ifVersion` mismatch, `claimFlag`/`claimValue` once-only, interactive `$transaction` rollback.
 
 ---
 
@@ -251,6 +263,9 @@ const TWENTY_FOUR_HOURS_MS, REPLY_WINDOW_MARGIN_MS = 60 * 1000, NOTE_WINDOW_MARG
 
 Keep every existing export and its behaviour (`validateSignature`, `sendTextMessage` → returns `res.data`, throws on
 error; `sendButtonMessage`, `sendListMessage`, `sendTemplateMessage`, `parseInboundMessage`, `normalizePhone`).
+`sendTextMessage` and `markAsRead` pass `timeout: LEGACY_TIMEOUT_MS` (15 s) to axios: D24 re-runs a restaurant/clinic
+row still `processing` after 2 min, and a hung Graph connection must not outlive that (a re-run next to a live
+delivery could send or order twice).
 Changes:
 
 ```js
@@ -265,9 +280,12 @@ assertInteractiveLimits(buttons, { body = '', footer } = {}) → void   // throw
   buttons: array length 1..3; each {id, title}; id non-empty, ≤ 256 chars, unique; title 1..20 code points
   (Array.from(title).length); body 1..1024 code points; footer (if given) ≤ 60 code points
 
-sendText(phoneNumberId, accessToken, to, text, { timeoutMs = 10000 } = {}) → Promise<SendResult>          // never throws
-sendInteractiveButtons(phoneNumberId, accessToken, to, body, buttons, { timeoutMs = 10000 } = {}) → Promise<SendResult>
+sendText(phoneNumberId, accessToken, to, text, { timeoutMs = 10000, callbackData } = {}) → Promise<SendResult>          // never throws
+sendInteractiveButtons(phoneNumberId, accessToken, to, body, buttons, { timeoutMs = 10000, callbackData } = {}) → Promise<SendResult>
   // calls assertInteractiveLimits first; a limits error returns {ok:false, reason:'invalid_payload'} without HTTP
+// D17: every sender (also sendTextMessage, sendButtonMessage, sendListMessage, sendTemplateMessage via a trailing
+// `{ callbackData }` argument) sets top-level `biz_opaque_callback_data: String(callbackData)` when given. A value over
+// CALLBACK_DATA_MAX = 512 chars is not sent (logged): a cut id would correlate with nothing.
 
 SendResult = { ok: true,  id: 'wamid…', error: null, reason: null, code: null, httpStatus: 200, retryable: false }
            | { ok: false, id: null, error: 'message', reason, code: <graph code|null>, httpStatus: <n|null>, retryable }
@@ -284,8 +302,10 @@ classifySendError(err) → { reason, code, httpStatus, retryable }
 | code 190 or HTTP 401/403 | `auth` | false |
 | `err.code` ∈ {`ECONNABORTED`, `ETIMEDOUT`, `ECONNRESET`} or `err.request && !err.response` | `ambiguous` | false |
 | `err.code` ∈ {`ENOTFOUND`, `ECONNREFUSED`, `EAI_AGAIN`} | `network` | true |
-| HTTP ≥ 500 | `server` | true |
+| HTTP ≥ 500 without a code above (D18 / GPT-6 #4: a gateway 5xx can follow an accepted POST) | `ambiguous` | false |
 | anything else | `rejected` | false |
+
+Only `network` (the request never left this host) is retryable. The `server` reason no longer exists.
 
 `sendButtonMessage` and `sendListMessage` call `assertInteractiveLimits` (lists: body only) before HTTP and keep
 throwing. Delete the local `isWithinServiceWindow` and export `isWithinServiceWindow` from `../utils/serviceWindow`.
@@ -362,7 +382,7 @@ Never throws; logs `[AI]` errors as today.
 
 ```js
 const ALERT_REASONS = ['handoff','quote','needs_team','meeting','ai_failure','reply_failures','billing','sla_breached',
-  'awaiting_staff','ambiguous_send','inbound_without_outbound','window_closing','hot_lead'];
+  'awaiting_staff','ambiguous_send','inbound_without_outbound','window_closing','hot_lead','unsent_reply'];
 
 formatAlertText({ reason, business, conversation, summary }) → string
 sendStaffAlert({ reason, business, conversation, summary = '', now = new Date() }) → Promise<{webhook, whatsapp}>
@@ -374,7 +394,8 @@ alertChannelConfigured(business) → boolean   // !!STAFF_ALERT_WEBHOOK_URL || a
   ai_failure:'تعطّل رد البوت', reply_failures:'فشل الإرسال 3 مرات', billing:'واتساب موقف الإرسال — طريقة الدفع',
   sla_breached:'طلب بالقائمة من 15 دقيقة بدون استلام', awaiting_staff:'رسالة بانتظار الموظف من 10 دقائق',
   ambiguous_send:'إرسال غير مؤكد', inbound_without_outbound:'رسالة بدون رد من دقيقتين',
-  window_closing:'نافذة الـ24 ساعة قربت تسكر', hot_lead:'عميل ساخن'}`.
+  window_closing:'نافذة الـ24 ساعة قربت تسكر', hot_lead:'عميل ساخن', unsent_reply:'رد البوت ما وصل — العميل بدون رد'}`
+  (`unsent_reply`, D18/D19: the bot's reply stayed unconfirmed or failed twice).
 - Webhook: if `STAFF_ALERT_WEBHOOK_URL` → `axios.post(url, {text, reason, conversationId, businessId}, {timeout: 5000})`
   → `webhook: 'sent' | 'failed'`; unset → `'skipped'`.
 - WhatsApp: for each digits string in `business.ai_config.alert_wa_numbers`: `conversation.findFirst({where:
@@ -403,10 +424,38 @@ claimFlag(table, id, column, path /* string[] */) → Promise<boolean>
 claimValue(table, id, column, key, value /* string */) → Promise<boolean>
 incrementCounter(table, id, column, key, by = 1) → Promise<number | null>
 acquireLease(conversationId, token, ttlMs = 60000) → Promise<boolean>
-renewLease(conversationId, token, ttlMs = 60000) → Promise<boolean>
+renewLease(conversationId, token, ttlMs = 60000) → Promise<boolean>   // D20: only an unexpired lease with this token
 releaseLease(conversationId, token) → Promise<boolean>
+preSendCheck(conversationId, { leaseToken = null, ttlMs = 60000, humanGuard = true, optedOutSince = null,
+             claim = null /* [{column, path: string[], value}] */ } = {}) → Promise<boolean>
+touchBatchDue(conversationId, quietMs, capMs) → Promise<{ dueAt: Date, delayMs: number } | null>
+resolveNeedsTeam(conversationId, { match /* e.g. {reason, at} */, resolvedAt /* ISO */ }) → Promise<boolean>   // D27
+writeConversationState(conversationId, { status, currentState /* undefined = leave */, patch = {}, needsTeam = null,
+                       priorities = {}, defaultPriority = 1 }) → Promise<{ ok: boolean, needsTeam: {reason, at} | null }>   // D27
 LEASE_TTL_MS = 60000
 ```
+
+`resolveNeedsTeam` (D27 / GPT-6 #13, the Inbox «تم التواصل»): ONE statement that sets `needs_team.resolved_at` and
+`status = CASE WHEN status = 'pending' THEN 'open' ELSE status END`, only `WHERE needs_team @> match AND
+needs_team.resolved_at IS NULL`. A request the bot records in between fails the match, so it keeps its `pending`.
+
+`writeConversationState` (D27 / GPT-6 #13, bot side; `$queryRaw … RETURNING`): ONE statement `WHERE id AND status <>
+'human_takeover'` that sets `status`, `current_state` (only when `currentState !== undefined`) and `workflow_data =
+workflow_data || patch`, plus `needs_team = needsTeam` when the needs_team stored **at write time** is not an object,
+has `resolved_at` or `claimed_at` set, or has a lower priority (`priorities[reason]`, else `defaultPriority`) than
+`needsTeam` — `results.mergeNeedsTeam`'s rule. Returns `ok:false` when no row matched, else the stored needs_team's
+`{reason, at}`. Writing the status first and needs_team second let «تم التواصل» on the old request land in between and
+move the conversation to `open` under the bot's new, unresolved request.
+
+`preSendCheck` (D20) is the single statement run right before every Graph call; true = safe to send. Predicates are
+added only when requested: `leaseToken` → the token matches and `reply_lease_until > now()` (and the lease is renewed in
+the same statement); `humanGuard` → `status <> 'human_takeover' AND ai_enabled = true AND (human_active_until IS NULL OR
+<= now())`; `optedOutSince` → `workflow_data.marketing_opted_out_at` is null or ≤ that instant; each `claim` entry →
+`(C #>> path::text[]) = value::text` (whitelisted column; a missing path never matches) — the sweeper's note-claim
+fence. Without a lease the SET is a no-op (`updated_at` untouched).
+
+`touchBatchDue` (D25, `$queryRaw`): `batch_first_at` = now() when the previous `batch_due_at` is missing or past, else
+kept; `batch_due_at = LEAST(now() + quietMs, batch_first_at + capMs)`; returns the stored deadline and the delay on DB time.
 
 Exact SQL (`C` = the whitelisted column):
 
@@ -459,6 +508,7 @@ UPDATE "conversations"
 SET "metadata" = "metadata" || jsonb_build_object('reply_lease_until', now() + (${ttlMs}::int * interval '1 millisecond')),
     "updated_at" = now()
 WHERE "id" = ${id} AND "metadata" ->> 'lease_token' = ${token}::text
+  AND ("metadata" ->> 'reply_lease_until')::timestamptz > now()
 
 -- releaseLease
 UPDATE "conversations"
@@ -556,6 +606,9 @@ return a `WorkflowResult`; the batcher persists and sends it.
   leadPatch: null | { /* mergeLead patch */ },
   leadMeta: null | { source, msgId, at, inboundText },
   needsTeam: null | { /* same object as workflowDataPatch.needs_team */ },
+  needsTeamCandidate?: { /* the needsTeamEntry the result wanted, even when mergeNeedsTeam dropped it against the
+                           stale copy; FLAG_FOR_TEAM, capture, AI failure, handoff. The batcher re-merges it at write
+                           time (jsonb.writeConversationState, D27) */ },
   alert: null | { reason /* alerts.ALERT_REASONS */, summary }
 }
 ```
@@ -890,7 +943,8 @@ const NEEDS_TEAM_PRIORITY = { person: 5, complaint: 5, meeting: 4, quote: 3, dem
 mergeNeedsTeam(existing, next) → next | null          // null = keep existing (unresolved and priority ≥ next)
 sanitizeButtons(buttons, offers) → [{id, title}]      // keep ids present in `offers`; titles taken from `offers`
 nextStage(current, proposed, action) → string | undefined
-captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch }) → WorkflowResult
+captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch }) → WorkflowResult   // + `capture` (below)
+renderCaptureAck(capture, storedLead) → { relayed: boolean, messages: [part], workflowDataPatch }   // D26
 toWorkflowResult(aiResult, ctx) → WorkflowResult      // ctx optional: business {ai_config:{}}, conversation {status:'open',
                                                       // workflow_data:{}}, batchMessages [], now new Date(), lang 'ar', DEFAULT_TEAM_HOURS
 ```
@@ -930,6 +984,14 @@ businessName: lead.business_name, when, lang}))`; `stateUpdate:{status:'pending'
 {reason:'meeting', summary: when, at, …nulls})`; `leadPatch` (with `preferred_time`); `alert:{reason:'meeting', summary:
 when}`; `kind` = `'button'` from buttons.js, `'reply'` otherwise; `action:'CAPTURE_TIME'`.
 
+**D26 / GPT-6 #12 — acks from what was persisted.** `captureResult` also returns `capture = {requested /* the
+normalised preferred_time asked for */, when, lang, modelLine, at}` and renders its messages with
+`renderCaptureAck(capture, previewLead)`. `renderCaptureAck`: the stored `preferred_time` equals `requested` (same
+`slot_id`, else same `start`, else same normalised `text`) → `captureAck({name, businessName: business_name, when})` from
+the stored lead, `workflowDataPatch: {}`; otherwise (a staff-owned time the bot may not overwrite) → `relayed: true`,
+`acks.captureRelayed({when, lang})` («وصّلت طلبك للوقت الجديد … للفريق»), `workflowDataPatch: {requested_time_change:
+{text: requested.text || when, at}}`. The batcher calls it again with the lead `saveLead` returned and sends that text.
+
 ---
 
 ## 6. Layer 2b — Inbox API and page
@@ -944,10 +1006,11 @@ Imports: `db/jsonb` (`patchJson`), `workflows/shift/lead` (`saveLead`), `workflo
 | Route | Contract |
 |---|---|
 | `GET /conversations` | Existing query plus: `needs_team=1` → `where.status = 'pending'` (overrides `status`); `stage=<s>` (must be in `STAGES`, else 400 `{error:'invalid stage'}`) → `where.current_state = s`. After fetching the page: `awaiting = message.findMany({where:{conversation_id:{in: ids}, direction:'inbound', status:'awaiting_staff'}, select:{conversation_id:true}})` → each conversation gets `awaiting_staff: <count>`; stable sort `pending` first, then the existing `last_message_at desc`. Response shape unchanged plus the new field. |
-| `PATCH /conversations/:id/lead` | Body `{lead?: object, version?: int, needs_team_resolved?: boolean}`. Whitelist lead keys: `name, business_name, sector, sector_text, city, need (string[]), preferred_time (string → {text}), budget_note, language, interest`; unknown keys → 400 `{error:'invalid field', field}`. If `lead` has keys: `r = saveLead(id, lead, {source:'staff', msgId:null, at: now ISO, inboundText:''}, {expectedVersion: version})` (omit option when `version` is undefined); `r.conflict` → 409 `{error:'version_conflict', lead: r.lead}`. If `needs_team_resolved === true` and `workflow_data.needs_team` exists: `patchJson('conversations', id, 'workflow_data', {needs_team: {...wd.needs_team, resolved_at: now ISO}})` and, when `status === 'pending'`, `conversation.update({data:{status:'open'}})`. Response `{conversation}` from `conversation.findUnique`. |
-| `POST /conversations/:id/claim` | If `status === 'human_takeover'` and `assigned_staff_id` ≠ `req.user.id` → 409 `{error:'already_claimed'}`; same user → 200 `{conversation, ack:'skipped'}` (idempotent, no second ack). Else `conversation.update({data:{status:'human_takeover', ai_enabled:false, assigned_staff_id: req.user.id}})`; `patchJson(workflow_data, {stage_before_takeover: conv.current_state ?? null, ...(wd.needs_team && {needs_team: {...wd.needs_team, claimed_at: now, claimed_by: req.user.id}})})`. **Claim ack** only when the business is `business_type === 'shift'` and `isWithinServiceWindow(conv.last_inbound_at)`: `text = acks.claimAck({staffName: req.user.name, lang: acks.pickLanguage(wd.lead \|\| {}, '')})`; `sendText(pnid, token, customer, text)`; on `ok` → `message.create({… direction:'outbound', message_type:'text', text_body:text, status:'sent', meta_message_id:id, sent_by_user_id:req.user.id, is_ai_generated:false, raw_payload:{kind:'claim_ack'}})` and `patchJson(metadata, {human_active_until: now + 30 min ISO})`. Response `{conversation, ack: 'sent'\|'failed'\|'skipped'}` (ack failure never fails the claim). |
-| `POST /conversations/:id/release` | `conversation.update({data:{status:'open', ai_enabled:true, assigned_staff_id:null, current_state: wd.stage_before_takeover ?? conv.current_state}})`; `patchJson(workflow_data, {stage_before_takeover:null})`; `patchJson(metadata, {human_active_until:null})`. Response `{conversation}`. |
-| `POST /conversations/:id/send` | Existing behaviour, then (all businesses, harmless for others): `patchJson('conversations', conv.id, 'metadata', {human_active_until: new Date(Date.now() + 30*60*1000).toISOString()})` and `message.updateMany({where:{conversation_id: conv.id, direction:'inbound', status:'awaiting_staff'}, data:{status:'answered'}})`. `received` rows are **not** touched (the batcher decides them). |
+| `PATCH /conversations/:id/lead` | Body `{lead?: object, version?: int, needs_team_resolved?: boolean}`. Whitelist lead keys: `name, business_name, sector, sector_text, city, need (string[]), preferred_time (string → {text}), budget_note, language, interest`; unknown keys → 400 `{error:'invalid field', field}`. If `lead` has keys: `r = saveLead(id, lead, {source:'staff', msgId:null, at: now ISO, inboundText:''}, {expectedVersion: version})` (omit option when `version` is undefined); `r.conflict \|\| !r.ok` → 409 `{error:'version_conflict', lead: r.lead}`; a saved `preferred_time` with a stored `workflow_data.requested_time_change` → `patchJson(workflow_data, {}, {remove:['requested_time_change']})` (staff answered it, D26). If `needs_team_resolved === true` and the read `needs_team` exists unresolved: **D27** `jsonb.resolveNeedsTeam(id, {match: {reason, at} as read, resolvedAt: now ISO})` — resolved_at and `pending → open` in one conditional statement; a newer request recorded meanwhile is left untouched and pending. Response `{conversation, needs_team_resolved: boolean}` from `conversation.findUnique`. |
+| `POST /conversations/:id/claim` | If `status === 'human_takeover'` and `assigned_staff_id` ≠ `req.user.id` → 409 `{error:'already_claimed'}`; same user → 200 `{conversation, ack:'skipped'}` (idempotent, no second ack). Else atomic `conversation.updateMany({where:{id, business_id, status:{not:'human_takeover'}}, data:{status:'human_takeover', ai_enabled:false, assigned_staff_id}})` (count ≠ 1 → 409 / idempotent 200); `patchJson(workflow_data, {stage_before_takeover})`; `mergeObjectKey(needs_team, {claimed_at, claimed_by})`. **D21:** for a `shift` business, `patchJson(metadata, {human_active_until: now + 30 min})` — all of this before any Graph call, so a bot run about to send is refused by its pre-send check. **Claim ack** only for `shift` and `isWithinServiceWindow(conv.last_inbound_at)`: `text = acks.claimAck({staffName, lang})`; `replyBatcher.dispatchIntent({business, conversation, token, kind:'claim_ack', parts:[{type:'text', text}], batchIds:[], precheck:{humanGuard:false}, now})` (D17 intent, id as `biz_opaque_callback_data`) with `sentByUserId: req.user.id`, so the intent row is the staff member's
+message (`sent_by_user_id`, `is_ai_generated:false`) from its creation. Response `{conversation, ack: 'sent'\|'ambiguous'\|'failed'\|'skipped'}` (ack failure never fails the claim; the pause stays). |
+| `POST /conversations/:id/release` | `conversation.update({data:{status:'open', ai_enabled:true, assigned_staff_id:null, current_state: wd.stage_before_takeover ?? conv.current_state}})`; `patchJson(workflow_data, {stage_before_takeover:null})`; `patchJson(metadata, {human_active_until:null, released_at: now})`; `awaiting_staff` rows → `received`. Response `{conversation}`. |
+| `POST /conversations/:id/send` | Existing checks (404, 409 outside the window, token). **D21:** `patchJson(metadata, {human_active_until: now + 30 min})` **before** `sendTextMessage` (a failed send keeps the pause; D22 requeues parked rows when it expires). After the send (all businesses, logged not thrown): `patchJson(metadata, {human_active_until: now + 30 min, reply_failures: 0})` and `message.updateMany({where:{conversation_id, direction:'inbound', status:'awaiting_staff'}, data:{status:'answered'}})`. `received` rows are **not** touched (the batcher decides them). |
 | `GET /stats` | adds `awaiting_staff: message.count({where:{business_id, direction:'inbound', status:'awaiting_staff'}})`; `pending` already exists. |
 | `GET /updates` (SSE) | the `stats` event data becomes `{open, human_takeover, pending, awaiting_staff}` on connect and on every `new_message`. |
 | `/takeover`, `/enable-ai`, `/resolve` | unchanged. |
@@ -974,8 +1037,17 @@ No new dependencies (React + lucide icons already imported). Components stay in 
   «تم التواصل» (`PATCH … {needs_team_resolved:true}`, visible when needs_team unresolved), «استلام» (`POST …/claim`,
   visible when status ≠ `human_takeover`), «إرجاع للبوت» (`POST …/release`, visible when status = `human_takeover`).
   Existing «تولي المحادثة» / «تفعيل AI» / «إنهاء» buttons stay.
-- `MessageBubble`: unchanged except `status === 'awaiting_staff'` inbound shows a small «بانتظار الموظف» label and
-  outbound `ambiguous`/`ambiguous_unreconciled` shows «إرسال غير مؤكد».
+- `MessageBubble`: unchanged except `status === 'awaiting_staff'` inbound shows a small «بانتظار الموظف» label,
+  inbound `unconfirmed` shows «الرد غير مؤكد», outbound `ambiguous`/`ambiguous_unreconciled` shows «إرسال غير مؤكد» and
+  outbound `cancelled` shows «ما انبعتت».
+- `NEEDS_TEAM_LABELS.unsent_reply = 'بدون رد'`; an open `unsent_reply` request shows the red «بدون رد» badge (like
+  `reply_failures ≥ 3`) instead of the orange «يحتاج الفريق» one.
+- **GPT-6 #14:** `<LeadCard key={selected.id} …/>` — switching conversations remounts the card and its field rows, so no
+  draft survives into another customer's card; each `LeadFieldRow` saves with the `lead.version` it started editing
+  from (`onSave(key, value, version)`), so a change made meanwhile returns 409 instead of being overwritten.
+- **D26:** `workflow_data.requested_time_change.text` shows under the team request as «العميل طلب وقت جديد: …» — the
+  customer was told a time was passed to the team while staff own `preferred_time`; staff saving `preferred_time`
+  clears it (§6.1).
 
 ---
 
@@ -985,18 +1057,94 @@ No new dependencies (React + lucide icons already imported). Components stay in 
 
 ```js
 const LEASE_TTL_MS = 60000, AI_DEADLINE_MS = 18000, HUMAN_ACTIVE_MS = 30 * 60 * 1000, MAX_BATCH = 20, MAX_REPLY_FAILURES = 3;
+const UNCONFIRMED_AFTER_MS = 2 * 60 * 1000;
 quietWindowMs(text, env = process.env) → number
 isShiftReplyAllowed(business, customerWaId, env = process.env) → boolean
 isHumanActive(conversation, lastStaffOutbound, now) → boolean
 scheduleReply(conversationId, { text = '', reason = 'inbound' } = {}) → void
+touchBatchDue(conversationId, quietMs) → Promise<{dueAt, delayMs} | null>   // D25; DB errors propagate
 hasPendingTimer(conversationId) → boolean
 collectBatch(conversationId) → Promise<Message[]>
 runBatch(conversationId, { now = () => new Date() } = {}) → Promise<{ outcome, sent }>
 deliverResult({ business, conversation, result, batch = [], leaseToken = null, windowMarginMs = REPLY_WINDOW_MARGIN_MS,
-                inboundStatus = 'answered', now = new Date() }) → Promise<DeliveryReport>
+                inboundStatus = 'answered', now = new Date(), humanGuard }) → Promise<DeliveryReport>
+dispatchIntent({ business, conversation, token = null, kind, parts = [], batchIds = [], batchKey = null,
+                 precheck = {}, inboundStatus = 'answered', since = null, sentByUserId = null, now = new Date() })
+  → Promise<{ outcome: 'sent'|'ambiguous'|'failed'|'deduped'|'aborted', parts: [{index, status, reason, id, intentId}] }>
+applyIntentStatus({ intentId, wamid = null, status }) → Promise<{ matched: boolean, intent? }>   // echoed sent/delivered/read
+settleUndelivered(intentRow, { now, claimFrom = null, reclaimAnswered = false })
+  → Promise<'requeued'|'escalated'|'dropped'|'unreconciled'|null>       // also for D19 `failed`
+reconcileUnconfirmedIntents({ now = new Date(), businessId = null }) → Promise<{requeued, escalated, unreconciled, errors}>
+                                // also rescues rows stranded `unconfirmed` by a crash mid-settlement (below)
 cancel(conversationId) → void   // clears one conversation's pending timer (opt-out)
 cancelAll() → void              // clears every timer (tests, shutdown)
 ```
+
+**GPT-6 review addendum (D17, D18, D20, D23, D25, D26) — authoritative where the steps below disagree.**
+
+- **Intent protocol (D17).** `dispatchIntent` is the only path from a bot/system message to Graph (the sweeper's SLA and
+  awaiting notes and the Inbox claim ack use it directly, §8.1 / §6.1). Per part `i`: dedupe on `raw_payload.batch_key === \`${batchKey}:${i}\``
+  against intents since `since` whose status is not `failed | ambiguous_unreconciled | cancelled` (a duplicate still
+  `sending` is flagged `ambiguous` when `precheck.leaseToken` is set) → `message.create` the intent (`sending`,
+  `raw_payload: {kind, batch_key, part_index, batch_ids, buttons, inbound_status}`; `sentByUserId` set → the row is
+  written `{sent_by_user_id, is_ai_generated:false}` from the start — the Inbox claim ack) → `jsonb.preSendCheck(id, precheck)`
+  (skipped only for `precheck === false`; refused → intent `cancelled` from `sending | ambiguous` — Graph was never
+  called, even if another worker's `recoverCovered` flipped it to `ambiguous` meanwhile — and its `batchIds` rows still
+  `unconfirmed` that no other `sending|ambiguous` intent covers → `received` + `scheduleReply`; remaining parts
+  aborted) → `sendText` / `sendInteractiveButtons` with `{callbackData: intent.id}` → one immediate retry only when
+  `retryable`, after the check again → **record** (`recordOutcome`): `message.update({where:{id, status:{in:['sending',
+  'ambiguous']}}, data})` with `sent`+wamid / `ambiguous` / `failed`. A status webhook may settle the intent before the
+  POST returns (GPT-6 #7): on P2025 the stored status stands (a missing wamid is attached with `updateMany({where:{id,
+  meta_message_id:null}})`), so `delivered/read` never regress to `sent` and a D19-settled `failed` never becomes
+  `sent`. The part's status follows the stored one: `sent|delivered|read` → `sent`; `failed|ambiguous_unreconciled|
+  cancelled` → `failed` (reason `status_failed`). Then rows in `batchIds`: a sent part, or a duplicate that is
+  confirmed → `inboundStatus` (from `received | awaiting_staff | unconfirmed`), then (unless a confirmed duplicate
+  covers them) the sent parts are re-read: if none is still confirmed, the rows take the recorded
+  `raw_payload.settled` (`requeued` → `received` + `scheduleReply`, `escalated` → `awaiting_staff`); else an ambiguous
+  part or an unconfirmed duplicate → `unconfirmed` (from `received`).
+- **Unknown outcome (D18).** `recoverCovered` marks rows from a confirmed intent (`sent|delivered|read`) with that
+  intent's `inbound_status`; rows covered by a `sending`/`ambiguous` intent become `unconfirmed` (never `answered`, never
+  resent; a `sending` one is flagged `ambiguous`); `failed`/`cancelled`/`ambiguous_unreconciled` cover nothing. No
+  `ambiguous_send` alert at send time. `applyIntentStatus` (status webhook, by the echoed id): upgrades the intent status
+  (never downgrades), stores the wamid if missing, and moves `unconfirmed | received` rows to `inbound_status`.
+  `reconcileUnconfirmedIntents` takes `sending | ambiguous` intents older than 2 min and calls `settleUndelivered`, whose
+  claim is `updateMany({where:{id, status (or status ∈ claimFrom)}, data:{status:'ambiguous_unreconciled', raw_payload:{…,
+  settled, settled_at}}})`, then with `reclaimAnswered` the `batch_ids` rows `answered → unconfirmed`:
+  no `batch_ids` → `unreconciled` + `ambiguous_send` alert; else if another intent of the conversation with the same
+  `batch_key` has `settled: 'requeued'` (any status) → kind `optout` → `dropped`: rows `unconfirmed|received → skipped`
+  + `ambiguous_send` alert, no needs_team, no `pending` (the opt-out is stored; staff are not asked to answer «إيقاف»
+  and no awaiting note can follow it; counted as `unreconciled`); any other kind → `escalated`: rows `unconfirmed|received → awaiting_staff`,
+  `needs_team = mergeNeedsTeam(stored, {reason:'unsent_reply', …})`, `status = 'pending'` unless `human_takeover`, alert
+  `unsent_reply`; else `requeued`: rows `unconfirmed → received` and `scheduleReply(id, {reason:'sweep'})`.
+  **Stranded rows** (same call, after the intents): inbound `unconfirmed` rows with `updated_at` older than
+  `STRANDED_AFTER_MS = 5 min`, grouped by conversation, whose covering intents (`raw_payload.batch_ids`, kinds
+  reply|fallback|handoff|button|media|optout) include no `sending|ambiguous` one. A confirmed covering intent can only
+  mean the D19 path crashed between moving the rows and settling (§7.2) → `settleUndelivered(it)` then status `failed`;
+  else the newest covering intent's `settled === 'dropped'` → rows `unconfirmed → skipped`; `settled === 'escalated'` → rows `unconfirmed → awaiting_staff` (count is the claim)
+  + needs_team `unsent_reply` + alert; else rows `unconfirmed → received` + `scheduleReply`. Counts add to
+  `requeued`/`escalated`.
+- **Fencing (D20).** Every `renewLease` in `runLeased` (loop start, `onRetry`) that returns false ends the run with
+  `lease_lost`. `deliver` passes `precheck = {leaseToken, humanGuard, optedOutSince}` with `humanGuard` defaulting to
+  "kind ∈ reply|fallback|handoff|button|media" (notes and the opt-out ack are sent while staff hold the conversation)
+  and `optedOutSince = batch[0].created_at` for every kind but `optout`. A result with `stateUpdate.status` writes status,
+  current_state, `workflowDataPatch` (minus needs_team) and `needsTeamCandidate || needsTeam` in ONE
+  `jsonb.writeConversationState(id, {…, priorities: NEEDS_TEAM_PRIORITY, defaultPriority: NEEDS_TEAM_PRIORITY.unknown})`
+  (D27 / GPT-6 #13); without a status, `conversation.update` + `patchJson` as before. `writeConversationState`
+  returning `ok:false` (claimed), a `patchJson` returning `ok:false`, or an aborted dispatch → `explainAbort`: lease not ours → `lease_lost` (rows left
+  alone); staff hold → rows `awaiting_staff`, `awaiting_staff`; opted out → rows `skipped`, `skipped`.
+- **Deterministic rows (D23).** After recovery, `runLeased` marks `reaction|system|ephemeral` rows `skipped`, and a text
+  row that `isOptOutCommand` → `handleOptOut`: `deliverResult(optOutResult, batch:[stop], leaseToken, inboundStatus:
+  'skipped')` (state written, then the ack intent, then the send; the command row leaves `received` only in the commit),
+  then the other queued rows → `skipped` unless the delivery was `state_failed`/`lease_lost` (everything stays
+  `received` and the retry takes the same path). This runs before the human and window checks. A STOP found by the
+  freshness check discards the generated reply and takes the same path. Taps stay in `answerTaps`.
+- **Shared debounce (D25).** `runBatch` first reads `metadata.batch_due_at`; more than 25 ms ahead → re-arms the local
+  timer for `min(wait, SHIFT_BATCH_CAP_MS)` and returns `not_due` (no lease taken). `touchBatchDue` writes the deadline
+  and arms the timer with the DB delay. A `fallback` result's batch is extended at dispatch with every `received` row
+  that is not a tap, opt-out or reaction, so one burst gets one fallback.
+- **Honest acks (D26).** For a result with `capture`, `saveLead` returning `!ok` (or no lead) aborts with `state_failed`;
+  otherwise the parts are `renderCaptureAck(capture, leadSave.lead).messages` and `workflow_data.requested_time_change`
+  is written (`null` when not relayed) before dispatch.
 
 `quietWindowMs(text)`: `base = int(SHIFT_BATCH_QUIET_MS) || 2500`; words = `text.trim().split(/\s+/).filter(Boolean)`;
 ends with `?`/`؟` (after trailing spaces/emoji) or ≥ 8 words → `round(base × 0.6)` (1.5 s); ≤ 4 words (incl. empty,
@@ -1017,8 +1165,8 @@ max(0, firstAt + CAP − now))` with `CAP = int(SHIFT_BATCH_CAP_MS) || 10000`; c
 `collectBatch` = `message.findMany({where:{conversation_id, direction:'inbound', status:'received'}, orderBy:{created_at:'asc'},
 take: MAX_BATCH})`.
 
-`runBatch` (outcomes: `no_batch | lease_busy | skipped | awaiting_staff | recovered | sent | fallback | failed | ambiguous |
-window_closed | lease_lost`):
+`runBatch` (outcomes: `no_batch | not_due | lease_busy | skipped | awaiting_staff | recovered | sent | fallback | failed |
+ambiguous | window_closed | lease_lost`):
 1. `token = crypto.randomUUID()`; `jsonb.acquireLease(id, token, LEASE_TTL_MS)` false → `lease_busy`.
    Everything below runs in `try { … } finally { jsonb.releaseLease(id, token) }`; after release, if
    `(await collectBatch(id)).length > 0` and the outcome was not `lease_busy`, call `scheduleReply(id, {reason:'reschedule'})`
@@ -1053,7 +1201,9 @@ window_closed | lease_lost`):
 `deliverResult` (also used by messageProcessor for buttons/opt-out/media and by the sweeper for notes):
 1. If `leaseToken` and `!(await jsonb.renewLease(conv.id, leaseToken))` → `{outcome:'lease_lost'}` (nothing written).
 2. Window: `!isWithinServiceWindow(conv.last_inbound_at, now, {marginMs: windowMarginMs})` → batch rows `skipped`,
-   `{outcome:'window_closed'}`.
+   `{outcome:'window_closed'}`. For `result.kind === 'optout'` the opt-out's `stateUpdate` (`current_state`) and
+   `workflowDataPatch` are written first (D23: «إيقاف» is recorded even when no ack can be sent); a failed write →
+   `{outcome:'state_failed'}` with the rows still `received`.
 3. **State before send** (acks may only state what is persisted): if `stateUpdate` has keys →
    `conversation.update({where:{id}, data: pick(stateUpdate, ['status','current_state'])})`; if `workflowDataPatch`
    has keys → `patchJson('conversations', id, 'workflow_data', patch)`; if `leadPatch` → `saveLead(id, leadPatch,
@@ -1078,56 +1228,80 @@ window_closed | lease_lost`):
 7. After a successful commit: `result.alert` → `sendStaffAlert({reason, business, conversation, summary})`
    (not awaited); `saveLead` returned `score ≥ 6 && previousScore < 6` → alert `hot_lead`;
    `sseEmitter.emit(`business:${business.id}`, {type:'new_message', conversationId, businessId})`.
-8. `DeliveryReport = {outcome:'sent'|'ambiguous'|'failed'|'deduped'|'state_failed'|'window_closed'|'lease_lost',
-   parts:[{index, status, reason, id}]}`.
+8. `DeliveryReport = {outcome:'sent'|'ambiguous'|'failed'|'deduped'|'state_failed'|'window_closed'|'lease_lost'|
+   'awaiting_staff'|'skipped', parts:[{index, status, reason, id}]}` (part status also `aborted`).
 
 ### 7.2 `backend/src/services/messageProcessor.js`
 
-Exports: `persistInbound(entry)`, `processInboundMessage(entry, { persisted } = {})`, `MEDIA_TYPES`.
+Exports: `persistInbound(entry)`, `processInboundMessage(entry, { persisted } = {})`,
+`reprocessStuckInbound({ olderThanMs = 120000, now = new Date() } = {})`, `MEDIA_TYPES`.
 
-`persistInbound(entry) → Promise<{ business: Business|null, items: PersistedItem[] }>` — **throws** on any DB error.
-`PersistedItem = {waMsg, contact, customerWaId, conversation /* after counters */, message, created: boolean}`.
+`persistInbound(entry) → Promise<{ business: Business|null, items: PersistedItem[] }>` — **throws** on any DB error,
+with `err.persisted = {business, items}` (the items committed before the error).
+`PersistedItem = {waMsg, contact, customerWaId, conversation /* after counters when claimed */, message, created, claimed,
+recovered: false}`; `claimed === created`: only the delivery whose transaction inserted the row processes it.
 1. `value = entry?.changes?.[0]?.value`; no `value` or no `messages` → `{business:null, items:[]}` (statuses are not
    persisted here).
 2. `business = business.findFirst({where:{wa_phone_number_id}, select: <existing select>})`; none → warn, `{business:
    null, items:[]}`; `status !== 'active'` → `{business, items:[]}`.
-3. `inboundStatus = business.business_type === 'shift' && business.ai_config?.reply_mode !== 'external' ? 'received' :
-   'delivered'`.
-4. For each message in order: `getOrCreateConversation` (on P2002 from `conversation.create`, re-run `findFirst`);
-   `saveInboundMessage(business.id, conv.id, waMsg, customerWaId, inboundStatus)`; created → `conversation.update({data:
-   {last_message_at: now, last_inbound_at: now, unread_count:{increment:1}}})`; not created and
-   `conv.last_inbound_at < message.created_at` → `conversation.update({data:{last_inbound_at: message.created_at}})`
-   (a retry after a half-finished persist).
+3. `inboundStatus = business_type === 'shift' && reply_mode !== 'external' ? 'received' : 'processing'` (D5, D24).
+4. For each message in order: `getOrCreateConversation` (on P2002 from `conversation.create`, re-run `findFirst`); then
+   **D24** `insertInbound`: `message.findUnique({meta_message_id})` → exists: duplicate (`created:false`). Otherwise one
+   `prisma.$transaction(async (tx) => …, {maxWait: 2000, timeout: 4000})`: `tx.message.create({status: inboundStatus})`,
+   `tx.conversation.updateMany({where:{id, OR:[{last_inbound_at:null},{last_inbound_at:{lt: msg.created_at}}]}, data:
+   {last_message_at, last_inbound_at}})` (never backwards), `tx.conversation.update({data:{unread_count:{increment:1}}})`.
+   A P2002 aborts the transaction and the message is a duplicate. A counter failure rolls the insert back (Meta's retry
+   inserts it again). A commit whose outcome is unknown leaves the row committed but unprocessed: `received` rows are
+   the SHIFT sweeper's; `processing` rows are `reprocessStuckInbound`'s.
 
 `processInboundMessage(entry, {persisted})` — post-response, never throws (outer try/catch as today):
-1. **Statuses** (as today) plus, when `updateMany` count is 0 and the business is SHIFT: reconcile —
-   `conv = conversation.findFirst({where:{business_id, customer_wa_id: normalizePhone(status.recipient_id)}})`;
-   `amb = message.findFirst({where:{conversation_id: conv.id, direction:'outbound', status:'ambiguous'}, orderBy:
-   {created_at:'asc'}})` → `message.update({data:{meta_message_id: status.id, status: status.status}})` (P2002 ignored).
-   A `failed` status whose `errors[0].code === 131042` → `patchJson(metadata, {billing_blocked_at})` + alert `billing`.
+1. **Statuses (D17/D19).** For each status: `row` = `message.findUnique({id: status.biz_opaque_callback_data})` when it
+   is a bot intent (`direction='outbound'` and `raw_payload.kind`), else `message.findUnique({meta_message_id:
+   status.id})`. **No recipient/time matching**: no row → nothing is updated (reconcileUnconfirmedIntents settles the
+   send it may belong to).
+   - bot intent + `sent|delivered|read` → `replyBatcher.applyIntentStatus({intentId: row.id, wamid: status.id, status})`.
+   - bot intent + `failed` → `failIntent` (every `failed` write is `where status notIn failed|ambiguous_unreconciled|
+     cancelled`, not the status read: the POST may still be in flight): already settled → nothing. Not covering
+     (`kind` ∉ reply|fallback|handoff|button|media, no `batch_ids`, or `inbound_status='skipped'`) → `failed` (+
+     `raw_payload.status_error {code,title}`). Another covering intent for an overlapping `batch_ids` is
+     `sent|delivered|read` → `failed` only. Otherwise its `answered` rows → `unconfirmed`; another covering intent still
+     `sending|ambiguous` → `failed` (that intent's reconciliation settles the rows); else
+     `replyBatcher.settleUndelivered(intent, {claimFrom: ['sending','ambiguous','sent','delivered','read'],
+     reclaimAnswered: true})` (requeue once, then awaiting_staff + needs_team `unsent_reply` + alert) and the intent's
+     status is set back from `ambiguous_unreconciled` to `failed` (`raw_payload.settled` kept). GPT-6 #7: the claim
+     accepts an intent still `sending` or just turned `sent`, answered rows written by the batcher after the first move
+     are taken back after the claim, and the batcher's commit re-reads its sent parts (§7.1) for the remaining order.
+   - any other row (staff, restaurant/clinic, ingest) → `message.updateMany({where:{id}, data:{status}})` as today.
+   - `failed` with `errors[0].code === 131042` on a SHIFT business → `patchJson(metadata, {billing_blocked_at})` + alert
+     `billing`, on the row's conversation (by recipient only when no row matched).
 2. No messages → return. `persisted ??= await persistInbound(entry)` (legacy callers, e.g. multiBusiness test).
-3. `reply_mode === 'external'` → existing SSE emits + forward (only when some item `created`), return.
-4. Non-SHIFT → the existing restaurant/clinic/generic loop over `created` items, minus the save/counter code (use
-   `item.conversation`). Everything else is byte-for-byte today's behaviour (incl. the media-not-supported reply).
-5. **SHIFT** — for each `created` item in order (`msg = item.message`, `conv = item.conversation`, `text = msg.text_body`,
-   `lang = pickLanguage(conv.workflow_data?.lead || {}, text || '')`, `now = new Date()`, `token` decrypted as today):
-   a. `markAsRead(pnid, token, waMsg.id, {typing: !hasPendingTimer(conv.id)})`; SSE `new_message`.
-   b. `!isShiftReplyAllowed(...)` → `message.update → skipped`; continue.
-   c. `waMsg.type` ∈ {reaction, unsupported, system, ephemeral} → `skipped`; continue.
+3. `reply_mode === 'external'` → `forwardExternal`: SSE per claimed item, forward `value` when any item is claimed (as
+   today), then the claimed rows → `delivered` (also when the forward failed: it is logged, never retried).
+4. No token → return (claimed non-SHIFT rows → `delivered`, nothing could ever be sent).
+5. Non-SHIFT → `processTenantItems`: today's restaurant/clinic/generic loop, unchanged; each claimed row → `delivered`
+   after its workflow. A throw aborts the rest (as today) and leaves those rows `processing`.
+6. **SHIFT** — for each claimed item in order (`msg = item.message`, `conv = item.conversation`, `text = msg.text_body`):
+   a. `markAsRead(pnid, token, waMsg.id, {typing})`; SSE `new_message`.
+   b. `!isShiftReplyAllowed(...)` → `message.update → skipped`; return.
+   c. `waMsg.type` ∈ {reaction, system, ephemeral} → `await replyBatcher.runBatch(conv.id)` (D23: the leased worker
+      skips it; a pending burst's `batch_due_at` is left alone, so runBatch returns `not_due` and the batch skips it).
    d. `waMsg.referral` → `saveLead(conv.id, {source:{type:'ctwa', referral: pick(referral, ['source_url','source_id',
       'source_type','headline','body','ctwa_clid']), confidence:'inferred'}}, {source:'referral', msgId: msg.id, at})`.
-   e. `waMsg.type === 'text' && isOptOutCommand(text)` → cancel this conversation's timer;
-      `message.updateMany({where:{conversation_id, direction:'inbound', status:'received'}, data:{status:'skipped'}})`;
-      `deliverResult({business, conversation: conv, result: optOutResult({conversation: conv, lang, now}), batch:
-      [msg], inboundStatus:'skipped'})`; continue.
-   f. `id = waMsg.interactive?.button_reply?.id || waMsg.interactive?.list_reply?.id`; `isShiftButtonId(id)` →
-      human-active check as in runBatch step 5 (→ `awaiting_staff`, continue); `result = handleButton(id, {business,
-      conversation: conv, now, lang, messageId: msg.id})`; `result` → `deliverResult({…, batch:[msg]})`; continue.
-   g. Otherwise → `scheduleReply(conv.id, {text: text || ''})`. (Media rows join the batch; `processShiftBatch`
-      renders placeholders.)
+   e. Opt-out command or `replyBatcher.tapButtonId(msg)` → `replyBatcher.cancel(conv.id)`;
+      `jsonb.touchBatchDue(conv.id, 0, SHIFT_BATCH_CAP_MS)` (the queued burst is due now on every instance; errors
+      logged); `await replyBatcher.runBatch(conv.id)` (D23: handleOptOut / answerTaps under the lease; a busy lease →
+      the running batch's freshness check takes it). The processor never marks these rows itself.
+   f. Otherwise → `replyBatcher.touchBatchDue(conv.id, quietWindowMs(text))` (D25; on a DB error →
+      `scheduleReply(conv.id, {text})`).
 
-`saveInboundMessage(businessId, conversationId, waMsg, senderWaId, status = 'delivered')` — the only change is the
-status parameter. `saveOutboundMessage` is unchanged (restaurant/clinic).
+`reprocessStuckInbound({olderThanMs, now}) → Promise<{reprocessed, gaveUp, errors: string[]}>` (D24, for the sweeper):
+1. Inbound `reprocessing` rows with `updated_at < now - olderThanMs` (a re-run that died) → claim → `delivered` and
+   `console.error('[inbound] gave up …')`; counted in `gaveUp`. Never a third run.
+2. Inbound `processing` rows with `created_at < now - olderThanMs` (≤ 50, oldest first) → claim `processing →
+   reprocessing` (`updateMany`, count 1 = ours) → load business + conversation → external mode: forward the rebuilt
+   `value` (`metadata.phone_number_id`, `contacts[{wa_id, profile.name}]`, `messages:[raw_payload]`; no
+   `display_phone_number`) · SHIFT now out of external mode: → `received` · other tenants: `processTenantItems` ·
+   inactive/missing: → `delivered`. A throw is pushed to `errors` and the row stays `reprocessing` (step 1 later).
 
 ### 7.3 `backend/src/routes/whatsapp.js` (D12)
 
@@ -1137,14 +1311,19 @@ router.post('/webhook', async (req, res) => {
   if (body.object !== 'whatsapp_business_account') return res.status(200).json({ status: 'ok' });
   const entries = body.entry || [];
   const budget = parseInt(process.env.WEBHOOK_PERSIST_BUDGET_MS, 10) || 4000;
-  const persistAll = Promise.all(entries.map((e) => persistInbound(e)));
+  const persists = entries.map((e) => persistInbound(e));
   let persisted;
   try {
-    persisted = await withTimeout(persistAll, budget);     // rejects with Error('persist timeout') after `budget`
+    persisted = await withTimeout(Promise.all(persists), budget); // rejects with Error('persist timeout') after `budget`
   } catch (err) {
-    persistAll.catch(() => {});                            // the in-flight persist keeps running; Meta will retry
-    console.error('[webhook] persist failed — returning 500 so Meta retries:', err.message);
-    return res.status(500).json({ error: 'persist_failed' });
+    res.status(500).json({ error: 'persist_failed' });
+    // Each persist that finishes (or fails with err.persisted) is processed by this delivery: Meta's retry finds
+    // those rows stored and skips them.
+    entries.forEach((e, i) => persists[i]
+      .then((p) => p, (e2) => (e2 && e2.persisted) || null)
+      .then((p) => (p && p.items.length ? processInboundMessage(e, { persisted: p }) : null))
+      .catch(console.error));
+    return;
   }
   res.status(200).json({ status: 'ok' });
   entries.forEach((e, i) => processInboundMessage(e, { persisted: persisted[i] }).catch(console.error));
@@ -1162,46 +1341,75 @@ router.post('/webhook', async (req, res) => {
 runSweep({ now = new Date() } = {}) → Promise<SweepReport>
 getShiftStatus({ now = new Date() } = {}) → Promise<ShiftStatus>
 lastSweep() → { at: ISO|null, report: SweepReport|null }
-isCloser(text) → boolean     // ≤ 3 words and no ?/؟  («تمام شكرًا», «ok thanks»)
-SweepReport = { skipped?: 'already_running', orphans: n, sla_notes: n, awaiting_notes: n, window_flags: n,
-                ambiguous_alerts: n, unanswered_alerts: n, errors: [string] }
+isCloser(text) → boolean     // D22: only phrases from an explicit list («شكرًا», «تمام», «ok», «👍», «مشكور», «يعطيك العافية»…), no ?/؟
+SweepReport = { skipped?: 'already_running', stuck_inbound: <reprocessStuckInbound result>|null,
+                unconfirmed_requeued: n, unconfirmed_escalated: n, ambiguous_alerts: n /* unreconciled */,
+                pause_requeued: n, orphans: n, sla_notes: n, awaiting_notes: n, window_flags: n, unanswered_alerts: n,
+                errors: [string] }
 ```
-A module-level `running` flag makes overlapping calls return `{skipped:'already_running'}`. Each step runs per SHIFT
-business (`business.findMany({where:{business_type:'shift', status:'active'}})`) inside its own try/catch (errors
-pushed to `report.errors`, never thrown). `teamHours = resolveTeamHours(business.ai_config)`; `lang` per conversation =
-`pickLanguage(wd.lead || {}, '')`. Customer notes go through `replyBatcher.deliverResult({business, conversation, result,
-batch: [], windowMarginMs: NOTE_WINDOW_MARGIN_MS, now})` with `result = {kind:'sla_note'|'awaiting_note', action:'NONE',
-messages:[{type:'text', text}], stateUpdate:{}, workflowDataPatch:{}, leadPatch:null, needsTeam:null, alert:null}`.
+A module-level `running` flag makes overlapping calls return `{skipped:'already_running'}`. First, once per run and for
+every tenant, **D24** `messageProcessor.reprocessStuckInbound({olderThanMs: 2 min, now})` (required lazily; a throw →
+`errors: 'stuck_inbound: …'`). Then each step runs per SHIFT business (`business.findMany({where:{business_type:'shift',
+status:'active'}})`) inside its own try/catch (errors pushed to `report.errors`, never thrown), in this order.
+`teamHours = resolveTeamHours(business.ai_config)`; `lang` per conversation = lead language, else `pickLanguage` of
+the newest inbound text.
 
+**Notes (D17/D21, GPT-6 #11).** Customer notes are send intents: `replyBatcher.dispatchIntent({business, conversation,
+kind:'sla_note'|'awaiting_note', parts:[{type:'text', text}], batchIds:[], batchKey, precheck, since, now})`, only when
+`isWithinServiceWindow(last_inbound_at, now, {marginMs: NOTE_WINDOW_MARGIN_MS})` (else outcome `window_closed`). A claim
+names the request it is for and records when; after the dispatch returns (any outcome) the staff alert is sent and only
+then the note is marked done. A claim older than `NOTE_CLAIM_TTL_MS = 2 min` that is not done is taken over; if an
+intent row with `raw_payload.batch_key === \`${batchKey}:0\`` (any status) exists since `since`, the takeover only
+alerts and marks done (outcome `already_dispatched`) and never dispatches again.
+
+0. **Unconfirmed intents (D18)** — `replyBatcher.reconcileUnconfirmedIntents({now, businessId})`; its `requeued`,
+   `escalated`, `unreconciled` add to the report, its `errors` are pushed as `unconfirmed <biz>: …`. The sweeper never
+   changes an intent's status itself (the PR1 `sweepAmbiguous` step is gone).
+1a. **Expired staff pause (D22, GPT-6 #10)** — pages (like orphans, ≤ 10 × 200 rows, excluding conversations already
+   seen) of `awaiting_staff` inbound rows; per conversation: skip unless `isShiftReplyAllowed`; skip when
+   `replyBatcher.isHumanActive(conv, newestStaffOutbound, now)` (claimed / `human_takeover`, `ai_enabled=false`,
+   `human_active_until > now`, staff message < 30 min not released); else `message.updateMany(awaiting_staff →
+   received)` excluding rows listed in `batch_ids` of an `ambiguous_unreconciled` (D18) or `failed` (D19) intent with
+   `raw_payload.settled === 'escalated'` (those hand-offs wait for staff), and `scheduleReply(id, {reason:'sweep'})`. The batcher re-checks human
+   state before replying, so a claim made after this read only parks the rows again.
 1. **Orphans** — `message.findMany({where:{business_id, direction:'inbound', status:'received', created_at:{lt: now −
-   30 s}}, orderBy:{created_at:'asc'}, take: 100})` → unique `conversation_id`s → skip when `metadata.reply_failures ≥
-   3` → `scheduleReply(convId, {reason:'sweep'})`. (A live lease makes that run return `lease_busy`; harmless.)
-2. **SLA note** — `conversation.findMany({where:{business_id, status:'pending'}})`; for each with `nt = wd.needs_team`,
-   `nt && !nt.resolved_at && !nt.sla_note_sent_at && nt.reason !== 'ai_failure' && !wd.marketing_opted_out_at` and
-   `isWithinTeamHours(teamHours, now)` and `teamMinutesBetween(teamHours, new Date(nt.at), now) ≥ 15` and no staff
-   outbound since (`message.findFirst({where:{conversation_id, direction:'outbound', sent_by_user_id:{not:null},
-   created_at:{gt: new Date(nt.at)}}})` is null) → `jsonb.claimFlag('conversations', id, 'workflow_data',
-   ['needs_team','sla_note_sent_at'])` → true → deliver `acks.slaNote(lang)` + alert `sla_breached`.
-3. **Awaiting-staff note** — `message.findMany({where:{business_id, direction:'inbound', status:'awaiting_staff',
-   created_at:{lt: now − 10 min}}, orderBy:{created_at:'asc'}, take: 200})`, grouped by conversation. Per conversation:
-   `lastStaff` = newest staff outbound; `silence` = awaiting rows created after `lastStaff?.created_at`; skip if empty,
-   if every row `isCloser(text_body)`, or if not `isWithinTeamHours`. `key = silence[0].id`;
-   `jsonb.claimValue('conversations', convId, 'metadata', 'awaiting_note_for', key)` → true → staff name from
-   `user.findUnique({where:{id: conv.assigned_staff_id}, select:{name:true}})` → deliver
-   `acks.awaitingStaffNote({staffName, lang})` + alert `awaiting_staff`. The rows stay `awaiting_staff`.
+   30 s}}, orderBy:{created_at:'asc'}, take: 100})`, paged by conversation → skip when `metadata.reply_failures ≥ 3`
+   (rows → `skipped` once the 24 h window closed) → `scheduleReply(convId, {reason:'sweep'})`.
+2. **SLA note** — within team hours, `conversation.findMany({where:{business_id, status:'pending'}})`; eligible when
+   `nt && !nt.resolved_at && !nt.sla_note_done_at && nt.reason !== 'ai_failure' && !wd.marketing_opted_out_at`, not a
+   PR1-era claim (`sla_note_sent_at` set without `sla_note_attempt` = handled), no live claim (`sla_note_sent_at` < 2 min
+   old), `teamMinutesBetween(nt.at, now) ≥ 15`, D1 gate open, and no staff outbound since `nt.at`. **Claim** =
+   `jsonb.mergeObjectKey(workflow_data, 'needs_team', {sla_note_sent_at: now ISO, sla_note_attempt: n + 1}, {match:
+   {at, reason, sla_note_sent_at (as read), sla_note_attempt (if read), resolved_at: null, claimed_at: null}})` — a
+   request replaced or claimed meanwhile fails the match. `batchKey = sla_note:<reason>:<at>`, `since = nt.at`,
+   `precheck = {humanGuard: true, optedOutSince: nt.at, claim: [{column:'workflow_data', path:['needs_team','at'], value:
+   nt.at}, {column:'workflow_data', path:['needs_team','sla_note_attempt'], value: attempt}]}` (a claim or staff pause
+   meanwhile cancels the note; so does losing the note claim — a sweep stalled past the TTL and taken over must not send
+   what the other sweep sent). Outcome `aborted` with the claim no longer this sweep's (needs_team `at`/`reason`/
+   `sla_note_attempt` changed) → return without alert or done mark. A meeting
+   request with `lead.preferred_time` sends no note (outcome `skipped`). Alert `sla_breached` (summary carries the
+   outcome); done = `mergeObjectKey(needs_team, {sla_note_done_at: now ISO}, {match: {at, reason}})`.
+3. **Awaiting-staff note** — within team hours, `message.findMany({where:{business_id, direction:'inbound',
+   status:'awaiting_staff', created_at:{lt: now − 10 min}}, orderBy:{created_at:'asc'}, take: 200})`, grouped by
+   conversation; `silence` = rows after the newest staff outbound; skip if empty, if every row `isCloser`, or D1 gate
+   closed. Identity = `silence[0].id`. Skip when `metadata.awaiting_note_done_for === id`, when `awaiting_note_for === id`
+   (PR1-era claim), or when `awaiting_note_for === id#k` and `awaiting_note_claimed_at` is < 2 min old. **Claim** =
+   `patchJson(metadata, {awaiting_note_claimed_at: now ISO})` then `claimValue(metadata, 'awaiting_note_for',
+   \`${id}#${k+1}\`)`. `batchKey = awaiting_note:<id>`, `since = silence[0].created_at`, `precheck = {humanGuard: false,
+   optedOutSince: silence[0].created_at, claim: [{column:'metadata', path:['awaiting_note_for'], value: \`${id}#${k+1}\`}]}`
+   (the customer is waiting for the person holding the conversation; never after an opt-out during the silence; never
+   by a sweep whose claim was taken over — that `aborted` returns without alert or done mark). Alert `awaiting_staff`; done =
+   `patchJson(metadata, {awaiting_note_done_for: id})`. The rows stay `awaiting_staff`.
 4. **Window closing** — `conversation.findMany({where:{business_id, last_inbound_at:{gte: now − 24 h, lte: now − 22 h}}})`;
    eligible when `status` ∈ {pending, human_takeover} or any `awaiting_staff` inbound exists
    (`message.count`) → `claimValue(metadata, 'window_flag_for', conv.last_inbound_at.toISOString())` → true →
    `patchJson(metadata, {window_closing_at: windowClosesAt(last).toISOString()})` + alert `window_closing`. No customer
    message.
-5. **Ambiguous sends** — `message.findMany({where:{business_id, direction:'outbound', status:'ambiguous', created_at:
-   {lt: now − 10 min}}})`; per row `message.updateMany({where:{id, status:'ambiguous'}, data:{status:
-   'ambiguous_unreconciled'}})` count 1 → alert `ambiguous_send`. Never re-sends.
-6. **Inbound without outbound** (regardless of `reply_mode`/`SHIFT_BOT_LIVE`) — `conversation.findMany({where:
-   {business_id, last_inbound_at:{gte: now − 60 min, lte: now − 2 min}}})`; `inb` = newest inbound
-   (`message.findFirst({where:{conversation_id, direction:'inbound'}, orderBy:{created_at:'desc'}})`); skip if
+5. **Inbound without outbound** (regardless of `reply_mode`/`SHIFT_BOT_LIVE`) — `conversation.findMany({where:
+   {business_id, last_inbound_at:{gte: now − 60 min, lte: now − 2 min}}})`; `inb` = newest inbound; skip if
    `message_type === 'reaction'` or `status === 'awaiting_staff'`; skip if an outbound with `created_at ≥ inb.created_at`
-   exists; `claimValue(metadata, 'unanswered_alert_for', inb.id)` → true → alert `inbound_without_outbound`.
+   and status not in `failed | sending | cancelled | ambiguous_unreconciled` exists; `claimValue(metadata,
+   'unanswered_alert_for', inb.id)` → true → alert `inbound_without_outbound`.
 
 `getShiftStatus` (first active SHIFT business; none → `{workflow_active:false, business:null}`):
 ```js
@@ -1209,8 +1417,9 @@ messages:[{type:'text', text}], stateUpdate:{}, workflowDataPatch:{}, leadPatch:
   reply_mode: ai_config.reply_mode ?? null, bot_live: SHIFT_BOT_LIVE !== '0', test_numbers_count,
   alert_channel_configured: alertChannelConfigured(business), model: resolveModel(), graph_version: graphVersion(),
   last_inbound_at, last_outbound_at,            // newest message per direction for the business (ISO or null)
-  pending, awaiting_staff, received_backlog, ambiguous,  // counts: conversations status pending; inbound awaiting_staff;
-                                                          // inbound received older than 60 s; outbound ambiguous*
+  pending, awaiting_staff, received_backlog, unconfirmed, ambiguous,
+  // counts: conversations status pending; inbound awaiting_staff; inbound received older than 60 s;
+  // inbound unconfirmed (D18); outbound ambiguous | ambiguous_unreconciled
   sweep: lastSweep(), now: now.toISOString() }
 ```
 
@@ -1403,7 +1612,23 @@ PATCH with a stale `version` → 409; PATCH on another business's conversation �
 open; claim → human_takeover + ai_enabled false + `stage_before_takeover` + claim ack sent once (second claim by the same user →
 `ack:'skipped'`, other user → 409); claim outside the window → no send; release restores the stage and AI; `/send` sets
 `metadata.human_active_until` ≈ now+30 min and turns `awaiting_staff` rows into `answered` but leaves `received`; stats include
-`awaiting_staff`.
+`awaiting_staff`. GPT-6 review: `/send` and `/claim` have the pause (and takeover) stored when Graph is called and the bot's
+`preSendCheck` refuses at that moment (#6); the claim ack is an intent with `callbackData` = its row id; a failed ack keeps the
+pause; a bot write landing right after the resolve keeps the new request pending (#13); `resolveNeedsTeam` fake semantics and
+SQL text.
+Re-verification (2026-09-15): `requested_time_change` is kept by other lead edits and cleared by a staff `preferred_time`.
+
+**Re-verification regressions (2026-09-15), replacing the `_reverify_*` scratch suites.** `replyBatcher.test.js`:
+`failed` processed while the POST is in flight (part failed, rows requeued, second send answers); `failed` between
+the recorded wamid and the commit (rows take the requeue); a second in-flight failure escalates; `delivered` echoed
+mid-POST stays `delivered`; an echoed `sent` confirms an ambiguous POST; a refused send another worker flipped to
+`ambiguous` is cancelled and its rows requeued at once; an opt-out ack unconfirmed twice is `dropped`; #13 resolve
+before / after the bot's single write, a stale equal-priority candidate recorded, an open equal-priority request kept,
+a claim before the write. `shiftE2E.test.js` (ix) out-of-order `failed` end to end, (x) two sweeper instances with a
+stalled note claim send the SLA note once. `sweeper.test.js`: the note prechecks carry the claim (and the awaiting
+note `optedOutSince`), a lost claim skips alert and done mark. `jsonb.test.js` / `fakeDb.test.js`:
+`writeConversationState` SQL and merge semantics, `preSendCheck` claim predicates. `whatsapp.test.js`: legacy sender
+timeouts.
 
 **`tests/replyBatcher.test.js` (L3a; fakeDb; `whatsapp`, `alerts`, `workflows/shift` index mocked where noted)**
 1. three fragments within the window → one `runBatch`, one outbound, ≤ 2 `processShiftBatch` calls; 2. `quietWindowMs` 1.5/2.5/4 s
@@ -1417,7 +1642,12 @@ fragment after the regeneration → sent + rescheduled; 5. lease contention: sec
 13. `ambiguous` → row ambiguous, rows answered, alert, no retry; 14. retryable 5xx → one retry; 15. three failures → `reply_failures`
 3 and one alert; billing → `billing_blocked_at` + alert; 16. state write before send: when `patchJson` throws nothing is sent;
 17. clock skew: two inbound rows with `created_at` out of order are both in the batch (status-based); 18. `deliverResult` dedupes on
-`batch_key`; 19. opt-out after batch start → no send.
+`batch_key`; 19. opt-out after batch start → no send. GPT-6 review (integration): a STOP row found after the 24 h window
+closed still stores the opt-out, no ack; rows stranded `unconfirmed` → a confirmed covering intent (D19 crash) is settled
+and requeued once and the new run sends; an `escalated` settle that crashed before moving rows → `awaiting_staff` +
+`unsent_reply`; rows touched < 5 min ago are left alone. `processing` rows for non-SHIFT tenants, a counter failure that
+leaves no row (rollback), and a status webhook that matches only by the echoed callback id replace the three PR1 processor
+tests whose behaviour D17/D24 removed.
 
 **`tests/webhook.test.js` (L3a, extend; `messageProcessor` mocked)** existing 5 cases keep passing; persist rejects (P1001) → 500;
 persist slower than `WEBHOOK_PERSIST_BUDGET_MS=50` → 500 and `processInboundMessage` not called; persist ok → 200 and
@@ -1425,13 +1655,46 @@ persist slower than `WEBHOOK_PERSIST_BUDGET_MS=50` → 500 and `processInboundMe
 
 **`tests/multiBusiness.test.js` (L3a)** unchanged and green (legacy `processInboundMessage(entry)` persists once; duplicates
 stored once). Add one case: a restaurant business ignores `SHIFT_BOT_LIVE=0` and still stores inbound as `delivered`.
+Its hand-rolled Prisma mock gains `$transaction` (callback runs on the mock) and `id/status: {in}` in `updateMany`.
+
+**`tests/webhookProcessor.test.js` (GPT-6 #1/#5/#7/#8; fakeDb, whose interactive `$transaction` rolls back; a local wrapper only adds `inTx()`)** D24: row +
+counters inside one transaction; a counter failure leaves no row and the retry processes once; SHIFT sets
+`batch_due_at`; restaurant/external rows `processing → delivered`; a duplicate never closes the other delivery's row;
+`reprocessStuckInbound` re-runs once after 2 min (restaurant and rebuilt external forward) and gives up a dead re-run.
+D17: no callback data → no recipient/time attachment; echoed id confirms exactly that intent and answers its rows; exact
+wamid still updates staff rows and never moves an intent backwards. D19: first failure requeues, duplicate webhook
+settles once, second failure escalates (`unsent_reply` + alert), exact-wamid match, delivered sibling part → no requeue,
+note failure + billing banner. D23: opt-out under the lease, a failed opt-out state write leaves the row `received`, a
+reaction does not cut a pending burst.
+
+**`tests/webhookPersistRetry.test.js`** also: counter failure → nothing kept, retry forwards/counts once; a commit whose
+outcome was lost → 500, retry 200 without a forward, `reprocessStuckInbound` forwards once.
+
+**`tests/shiftE2E.test.js` (real app; fakeDb; Gemini SDK and axios mocked; jest fake timers; the sweeper called once a
+minute as Cloud Scheduler does)** PR1 (a)–(j), plus the GPT-6 decisions end to end: (i) the instance dies after the intent
+row and before Graph (pre-send check never returns) → after 2 min the sweeper requeues once, exactly one reply, the send
+carries its intent id; (ii) Graph 502 → one POST, row `ambiguous`, inbound `unconfirmed`; the echoed `delivered` status
+with `biz_opaque_callback_data` marks it answered and later sweeps settle nothing; (iii) 502 twice with no echo → one
+requeue, then `awaiting_staff` + `needs_team.unsent_reply` + pending + one `unsent_reply` alert, never a third reply;
+(iv) staff claim while the model generates → only the claim ack (a staff-attributed intent) goes out, rows
+`awaiting_staff`; (iv-b) a claim committed inside the pre-send gap → intent `cancelled`, nothing sent (D20/D21); (v) staff
+send, question at +5 min parked, pause over at +30 → `pause_requeued` 1 and the bot answers; (vi) a `failed` status for an
+answered batch → one requeue and one new reply, a repeated webhook changes nothing; (vii) STOP on an instance that dies
+before handling (read receipt never returns) → the orphan sweep applies the opt-out ack, no AI call; (viii) external
+tenant, crash after persist and before the forward → `processing`, forwarded once by `reprocessStuckInbound`, `delivered`.
 
 **`tests/sweeper.test.js` (L3b; fakeDb; `replyBatcher` and `alerts` mocked)** orphan > 30 s → `scheduleReply(reason:'sweep')`,
 < 30 s → not; `reply_failures ≥ 3` → skipped; SLA: 16 team-minutes, no staff outbound → one note + alert; two concurrent
 `runSweep` → one note; after hours → none; staff outbound since → none; opted out → none; ai_failure needs_team → none;
 awaiting: question 11 min old → one note, a second sweep → none, a new silence after another staff reply → note again; closers
-only → none; window 23 h old pending → flag + alert once; ambiguous 11 min → `ambiguous_unreconciled` + alert once; inbound 3 min
-without outbound → alert once, including `reply_mode='external'`; overlapping call → `already_running`; `getShiftStatus` shape.
+only → none; window 23 h old pending → flag + alert once; inbound 3 min without outbound → alert once, including
+`reply_mode='external'`; overlapping call → `already_running`; `getShiftStatus` shape. GPT-6 review: `isCloser` phrase list
+(«price please» is not a closer, #10); expired pause → rows `received` + run scheduled, not while paused / claimed / AI off / staff
+message < 30 min, never for D18-escalated (`ambiguous_unreconciled`) or D19-escalated (`failed`) rows, paged past 200 held rows (#10); notes via `dispatchIntent` with request-keyed
+`batchKey`; a stale unclaimed read loses the claim; a replaced request is not claimed; a crash before the intent is taken over after
+2 min with exactly one note; a crash after the intent is finished without resending; PR1-era claims count as handled (#11);
+`reconcileUnconfirmedIntents` called per business, old intents not flipped by the sweeper (D18); `reprocessStuckInbound` called
+once per run even without a SHIFT business, failures reported (D24).
 
 **`tests/internal.test.js` (L3b; `shiftSweeper` mocked)** no token env → 503; wrong bearer → 401; right bearer → 200 with report;
 `/shift-status` same auth; the route is not rate-limited (101 calls → no 429).
@@ -1450,9 +1713,9 @@ without outbound → alert once, including `reply_mode='external'`; overlapping 
 | L2a index | ai/provider, shift/lead | `generateValidatedAIReply`; `mergeLead` (preview only, via results) |
 | L2b inbox | db/jsonb · shift/lead · shift/acks · shift/actions · whatsapp · serviceWindow | `patchJson` · `saveLead` · `claimAck`, `pickLanguage` · `STAGES` · `sendText`, `sendTextMessage` · `isWithinServiceWindow` |
 | L3a replyBatcher | shift/index · shift/lead · db/jsonb · whatsapp · alerts · serviceWindow · tokenCrypto · sseEmitter | `processShiftBatch` · `saveLead` · `acquireLease`, `renewLease`, `releaseLease`, `patchJson`, `incrementCounter` · `sendText`, `sendInteractiveButtons`, `markAsRead`, `normalizePhone` · `sendStaffAlert` · `isWithinServiceWindow`, `REPLY_WINDOW_MARGIN_MS` · `decrypt` |
-| L3a messageProcessor | replyBatcher · shift/optout · shift/buttons · shift/acks · shift/lead · db/jsonb · alerts | `scheduleReply`, `hasPendingTimer`, `deliverResult`, `isShiftReplyAllowed`, `isHumanActive`, `cancelAll` · `isOptOutCommand`, `optOutResult` · `isShiftButtonId`, `handleButton` · `pickLanguage` · `saveLead` · `patchJson` · `sendStaffAlert` |
+| L3a messageProcessor | replyBatcher · shift/optout · shift/lead · db/jsonb · alerts | `touchBatchDue`, `quietWindowMs`, `scheduleReply`, `runBatch`, `cancel`, `hasPendingTimer`, `tapButtonId`, `isShiftReplyAllowed`, `applyIntentStatus`, `settleUndelivered` · `isOptOutCommand` · `saveLead` · `patchJson`, `touchBatchDue` · `sendStaffAlert` |
 | L3a routes/whatsapp | messageProcessor | `persistInbound`, `processInboundMessage` |
-| L3b shiftSweeper | replyBatcher · db/jsonb · shift/hours · shift/acks · alerts · serviceWindow · ai/provider · whatsapp | `scheduleReply`, `deliverResult` · `claimFlag`, `claimValue`, `patchJson` · `resolveTeamHours`, `isWithinTeamHours`, `teamMinutesBetween` · `slaNote`, `awaitingStaffNote`, `pickLanguage` · `sendStaffAlert`, `alertChannelConfigured` · `NOTE_WINDOW_MARGIN_MS`, `windowClosesAt` · `resolveModel` · `graphVersion` |
+| L3b shiftSweeper | replyBatcher · messageProcessor (lazy) · db/jsonb · shift/hours · shift/acks · alerts · serviceWindow · ai/provider · whatsapp | `scheduleReply`, `dispatchIntent`, `reconcileUnconfirmedIntents`, `isHumanActive`, `isShiftReplyAllowed` · `reprocessStuckInbound` · `mergeObjectKey`, `claimValue`, `patchJson` · `resolveTeamHours`, `isWithinTeamHours`, `teamMinutesBetween` · `slaNote`, `awaitingStaffNote`, `pickLanguage` · `sendStaffAlert`, `alertChannelConfigured` · `NOTE_WINDOW_MARGIN_MS`, `windowClosesAt` · `resolveModel` · `graphVersion` |
 | L3b routes/internal, server | shiftSweeper · ai/provider · whatsapp · shift/buttons | `runSweep`, `getShiftStatus` · `resolveModel` · `graphVersion` · `assertButtons` |
 
 `replyBatcher.cancelAll` must also be exported for tests; `messageProcessor` uses it only through a per-conversation
@@ -1492,3 +1755,7 @@ without outbound → alert once, including `reply_mode='external'`; overlapping 
     uses id-based exclusion instead.
 14. **The PR1 prompt keeps history inside the system prompt** (today's shape), so `systemInstruction` is not yet
     cache-stable; PR2's context builder moves history into the user turn (plan PR2 test list already expects that change).
+15. **New statuses for D17/D18/D20 (no migration, `status` is a free string):** inbound `unconfirmed` (a covering send
+    is neither confirmed nor settled — not `received`, which a run would answer again, and not `answered`, which the
+    customer may not have) and outbound `cancelled` (an intent the pre-send check refused; it never reached Graph).
+    `needs_team.reason` gains `unsent_reply` (priority 6), and `alerts.js` gains the alert reason `unsent_reply`.

@@ -147,6 +147,63 @@ describe('where / orderBy / data', () => {
     expect(a.status).toBe('pending');
     expect(b).toBe(1);
   });
+
+  test('interactive $transaction: a throwing callback undoes its creates and updates; a commit keeps them', async () => {
+    const { biz, conv } = seedConversation();
+    db.failNext('conversation.update', new Error('counter write failed'));
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.message.create({ data: { id: 'm1', business_id: biz.id, conversation_id: conv.id, meta_message_id: 'wamid.t' } });
+      await tx.conversation.updateMany({ where: { id: conv.id }, data: { unread_count: { increment: 1 } } });
+      await tx.conversation.update({ where: { id: conv.id }, data: { unread_count: { increment: 1 } } });
+    })).rejects.toThrow('counter write failed');
+    expect(db.store.messages).toHaveLength(0);
+    expect(db.store.conversations[0].unread_count).toBe(0);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.message.create({ data: { id: 'm2', business_id: biz.id, conversation_id: conv.id, meta_message_id: 'wamid.t' } });
+      await tx.conversation.update({ where: { id: conv.id }, data: { unread_count: { increment: 1 } } });
+    });
+    expect(db.store.messages.map((m) => m.id)).toEqual(['m2']);
+    expect(db.store.conversations[0].unread_count).toBe(1);
+  });
+});
+
+describe('jsonb fake: writeConversationState and the preSendCheck claim', () => {
+  const PRIO = { unsent_reply: 6, person: 5, meeting: 4, quote: 3, unknown: 1 };
+  const entry = (reason, at, extra = {}) => ({ reason, at, summary: reason, resolved_at: null, claimed_at: null, ...extra });
+  const write = (id, needsTeam, extra = {}) => jsonb.writeConversationState(id, {
+    status: 'pending', patch: { bot_turns: 1 }, needsTeam, priorities: PRIO, defaultPriority: 1, ...extra,
+  });
+
+  test('needs_team is merged against the stored entry: missing, resolved, claimed or lower priority → replaced', async () => {
+    const { conv } = seedConversation();
+    expect(await write(conv.id, entry('quote', 't1'))).toEqual({ ok: true, needsTeam: { reason: 'quote', at: 't1' } });
+    // Equal priority, still open: kept.
+    expect((await write(conv.id, entry('quote', 't2'))).needsTeam).toEqual({ reason: 'quote', at: 't1' });
+    // Higher priority: replaced.
+    expect((await write(conv.id, entry('person', 't3'))).needsTeam).toEqual({ reason: 'person', at: 't3' });
+    db.store.conversations[0].workflow_data.needs_team.resolved_at = 'done';
+    expect((await write(conv.id, entry('quote', 't4'))).needsTeam).toEqual({ reason: 'quote', at: 't4' });
+    db.store.conversations[0].workflow_data.needs_team.claimed_at = 'staff';
+    expect((await write(conv.id, entry('quote', 't5'), { currentState: 'captured' })).needsTeam).toEqual({ reason: 'quote', at: 't5' });
+    expect(db.store.conversations[0]).toMatchObject({ status: 'pending', current_state: 'captured', workflow_data: { bot_turns: 1 } });
+  });
+
+  test('a human_takeover conversation is not written at all', async () => {
+    const { conv } = seedConversation({ status: 'human_takeover', workflow_data: { needs_team: entry('quote', 't1') } });
+    expect(await write(conv.id, entry('person', 't2'))).toEqual({ ok: false, needsTeam: null });
+    expect(db.store.conversations[0]).toMatchObject({ status: 'human_takeover', workflow_data: { needs_team: { reason: 'quote' } } });
+  });
+
+  test('preSendCheck claim: every path must hold the value (numbers compare as text; missing never matches)', async () => {
+    const { conv } = seedConversation({ workflow_data: { needs_team: { at: 't1', sla_note_attempt: 2 } }, metadata: { awaiting_note_for: 'm1#1' } });
+    const claim = (c) => jsonb.preSendCheck(conv.id, { humanGuard: false, claim: c });
+    expect(await claim([{ column: 'workflow_data', path: ['needs_team', 'at'], value: 't1' }, { column: 'workflow_data', path: ['needs_team', 'sla_note_attempt'], value: 2 }])).toBe(true);
+    expect(await claim([{ column: 'workflow_data', path: ['needs_team', 'sla_note_attempt'], value: 1 }])).toBe(false);
+    expect(await claim([{ column: 'metadata', path: ['awaiting_note_for'], value: 'm1#1' }])).toBe(true);
+    expect(await claim([{ column: 'metadata', path: ['missing'], value: 'null' }])).toBe(false);
+    await expect(claim([{ column: 'status', path: ['x'], value: 1 }])).rejects.toThrow('jsonb: bad identifier');
+  });
 });
 
 describe('jsonb fake', () => {
@@ -191,11 +248,55 @@ describe('jsonb fake', () => {
     expect(await jsonb.releaseLease(conv.id, 'B')).toBe(false);
 
     db.clock.advance(61000);
+    // GPT-6 #2: an expired lease is not renewed even while nobody has taken it yet.
+    expect(await jsonb.renewLease(conv.id, 'A')).toBe(false);
     expect(await jsonb.acquireLease(conv.id, 'B')).toBe(true);
     expect(await jsonb.renewLease(conv.id, 'A')).toBe(false);
     expect(await jsonb.releaseLease(conv.id, 'B')).toBe(true);
     expect(db.store.conversations[0].metadata).toEqual({});
     expect(await jsonb.acquireLease(conv.id, 'A')).toBe(true);
+  });
+
+  test('preSendCheck: live lease and no human state → true (and renews); any failed predicate → false', async () => {
+    db.clock.set('2026-09-14T08:00:00Z');
+    const { conv } = seedConversation();
+    await jsonb.acquireLease(conv.id, 'A');
+    expect(await jsonb.preSendCheck(conv.id, { leaseToken: 'A' })).toBe(true);
+    expect(db.store.conversations[0].metadata.reply_lease_until).toBe('2026-09-14T08:01:00.000Z');
+    expect(await jsonb.preSendCheck(conv.id, { leaseToken: 'B' })).toBe(false);
+
+    db.store.conversations[0].metadata.human_active_until = '2026-09-14T08:10:00.000Z';
+    expect(await jsonb.preSendCheck(conv.id, { leaseToken: 'A' })).toBe(false);
+    expect(await jsonb.preSendCheck(conv.id, { leaseToken: 'A', humanGuard: false })).toBe(true);
+    db.store.conversations[0].metadata.human_active_until = '2026-09-14T07:59:00.000Z';
+    db.store.conversations[0].status = 'human_takeover';
+    expect(await jsonb.preSendCheck(conv.id, {})).toBe(false);
+    db.store.conversations[0].status = 'open';
+    db.store.conversations[0].ai_enabled = false;
+    expect(await jsonb.preSendCheck(conv.id, {})).toBe(false);
+    db.store.conversations[0].ai_enabled = true;
+
+    db.store.conversations[0].workflow_data.marketing_opted_out_at = '2026-09-14T07:30:00.000Z';
+    expect(await jsonb.preSendCheck(conv.id, { optedOutSince: '2026-09-14T07:00:00.000Z' })).toBe(false);
+    expect(await jsonb.preSendCheck(conv.id, { optedOutSince: '2026-09-14T07:45:00.000Z' })).toBe(true);
+
+    db.clock.advance(61000);
+    expect(await jsonb.preSendCheck(conv.id, { leaseToken: 'A' })).toBe(false);
+  });
+
+  test('touchBatchDue: quiet window from now, capped from the first fragment of the burst', async () => {
+    db.clock.set('2026-09-14T08:00:00Z');
+    const { conv } = seedConversation();
+    expect(await jsonb.touchBatchDue(conv.id, 4000, 10000)).toEqual({ dueAt: new Date('2026-09-14T08:00:04Z'), delayMs: 4000 });
+    db.clock.advance(3000);
+    expect((await jsonb.touchBatchDue(conv.id, 4000, 10000)).delayMs).toBe(4000);
+    db.clock.advance(3000);
+    expect((await jsonb.touchBatchDue(conv.id, 4000, 10000)).delayMs).toBe(4000);
+    db.clock.advance(3000); // t = 9 s: the cap (first fragment + 10 s) wins over a fresh 4 s window
+    expect(await jsonb.touchBatchDue(conv.id, 4000, 10000)).toEqual({ dueAt: new Date('2026-09-14T08:00:10Z'), delayMs: 1000 });
+    db.clock.advance(5000); // the burst is over; the next fragment starts a new one
+    expect((await jsonb.touchBatchDue(conv.id, 1500, 10000)).dueAt).toEqual(new Date('2026-09-14T08:00:15.500Z'));
+    expect(await jsonb.touchBatchDue('missing', 4000, 10000)).toBeNull();
   });
 
   test('two claimFlag calls → exactly one true; missing parent → false', async () => {

@@ -456,6 +456,39 @@ describe('SHIFT workflow — capture and needs_team regressions (PR1 review)', (
     expect(mergeLead(lead, r.leadPatch, r.leadMeta).lead.preferred_time).toEqual(TUE_SLOT);
   });
 
+  test('GPT-6 #12: a staff-owned call time is not acked as changed; the new time is passed to the team', () => {
+    const { renderCaptureAck } = require('../src/workflows/shift/results');
+    const staffTime = { text: 'بكرا الساعة 10' };
+    const lead = {
+      name: 'محمد', business_name: 'زيتون', preferred_time: staffTime, version: 3,
+      _prov: { preferred_time: { source: 'staff', confirmed: true } },
+    };
+    const wd = {
+      lead,
+      needs_team: { reason: 'person', summary: 'بدي حدا', at: MON_11.toISOString(), resolved_at: null, claimed_at: null },
+    };
+    const r = toWorkflowResult(
+      { reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'الساعة 5 العصر' } },
+      { business, conversation: conv({ status: 'pending', current_state: 'handoff', workflow_data: wd }), now: MON_11, lang: 'ar',
+        batchMessages: [{ id: 'm2', message_type: 'text', text_body: 'خليها الساعة 5 العصر' }] },
+    );
+    const text = r.messages[0].text;
+    expect(text).not.toContain(acks.captureAck({ name: 'محمد', businessName: 'زيتون', when: 'الساعة 5 العصر', lang: 'ar' }));
+    expect(text).toContain(acks.captureRelayed({ when: 'الساعة 5 العصر', lang: 'ar' }));
+    // The requested change is stored where staff see it, since the lead's time will not change.
+    expect(r.workflowDataPatch.requested_time_change).toEqual({ text: 'الساعة 5 العصر', at: MON_11.toISOString() });
+    expect(mergeLead(lead, r.leadPatch, r.leadMeta).lead.preferred_time).toEqual(staffTime);
+
+    // The batcher renders the final text from what saveLead persisted, not from this preview.
+    const stored = renderCaptureAck(r.capture, { ...lead, preferred_time: { text: 'الساعة 5 العصر' } });
+    expect(stored.relayed).toBe(false);
+    expect(stored.messages[0].text).toContain(acks.captureAck({ name: 'محمد', businessName: 'زيتون', when: 'الساعة 5 العصر', lang: 'ar' }));
+    const blocked = renderCaptureAck(r.capture, lead);
+    expect(blocked.relayed).toBe(true);
+    expect(blocked.messages[0].text).toContain(acks.captureRelayed({ when: 'الساعة 5 العصر', lang: 'ar' }));
+    expect(blocked.workflowDataPatch).toEqual({ requested_time_change: { text: 'الساعة 5 العصر', at: MON_11.toISOString() } });
+  });
+
   test('a claimed needs_team (handoff → claim → release) is replaced by a new request', () => {
     const claimed = { reason: 'person', summary: 'قديم', at: 'x', resolved_at: null, claimed_at: 'y', claimed_by: 'u1', sla_note_sent_at: 'z' };
     const next = { reason: 'person', summary: 'جديد', at: 'w', resolved_at: null, claimed_at: null, claimed_by: null, sla_note_sent_at: null };

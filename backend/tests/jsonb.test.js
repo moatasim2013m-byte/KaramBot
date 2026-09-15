@@ -95,12 +95,118 @@ describe('leases', () => {
     expect(await jsonb.renewLease('c1', 'other')).toBe(false);
   });
 
+  test('GPT-6 #2: renewLease only renews a lease that has not expired yet (D20)', async () => {
+    // An expired token nobody replaced yet must not come back to life: another worker may already be
+    // past acquireLease's "expired" branch.
+    await jsonb.renewLease('c1', 'tok-1');
+    expect(lastSql(prisma.$executeRaw).text).toContain("(\"metadata\" ->> 'reply_lease_until')::timestamptz > now()");
+  });
+
   test('releaseLease requires the token and removes both keys', async () => {
     expect(await jsonb.releaseLease('c1', 'tok-1')).toBe(true);
     const { text, values } = lastSql(prisma.$executeRaw);
     expect(text).toContain("\"metadata\" - 'lease_token' - 'reply_lease_until'");
     expect(text).toContain("\"metadata\" ->> 'lease_token' = ?::text");
     expect(values).toEqual(['c1', 'tok-1']);
+  });
+});
+
+describe('preSendCheck (D20)', () => {
+  test('GPT-6 #2: one statement fences the lease and the human state right before a Graph call', async () => {
+    const ok = await jsonb.preSendCheck('c1', { leaseToken: 'tok-1', humanGuard: true, optedOutSince: '2026-09-14T08:00:00.000Z' });
+
+    expect(ok).toBe(true);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    const { text, values } = lastSql(prisma.$executeRaw);
+    expect(text).toContain('UPDATE "conversations"');
+    expect(text).toContain("\"metadata\" ->> 'lease_token' = ?::text");
+    expect(text).toContain("(\"metadata\" ->> 'reply_lease_until')::timestamptz > now()");
+    expect(text).toContain('"status" <> \'human_takeover\'');
+    expect(text).toContain('"ai_enabled" = true');
+    expect(text).toContain("(\"metadata\" ->> 'human_active_until')::timestamptz <= now()");
+    expect(text).toContain("(\"workflow_data\" ->> 'marketing_opted_out_at')::timestamptz <= ?::timestamptz");
+    expect(values).toEqual(expect.arrayContaining(['c1', 'tok-1', '2026-09-14T08:00:00.000Z']));
+
+    prisma.$executeRaw.mockResolvedValue(0);
+    expect(await jsonb.preSendCheck('c1', { leaseToken: 'tok-1' })).toBe(false);
+  });
+
+  test('without a lease or a human guard only the requested predicates are added', async () => {
+    await jsonb.preSendCheck('c1', { humanGuard: false });
+    const { text } = lastSql(prisma.$executeRaw);
+    expect(text).not.toContain('lease_token');
+    expect(text).not.toContain('human_takeover');
+    expect(text).not.toContain('marketing_opted_out_at');
+  });
+});
+
+describe('preSendCheck claim fence', () => {
+  test('each claim adds a bound `#>> path = value::text` predicate; bad columns throw before SQL', async () => {
+    await jsonb.preSendCheck('c1', {
+      humanGuard: false,
+      claim: [
+        { column: 'workflow_data', path: ['needs_team', 'at'], value: '2026-09-14T08:00:00.000Z' },
+        { column: 'workflow_data', path: ['needs_team', 'sla_note_attempt'], value: 2 },
+      ],
+    });
+    const { text, values } = lastSql(prisma.$executeRaw);
+    expect(text.match(/\("workflow_data" #>> \?::text\[\]\) = \?::text/g)).toHaveLength(2);
+    expect(values).toEqual(expect.arrayContaining([['needs_team', 'at'], '2026-09-14T08:00:00.000Z', ['needs_team', 'sla_note_attempt'], '2']));
+
+    prisma.$executeRaw.mockClear();
+    await expect(jsonb.preSendCheck('c1', { claim: [{ column: 'status', path: ['x'], value: 1 }] })).rejects.toThrow('jsonb: bad identifier');
+    await expect(jsonb.preSendCheck('c1', { claim: [{ column: 'metadata', path: [], value: 1 }] })).rejects.toThrow('jsonb: bad path');
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+  });
+});
+
+describe('writeConversationState (D27)', () => {
+  test('GPT-6 #13: status, current_state, workflow_data and the team request in one statement, never over a claim', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ needs_team_reason: 'person', needs_team_at: '2026-09-15T08:00:00.000Z' }]);
+    const entry = { reason: 'person', at: '2026-09-15T08:00:00.000Z', resolved_at: null };
+    const r = await jsonb.writeConversationState('c1', {
+      status: 'pending', currentState: 'handoff', patch: { bot_turns: 2 }, needsTeam: entry, priorities: { person: 5, quote: 3 }, defaultPriority: 1,
+    });
+
+    expect(r).toEqual({ ok: true, needsTeam: { reason: 'person', at: '2026-09-15T08:00:00.000Z' } });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    const { text, values } = lastSql(prisma.$queryRaw);
+    expect(text).toContain('UPDATE "conversations"');
+    expect(text).toContain("jsonb_typeof(\"workflow_data\" -> 'needs_team') IS DISTINCT FROM 'object'");
+    expect(text).toContain("(\"workflow_data\" #>> '{needs_team,resolved_at}') IS NOT NULL");
+    expect(text).toContain("(\"workflow_data\" #>> '{needs_team,claimed_at}') IS NOT NULL");
+    expect(text).toContain("jsonb_build_object('needs_team', ?::jsonb)");
+    expect(text).toContain('"current_state" = ?::text');
+    expect(text).toContain('"status" = ?::text');
+    expect(text).toContain('WHERE "id" = ? AND "status" <> \'human_takeover\'');
+    expect(text).toContain('RETURNING');
+    expect(values).toEqual(expect.arrayContaining([JSON.stringify(entry), JSON.stringify({ bot_turns: 2 }), 'pending', 'handoff', 'c1', 5, 1]));
+  });
+
+  test('no row (claimed) → ok false; currentState undefined leaves current_state alone', async () => {
+    prisma.$queryRaw.mockResolvedValue([]);
+    const r = await jsonb.writeConversationState('c1', { status: 'pending', patch: {} });
+    expect(r).toEqual({ ok: false, needsTeam: null });
+    expect(lastSql(prisma.$queryRaw).text).not.toContain('current_state');
+    await expect(jsonb.writeConversationState('c1', {})).rejects.toThrow('needs a status');
+  });
+});
+
+describe('touchBatchDue (D25)', () => {
+  test('GPT-6 #9: stores the burst deadline with DB now(), capped from the first fragment, and returns the delay', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ due_at: '2026-09-14T08:00:04+00:00', delay_ms: 4000 }]);
+    const r = await jsonb.touchBatchDue('c1', 4000, 10000);
+
+    expect(r).toEqual({ dueAt: new Date('2026-09-14T08:00:04+00:00'), delayMs: 4000 });
+    const { text, values } = lastSql(prisma.$queryRaw);
+    expect(text).toContain("'batch_due_at'");
+    expect(text).toContain("'batch_first_at'");
+    expect(text).toContain('LEAST(now() + (?::int * interval \'1 millisecond\')');
+    expect(text).toContain('RETURNING');
+    expect(values).toEqual(expect.arrayContaining([4000, 10000, 'c1']));
+
+    prisma.$queryRaw.mockResolvedValue([]);
+    expect(await jsonb.touchBatchDue('missing', 4000, 10000)).toBeNull();
   });
 });
 

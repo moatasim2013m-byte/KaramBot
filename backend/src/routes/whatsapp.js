@@ -61,7 +61,8 @@ router.post('/webhook', async (req, res) => {
     // Whatever this delivery does save is processed by this delivery: Meta's retry finds those
     // messages already stored and skips them, so nobody else would (an external tenant's forward,
     // a restaurant reply). A persist still in flight is processed when it finishes; a failed one
-    // hands over the items it completed before the error.
+    // hands over the items it committed before the error. A commit whose outcome this delivery never
+    // learned leaves its row `processing` (or SHIFT `received`), which the sweeper recovers (D24).
     entries.forEach((e, i) => {
       persists[i]
         .then((p) => p, (persistErr) => (persistErr && persistErr.persisted) || null)

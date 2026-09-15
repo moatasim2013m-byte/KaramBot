@@ -24,7 +24,7 @@ const STAGE_LABELS = {
 
 const NEEDS_TEAM_LABELS = {
   quote: 'عرض سعر', meeting: 'مكالمة', person: 'شخص', complaint: 'شكوى', demo: 'عرض تجريبي',
-  unknown: 'سؤال', ai_failure: 'تعطّل البوت',
+  unknown: 'سؤال', ai_failure: 'تعطّل البوت', unsent_reply: 'بدون رد',
 };
 
 const SECTOR_LABELS = { clinic: 'عيادة', restaurant: 'مطعم', store: 'متجر', other: 'غير ذلك' };
@@ -97,8 +97,11 @@ function ConvItem({ conv, active, onClick, isShift }) {
   const leadLine = isShift
     ? [SECTOR_LABELS[lead.sector] || lead.sector, lead.sector_text, lead.business_name].filter(Boolean).join(' · ')
     : '';
-  const needsTeam = isShift && conv.status === 'pending' ? openNeedsTeam(conv) : null;
-  const gaveUp = isShift && replyGaveUp(conv);
+  const openRequest = isShift ? openNeedsTeam(conv) : null;
+  // D18: the bot's reply could not be confirmed twice — same urgency as «failed 3 times».
+  const unsentReply = openRequest?.reason === 'unsent_reply';
+  const needsTeam = conv.status === 'pending' && !unsentReply ? openRequest : null;
+  const gaveUp = isShift && (replyGaveUp(conv) || unsentReply);
 
   return (
     <button
@@ -156,6 +159,10 @@ function MessageBubble({ msg }) {
   const time = new Date(msg.created_at).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
   const awaitingStaff = !isOut && msg.status === 'awaiting_staff';
   const unconfirmedSend = isOut && (msg.status === 'ambiguous' || msg.status === 'ambiguous_unreconciled');
+  // D18: the reply to this message has no delivery confirmation yet.
+  const unconfirmedReply = !isOut && msg.status === 'unconfirmed';
+  // D20: stopped by the pre-send check (staff took over, opt-out): it never left the server.
+  const cancelledSend = isOut && msg.status === 'cancelled';
 
   return (
     <div className={`flex ${isOut ? 'justify-start' : 'justify-end'} mb-2`}>
@@ -164,6 +171,8 @@ function MessageBubble({ msg }) {
         <div className={`text-xs mt-1 flex items-center gap-1 ${isOut ? 'text-green-200' : 'text-gray-400'} justify-end`}>
           {awaitingStaff && <span className="text-amber-600">بانتظار الموظف ·</span>}
           {unconfirmedSend && <span className="text-yellow-200">إرسال غير مؤكد ·</span>}
+          {unconfirmedReply && <span className="text-amber-600">الرد غير مؤكد ·</span>}
+          {cancelledSend && <span className="text-yellow-200">ما انبعتت ·</span>}
           {time}
           {isOut && msg.is_ai_generated && <Bot size={10} />}
           {isOut && !msg.is_ai_generated && <UserCheck size={10} />}
@@ -195,12 +204,16 @@ function WindowCountdown({ lastInboundAt }) {
 function LeadFieldRow({ field, lead, onSave }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  // GPT-6 #14: the lead version the draft was started from. The card polls every 5 s; saving with the
+  // version current at click time would let a draft overwrite a change made while staff were typing.
+  const [baseVersion, setBaseVersion] = useState(0);
   const [saving, setSaving] = useState(false);
   const text = leadFieldText(lead, field);
 
   const startEdit = () => {
     const raw = lead?.[field.key];
     setDraft(field.options ? (raw || '') : text);
+    setBaseVersion(lead?.version ?? 0);
     setEditing(true);
   };
 
@@ -210,7 +223,7 @@ function LeadFieldRow({ field, lead, onSave }) {
     if (!value) { setEditing(false); return; }
     const payload = field.list ? value.split(/[,،]/).map((s) => s.trim()).filter(Boolean) : value;
     setSaving(true);
-    const ok = await onSave(field.key, payload);
+    const ok = await onSave(field.key, payload, baseVersion);
     setSaving(false);
     if (ok) setEditing(false);
   };
@@ -260,21 +273,23 @@ function LeadFieldRow({ field, lead, onSave }) {
   );
 }
 
+// Rendered with key={conversation.id} (GPT-6 #14): switching customers remounts the card and its rows,
+// so a half-typed draft for one customer can never be saved into the next one's lead. Every save below
+// therefore targets the only conversation this instance was ever shown.
 function LeadCard({ conversation, onChanged }) {
   const [open, setOpen] = useState(true);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const lead = conversation.workflow_data?.lead || {};
   const needsTeam = openNeedsTeam(conversation);
+  const requestedTime = conversation.workflow_data?.requested_time_change?.text || '';
   const isClaimed = conversation.status === 'human_takeover';
 
-  useEffect(() => { setNotice(''); }, [conversation.id]);
-
-  const saveField = async (key, value) => {
+  const saveField = async (key, value, version) => {
     try {
       await api.patch(`/inbox/conversations/${conversation.id}/lead`, {
         lead: { [key]: value },
-        version: lead.version ?? 0,
+        version,
       });
       setNotice('');
       await onChanged();
@@ -367,6 +382,12 @@ function LeadCard({ conversation, onChanged }) {
             <div className="text-xs text-orange-700 mb-1">
               يحتاج الفريق: {NEEDS_TEAM_LABELS[needsTeam.reason] || needsTeam.reason}
               {needsTeam.summary ? ` — ${needsTeam.summary}` : ''}
+            </div>
+          )}
+          {requestedTime && (
+            // D26: the customer was told this time was passed to the team; staff own preferred_time.
+            <div className="text-xs text-orange-700 mb-1">
+              العميل طلب وقت جديد: {requestedTime}
             </div>
           )}
           {LEAD_FIELDS.map(field => (
@@ -637,7 +658,7 @@ export default function InboxPage() {
           </div>
 
           {/* Lead card (SHIFT sales leads only) */}
-          {isShift && <LeadCard conversation={selected} onChanged={refreshSelected} />}
+          {isShift && <LeadCard key={selected.id} conversation={selected} onChanged={refreshSelected} />}
 
           {/* Reply box */}
           <div className="border-t border-gray-100 p-3 bg-white">

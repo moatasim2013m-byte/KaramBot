@@ -12,6 +12,21 @@ function graphBase() {
   return `https://graph.facebook.com/${graphVersion()}`;
 }
 
+// D17: Meta echoes this string in every status webhook for the message, so a status can be matched to
+// the intent row that caused the send without guessing by recipient and time. Max 512 characters; a
+// longer value is dropped rather than cut, because a cut id would match no intent.
+const CALLBACK_DATA_MAX = 512;
+
+function withCallbackData(payload, callbackData) {
+  if (callbackData === undefined || callbackData === null || callbackData === '') return payload;
+  const value = String(callbackData);
+  if (value.length > CALLBACK_DATA_MAX) {
+    console.error(`[wa] biz_opaque_callback_data over ${CALLBACK_DATA_MAX} chars — not sent`);
+    return payload;
+  }
+  return { ...payload, biz_opaque_callback_data: value };
+}
+
 /**
  * Validate Meta webhook signature
  */
@@ -75,24 +90,30 @@ function assertInteractiveLimits(buttons, { body = '', footer } = {}) {
 
 // ─── Legacy throwing senders (restaurant / clinic / staff routes) ────────────
 
+// D24: a restaurant/clinic row still `processing` after 2 minutes is re-run by the sweeper. Without a
+// timeout a hung Graph connection could outlive that, and the re-run would send (or order) twice while
+// the original delivery is still alive. Well under 2 minutes, with room for the AI calls around it.
+const LEGACY_TIMEOUT_MS = 15000;
+
 /**
  * Send a plain text message
  */
-async function sendTextMessage(phoneNumberId, accessToken, to, text) {
+async function sendTextMessage(phoneNumberId, accessToken, to, text, { callbackData } = {}) {
   const url = `${graphBase()}/${phoneNumberId}/messages`;
-  const payload = {
+  const payload = withCallbackData({
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
     type: 'text',
     text: { body: text },
-  };
+  }, callbackData);
 
   const res = await axios.post(url, payload, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
+    timeout: LEGACY_TIMEOUT_MS,
   });
 
   return res.data;
@@ -101,11 +122,11 @@ async function sendTextMessage(phoneNumberId, accessToken, to, text) {
 /**
  * Send interactive button message (up to 3 buttons)
  */
-async function sendButtonMessage(phoneNumberId, accessToken, to, bodyText, buttons) {
+async function sendButtonMessage(phoneNumberId, accessToken, to, bodyText, buttons, { callbackData } = {}) {
   const url = `${graphBase()}/${phoneNumberId}/messages`;
   const replies = buttons.map((b, i) => ({ id: b.id || `btn_${i}`, title: b.title }));
   assertInteractiveLimits(replies, { body: bodyText });
-  const payload = {
+  const payload = withCallbackData({
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
@@ -117,7 +138,7 @@ async function sendButtonMessage(phoneNumberId, accessToken, to, bodyText, butto
         buttons: replies.map((reply) => ({ type: 'reply', reply })),
       },
     },
-  };
+  }, callbackData);
 
   const res = await axios.post(url, payload, {
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -128,10 +149,10 @@ async function sendButtonMessage(phoneNumberId, accessToken, to, bodyText, butto
 /**
  * Send interactive list message
  */
-async function sendListMessage(phoneNumberId, accessToken, to, bodyText, buttonLabel, sections) {
+async function sendListMessage(phoneNumberId, accessToken, to, bodyText, buttonLabel, sections, { callbackData } = {}) {
   const url = `${graphBase()}/${phoneNumberId}/messages`;
   assertBodyLimits(bodyText);
-  const payload = {
+  const payload = withCallbackData({
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
@@ -141,7 +162,7 @@ async function sendListMessage(phoneNumberId, accessToken, to, bodyText, buttonL
       body: { text: bodyText },
       action: { button: buttonLabel, sections },
     },
-  };
+  }, callbackData);
 
   const res = await axios.post(url, payload, {
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -160,9 +181,9 @@ async function sendListMessage(phoneNumberId, accessToken, to, bodyText, buttonL
  * @param {string} languageCode - e.g. 'ar', 'en_US'
  * @param {Array}  components - header/body/button variable components (optional)
  */
-async function sendTemplateMessage(phoneNumberId, accessToken, to, templateName, languageCode = 'ar', components = []) {
+async function sendTemplateMessage(phoneNumberId, accessToken, to, templateName, languageCode = 'ar', components = [], { callbackData } = {}) {
   const url = `${graphBase()}/${phoneNumberId}/messages`;
-  const payload = {
+  const payload = withCallbackData({
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
@@ -172,7 +193,7 @@ async function sendTemplateMessage(phoneNumberId, accessToken, to, templateName,
       language: { code: languageCode },
       ...(components.length > 0 && { components }),
     },
-  };
+  }, callbackData);
 
   const res = await axios.post(url, payload, {
     headers: {
@@ -200,6 +221,7 @@ async function markAsRead(phoneNumberId, accessToken, messageId, { typing = fals
     }
     await axios.post(`${graphBase()}/${phoneNumberId}/messages`, payload, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: LEGACY_TIMEOUT_MS,
     });
     return true;
   } catch {
@@ -210,6 +232,11 @@ async function markAsRead(phoneNumberId, accessToken, messageId, { typing = fals
 // ─── Structured senders (SHIFT) ──────────────────────────────────────────────
 // These never throw: the reply batcher needs to tell "Meta refused" apart from "we don't
 // know whether it went out" (ambiguous) so it never double-sends and never goes silent.
+//
+// D18: Graph has no idempotency key, so a resend after an unknown outcome can reach the customer
+// twice. Only results that prove Graph did not accept the message are failures (and only a request
+// that never left this host is retried at once); everything else is `ambiguous` and is settled by
+// the echoed status webhook or, after 2 minutes, by replyBatcher.reconcileUnconfirmedIntents.
 
 const BILLING_CODES = new Set([131042]);
 const BILLING_SUBCODES = new Set([2494010]);
@@ -240,7 +267,9 @@ function classifySendError(err) {
   // DNS/refused errors too, and those are known not to have been delivered.
   if (NETWORK_ERRNOS.has(err?.code)) return result('network', true);
   if (err?.request && !err?.response) return result('ambiguous');
-  if (httpStatus !== null && httpStatus >= 500) return result('server', true);
+  // GPT-6 #4: a gateway 502/503 can be returned after Graph accepted the POST. Without a documented
+  // rejection code above, a 5xx proves nothing about delivery.
+  if (httpStatus !== null && httpStatus >= 500) return result('ambiguous');
   return result('rejected');
 }
 
@@ -263,28 +292,28 @@ async function postStructured(phoneNumberId, accessToken, payload, timeoutMs) {
 /**
  * Send a text message. Resolves to a SendResult; never throws.
  */
-async function sendText(phoneNumberId, accessToken, to, text, { timeoutMs = 10000 } = {}) {
-  return postStructured(phoneNumberId, accessToken, {
+async function sendText(phoneNumberId, accessToken, to, text, { timeoutMs = 10000, callbackData } = {}) {
+  return postStructured(phoneNumberId, accessToken, withCallbackData({
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
     type: 'text',
     text: { body: text },
-  }, timeoutMs);
+  }, callbackData), timeoutMs);
 }
 
 /**
  * Send reply buttons. A payload Meta would reject returns reason 'invalid_payload' without an
  * HTTP call. Resolves to a SendResult; never throws.
  */
-async function sendInteractiveButtons(phoneNumberId, accessToken, to, body, buttons, { timeoutMs = 10000 } = {}) {
+async function sendInteractiveButtons(phoneNumberId, accessToken, to, body, buttons, { timeoutMs = 10000, callbackData } = {}) {
   try {
     assertInteractiveLimits(buttons, { body });
   } catch (err) {
     console.error(`[wa] invalid interactive payload: ${err.message}`);
     return { ok: false, id: null, error: err.message, reason: 'invalid_payload', code: null, httpStatus: null, retryable: false };
   }
-  return postStructured(phoneNumberId, accessToken, {
+  return postStructured(phoneNumberId, accessToken, withCallbackData({
     messaging_product: 'whatsapp',
     recipient_type: 'individual',
     to,
@@ -296,7 +325,7 @@ async function sendInteractiveButtons(phoneNumberId, accessToken, to, body, butt
         buttons: buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title } })),
       },
     },
-  }, timeoutMs);
+  }, callbackData), timeoutMs);
 }
 
 /**
@@ -335,6 +364,7 @@ module.exports = {
   sendText,
   sendInteractiveButtons,
   classifySendError,
+  CALLBACK_DATA_MAX,
   parseInboundMessage,
   normalizePhone,
   // The window rule lives in one place; this re-export keeps old imports working.

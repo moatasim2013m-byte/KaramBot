@@ -258,6 +258,23 @@ describe('PATCH /api/inbox/conversations/:id/lead', () => {
     expect(res.body.conversation.workflow_data.lead.preferred_time).toEqual({ text: 'الأحد الصبح' });
   });
 
+  test('D26: staff setting preferred_time answers the customer\'s relayed time request (requested_time_change cleared)', async () => {
+    conversationRow('c_lead').workflow_data.requested_time_change = { text: 'الساعة 5', at: '2026-09-14T09:00:00.000Z' };
+    const other = await request(inboxApp)
+      .patch('/api/inbox/conversations/c_lead/lead')
+      .set('Authorization', tokenFor('u_sara'))
+      .send({ lead: { city: 'إربد' }, version: 1 });
+    expect(other.body.conversation.workflow_data.requested_time_change).toMatchObject({ text: 'الساعة 5' });
+
+    const res = await request(inboxApp)
+      .patch('/api/inbox/conversations/c_lead/lead')
+      .set('Authorization', tokenFor('u_sara'))
+      .send({ lead: { preferred_time: 'الخميس 5' }, version: 2 });
+    expect(res.status).toBe(200);
+    expect(res.body.conversation.workflow_data).not.toHaveProperty('requested_time_change');
+    expect(res.body.conversation.workflow_data.lead.preferred_time).toEqual({ text: 'الخميس 5' });
+  });
+
   test('a stale version returns 409 with the current lead and writes nothing', async () => {
     const res = await request(inboxApp)
       .patch('/api/inbox/conversations/c_lead/lead')
@@ -327,6 +344,67 @@ describe('PATCH /api/inbox/conversations/:id/lead', () => {
     expect(conversationRow('c_lead').workflow_data.needs_team).toMatchObject({ reason: 'person', resolved_at: null, sla_note_sent_at: '2026-09-14T09:20:00.000Z' });
     expect(conversationRow('c_lead').status).toBe('pending');
   });
+
+  // GPT-6 #13 / D27: the bot records a new request (and sets pending) right after the old one is resolved.
+  // A separate status write afterwards would flip the new request's conversation to open and hide it.
+  test('resolving is one conditional write: a request the bot records right after it keeps the conversation pending', async () => {
+    const newRequest = { reason: 'person', summary: 'بدو حدا', at: '2026-09-14T09:00:00.000Z', resolved_at: null, sla_note_sent_at: null, claimed_at: null, claimed_by: null };
+    const botWritesNewRequest = () => {
+      const row = conversationRow('c_lead');
+      row.workflow_data = { ...row.workflow_data, needs_team: { ...newRequest } };
+      row.status = 'pending';
+    };
+    // Whichever jsonb write resolves the request, the bot's write lands right after it returns.
+    const spies = [];
+    for (const name of ['mergeObjectKey', 'resolveNeedsTeam']) {
+      const real = db.jsonb[name];
+      if (typeof real !== 'function') continue;
+      spies.push(jest.spyOn(db.jsonb, name).mockImplementationOnce(async (...args) => {
+        const r = await real(...args);
+        botWritesNewRequest();
+        return r;
+      }));
+    }
+
+    const res = await request(inboxApp)
+      .patch('/api/inbox/conversations/c_lead/lead')
+      .set('Authorization', tokenFor('u_sara'))
+      .send({ needs_team_resolved: true });
+    spies.forEach((spy) => spy.mockRestore());
+
+    expect(res.status).toBe(200);
+    expect(conversationRow('c_lead').workflow_data.needs_team).toEqual(newRequest);
+    expect(conversationRow('c_lead').status).toBe('pending');
+  });
+
+  test('jsonb.resolveNeedsTeam (fake): resolved_at and pending → open change together, only for the same request', async () => {
+    const miss = await db.jsonb.resolveNeedsTeam('c_lead', { match: { reason: 'quote', at: '2026-09-14T07:00:00.000Z' }, resolvedAt: '2026-09-14T10:00:00.000Z' });
+    expect(miss).toBe(false);
+    expect(conversationRow('c_lead')).toMatchObject({ status: 'pending', workflow_data: { needs_team: { resolved_at: null } } });
+
+    const hit = await db.jsonb.resolveNeedsTeam('c_lead', { match: { reason: 'quote', at: '2026-09-14T08:00:00.000Z' }, resolvedAt: '2026-09-14T10:00:00.000Z' });
+    expect(hit).toBe(true);
+    expect(conversationRow('c_lead')).toMatchObject({ status: 'open', workflow_data: { needs_team: { reason: 'quote', resolved_at: '2026-09-14T10:00:00.000Z' }, bot_turns: 3 } });
+
+    // Already resolved: nothing matches again.
+    expect(await db.jsonb.resolveNeedsTeam('c_lead', { match: { reason: 'quote', at: '2026-09-14T08:00:00.000Z' }, resolvedAt: '2026-09-14T11:00:00.000Z' })).toBe(false);
+  });
+
+  test('jsonb.resolveNeedsTeam (SQL): one UPDATE setting workflow_data and status, guarded by the request identity', async () => {
+    const realJsonb = jest.requireActual('../src/db/jsonb');
+    const spy = jest.spyOn(db.prisma, '$executeRaw').mockResolvedValue(1);
+    const ok = await realJsonb.resolveNeedsTeam('c1', { match: { reason: 'quote', at: '2026-09-14T08:00:00.000Z' }, resolvedAt: '2026-09-14T10:00:00.000Z' });
+    expect(ok).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const sql = spy.mock.calls[0][0];
+    const text = sql.strings.join('?');
+    expect(text).toContain('UPDATE "conversations"');
+    expect(text).toContain('"workflow_data" = jsonb_set("workflow_data", ARRAY[\'needs_team\']');
+    expect(text).toContain('"status" = CASE WHEN "status" = \'pending\' THEN \'open\' ELSE "status" END');
+    expect(text).toContain('("workflow_data" -> \'needs_team\') @> ?::jsonb');
+    expect(text).toContain('("workflow_data" #>> \'{needs_team,resolved_at}\') IS NULL');
+    expect(sql.values).toEqual(['2026-09-14T10:00:00.000Z', 'c1', JSON.stringify({ reason: 'quote', at: '2026-09-14T08:00:00.000Z' })]);
+  });
 });
 
 describe('POST /api/inbox/conversations/:id/claim and /release', () => {
@@ -365,13 +443,14 @@ describe('POST /api/inbox/conversations/:id/claim and /release', () => {
 
     expect(acks.claimAck).toHaveBeenCalledWith({ staffName: 'سارة', lang: 'ar' });
     expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
-    expect(whatsapp.sendText).toHaveBeenCalledWith('pnid_shift', 'plain_token', '962700000020', 'استلم طلبك سارة وبيكمّل معك هون.');
 
+    // D17: the ack is an intent row whose id travels as biz_opaque_callback_data.
     const outbound = db.store.messages.filter((m) => m.direction === 'outbound');
     expect(outbound).toHaveLength(1);
+    expect(whatsapp.sendText).toHaveBeenCalledWith('pnid_shift', 'plain_token', '962700000020', 'استلم طلبك سارة وبيكمّل معك هون.', { callbackData: outbound[0].id });
     expect(outbound[0]).toMatchObject({
       conversation_id: 'c_claim', status: 'sent', meta_message_id: 'wamid.claim', sent_by_user_id: 'u_sara',
-      is_ai_generated: false, raw_payload: { kind: 'claim_ack' },
+      is_ai_generated: false, raw_payload: { kind: 'claim_ack', batch_ids: [] },
     });
 
     const until = new Date(conv.metadata.human_active_until).getTime();
@@ -409,15 +488,40 @@ describe('POST /api/inbox/conversations/:id/claim and /release', () => {
     expect(whatsapp.sendText).not.toHaveBeenCalled();
   });
 
-  test('a failed ack does not fail the claim', async () => {
+  test('a failed ack does not fail the claim (the pause written before the send stays)', async () => {
     seedClaimable();
-    whatsapp.sendText.mockResolvedValue({ ok: false, id: null, error: 'boom', reason: 'server', code: null, httpStatus: 503, retryable: true });
+    whatsapp.sendText.mockResolvedValue({ ok: false, id: null, error: 'boom', reason: 'rejected', code: 100, httpStatus: 400, retryable: false });
     const res = await request(inboxApp).post('/api/inbox/conversations/c_claim/claim').set('Authorization', tokenFor('u_sara'));
     expect(res.status).toBe(200);
     expect(res.body.ack).toBe('failed');
     expect(res.body.conversation.status).toBe('human_takeover');
-    expect(db.store.messages).toHaveLength(0);
-    expect(res.body.conversation.metadata.human_active_until).toBeUndefined();
+    // The intent row records the refusal; nothing claims it reached the customer.
+    expect(db.store.messages.map((m) => m.status)).toEqual(['failed']);
+    expect(res.body.conversation.metadata.human_active_until).toEqual(expect.any(String));
+  });
+
+  // GPT-6 #6 / D21: a bot run that passed its checks earlier must see the claim at its pre-send check.
+  test('claim writes takeover and the staff pause before the ack reaches Graph', async () => {
+    seedClaimable();
+    let atSend = null;
+    whatsapp.sendText.mockImplementation(async () => {
+      const row = conversationRow('c_claim');
+      atSend = {
+        status: row.status,
+        ai_enabled: row.ai_enabled,
+        human_active_until: row.metadata.human_active_until,
+        botMaySend: await db.jsonb.preSendCheck('c_claim', { humanGuard: true }),
+      };
+      return { ok: true, id: 'wamid.claim', error: null, reason: null, code: null, httpStatus: 200, retryable: false };
+    });
+    const before = Date.now();
+
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_claim/claim').set('Authorization', tokenFor('u_sara'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.ack).toBe('sent');
+    expect(atSend).toMatchObject({ status: 'human_takeover', ai_enabled: false, botMaySend: false });
+    expect(new Date(atSend.human_active_until).getTime()).toBeGreaterThanOrEqual(before + 30 * MINUTE - 1000);
   });
 
   test('claim on another business is 404', async () => {
@@ -525,6 +629,33 @@ describe('POST /api/inbox/conversations/:id/send — human activity bookkeeping'
 
     const status = Object.fromEntries(db.store.messages.filter((m) => m.direction === 'inbound').map((m) => [m.id, m.status]));
     expect(status).toEqual({ m_wait1: 'answered', m_wait2: 'answered', m_recv: 'received' });
+  });
+
+  // GPT-6 #6 / D21: the pause is stored before the staff message goes to Graph, so a bot run already past
+  // its human check is refused at its pre-send check instead of talking over the staff member.
+  test('the staff pause is persisted before the Graph call', async () => {
+    seedWorld({
+      conversations: [{ id: 'c_race', customer_wa_id: '962700000032', status: 'open', ai_enabled: true, metadata: {} }],
+    });
+    let atSend = null;
+    whatsapp.sendTextMessage.mockImplementation(async () => {
+      atSend = {
+        human_active_until: conversationRow('c_race').metadata.human_active_until,
+        botMaySend: await db.jsonb.preSendCheck('c_race', { humanGuard: true }),
+      };
+      return { messages: [{ id: 'wamid.staff2' }] };
+    });
+    const before = Date.now();
+
+    const res = await request(inboxApp)
+      .post('/api/inbox/conversations/c_race/send')
+      .set('Authorization', tokenFor('u_sara'))
+      .send({ text: 'أهلين' });
+
+    expect(res.status).toBe(200);
+    expect(atSend).not.toBeNull();
+    expect(new Date(atSend.human_active_until).getTime()).toBeGreaterThanOrEqual(before + 30 * MINUTE - 1000);
+    expect(atSend.botMaySend).toBe(false);
   });
 
   test('outside the window it still refuses without touching metadata', async () => {

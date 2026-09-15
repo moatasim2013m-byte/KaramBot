@@ -2,11 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { authenticate, attachBusinessId } = require('../middleware/auth');
 const prisma = require('../config/prisma');
-const { sendTextMessage, sendText } = require('../services/whatsapp');
+const { sendTextMessage } = require('../services/whatsapp');
+const replyBatcher = require('../services/replyBatcher');
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const sseEmitter = require('../utils/sseEmitter');
-const { patchJson, mergeObjectKey } = require('../db/jsonb');
+const jsonb = require('../db/jsonb');
+const { patchJson, mergeObjectKey } = jsonb;
 const { saveLead } = require('../workflows/shift/lead');
 const { claimAck, pickLanguage } = require('../workflows/shift/acks');
 const { STAGES } = require('../workflows/shift/actions');
@@ -221,6 +223,14 @@ router.post('/conversations/:id/send', async (req, res) => {
     }
     if (!accessToken) return res.status(500).json({ error: 'WhatsApp token not configured for this business' });
 
+    // D21 / GPT-6 #6: the pause is stored BEFORE Graph. A bot run that passed its human check a moment
+    // ago re-checks human_active_until in its pre-send statement, so it cannot talk over this message.
+    // A failed send keeps the pause: the staff member is mid-conversation and will retry, and when the
+    // pause expires the sweeper hands parked messages back to the bot (D22).
+    await patchJson('conversations', conv.id, 'metadata', {
+      human_active_until: new Date(Date.now() + HUMAN_ACTIVE_MS).toISOString(),
+    });
+
     const metaResponse = await sendTextMessage(
       business.wa_phone_number_id,
       accessToken,
@@ -248,10 +258,10 @@ router.post('/conversations/:id/send', async (req, res) => {
     });
 
     // The message is already on the customer's phone, so bookkeeping failures are logged, never
-    // returned as an error (staff would resend). human_active_until keeps the SHIFT bot quiet while
-    // staff are talking; awaiting_staff rows are now answered by this send. `received` rows are left
-    // for the batcher, which re-checks human activity before it replies.
-    // A staff reply also clears the bot's «failed 3 times» flag: the customer has been answered.
+    // returned as an error (staff would resend). awaiting_staff rows are now answered by this send.
+    // `received` rows are left for the batcher, which re-checks human activity before it replies.
+    // The pause is renewed from the send time, and a staff reply clears the bot's «failed 3 times» flag:
+    // the customer has been answered.
     try {
       await patchJson('conversations', conv.id, 'metadata', {
         human_active_until: new Date(Date.now() + HUMAN_ACTIVE_MS).toISOString(),
@@ -295,21 +305,24 @@ router.patch('/conversations/:id/lead', async (req, res) => {
       const options = version === undefined ? {} : { expectedVersion: version };
       const r = await saveLead(conv.id, parsed.patch, { source: 'staff', msgId: null, at: now, inboundText: '' }, options);
       if (r.conflict || !r.ok) return res.status(409).json({ error: 'version_conflict', lead: r.lead });
-    }
-
-    const needsTeam = conv.workflow_data?.needs_team;
-    if (needsTeamResolved === true && needsTeam) {
-      // Only resolved_at is set, and only on the request staff were looking at: a newer one the bot
-      // recorded meanwhile (a handoff replacing a quote) stays open, and a flag the sweeper set stays.
-      const resolved = !!needsTeam.resolved_at || await mergeObjectKey('conversations', conv.id, 'workflow_data', 'needs_team',
-        { resolved_at: now }, { match: { reason: needsTeam.reason, at: needsTeam.at } });
-      if (resolved && conv.status === 'pending') {
-        await prisma.conversation.updateMany({ where: { id: conv.id, status: 'pending' }, data: { status: 'open' } });
+      // D26: a time the customer asked for while staff owned preferred_time is shown on the lead card until
+      // staff set the time themselves; their edit answers it.
+      if (parsed.patch.preferred_time !== undefined && conv.workflow_data?.requested_time_change) {
+        await jsonb.patchJson('conversations', conv.id, 'workflow_data', {}, { remove: ['requested_time_change'] });
       }
     }
 
+    const needsTeam = conv.workflow_data?.needs_team;
+    let resolved = false;
+    if (needsTeamResolved === true && needsTeam && !needsTeam.resolved_at) {
+      // D27 / GPT-6 #13: resolved_at and pending → open in one conditional statement, only on the request
+      // staff were looking at. A newer one the bot recorded meanwhile (a handoff replacing a quote) keeps
+      // its pending status, and a flag the sweeper set inside the entry stays.
+      resolved = await jsonb.resolveNeedsTeam(conv.id, { match: { reason: needsTeam.reason, at: needsTeam.at }, resolvedAt: now });
+    }
+
     const conversation = await prisma.conversation.findUnique({ where: { id: conv.id } });
-    res.json({ conversation });
+    res.json({ conversation, needs_team_resolved: resolved });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -351,34 +364,36 @@ router.post('/conversations/:id/claim', async (req, res) => {
     // The claim ack tells a waiting SHIFT customer a person has it. A failed ack never fails the claim.
     let ack = 'skipped';
     const business = await prisma.business.findUnique({ where: { id: req.businessId } });
+    if (business?.business_type === 'shift') {
+      // D21 / GPT-6 #6: the takeover above and this pause are stored before any Graph call, so a bot run
+      // that is about to send sees them in its pre-send check and stops.
+      await patchJson('conversations', conv.id, 'metadata', {
+        human_active_until: new Date(now.getTime() + HUMAN_ACTIVE_MS).toISOString(),
+      });
+    }
     if (business?.business_type === 'shift' && isWithinServiceWindow(conv.last_inbound_at)) {
       ack = 'failed';
       try {
-        const accessToken = decrypt(business.wa_access_token);
+        let accessToken = null;
+        try {
+          accessToken = decrypt(business.wa_access_token) || null;
+        } catch (e) {
+          accessToken = null;
+        }
         if (!accessToken) throw new Error('WhatsApp token not configured');
         const text = claimAck({ staffName: req.user.name, lang: await customerLanguage(conv) });
-        const sent = await sendText(business.wa_phone_number_id, accessToken, conv.customer_wa_id, text);
-        if (sent.ok) {
-          await prisma.message.create({
-            data: {
-              business_id: req.businessId,
-              conversation_id: conv.id,
-              direction: 'outbound',
-              message_type: 'text',
-              text_body: text,
-              status: 'sent',
-              meta_message_id: sent.id,
-              sent_by_user_id: req.user.id,
-              is_ai_generated: false,
-              raw_payload: { kind: 'claim_ack' },
-            },
-          });
-          await patchJson('conversations', conv.id, 'metadata', {
-            human_active_until: new Date(now.getTime() + HUMAN_ACTIVE_MS).toISOString(),
-          });
-          ack = 'sent';
+        // D17: an intent row first, its id echoed by status webhooks. No human guard: the conversation is
+        // ours now, which is exactly what the guard refuses. The row is the staff member's message from
+        // the start (Inbox attribution, and it ends the customer's silence for the awaiting note).
+        const dispatch = await replyBatcher.dispatchIntent({
+          business, conversation: conv, token: accessToken, kind: 'claim_ack', sentByUserId: req.user.id,
+          parts: [{ type: 'text', text }], batchIds: [], precheck: { humanGuard: false }, now,
+        });
+        if (dispatch.outcome === 'sent' || dispatch.outcome === 'ambiguous') {
+          // `ambiguous`: Graph may have it; the status webhook or the reconcile sweep settles the intent.
+          ack = dispatch.outcome;
         } else {
-          console.warn('[inbox] claim ack not sent:', conv.id, sent.reason, sent.error);
+          console.warn('[inbox] claim ack not sent:', conv.id, dispatch.outcome, dispatch.parts[0] && dispatch.parts[0].reason);
         }
       } catch (err) {
         console.error('[inbox] claim ack failed:', conv.id, err.message);

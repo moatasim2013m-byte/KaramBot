@@ -14,7 +14,9 @@ const { mergeLead, extractCustomerNumbers, normalize } = require('./lead');
 const { SHIFT_ACTIONS, MODEL_STAGES, FLAG_REASONS } = require('./actions');
 const { SITE_HOST } = require('../../config/site');
 
-const NEEDS_TEAM_PRIORITY = { person: 5, complaint: 5, meeting: 4, quote: 3, demo: 2, unknown: 1, ai_failure: 0 };
+// unsent_reply (D18): the bot's reply to the customer could not be confirmed twice, so the customer may
+// have nothing at all — more urgent than any request the customer made.
+const NEEDS_TEAM_PRIORITY = { unsent_reply: 6, person: 5, complaint: 5, meeting: 4, quote: 3, demo: 2, unknown: 1, ai_failure: 0 };
 // `unsupported` (view-once media, polls…) is answered like media: the bot cannot read it either.
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker', 'unsupported'];
 const TEXT_LIMIT = 4096;
@@ -150,6 +152,35 @@ function modelLeadMeta(c) {
   return { source: 'model', msgId: c.newest?.id ?? null, at: c.now.toISOString(), inboundText: c.joinedText };
 }
 
+/** The stored call time is the one the customer asked for (a tapped slot by id/start, text otherwise). */
+function isStoredTime(stored, requested) {
+  if (!isPlainObject(stored) || !isPlainObject(requested)) return false;
+  if (requested.slot_id) return stored.slot_id === requested.slot_id;
+  if (requested.start) return stored.start === requested.start;
+  return !!requested.text && normalize(stored.text || '') === normalize(requested.text);
+}
+
+/**
+ * D26 / GPT-6 #12: the capture ack as the lead actually stands. The batcher calls this again with the
+ * lead saveLead returned, so «سجّلت طلب مكالمة: الخميس 5» is only said when that time was stored. A
+ * staff-owned time is never overwritten by the bot: the customer is told the new time was passed to
+ * the team, and the request is kept in `requested_time_change` for staff (the lead card keeps theirs).
+ */
+function renderCaptureAck(capture, storedLead) {
+  const lead = isPlainObject(storedLead) ? storedLead : {};
+  const relayed = !isStoredTime(lead.preferred_time, capture.requested);
+  const ack = relayed
+    ? acks.captureRelayed({ when: capture.when, lang: capture.lang })
+    : acks.captureAck({ name: lead.name, businessName: lead.business_name, when: capture.when, lang: capture.lang });
+  return {
+    relayed,
+    messages: [textMessage(capture.modelLine, ack)],
+    workflowDataPatch: relayed
+      ? { requested_time_change: { text: capture.requested?.text || capture.when, at: capture.at } }
+      : {},
+  };
+}
+
 function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = {}) {
   const c = fillCtx(ctx);
   const at = c.now.toISOString();
@@ -161,6 +192,8 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = 
   // الخميس» carries no correction word): the capture is the customer's explicit statement of it.
   const leadMeta = { ...modelLeadMeta(c), trusted: ['preferred_time'] };
   const lead = mergeLead(c.wd.lead || {}, patch, leadMeta).lead;
+  // The requested time in its stored shape (a merge into an empty lead normalises it).
+  const requested = mergeLead({}, { preferred_time: patch.preferred_time }, leadMeta).lead.preferred_time || null;
   const when = preferredTime?.start
     ? acks.windowText(preferredTime, c.now, preferredTime.tz || c.teamHours.tz, c.lang)
     : (timeText || preferredTimeText(preferredTime) || '');
@@ -177,22 +210,29 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = 
     if ('claimed_at' in existing) match.claimed_at = null;
     needsTeamMerge = { match, patch: { summary: entry.summary }, entry };
   }
-  const ack = acks.captureAck({ name: lead.name, businessName: lead.business_name, when, lang: c.lang });
+  // A preview from the lead as read before the model call; the batcher re-renders it from `capture`
+  // with the lead saveLead persisted, which is what the customer is told.
+  const capture = { requested, when, lang: c.lang, modelLine: modelLine || null, at };
+  const preview = renderCaptureAck(capture, lead);
 
   return emptyResult({
     kind: 'reply',
     action: 'CAPTURE_TIME',
-    messages: [textMessage(modelLine, ack)],
+    messages: preview.messages,
     stateUpdate: { status: 'pending', current_state: 'captured' },
     workflowDataPatch: {
       capture_pending: null,
       bot_turns: (c.wd.bot_turns || 0) + 1,
       ...(needs && { needs_team: needs }),
+      ...preview.workflowDataPatch,
     },
     leadPatch: patch,
     leadMeta,
     needsTeam: needs,
+    // D27: re-merged against needs_team as stored at write time (a request resolved meanwhile).
+    needsTeamCandidate: entry,
     needsTeamMerge,
+    capture,
     alert: { reason: 'meeting', summary: when },
   });
 }
@@ -200,7 +240,8 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, leadPatch } = 
 function aiFailureResult(c) {
   const at = c.now.toISOString();
   const withButtons = !isStageLocked(c.conversation) && c.conversation.current_state !== 'closed' && c.offers.length > 0;
-  const needs = mergeNeedsTeam(c.wd.needs_team, needsTeamEntry('ai_failure', c.joinedText.slice(0, 200), at));
+  const candidate = needsTeamEntry('ai_failure', c.joinedText.slice(0, 200), at);
+  const needs = mergeNeedsTeam(c.wd.needs_team, candidate);
   const workflowDataPatch = { bot_turns: (c.wd.bot_turns || 0) + 1 };
   if (needs) workflowDataPatch.needs_team = needs;
   let message;
@@ -217,6 +258,7 @@ function aiFailureResult(c) {
     stateUpdate: { status: 'pending' },
     workflowDataPatch,
     needsTeam: needs,
+    needsTeamCandidate: candidate,
     alert: { reason: 'ai_failure', summary: c.joinedText.slice(0, 200) },
   });
 }
@@ -339,11 +381,14 @@ function toWorkflowResult(aiResult, ctx) {
         }
       }
       const summary = String(args.summary || c.joinedText).slice(0, 200);
-      const needs = mergeNeedsTeam(wd.needs_team, needsTeamEntry(reason, summary, at));
+      const candidate = needsTeamEntry(reason, summary, at);
+      const needs = mergeNeedsTeam(wd.needs_team, candidate);
       const stateUpdate = stateWith({ status: 'pending', current_state: nextStage(stage, aiResult.stage, action, locked) });
       if (!needs) {
         // Already on the team's list with an equal or higher priority: no second ack, no second alert.
-        return finish(emptyResult({ action, messages: [textMessage(modelLine)], stateUpdate }));
+        // The candidate still goes to the write: if staff resolved that request meanwhile, this one is
+        // recorded instead of leaving the conversation pending with nothing open (GPT-6 #13).
+        return finish(emptyResult({ action, messages: [textMessage(modelLine)], stateUpdate, needsTeamCandidate: candidate }));
       }
       return finish(emptyResult({
         action,
@@ -351,6 +396,7 @@ function toWorkflowResult(aiResult, ctx) {
         stateUpdate,
         workflowDataPatch: { needs_team: needs },
         needsTeam: needs,
+        needsTeamCandidate: candidate,
         alert: { reason: reason === 'quote' ? 'quote' : 'needs_team', summary },
       }));
     }
@@ -438,6 +484,7 @@ module.exports = {
   nextStage,
   isStageLocked,
   captureResult,
+  renderCaptureAck,
   toWorkflowResult,
   compose,
 };

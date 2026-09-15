@@ -16,7 +16,7 @@ const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
 
 const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure', 'reply_failures', 'billing', 'sla_breached',
-  'awaiting_staff', 'ambiguous_send', 'inbound_without_outbound', 'window_closing', 'hot_lead'];
+  'awaiting_staff', 'ambiguous_send', 'inbound_without_outbound', 'window_closing', 'hot_lead', 'unsent_reply'];
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -32,6 +32,8 @@ const ALERT_LABELS = {
   inbound_without_outbound: 'رسالة بدون رد من دقيقتين',
   window_closing: 'نافذة الـ24 ساعة قربت تسكر',
   hot_lead: 'عميل ساخن',
+  // D18/D19: the bot's reply stayed unconfirmed (or failed) twice; the customer may have nothing.
+  unsent_reply: 'رد البوت ما وصل — العميل بدون رد',
 };
 
 const WEBHOOK_TIMEOUT_MS = 5000;
