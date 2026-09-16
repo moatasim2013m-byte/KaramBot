@@ -1288,3 +1288,305 @@ describe('PR2 sales quality end to end', () => {
     expect(reportOf.reduce((n, r) => n + (r.nudges_sent || 0), 0)).toBe(1);
   });
 });
+
+describe('PR3 booking in Google Calendar end to end', () => {
+  const booking = require('../src/workflows/shift/booking');
+  const hours = require('../src/workflows/shift/hours');
+  const buttons = require('../src/workflows/shift/buttons');
+  const { runSweep } = require('../src/services/shiftSweeper');
+  const CAL_ID = 'sales@group.calendar.google.com';
+  const CAL_ENV = ['SHIFT_SALES_CALENDAR_ID', 'GOOGLE_CALENDAR_ACCESS_TOKEN', 'SHIFT_BOOKING', 'SHIFT_BUSY_CALENDAR_IDS'];
+  // The team is busy until Wednesday 11:00 Amman, so the first offer's d1 reminder falls after the window closes.
+  const BUSY_UNTIL = '2026-09-16T08:00:00.000Z';
+  let events;
+  let bookingSeenAtConfirmation;
+
+  beforeEach(() => {
+    for (const k of CAL_ENV) delete process.env[k];
+    process.env.SHIFT_SALES_CALENDAR_ID = CAL_ID;
+    process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = 'local-token';
+    booking.resetBusyCache();
+    events = new Map();
+    bookingSeenAtConfirmation = undefined;
+
+    axios.post.mockImplementation(async (url, body) => {
+      if (url === 'https://www.googleapis.com/calendar/v3/freeBusy') {
+        const busy = [{ start: '2026-09-13T21:00:00.000Z', end: BUSY_UNTIL }];
+        for (const ev of events.values()) busy.push({ start: ev.start.dateTime, end: ev.end.dateTime });
+        return { status: 200, data: { calendars: Object.fromEntries(body.items.map(({ id }) => [id, { busy }])) } };
+      }
+      if (url === `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CAL_ID)}/events`) {
+        events.set(body.id, { ...body, status: 'confirmed' });
+        return { status: 200, data: { ...body, status: 'confirmed' } };
+      }
+      if (/\/messages$/.test(url)) {
+        const text = body && body.interactive && body.interactive.body && body.interactive.body.text;
+        if (text && /is booked/.test(text)) bookingSeenAtConfirmation = conversationOf().workflow_data.booking || null;
+        outSeq += 1;
+        return { status: 200, data: { messages: [{ id: `wamid.out${outSeq}` }] } };
+      }
+      throw new Error(`unexpected POST ${url}`);
+    });
+    axios.patch.mockReset();
+    axios.patch.mockImplementation(async (url, body) => {
+      const id = decodeURIComponent(url.split('/').pop());
+      const ev = events.get(id);
+      if (!ev) throw Object.assign(new Error('not found'), { response: { status: 404, data: {} } });
+      Object.assign(ev, body);
+      return { status: 200, data: ev };
+    });
+  });
+
+  afterEach(() => {
+    for (const k of CAL_ENV) delete process.env[k];
+    booking.resetBusyCache();
+  });
+
+  function tapPayload(id, title) {
+    const tap = inboundPayload({ text: 'x' });
+    const msg = tap.entry[0].changes[0].value.messages[0];
+    tap.entry[0].changes[0].value.messages[0] = { id: msg.id, from: msg.from, timestamp: msg.timestamp, type: 'interactive', interactive: { type: 'button_reply', button_reply: { id, title } } };
+    return tap;
+  }
+
+  function templateReplyPayload(text, payload) {
+    const tap = inboundPayload({ text: 'x' });
+    const msg = tap.entry[0].changes[0].value.messages[0];
+    tap.entry[0].changes[0].value.messages[0] = { id: msg.id, from: msg.from, timestamp: msg.timestamp, type: 'button', button: { text, payload }, context: { id: 'wamid.template' } };
+    return tap;
+  }
+
+  const graphSends = (type) => axios.post.mock.calls.filter(([url, p]) => /\/messages$/.test(url) && p && p.type === type).map(([, p]) => p);
+  const calendarCalls = (suffix) => axios.post.mock.calls.filter(([url]) => url.endsWith(suffix));
+
+  test('agree → real free slots → tap → event inserted → booking persisted → «booked» → d1 via template → "Change the time" → new slots → tap → event patched', async () => {
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true, current_state: 'close',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: { lead: { business_name: 'Peekaboo', sector: 'other', language: 'en', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString() },
+      }],
+    });
+    mockGenerateContent.mockResolvedValueOnce(modelReply({
+      reply: "Great! To arrange the call, pick a time that suits you. The team's nearest times:",
+      action: 'CAPTURE_TIME', action_args: { time_text: 'tomorrow 10–12' }, stage: 'close', next_step: 'buttons', buttons: [], lead: {},
+    }));
+
+    // 1. Agreeing to a call → the calendar's free slots as buttons (not PR2's windows).
+    await postWebhook(inboundPayload({ text: "Sounds good, let's do it" }));
+    await settle();
+    await advance(5000);
+    expect(sends()).toHaveLength(1);
+    const offer = sends()[0];
+    expect(offer.type).toBe('interactive');
+    expect(offer.interactive.body.text.endsWith(acks.slotsBody('en'))).toBe(true);
+    expect(offer.interactive.action.buttons.map((b) => [b.reply.id, b.reply.title])).toEqual([
+      ['book:2026-09-16T08:00:00.000Z', 'Wednesday 11:00 am'],
+      ['book:2026-09-17T06:00:00.000Z', 'Thursday 9:00 am'],
+      ['slot:other', 'Another time'],
+    ]);
+    expect(calendarCalls('/freeBusy')).toHaveLength(1);
+    expect(conversationOf().workflow_data.booking).toBeUndefined();
+
+    // 2. The tap books it: freeBusy re-check for that slot, event insert, booking persisted before the confirmation.
+    jest.setSystemTime(new Date(START.getTime() + 60 * 1000));
+    await postWebhook(tapPayload('book:2026-09-16T08:00:00.000Z', 'Wednesday 11:00 am'));
+    await settle();
+    await advance(100);
+    const recheck = calendarCalls('/freeBusy')[1][1];
+    expect(recheck).toMatchObject({ timeMin: '2026-09-16T08:00:00.000Z', timeMax: '2026-09-16T08:30:00.000Z', items: [{ id: CAL_ID }] });
+    const inserts = calendarCalls('/events');
+    expect(inserts).toHaveLength(1);
+    const event = inserts[0][1];
+    expect(event).toMatchObject({
+      start: { dateTime: '2026-09-16T08:00:00.000Z', timeZone: 'Asia/Amman' },
+      end: { dateTime: '2026-09-16T08:30:00.000Z', timeZone: 'Asia/Amman' },
+      summary: `مكالمة شِفت — Peekaboo (+${CUSTOMER})`,
+    });
+    expect(event.extendedProperties.private.conversationId).toBe(conversationOf().id);
+    expect(inserts[0][2].headers.Authorization).toBe('Bearer local-token');
+
+    expect(sends()).toHaveLength(2);
+    const confirmation = sends()[1];
+    expect(confirmation.interactive.body.text).toBe("Your call with the SHIFT team is booked: Wednesday 16/9 at 11:00 am Amman time. We'll remind you before it.\n\nAnd what's your name, so the team is ready?");
+    expect(confirmation.interactive.action.buttons.map((b) => b.reply.id)).toEqual(['book_ok', 'book_change', 'book_cancel']);
+    // D26: the booking was already stored when Graph was asked to send «booked».
+    expect(bookingSeenAtConfirmation).toMatchObject({ event_id: event.id, status: 'booked', start: '2026-09-16T08:00:00.000Z' });
+    let conv = conversationOf();
+    expect(conv.workflow_data.booking).toMatchObject({ event_id: event.id, calendar_id: CAL_ID, status: 'booked', reminders: {} });
+    expect(conv).toMatchObject({ status: 'pending', current_state: 'captured' });
+    expect(conv.workflow_data.needs_team.reason).toBe('meeting');
+    expect(conv.workflow_data.lead.preferred_time).toMatchObject({ start: '2026-09-16T08:00:00.000Z', slot_id: 'book:2026-09-16T08:00:00.000Z' });
+    expect(conv.workflow_data.lead._prov.preferred_time).toMatchObject({ source: 'booking', confirmed: true });
+    expect(botRows().find((m) => m.id === confirmation.biz_opaque_callback_data)).toMatchObject({ status: 'sent' });
+    expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+    // 3. Tuesday 11:05 Amman: 24 h before the call, the customer's window closed at Tuesday 10:01 → the template.
+    jest.setSystemTime(new Date('2026-09-15T08:05:00.000Z'));
+    await runSweep({ now: new Date() });
+    await advance(100);
+    const templates = graphSends('template');
+    expect(templates).toHaveLength(1);
+    expect(templates[0].template).toEqual({
+      name: 'shift_call_reminder',
+      language: { code: 'en' },
+      components: [
+        { type: 'body', parameters: [{ type: 'text', text: 'tomorrow' }, { type: 'text', text: '11:00 am' }] },
+        { type: 'button', sub_type: 'quick_reply', index: '0', parameters: [{ type: 'payload', payload: 'book_seeyou' }] },
+        { type: 'button', sub_type: 'quick_reply', index: '1', parameters: [{ type: 'payload', payload: 'book_change' }] },
+      ],
+    });
+    const reminderRow = db.store.messages.find((m) => m.id === templates[0].biz_opaque_callback_data);
+    expect(reminderRow).toMatchObject({ status: 'sent', message_type: 'template' });
+    expect(conversationOf().workflow_data.booking.reminders.d1).toMatchObject({ via: 'template' });
+    expect(sends()).toHaveLength(2);
+
+    // 4. The template's quick reply "Change the time" → fresh free slots, deterministic (no model call).
+    jest.setSystemTime(new Date('2026-09-15T08:30:00.000Z'));
+    await postWebhook(templateReplyPayload('Change the time', 'book_change'));
+    await settle();
+    await advance(100);
+    expect(sends()).toHaveLength(3);
+    const change = sends()[2];
+    expect(change.interactive.body.text).toBe(`Sure. ${acks.slotsBody('en')}`);
+    const changeIds = change.interactive.action.buttons.map((b) => b.reply.id);
+    // The booked 11:00 is our own event now (busy): the next free slot is 11:30.
+    expect(changeIds).toEqual(['book:2026-09-16T08:30:00.000Z', 'book:2026-09-17T06:00:00.000Z', 'slot:other']);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+    // 5. Tap Thursday 09:00 → the same event is patched, the booking is rescheduled and its reminders reset.
+    await postWebhook(tapPayload('book:2026-09-17T06:00:00.000Z', 'Thursday 9:00 am'));
+    await settle();
+    await advance(100);
+    expect(calendarCalls('/events')).toHaveLength(1);
+    expect(axios.patch).toHaveBeenCalledTimes(1);
+    const [patchUrl, patchBody] = axios.patch.mock.calls[0];
+    expect(patchUrl).toBe(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CAL_ID)}/events/${event.id}`);
+    expect(patchBody).toEqual({
+      start: { dateTime: '2026-09-17T06:00:00.000Z', timeZone: 'Asia/Amman' },
+      end: { dateTime: '2026-09-17T06:30:00.000Z', timeZone: 'Asia/Amman' },
+    });
+    expect(sends()).toHaveLength(4);
+    expect(sends()[3].interactive.body.text.startsWith('Your call with the SHIFT team is moved: now Thursday 17/9 at 9:00 am Amman time.')).toBe(true);
+    conv = conversationOf();
+    expect(conv.workflow_data.booking).toMatchObject({ event_id: event.id, status: 'rescheduled', start: '2026-09-17T06:00:00.000Z', reminders: {} });
+    expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+    // 6. The name the confirmation asked for arrives → the event's lead card is patched (design §3).
+    mockGenerateContent.mockResolvedValueOnce(modelReply({ reply: 'Nice to meet you, Sam.', action: 'NONE', stage: 'close', next_step: 'confirmed', buttons: [], lead: { name: 'Sam' } }));
+    await postWebhook(inboundPayload({ text: 'My name is Sam, see you on Thursday' }));
+    await settle();
+    await advance(5000);
+    expect(sends()).toHaveLength(5);
+    expect(sendText(sends()[4])).toBe('Nice to meet you, Sam.');
+    expect(axios.patch).toHaveBeenCalledTimes(2);
+    expect(axios.patch.mock.calls[1][1].description).toContain('الاسم: Sam');
+    expect(conversationOf().workflow_data.booking).toMatchObject({ details_pending: false, details_missing: [] });
+  });
+
+  test('the event insert is refused → the request ack, needs_team meeting and a booking_failed alert; never «ثبّتنا»', async () => {
+    process.env.STAFF_ALERT_WEBHOOK_URL = 'https://hooks.example.test/staff';
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true, current_state: 'close',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: {
+          lead: { name: 'سامي', business_name: 'بيكابو', sector: 'other', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString(),
+          slot_offers: [{ id: 'book:2026-09-16T08:00:00.000Z', title: 'الأربعاء 11:00 الصبح', issued_at: START.toISOString() }],
+        },
+      }],
+    });
+    const base = axios.post.getMockImplementation();
+    axios.post.mockImplementation(async (url, body) => {
+      if (url.endsWith('/events')) throw Object.assign(new Error('forbidden'), { response: { status: 403, data: { error: { errors: [{ reason: 'requiredAccessLevel' }] } } } });
+      if (url === process.env.STAFF_ALERT_WEBHOOK_URL) return { status: 200, data: {} };
+      return base(url, body);
+    });
+
+    await postWebhook(tapPayload('book:2026-09-16T08:00:00.000Z', 'الأربعاء 11:00 الصبح'));
+    await settle();
+    await advance(100);
+
+    expect(sends()).toHaveLength(1);
+    const text = sendText(sends()[0]);
+    expect(text).not.toContain('ثبّتنا');
+    expect(text).toContain('سجّلت طلب مكالمة: سامي، بيكابو');
+    expect(text).toContain('طلب مش موعد مؤكد');
+    const conv = conversationOf();
+    expect(conv.workflow_data.booking).toBeUndefined();
+    expect(conv).toMatchObject({ status: 'pending', current_state: 'captured' });
+    expect(conv.workflow_data.needs_team.reason).toBe('meeting');
+    const alertsSent = axios.post.mock.calls.filter(([url]) => url === process.env.STAFF_ALERT_WEBHOOK_URL).map(([, b]) => b.reason);
+    expect(alertsSent).toEqual(['booking_failed']);
+    delete process.env.STAFF_ALERT_WEBHOOK_URL;
+  });
+
+  test('«بدي ألغي المكالمة» while booked → a confirmation with buttons (no model) → [ألغِ المكالمة] deletes the event', async () => {
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'pending', ai_enabled: true, current_state: 'captured',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: {
+          lead: { name: 'سامي', business_name: 'بيكابو', version: 1 }, bot_turns: 5,
+          booking: { event_id: 'shevent', calendar_id: CAL_ID, start: '2026-09-16T08:00:00.000Z', end: '2026-09-16T08:30:00.000Z', tz: 'Asia/Amman', status: 'booked', booked_at: START.toISOString(), seq: 1, reminders: {} },
+          needs_team: { reason: 'meeting', summary: 'مكالمة محجوزة', at: START.toISOString(), resolved_at: null, claimed_at: null, sla_note_sent_at: null },
+        },
+      }],
+    });
+    axios.delete.mockReset();
+    axios.delete.mockResolvedValue({ status: 204 });
+
+    await postWebhook(inboundPayload({ text: 'بدي ألغي المكالمة' }));
+    await settle();
+    await advance(5000);
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(sends()).toHaveLength(1);
+    expect(sendText(sends()[0])).toBe('أكيد بدك نلغي مكالمتك يوم الأربعاء الساعة 11:00 الصبح؟'.replace('يوم الأربعاء', 'الأربعاء 16/9'));
+    expect(sends()[0].interactive.action.buttons.map((b) => b.reply.id)).toEqual(['book_cancel', 'book_ok']);
+    expect(axios.delete).not.toHaveBeenCalled();
+
+    await postWebhook(tapPayload('book_cancel', 'ألغِ المكالمة'));
+    await settle();
+    await advance(100);
+    expect(axios.delete).toHaveBeenCalledTimes(1);
+    expect(axios.delete.mock.calls[0][0]).toBe(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CAL_ID)}/events/shevent`);
+    expect(sendText(sends()[1])).toBe('لغيت المكالمة. إذا حبيت نرتّب وقت ثاني احكيلي.');
+    const conv = conversationOf();
+    expect(conv.workflow_data.booking).toMatchObject({ event_id: 'shevent', status: 'cancelled' });
+    expect(conv).toMatchObject({ status: 'open', current_state: 'close' });
+    expect(conv.workflow_data.needs_team.resolved_at).toBeTruthy();
+    expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
+  });
+
+  test('calendar configured but unreachable → PR2 request-only offers, no booking, no «booked»', async () => {
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true, current_state: 'close',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: { lead: { business_name: 'بيكابو', sector: 'other', version: 1 }, bot_turns: 4, disclosed_at: START.toISOString() },
+      }],
+    });
+    const messagesImpl = axios.post.getMockImplementation();
+    axios.post.mockImplementation(async (url, body) => {
+      if (url.includes('googleapis.com')) throw Object.assign(new Error('forbidden'), { response: { status: 403, data: {} } });
+      return messagesImpl(url, body);
+    });
+    mockGenerateContent.mockResolvedValueOnce(modelReply({
+      reply: 'تمام! أقرب أوقات الفريق:', action: 'CAPTURE_TIME', action_args: {}, stage: 'close', next_step: 'buttons', buttons: [], lead: {},
+    }));
+
+    await postWebhook(inboundPayload({ text: 'صح عليكم طيب يلا' }));
+    await settle();
+    await advance(5000);
+
+    const ids = sends()[0].interactive.action.buttons.map((b) => b.reply.id);
+    expect(ids).toEqual(buttons.slotOffers(hours.resolveTeamHours({}), START, 'ar').slice(0, 3).map((o) => o.id));
+    expect(conversationOf().workflow_data.booking).toBeUndefined();
+  });
+});

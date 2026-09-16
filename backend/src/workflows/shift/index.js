@@ -25,6 +25,7 @@ const validators = require('./validators');
 const prefillParser = require('./prefill');
 const assets = require('./assets');
 const context = require('./context');
+const booking = require('./booking');
 const promptAr = require('./prompt.ar');
 const { mergeLead } = require('./lead');
 const { buildSystemPrompt, formatHistory, SHIFT_KNOWLEDGE } = require('./prompt');
@@ -50,6 +51,9 @@ const OUT_OF_CHARACTER_ACTIONS = ['END_ROLEPLAY', 'HANDOFF_TO_HUMAN', 'OPT_OUT',
 const SECTOR_IDS = ['sector:clinic', 'sector:restaurant', 'sector:store', 'sector:other'];
 // Outbound rows that never reached the customer (a first reply whose send failed is not an earlier reply).
 const UNDELIVERED_STATUSES = ['failed', 'cancelled', 'ambiguous_unreconciled'];
+// PR3: the calendar lookup runs before the model call and inside its deadline; a slow Google answer must not
+// eat the reply's time. Past this budget the PR2 window offers are used.
+const OFFERS_BUDGET_MS = 3000;
 const QUESTION_ABOUT_NAME_RE = /اسم|name|المحل|المطعم|العيادة|المتجر|المنشأة|الشركة|business/i;
 
 const MEDIA_PLACEHOLDERS = {
@@ -567,6 +571,14 @@ function prefillFor(ctx, history) {
   }
 }
 
+function shouldOfferCalendar(ctx) {
+  const conv = ctx.conversation;
+  const wd = conv.workflow_data || {};
+  if (!booking.bookingConfig(ctx.business).enabled) return false;
+  if (isStageLocked(conv) || roleplay.isActive(wd) || ROLEPLAY_STAGES.includes(conv.current_state)) return false;
+  return !booking.activeBooking(wd, ctx.now) && !wantsPerson(ctx);
+}
+
 async function processShiftBatch(business, conversation, batchMessages, { now = new Date(), deadlineAt, onRetry } = {}) {
   let ctx = null;
   try {
@@ -604,6 +616,20 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
       } else if (exitOnly) {
         return roleplayEndResult(ctx);
       }
+    }
+
+    // PR3: «بدي ألغي المكالمة» / «ممكن نغيّر الموعد؟» while a call is booked is deterministic (no model): a
+    // cancel is confirmed with buttons first, a change gets the calendar's free slots.
+    if (!roleplay.isActive(ctx.conversation.workflow_data || {}) && !wantsPerson(ctx)) {
+      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now);
+      if (intent === 'cancel') return booking.cancelAskResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
+      if (intent === 'change') return await booking.changeTextResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
+    }
+    // PR3: when a call can be booked, the offers are the calendar's free slots (`book:<iso>`). Unconfigured,
+    // SHIFT_BOOKING=0 or a calendar error keeps PR2's window offers and their "request" semantics.
+    if (shouldOfferCalendar(ctx)) {
+      const cal = await booking.offersWithin(OFFERS_BUDGET_MS, { business, now, lang: ctx.lang, teamHours: ctx.teamHours });
+      if (cal.ok) ctx.offers = cal.offers;
     }
 
     let history = [];

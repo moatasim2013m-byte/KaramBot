@@ -242,6 +242,9 @@ const BILLING_CODES = new Set([131042]);
 const BILLING_SUBCODES = new Set([2494010]);
 const RATE_LIMIT_CODES = new Set([130429, 131056, 80007]);
 const INVALID_RECIPIENT_CODES = new Set([131026, 131030]);
+// PR3: a template Meta will not send — not approved yet (132001 "does not exist in the translation"), paused,
+// disabled, or its parameters do not match the approved body. Resending cannot fix any of them.
+const TEMPLATE_CODES = new Set([132000, 132001, 132005, 132007, 132012, 132015, 132016, 132068, 132069]);
 // The request may have reached Meta before the socket died: resending could duplicate.
 const AMBIGUOUS_ERRNOS = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET']);
 // The request never left this host: safe to retry.
@@ -259,6 +262,7 @@ function classifySendError(err) {
 
   if (BILLING_CODES.has(code) || BILLING_SUBCODES.has(subcode)) return result('billing');
   if (code === 131047) return result('window');
+  if (TEMPLATE_CODES.has(code)) return result('template');
   if (RATE_LIMIT_CODES.has(code)) return result('rate_limit');
   if (INVALID_RECIPIENT_CODES.has(code)) return result('invalid_recipient');
   if (code === 190 || httpStatus === 401 || httpStatus === 403) return result('auth');
@@ -545,6 +549,47 @@ async function sendCtaUrl(phoneNumberId, accessToken, to, part, { callbackData, 
   return sendValidated(phoneNumberId, accessToken, p, () => buildCtaUrlPayload(to, p, { callbackData }), timeoutMs);
 }
 
+// ─── PR3 template part (booking reminders outside the 24 h window) ───────────
+// { type: 'template', name, language, bodyParams: [string], quickReplyPayloads: [string], text }
+// `text` is the rendered wording for the Inbox thread only; Graph receives the template name and parameters.
+
+const TEMPLATE_PARAM_MAX = 1024;
+
+function buildTemplatePayload(to, { name, language, bodyParams, quickReplyPayloads } = {}, { callbackData } = {}) {
+  const components = [];
+  const params = Array.isArray(bodyParams) ? bodyParams : [];
+  if (params.length) components.push({ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t) })) });
+  (Array.isArray(quickReplyPayloads) ? quickReplyPayloads : []).forEach((payload, index) => {
+    components.push({ type: 'button', sub_type: 'quick_reply', index: String(index), parameters: [{ type: 'payload', payload: String(payload) }] });
+  });
+  return envelope(to, 'template', callbackData, {
+    template: { name, language: { code: language }, ...(components.length && { components }) },
+  });
+}
+
+function assertTemplateLimits(part) {
+  if (!isNonEmptyString(part.name) || !/^[a-z0-9_]{1,512}$/.test(part.name)) throw limitsError('template name must be lower-case letters, digits and _');
+  if (!isNonEmptyString(part.language)) throw limitsError('template language is required');
+  for (const p of Array.isArray(part.bodyParams) ? part.bodyParams : []) {
+    // Meta rejects empty parameters and parameters with newlines, tabs or more than 4 consecutive spaces.
+    if (!isNonEmptyString(p) || /[\n\t]| {5,}/.test(p) || codePoints(p) > TEMPLATE_PARAM_MAX) throw limitsError('template body parameter is invalid');
+  }
+  const payloads = Array.isArray(part.quickReplyPayloads) ? part.quickReplyPayloads : [];
+  if (payloads.length > 10 || payloads.some((v) => !isNonEmptyString(v) || v.length > 256)) throw limitsError('template quick reply payloads are invalid');
+}
+
+/** Send an approved template (never throws). A template Meta refuses returns reason 'template'. */
+async function sendTemplate(phoneNumberId, accessToken, to, part, { callbackData, timeoutMs = 10000 } = {}) {
+  let payload;
+  try {
+    assertTemplateLimits(part || {});
+    payload = buildTemplatePayload(to, part, { callbackData });
+  } catch (err) {
+    return invalidPayload(err);
+  }
+  return postStructured(phoneNumberId, accessToken, payload, timeoutMs);
+}
+
 /**
  * Send any WorkflowResult part (contract §1.4). `modelLine`, `ack`, `fallback`, `delayMs` and
  * `serverButtons` are metadata for the batcher and never reach Graph. Never throws.
@@ -567,6 +612,8 @@ async function sendStructured(phoneNumberId, accessToken, to, part, { callbackDa
       return sendCtaUrl(phoneNumberId, accessToken, to, part, opts);
     case 'image':
       return sendImage(phoneNumberId, accessToken, to, part, opts);
+    case 'template':
+      return sendTemplate(phoneNumberId, accessToken, to, part, opts);
     default:
       return invalidPayload(limitsError(`unknown part type ${part && part.type}`));
   }
@@ -599,6 +646,8 @@ function partSummary(part, lang = 'ar') {
       return { message_type: 'interactive', text_body: withLine(`[${str(p.displayText)}] ${str(p.url)}`) };
     case 'image':
       return { message_type: 'image', text_body: imageMark + text };
+    case 'template':
+      return { message_type: 'template', text_body: `${lang === 'en' ? '[template' : '[قالب'} ${str(p.name)}] ${text}`.trim() };
     default:
       return { message_type: 'text', text_body: text };
   }
@@ -699,6 +748,8 @@ module.exports = {
   buildButtonsPayload,
   buildListPayload,
   buildCtaUrlPayload,
+  buildTemplatePayload,
+  sendTemplate,
   assertStructuredLimits,
   sendImage,
   sendButtons,

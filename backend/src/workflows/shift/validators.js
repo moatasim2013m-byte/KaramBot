@@ -351,7 +351,12 @@ const CLAIM_ACTION_RE = new RegExp([
     + `|خبّرت|خبرت (?:الفريق|فريق|الإدارة|الادارة|المدير)|خبّرتهم|خبرتهم|خبّرنا|خبرنا (?:الفريق|فريق)`
     + `|تم تأكيد|تم التأكيد|أكدتلك|اكدتلك|أكّدتلك|أكدنالك|اكدنالك|حطيتك|حطيناك`
     + `|(?:موعدك|الموعد|طلبك|المكالمة|مكالمتك|الحجز|حجزك)\\s+(?:مثبت|مثبّت|مؤكد|مأكد|متأكد|محجوز|مسجل|مسجّل|انحجز|تثبت|تأكد)`
-    + `|(?:رح|بي|ب)\\s*ي?(?:كلمك|كلموك|حكيك|حكوك|تواصل معك|تواصلوا معك|رن عليك|رنوا عليك)\\s+(?:بكرا|بكرة|بكره|اليوم|الساعة|هلأ|الصبح|المسا|يوم))`,
+    + `|(?:رح|بي|ب)\\s*ي?(?:كلمك|كلموك|حكيك|حكوك|تواصل معك|تواصلوا معك|رن عليك|رنوا عليك)\\s+(?:بكرا|بكرة|بكره|اليوم|الساعة|هلأ|الصبح|المسا|يوم)`
+    // PR3: bookings are made, moved and cancelled only by the server (booking.js); the model never says so.
+    + `|ثبّتنا|ثبتنا|ثبّتنالك|ثبتنالك|ثبّتنالك|ثبتناها|ثبّتناها|حجزنا|حجزنالك|حجزنالك|تم تثبيت|تثبّت الموعد|تثبت الموعد`
+    + `|غيّرت (?:الموعد|موعدك|المكالمة)|غيرت (?:الموعد|موعدك|المكالمة)|غيّرنا (?:الموعد|موعدك)|غيرنا (?:الموعد|موعدك)|أجّلت (?:الموعد|موعدك|المكالمة)|أجلت (?:الموعد|موعدك|المكالمة)`
+    + `|لغيت (?:الموعد|موعدك|المكالمة|الحجز)|ألغيت (?:الموعد|موعدك|المكالمة|الحجز)|الغيت (?:الموعد|موعدك|المكالمة|الحجز)|لغينا|ألغينا|الغينا|تم الإلغاء|تم الغاء|تم إلغاء`
+    + `|(?:موعدك|مكالمتك|المكالمة|الموعد)\\s+(?:صار|صارت)\\s+(?:مؤكد|مؤكدة|مثبت|مثبتة|محجوز|محجوزة))`,
   "\\b(?:I've|I have|I|we've|we have) (?:logged|booked|scheduled|sent|forwarded|notified|registered|passed|shared|added|informed|arranged|confirmed|reserved)\\b",
   "\\b(?:I've|I have|we've|we have) set up (?:a|the|your) (?:call|meeting|appointment)\\b",
   '\\b(?:is|are|has been|have been) (?:all )?(?:set|booked|confirmed|scheduled|arranged) for\\b',
@@ -359,6 +364,11 @@ const CLAIM_ACTION_RE = new RegExp([
   '\\b(?:has|have) been (?:booked|scheduled|sent|forwarded|logged|passed|shared|registered|confirmed|arranged)\\b',
   "\\byou(?:'re| are) (?:all )?(?:booked|scheduled|confirmed|registered)\\b",
   '\\bwill (?:call|contact|reach) you (?:tomorrow|today|on|at)\\b',
+  // PR3 booking claims.
+  "\\b(?:I've|I have|I|we've|we have|we) (?:confirmed|moved|rescheduled|cancell?ed|booked|changed) (?:your|the) (?:call|meeting|appointment|booking|slot)\\b",
+  '\\b(?:it|that|this|the call|your call|the slot|the meeting)(?:\'s| is| has been) (?:now )?(?:booked|confirmed|rescheduled|cancell?ed)\\b',
+  '\\bbooked (?:you|it|your call|the call|a call|a slot)\\b',
+  "(?:^|[,.!:\u2014\u2013-]\\s*)(?:all )?booked\\b(?! (?:up|out|solid))",
 ].join('|'), 'gi');
 const NEGATION_BEFORE_RE = /(ما رح|ما|مش|لم|لا|مو|not|haven't|didn't|never|won't)\s*$/i;
 

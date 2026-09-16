@@ -918,7 +918,9 @@ describe('runSweep', () => {
       stuck_inbound: { reprocessed: 0 }, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
       pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0,
       // PR2 (contract §11.1): the idle role-play and nudge steps report their own counters.
-      roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0, errors: [],
+      roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
+      // PR3: booking reminders and passed calls.
+      reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0, errors: [],
     });
   });
 
@@ -978,6 +980,11 @@ describe('getShiftStatus', () => {
       ambiguous: 2,
       nudges_pending: 0,
       roleplays_active: 0,
+      // PR3: no SHIFT_SALES_CALENDAR_ID in tests → booking off, request-only slots.
+      calendar_configured: false,
+      booking_enabled: false,
+      bookings_upcoming: 0,
+      reminders: { d1_sent: 0, h1_sent: 0, template_sent: 0, skipped: 0, template_blocked: 0, failed: 0 },
       sweep: lastSweep(),
       now: NOW.toISOString(),
     });

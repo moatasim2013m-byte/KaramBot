@@ -34,6 +34,7 @@ const shift = require('../workflows/shift');
 const { mergeNeedsTeam, needsTeamEntry, renderCaptureAck, NEEDS_TEAM_PRIORITY } = require('../workflows/shift/results');
 const lead = require('../workflows/shift/lead');
 const { isShiftButtonId, handleButton } = require('../workflows/shift/buttons');
+const booking = require('../workflows/shift/booking');
 const { isOptOutCommand, optOutResult } = require('../workflows/shift/optout');
 const { pickLanguage } = require('../workflows/shift/acks');
 const roleplay = require('../workflows/shift/roleplay');
@@ -70,7 +71,9 @@ const DUE_TOLERANCE_MS = 25;
 // PR2 (contract §1.4 / §10.2): a result has 1–3 parts of these types; a later part may wait up to
 // 1.5 s (the sample page follow-up) before its own pre-send check.
 const MAX_PARTS = 3;
-const PART_TYPES = ['text', 'interactive', 'list', 'cta_url', 'image'];
+// PR3: `template` (a booking reminder outside the 24 h window) is only ever sent by the sweeper through
+// dispatchIntent; results never carry one.
+const PART_TYPES = ['text', 'interactive', 'list', 'cta_url', 'image', 'template'];
 const MAX_PART_DELAY_MS = 1500;
 // Graph definitely refused the part: its `fallback` (e.g. the same buttons without an image header) is
 // sent once. Never after `ambiguous` — the original may have arrived.
@@ -161,6 +164,9 @@ function isHumanActive(conversation, lastStaffOutbound, now = new Date()) {
 
 /** A tap on one of the bot's own buttons (slot offers, «احكي مع الفريق»). */
 function tapButtonId(message) {
+  // PR3: a quick reply on the reminder template («بدي أغيّر الموعد» / "See you then") is a booking control.
+  const templateReply = booking.templateReplyId(message);
+  if (templateReply) return templateReply;
   const reply = message && message.interactive_reply;
   const id = reply && ((reply.button_reply && reply.button_reply.id) || (reply.list_reply && reply.list_reply.id));
   return isShiftButtonId(id) ? id : null;
@@ -750,19 +756,47 @@ async function answerTaps({ id, token, business, clock, batch, conv }) {
     const view = await deliveredView(current, now);
     // The title the customer tapped is in the language the bot offered it in (§14 #10).
     const lang = expectedLanguage([message.text_body || ''], (current.workflow_data && current.workflow_data.lead) || {});
-    const result = handleButton(buttonId, {
-      business, conversation: view, now, lang, messageId: message.id,
-      roleplayOn: roleplay.roleplayEnabled(), vetted: vettedSectors(business),
-    });
+    let result;
+    if (booking.isBookingId(buttonId)) {
+      // PR3: calendar calls (freeBusy re-check, insert/patch/delete) under this run's lease, then the same
+      // deliverResult: the booking is persisted before «ثبّتنا» is sent.
+      result = await booking.handleBookingTap(buttonId, { business, conversation: view, now, lang, messageId: message.id });
+      if (!(await jsonb.renewLease(id, token, LEASE_TTL_MS))) {
+        return { answered, sent, stop: { outcome: 'lease_lost', sent: 0, noRetry: true } };
+      }
+    } else {
+      // «مكالمة» offers the calendar's free slots when booking is on (PR2's windows otherwise).
+      const offers = buttonId === 'lead_call' ? await calendarOffers(business, now, lang) : undefined;
+      result = handleButton(buttonId, {
+        business, conversation: view, now, lang, messageId: message.id,
+        roleplayOn: roleplay.roleplayEnabled(), vetted: vettedSectors(business), offers,
+      });
+    }
     if (!result) continue;
     const report = await deliverResult({ business, conversation: current, result, batch: [message], leaseToken: token, now });
     sent += countDelivered(report);
+    const calendarWrite = result.workflowDataPatch && result.workflowDataPatch.booking && ['BOOK_CALL', 'RESCHEDULE_CALL', 'CANCEL_CALL'].includes(result.action);
+    if (calendarWrite && ['state_failed', 'awaiting_staff', 'skipped', 'lease_lost', 'window_closed'].includes(report.outcome)) {
+      // The calendar already changed but the conversation did not record it (a staff claim, a DB error): staff
+      // must reconcile by hand, or the tap's retry will (the event id is derived from the booking).
+      fireAlert('booking_failed', business, current, `التقويم تغيّر بس المحادثة ما سجّلت (${result.action}, ${report.outcome}) — راجع التقويم`, now);
+    }
     if (!['sent', 'ambiguous', 'deduped'].includes(report.outcome)) {
       return { answered, sent, stop: { outcome: runOutcome(report), sent: 0, noRetry: report.noRetry } };
     }
     answered.add(message.id);
   }
   return { answered, sent, stop: null };
+}
+
+async function calendarOffers(business, now, lang) {
+  try {
+    const r = await booking.offersWithin(3000, { business, now, lang });
+    return r.ok ? r.offers : undefined;
+  } catch (err) {
+    console.error(`[batcher] calendar offers failed business=${business.id}: ${err.message}`);
+    return undefined;
+  }
 }
 
 // ─── dispatchIntent: the one way a bot/system message reaches Graph ─────────
@@ -1459,6 +1493,25 @@ async function explainAbort(id, { leaseToken, batchIds, now }) {
 }
 
 /**
+ * PR3 design §3: the booking confirmation asked for the name / business; once saveLead stored them, the
+ * calendar event is patched with the lead card. Never in the reply path: best effort, logged.
+ */
+function syncBookingDetails(business, conv, storedLead, now) {
+  const b = conv && conv.workflow_data && conv.workflow_data.booking;
+  if (!b || !b.details_pending) return;
+  track(Promise.resolve()
+    .then(() => booking.syncEventDetails({
+      business,
+      conversation: conv,
+      lead: storedLead,
+      now,
+      patchBooking: (patch, match) => jsonb.mergeObjectKey('conversations', conv.id, 'workflow_data', 'booking', patch, { match }),
+    }))
+    .then((r) => { if (r && r.ok) console.log(`[batcher] booking event details updated conversation=${conv.id}`); })
+    .catch((err) => console.error(`[batcher] booking details sync failed conversation=${conv.id}: ${err && err.message}`)));
+}
+
+/**
  * Persist the result's state, then send its parts through dispatchIntent.
  * Also used by runBatch for button taps and opt-outs, by messageProcessor (opt-out) and by the sweeper
  * (notes, batch = []).
@@ -1554,6 +1607,8 @@ async function deliver({
       const meta = result.leadMeta || { source: 'model', msgId: null, at: now.toISOString(), inboundText: '' };
       leadSave = await lead.saveLead(id, result.leadPatch, meta);
       if (!leadSave || !leadSave.ok) console.warn(`[batcher] lead not saved conversation=${id}`);
+      // Not for a booking result itself: its conversation copy predates the booking it writes.
+      else if (!(result.workflowDataPatch && result.workflowDataPatch.booking)) syncBookingDetails(business, conv, leadSave.lead, now);
     }
     if (result.capture) {
       // D26 / GPT-6 #12: the ack names what saveLead stored, not the pre-write preview; a save that
