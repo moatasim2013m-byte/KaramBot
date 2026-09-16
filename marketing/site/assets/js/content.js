@@ -176,14 +176,14 @@ window.SHIFT_CONTENT = {
     "builder_cta": { "ar": "أرسل لي خطة وكيلي", "en": "Send me my agent plan" },
     "builder_hint": { "ar": "اضغط على أي كلمة ملوّنة لتغيّرها.", "en": "Tap any highlighted word to change it." },
 
-    "footer_brand": { "ar": "شِفت للذكاء الاصطناعي والأتمتة · إربد، الأردن", "en": "SHIFT AI & Automation · Irbid, Jordan" },
+    "footer_brand": { "ar": "شِفت للذكاء الاصطناعي والأتمتة · SHIFT AI & Automation · إربد، الأردن", "en": "SHIFT AI & Automation · Irbid, Jordan" },
     "footer_line": { "ar": "كرم بوت، نقاط الولاء، الدوام، الحجوزات، الاشتراكات، التسويق الآلي، نظام الإدارة، والأتمتة المخصّصة للمنشآت في الأردن.", "en": "Karam Bot, Loyalty Points, Attendance, Bookings, Subscriptions, Marketing Automation, ERP and custom automation for businesses in Jordan." },
     "footer_privacy": { "ar": "سياسة الخصوصية", "en": "Privacy policy" },
     "footer_terms": { "ar": "شروط الخدمة", "en": "Terms of Service" },
     "footer_data_deletion": { "ar": "حذف البيانات", "en": "Data deletion" },
     "footer_facebook": { "ar": "شِفت على فيسبوك", "en": "SHIFT on Facebook" },
     "footer_whatsapp": { "ar": "واتساب", "en": "WhatsApp" },
-    "footer_copyright": { "ar": "© 2026 شِفت", "en": "© 2026 SHIFT" },
+    "footer_copyright": { "ar": "© 2026 شِفت · SHIFT AI & Automation", "en": "© 2026 SHIFT" },
 
     "sticky_aria": { "ar": "تواصل سريع", "en": "Quick contact" },
     "sticky_default": { "ar": "راسلنا على واتساب", "en": "Message us on WhatsApp" },
@@ -244,7 +244,7 @@ window.SHIFT_CONTENT = {
     },
     "about": {
       "eyebrow": { "ar": "من نحن", "en": "About" },
-      "title": { "ar": "شِفت للذكاء الاصطناعي والأتمتة · إربد، الأردن", "en": "SHIFT AI & Automation · Irbid, Jordan" },
+      "title": { "ar": "شِفت للذكاء الاصطناعي والأتمتة · SHIFT AI & Automation · إربد، الأردن", "en": "SHIFT AI & Automation · Irbid, Jordan" },
       "intro": { "ar": "كرم بوت يردّ على واتساب عنك، وبقواعدك. نقاط الولاء تُرجِع عملاءك. نظام الدوام يضبط موظفيك. والحجوزات والاشتراكات والتسويق ونظام الإدارة تُكمل الصورة. أنظمة نبنيها ونشغّلها من إربد، للعيادات والمطاعم والكافيهات والمتاجر الإلكترونية.", "en": "Karam Bot answers your WhatsApp for you, by your rules. Loyalty brings customers back. Attendance keeps your staff on schedule. Bookings, subscriptions, marketing and ERP complete the picture — built and run from Irbid for clinics, restaurants and cafés, and online stores." },
       "alsoServe": { "ar": "نخدم أيضًا: الصالونات، مراكز الأطفال، والعقارات — اسألنا.", "en": "We also serve salons, kids' centers and real estate — just ask." }
     }
