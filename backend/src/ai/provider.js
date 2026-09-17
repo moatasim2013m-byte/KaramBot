@@ -37,6 +37,33 @@ function logUsage(fields) {
   console.log('[ai] ' + JSON.stringify(fields));
 }
 
+// A generation the model refused (safety, recitation, a blocked prompt) is not a slow one: the customer
+// must not be told the reply was delayed (owner phone test 2026-09-15, 16:14). The reason travels on the
+// error as `blocked`, and the caller answers deterministically instead of retrying.
+const BLOCK_FINISH_REASONS = ['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY'];
+const BLOCKED_ERROR_RE = /blocked|safety|prohibited|recitation|blocklist/i;
+
+function blockReasonOf(response) {
+  const feedback = response && response.promptFeedback;
+  if (feedback && feedback.blockReason) return String(feedback.blockReason);
+  const finish = response && response.candidates && response.candidates[0] && response.candidates[0].finishReason;
+  return finish && BLOCK_FINISH_REASONS.includes(String(finish)) ? String(finish) : null;
+}
+
+/** The SDK throws «Text not available. Candidate was blocked due to SAFETY» for a refused candidate. */
+function blockReasonOfError(err) {
+  const message = (err && err.message) || '';
+  if (!BLOCKED_ERROR_RE.test(message)) return null;
+  const named = BLOCK_FINISH_REASONS.find((r) => message.toUpperCase().includes(r));
+  return named || 'BLOCKED';
+}
+
+function blockedError(reason) {
+  const err = new Error(`blocked:${reason}`);
+  err.blocked = reason;
+  return err;
+}
+
 async function callGemini(systemPrompt, userMessage, opts = {}) {
   const { GoogleGenerativeAI } = require('@google/generative-ai');
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -77,7 +104,16 @@ async function callGemini(systemPrompt, userMessage, opts = {}) {
     // The SDK timeout aborts the fetch; the JS race also covers a mocked or hung SDK.
     const result = await withTimeout(Promise.resolve(request), attemptMs);
     response = result && result.response;
-    const text = response.text();
+    const blocked = blockReasonOf(response);
+    if (blocked) throw blockedError(blocked);
+    let text;
+    try {
+      text = response.text();
+    } catch (err) {
+      const reason = blockReasonOfError(err);
+      if (reason) throw blockedError(reason);
+      throw err;
+    }
     ok = true;
     return text;
   } finally {
@@ -125,6 +161,12 @@ async function generateAIReply(systemPrompt, userMessage, history = [], opts = {
     if (provider === 'openai') return await callOpenAI(systemPrompt, userMessage, history);
     return await callGemini(systemPrompt, userMessage, opts || {});
   } catch (err) {
+    const blocked = err.blocked || blockReasonOfError(err);
+    if (blocked) {
+      err.blocked = blocked;
+      console.warn(`[ai] blocked ${JSON.stringify({ reason: blocked, conv: opts.conversationId || null, attempt: opts.attempt || 1 })}`);
+      throw err;
+    }
     console.error(`[AI][${provider}] Call failed:`, err.message);
     throw err;
   }
@@ -236,6 +278,20 @@ NONE, SHOW_MENU, ADD_ITEM, REMOVE_ITEM, ASK_ORDER_TYPE, ASK_ADDRESS, SHOW_SUMMAR
  * If second attempt also fails, returns null (caller must handle gracefully).
  * Never throws.
  */
+/** A refused generation: the caller is told through opts.onBlocked and the attempt is not repeated. */
+function reportBlocked(err, opts) {
+  const reason = (err && err.blocked) || null;
+  if (!reason) return false;
+  if (typeof opts.onBlocked === 'function') {
+    try {
+      opts.onBlocked(reason);
+    } catch (cbErr) {
+      console.warn('[ai] onBlocked failed:', cbErr.message);
+    }
+  }
+  return true;
+}
+
 async function generateValidatedAIReply(systemPrompt, userMessage, history = [], opts = {}) {
   opts = opts || {};
   const validActions = opts.validActions || VALID_ACTIONS;
@@ -258,6 +314,7 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
   try {
     raw = await generateAIReply(systemPrompt, userMessage, history, { ...callOpts, attempt: 1 });
   } catch (err) {
+    if (reportBlocked(err, opts)) return null;
     console.error('AI first call failed:', err.message);
     return null;
   }
@@ -280,6 +337,7 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
     if (repaired) return repaired;
     console.error('AI second attempt also invalid:', validation.reason, '| Raw:', raw?.slice(0, 200));
   } catch (err) {
+    if (reportBlocked(err, opts)) return null;
     console.error('AI retry failed:', err.message);
   }
 
@@ -308,6 +366,8 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
     firstInvalid = true;
     console.warn(`[AI] attempt 1 invalid (${validation.reason})${tag}`);
   } catch (err) {
+    // A refusal is not a slow answer: a correction prompt will not change it.
+    if (reportBlocked(err, opts)) return null;
     console.error(`[AI] attempt 1 failed${tag}:`, err.message);
   }
 
@@ -337,6 +397,7 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
     if (repaired) return repaired;
     console.error(`[AI] attempt 2 invalid (${validation.reason})${tag} | Raw:`, raw?.slice(0, 200));
   } catch (err) {
+    if (reportBlocked(err, opts)) return null;
     console.error(`[AI] attempt 2 failed${tag}:`, err.message);
   }
 

@@ -380,3 +380,52 @@ describe('usage log', () => {
     expect(usageLines()).toEqual([expect.objectContaining({ attempt: 1, ok: true, conv: null })]);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Owner phone test, 15 Sep 2026 16:14:32: an insult was answered with «معلش، تأخر ردّي شوي» — the
+// AI-failure fallback. Nothing was delayed: Gemini refused on safety grounds. A refusal is classified
+// and reported separately, and it is never retried with a correction prompt.
+
+describe('a blocked generation is not a timeout', () => {
+  const blockedResponse = (extra) => ({ response: { text: () => '', candidates: [{ finishReason: 'SAFETY' }], ...extra } });
+
+  test('finishReason SAFETY → onBlocked with the reason, no second attempt, null', async () => {
+    mockGenerateContent.mockResolvedValue(blockedResponse());
+    const onBlocked = jest.fn();
+    const r = await generateValidatedAIReply('S', 'U', [], {
+      validActions: SHIFT_ACTIONS, jsonMode: true, deadlineAt: Date.now() + 25000, onBlocked,
+    });
+    expect(r).toBeNull();
+    expect(onBlocked).toHaveBeenCalledWith('SAFETY');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('a blocked prompt (promptFeedback.blockReason) counts too', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '', promptFeedback: { blockReason: 'PROHIBITED_CONTENT' }, candidates: [] },
+    });
+    const onBlocked = jest.fn();
+    await generateValidatedAIReply('S', 'U', [], { validActions: SHIFT_ACTIONS, jsonMode: true, onBlocked });
+    expect(onBlocked).toHaveBeenCalledWith('PROHIBITED_CONTENT');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('an SDK that throws on a blocked candidate is classified, not counted as a timeout', async () => {
+    mockGenerateContent.mockRejectedValue(new Error('Text not available. Candidate was blocked due to SAFETY'));
+    const onBlocked = jest.fn();
+    await generateValidatedAIReply('S', 'U', [], { validActions: SHIFT_ACTIONS, jsonMode: true, onBlocked });
+    expect(onBlocked).toHaveBeenCalledWith('SAFETY');
+  });
+
+  test('a real timeout is still a timeout: onBlocked is never called and the retry runs', async () => {
+    jest.useFakeTimers();
+    mockGenerateContent.mockImplementationOnce(never).mockResolvedValueOnce(reply({ reply: 'تمام', action: 'NONE' }));
+    const onBlocked = jest.fn();
+    const promise = generateValidatedAIReply('S', 'U', [], {
+      validActions: SHIFT_ACTIONS, jsonMode: true, deadlineAt: Date.now() + 25000, onBlocked,
+    });
+    await jest.advanceTimersByTimeAsync(25000);
+    expect(await promise).toMatchObject({ reply: 'تمام' });
+    expect(onBlocked).not.toHaveBeenCalled();
+  });
+});

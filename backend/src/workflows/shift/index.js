@@ -30,7 +30,7 @@ const promptAr = require('./prompt.ar');
 const { mergeLead } = require('./lead');
 const { buildSystemPrompt, formatHistory, SHIFT_KNOWLEDGE } = require('./prompt');
 const {
-  toWorkflowResult, roleplayEndResult, isStageLocked, compose, MEDIA_TYPES,
+  toWorkflowResult, roleplayEndResult, isStageLocked, compose, MEDIA_TYPES, blockedReplyResult,
 } = require('./results');
 const { SHIFT_ACTIONS, NEXT_STEPS, actionSetFor } = require('./actions');
 
@@ -419,7 +419,7 @@ function promptFor(ctx, history, hint) {
   };
 }
 
-async function callModel(ctx, history, { deadlineAt, onRetry, hint, firstAttemptMs }) {
+async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, firstAttemptMs }) {
   const set = actionSetFor();
   const prompt = promptFor(ctx, history, hint);
   const opts = {
@@ -434,6 +434,7 @@ async function callModel(ctx, history, { deadlineAt, onRetry, hint, firstAttempt
     nextSteps: NEXT_STEPS,
     conversationId: ctx.conversation.id,
   };
+  if (onBlocked) opts.onBlocked = onBlocked;
   if (prompt.retrySystem) opts.retrySystemPrompt = prompt.retrySystem;
   if (firstAttemptMs) opts.firstAttemptMs = firstAttemptMs;
   return generateValidatedAIReply(prompt.system, prompt.user, [], opts);
@@ -460,7 +461,14 @@ async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
   }
 
   const deadline = deadlineAt ?? now.getTime() + AI_DEADLINE_MS;
-  const ai = await callModel(ctx, history, { deadlineAt: deadline, onRetry });
+  // A generation the model refused is not a slow one: it never gets the «تأخر ردّي» line (2026-09-15).
+  let blockedReason = null;
+  const onBlocked = (reason) => { blockedReason = reason; };
+  const ai = await callModel(ctx, history, { deadlineAt: deadline, onRetry, onBlocked });
+  if (!ai && blockedReason) {
+    console.warn(`[shift] model refused to generate conversation=${conversation.id} reason=${blockedReason}`);
+    return blockedReplyResult(ctx, blockedReason);
+  }
   if (!ai) console.error(`[shift] AI failed for conversation=${conversation.id} — sending the fallback`);
   const r = toWorkflowResult(ai, ctx);
   if (ai && r.kind === 'handoff') return checkedHandoff(r, ctx, history, ai);
@@ -571,11 +579,21 @@ function prefillFor(ctx, history) {
   }
 }
 
+/**
+ * A `captured` conversation with only a call request is not locked against the calendar (owner phone test
+ * 2026-09-17): the customer may still turn that request into a real booking. `handoff` and `closed` are.
+ */
+function calendarUnlocked(ctx) {
+  return booking.calendarOpenAt(ctx.business, ctx.conversation, ctx.now);
+}
+
 function shouldOfferCalendar(ctx) {
   const conv = ctx.conversation;
   const wd = conv.workflow_data || {};
   if (!booking.bookingConfig(ctx.business).enabled) return false;
-  if (isStageLocked(conv) || roleplay.isActive(wd) || ROLEPLAY_STAGES.includes(conv.current_state)) return false;
+  if (roleplay.isActive(wd) || ROLEPLAY_STAGES.includes(conv.current_state)) return false;
+  if (isStageLocked(conv) && !calendarUnlocked(ctx)) return false;
+  if (conv.current_state === 'closed') return false;
   return !booking.activeBooking(wd, ctx.now) && !wantsPerson(ctx);
 }
 
@@ -621,7 +639,10 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
     // PR3: «بدي ألغي المكالمة» / «ممكن نغيّر الموعد؟» while a call is booked is deterministic (no model): a
     // cancel is confirmed with buttons first, a change gets the calendar's free slots.
     if (!roleplay.isActive(ctx.conversation.workflow_data || {}) && !wantsPerson(ctx)) {
-      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now);
+      // A call request with no event yet is answered here too (2026-09-17), but never from `handoff` or
+      // `closed`: those stages belong to the team and to the opt-out.
+      const requestOpen = !['handoff', 'closed'].includes(ctx.conversation.current_state);
+      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now, { requestOpen });
       if (intent === 'cancel') return booking.cancelAskResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
       if (intent === 'change') return await booking.changeTextResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
     }

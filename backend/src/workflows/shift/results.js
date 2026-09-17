@@ -18,6 +18,7 @@ const assets = require('./assets');
 const roleplay = require('./roleplay');
 const validators = require('./validators');
 const context = require('./context');
+const booking = require('./booking');
 const prefillParser = require('./prefill');
 const { mergeLead, extractCustomerNumbers, normalize } = require('./lead');
 const { actionSetFor, normalizeActionArgs, FLAG_REASONS } = require('./actions');
@@ -300,15 +301,43 @@ function batchCustomerTexts(c) {
  */
 function customerCallTime(ctx, candidates, texts) {
   const c = ctx || {};
-  const facts = timeFacts((texts || batchCustomerTexts(c)).join('\n'));
+  const joined = (texts || batchCustomerTexts(c)).join('\n');
+  const facts = timeFacts(joined);
   if (!facts.spans.length) return null;
-  const list = (Array.isArray(candidates) ? candidates : [candidates]).map(preferredTimeText).filter(Boolean);
+  // A relative or referential time is never the call time, whatever the model proposed (2026-09-17).
+  if (VAGUE_TIME_RE.test(joined) && !EXPLICIT_CLOCK_RE.test(joined)) return null;
+  const list = (Array.isArray(candidates) ? candidates : [candidates]).map(preferredTimeText).filter(isStorableTime);
   for (const t of list) if (groundedIn(t, facts)) return t;
   for (const t of list) {
     const m = timeFacts(t);
-    if (m.spans.length && sharesTime(m, facts) && facts.phrase) return facts.phrase;
+    if (m.spans.length && sharesTime(m, facts) && facts.phrase) return isStorableTime(facts.phrase) ? facts.phrase : null;
   }
   return null;
+}
+
+/**
+ * A time that only means something at the moment it was typed: «بعد ساعة», «بعد ساعتين», «بكرا نفس
+ * الوقت», "in an hour", "later". Owner phone test 2026-09-17: «اليوم بعد ساعتين» and «بكره نفس الوقت»
+ * were stored as the confirmed call time and sent to staff, who cannot read them cold. They are not
+ * stored: with booking on the customer taps a real slot, with booking off the bot asks for a day and a
+ * time. An explicit clock time in the same message («بكرا الساعة 5») is still the customer's own time.
+ */
+const VAGUE_TIME_RE = new RegExp([
+  `(?<![${AR_LETTERS}])بعد\\s+(?:ساعة|ساعه|ساعتين|ساعتي|ساعات|شوي|شوية|شويّة|قليل|كم\\s+\\S+|دقيقة|دقيقه|دقايق|دقائق)(?![${AR_LETTERS}])`,
+  `(?<![${AR_LETTERS}])(?:ب)?نفس\\s+(?:الوقت|الموعد|الساعة|الساعه|التوقيت)(?![${AR_LETTERS}])`,
+  `(?<![${AR_LETTERS}])(?:بعدين|لاحقًا|لاحقا|بوقت لاحق|وقت لاحق)(?![${AR_LETTERS}])`,
+  '\\bin (?:an?|another|a few|\\d+) (?:hour|hours|hr|hrs|minute|minutes|min|mins|bit|while|moment)\\b',
+  '\\bafter (?:an?|\\d+) (?:hour|hours|hr|hrs)\\b',
+  '\\bsame time\\b',
+  '\\b(?:later|later on|in a bit)\\b',
+].join('|'), 'i');
+const EXPLICIT_CLOCK_RE = new RegExp(`(?:الساعة|الساعه)\\s*${DIGIT}|${DIGIT}\\s*[:.]${DIGIT}{2}|${DIGIT}\\s*(?:ص|م|صباحًا|صباحا|مساءً|مساء)(?![${AR_LETTERS}])|\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|o'?clock)\\b`, 'i');
+
+/** A time text the server may store as the customer's preferred time. */
+function isStorableTime(value) {
+  const t = preferredTimeText(value);
+  if (!t) return false;
+  return !VAGUE_TIME_RE.test(t) || EXPLICIT_CLOCK_RE.test(t);
 }
 
 /** A stored time the customer picked by tapping a slot (or staff set with a window). */
@@ -330,12 +359,23 @@ function withoutChooseAsk(line) {
   return kept.join('').trim() || null;
 }
 
-/** The model's own «أقرب أوقات الفريق:» lead-in goes: the server's body line sits above the buttons. */
-function withoutTrailingColon(line) {
+/**
+ * Any question about a day, a time or the appointment. The server's own ask (or its slot buttons) is the
+ * one question in the message: the model's «شو اليوم والوقت الجديد؟» above it made the reply ask twice
+ * (owner phone test 2026-09-17, 07:51–07:58).
+ */
+const TIME_QUESTION_RE = /وقت|ساعة|ساعه|يوم|موعد|متى|إمتى|امتى|توقيت|\btime\b|\bday\b|\bwhen\b|\bhour\b|\bslot\b|\bappointment\b/i;
+
+function isTimeQuestion(sentence) {
+  const s = String(sentence || '');
+  return /[؟?]/.test(s) && (TIME_QUESTION_RE.test(s) || CHOOSE_TIME_RE.test(s));
+}
+
+/** The model's line without its time question and without a dangling lead-in colon. */
+function withoutTimeAsk(line) {
   if (!line) return null;
-  const parts = sentencesOf(line);
-  while (parts.length && /[:：]\s*$/.test(parts[parts.length - 1])) parts.pop();
-  return parts.join('').trim() || null;
+  const kept = sentencesOf(line).filter((s) => !isTimeQuestion(s) && !CHOOSE_TIME_RE.test(s) && !/[:：]\s*$/.test(s));
+  return kept.join('').trim() || null;
 }
 
 function emptyResult(fields) {
@@ -497,6 +537,29 @@ function aiFailureResult(c) {
   });
 }
 
+const BLOCKED_REPLIES_CAP = 10;
+
+/**
+ * The model refused to generate (a safety block, not a timeout): one calm line, no buttons, no team task.
+ * Abuse is not a lead, so nothing goes on the team's list; the turn is kept in `blocked_replies` so staff
+ * can see in the Inbox why the bot answered the way it did (owner phone test 2026-09-15, 16:14:32).
+ */
+function blockedReplyResult(ctx, reason = 'BLOCKED') {
+  const c = fillCtx(ctx);
+  const at = c.now.toISOString();
+  const prev = Array.isArray(c.wd.blocked_replies) ? c.wd.blocked_replies : [];
+  return emptyResult({
+    kind: 'fallback',
+    action: 'BLOCKED_REPLY',
+    messages: [{ type: 'text', text: acks.blockedReply(c.lang) }],
+    workflowDataPatch: {
+      bot_turns: (c.wd.bot_turns || 0) + 1,
+      nudge: null,
+      blocked_replies: [...prev, { at, reason: String(reason || 'BLOCKED') }].slice(-BLOCKED_REPLIES_CAP),
+    },
+  });
+}
+
 /** A pending capture's slot: over once its window has ended or the tap is older than an offer may be. */
 function slotExpired(slot, capturePending, now) {
   const nowMs = now.getTime();
@@ -624,6 +687,23 @@ function mediaPrefixFor(c, reply) {
   if (!unread) return acks.mediaTranscribedPrefix(mediaMessages[0].message_type, c.lang);
   const separateText = c.batchMessages.some((m) => m.text_body && !MEDIA_TYPES.includes(m.message_type));
   return acks.mediaPrefix(unread.message_type, c.lang, { captioned: !separateText && !!unread.text_body });
+}
+
+/**
+ * The server's media notice is the only sentence about the attachment. Owner phone test 2026-09-17,
+ * 07:59:53: under «وصلتني رسالتك الصوتية كمان 🙏 هون بقرأ النص بس.» the model added «بلاحظ الرسالة
+ * الصوتية وصلتك بالنص» — nonsense, and it contradicted the line above it. Every model sentence about the
+ * attachment is dropped; what the model said about the customer's words stays.
+ */
+const MEDIA_NOUN_RE = /الصوتي|صوتية|صوتيه|الڤويس|الفويس|المرفق|المرفقات|الصورة|الفيديو|الملف|الملصق|\bvoice (?:note|message)\b|\bvoicenote\b|\baudio\b|\battachment\b|\b(?:image|photo|picture|video|file|sticker)\b/i;
+// The notice itself: «وصلتني رسالتك الصوتية», «وصلتك بالنص», "I only read text here". A sentence that
+// merely mentions the attachment («شفت الصورة») is the model's own claim and is judged by the validators.
+const MEDIA_NOTICE_VERB_RE = /وصل|واصل|استلم|تلقّيت|تلقيت|بقرأ|بقرا|بالنص|النص بس|بس النص|\bread (?:only )?text\b|\bonly read\b|\breceiv\w*\b|\bgot your\b|\bcame (?:through|in)\b/i;
+
+function withoutMediaTalk(line) {
+  if (!line) return '';
+  const kept = sentencesOf(line).filter((sentence) => !(MEDIA_NOUN_RE.test(sentence) && MEDIA_NOTICE_VERB_RE.test(sentence)));
+  return kept.join('').trim();
 }
 
 /** Objective row 9: no sector yet and a bare greeting (≤ 3 words, no question) on the first reply. */
@@ -787,9 +867,108 @@ function finishResult(r, c, { aiResult, reply, action, common, baseLeadPatch, pr
     wdp.close_declines = (Number(wd.close_declines) || 0) + 1;
   }
 
-  const out = { ...r, messages, workflowDataPatch: wdp, leadPatch, leadMeta };
+  const guarded = repeatedAskGuard({ ...r, messages }, c, wdp, action);
+  const out = { ...guarded, workflowDataPatch: wdp, leadPatch, leadMeta };
   // last_bot for every result; the validators recompute it for a reply after their repairs.
   return validators.repairNextStep(out, aiResult, { stage: postStage, now: c.now }).result;
+}
+
+// ─── the same question, twice ────────────────────────────────────────────────
+//
+// Owner phone test 2026-09-17: «شو اليوم والوقت الجديد اللي يناسبك؟» went out five times in seven minutes
+// (07:51:22 → 07:58:37) while the customer kept answering. Nothing noticed that the ask had already gone
+// out unanswered. `wd.last_ask` keeps the last question's key and how many times in a row it was asked;
+// a repeat is answered with the deterministic next step instead of the same words.
+
+const ASK_REPEAT_MAX = 2;
+const ASK_KEY_MAX = 120;
+const NO_ASK_GUARD_ACTIONS = ['OPT_OUT', 'NOT_NOW', 'HANDOFF_TO_HUMAN', 'START_ROLEPLAY', 'END_ROLEPLAY'];
+
+/** The key of the question a part ends on: 'time' for any day/time ask, its normalized words otherwise. */
+function askKeyOf(part) {
+  if (!part || typeof part.text !== 'string') return null;
+  const questions = sentencesOf(part.text).filter((s) => /[؟?]/.test(s));
+  if (!questions.length) return null;
+  if (questions.some(isTimeQuestion)) return 'time';
+  return normalize(questions.join(' ')).slice(0, ASK_KEY_MAX) || null;
+}
+
+function askPart(part, line, ack, buttonList) {
+  if (buttonList && buttonList.length) {
+    return withMeta({
+      type: 'interactive',
+      text: compose(line, ack, INTERACTIVE_LIMIT),
+      buttons: buttonList.map((o) => ({ id: o.id, title: o.title })),
+      // The offers are the server's: they stay with the body line even if the model's words are replaced.
+      serverButtons: true,
+    }, line, ack, part.modelLine || null);
+  }
+  return withMeta({ ...part, type: 'text', text: compose(line, ack, TEXT_LIMIT) }, line, ack, part.modelLine || null);
+}
+
+function partHasButtons(part) {
+  if (!part) return false;
+  if (part.type === 'interactive') return Array.isArray(part.buttons) && part.buttons.length > 0;
+  if (part.type === 'list') return (part.sections || []).some((sec) => (sec.rows || []).length > 0);
+  return false;
+}
+
+function repeatedAskGuard(r, c, wdp, action) {
+  const messages = Array.isArray(r.messages) ? r.messages : [];
+  const last = messages[messages.length - 1];
+  const prev = isPlainObject(c.wd.last_ask) ? c.wd.last_ask : null;
+  const at = c.now.toISOString();
+  const clear = () => {
+    if (prev) wdp.last_ask = null;
+    return r;
+  };
+  if (NO_ASK_GUARD_ACTIONS.includes(action) || inSandbox(c) || r.kind === 'handoff') return r;
+  // Buttons are a next step, not a question that can be repeated.
+  if (partHasButtons(last)) return clear();
+  const key = askKeyOf(last);
+  if (!key) return clear();
+  const count = prev && prev.key === key ? (Number(prev.count) || 1) + 1 : 1;
+  if (count === 1) {
+    wdp.last_ask = { key, at, count };
+    return r;
+  }
+
+  const line = key === 'time' ? withoutTimeAsk(last.text) : statementsOnly(last.text);
+  const head = messages.slice(0, -1);
+  const offersBlocked = key !== 'time' || inSandbox(c)
+    || (isStageLocked(c.conversation) && !calendarOpen(c))
+    || !!(c.wd.capture_pending && c.wd.capture_pending.slot_id === 'other');
+  const offers = offersBlocked ? [] : (c.offers || []).slice(0, 3);
+  if (offers.length) {
+    // The deterministic next step: real times to tap instead of the same question again.
+    wdp.slot_offers = offers.map((o) => ({ id: o.id, title: o.title, issued_at: at }));
+    wdp.last_ask = null;
+    return { ...r, messages: [...head, askPart(last, line, acks.slotsBody(c.lang), offers)] };
+  }
+  if (key === 'time' && count <= ASK_REPEAT_MAX) {
+    // Nothing to offer: the same ask once more, in the server's own words, and counted.
+    wdp.last_ask = { key, at, count };
+    return { ...r, messages: [...head, askPart(last, line, acks.callTimeAsk(c.lang), null)] };
+  }
+  if (count <= ASK_REPEAT_MAX) {
+    wdp.last_ask = { key, at, count };
+    return r;
+  }
+
+  // Asked three times with no answer: the team takes it over, and the bot stops repeating itself.
+  const candidate = needsTeamEntry(key === 'time' ? 'meeting' : 'unknown',
+    `سؤال متكرر بدون جواب: ${cutCodePoints(String(last.text || ''), 120)}`, at);
+  const needs = mergeNeedsTeam(c.wd.needs_team, candidate);
+  wdp.last_ask = null;
+  if (needs) wdp.needs_team = needs;
+  return {
+    ...r,
+    messages: [...head, askPart(last, line, acks.askHandover(c.lang), null)],
+    stateUpdate: { ...(r.stateUpdate || {}), status: 'pending' },
+    needsTeam: needs || r.needsTeam,
+    needsTeamCandidate: candidate,
+    alert: r.alert || { reason: 'needs_team', summary: candidate.summary },
+  };
 }
 
 /**
@@ -801,11 +980,13 @@ function callTimeAskResult(c, { shown, reply, locked, leadPatch }) {
   const at = c.now.toISOString();
   const stateUpdate = locked ? {} : { current_state: 'close' };
   const askedOther = c.wd.capture_pending && c.wd.capture_pending.slot_id === 'other';
-  const offers = locked || inSandbox(c) || askedOther ? [] : (c.offers || []).slice(0, 3);
+  // A `captured` conversation holding only a call request is not locked against the calendar (2026-09-17).
+  const offersBlocked = (locked && !calendarOpen(c)) || inSandbox(c) || askedOther;
+  const offers = offersBlocked ? [] : (c.offers || []).slice(0, 3);
   if (offers.length) {
     const body = acks.slotsBody(c.lang);
-    const line = withoutTrailingColon(shown);
-    const own = withoutTrailingColon(reply);
+    const line = withoutTimeAsk(shown);
+    const own = withoutTimeAsk(reply);
     const part = withMeta({
       type: 'interactive',
       text: compose(line, body, INTERACTIVE_LIMIT),
@@ -821,14 +1002,20 @@ function callTimeAskResult(c, { shown, reply, locked, leadPatch }) {
       leadPatch,
     });
   }
-  const line = withoutChooseAsk(shown);
-  const own = line ? withoutChooseAsk(reply) : null;
+  // The server's «أي يوم ووقت بناسبك؟» is the message's one question: the model's own goes with it.
+  const line = withoutTimeAsk(shown);
+  const own = line ? withoutTimeAsk(reply) : null;
   return emptyResult({
     action: 'NONE',
     messages: [textMessage(line, acks.callTimeAsk(c.lang), own)],
     stateUpdate,
     leadPatch,
   });
+}
+
+/** Whether the calendar may still be offered although the stage is locked (design §Flow, 2026-09-17). */
+function calendarOpen(c) {
+  return booking.calendarOpenAt(c.business, c.conversation, c.now);
 }
 
 // ─── the entry point ─────────────────────────────────────────────────────────
@@ -852,7 +1039,7 @@ function toWorkflowResult(aiResult, ctx) {
   // A re-run of the first reply to the same site message (run 1 stored wd.prefill, its send failed) keeps it.
   const prefillRerun = !!(wd.prefill && wd.prefill.msg_id && wd.prefill.msg_id === c.batchMessages[0]?.id);
   const prefill = c.prefill && (!wd.prefill || prefillRerun) ? c.prefill : null;
-  const reply = aiResult && typeof aiResult.reply === 'string' ? aiResult.reply.trim() : '';
+  let reply = aiResult && typeof aiResult.reply === 'string' ? aiResult.reply.trim() : '';
   let { action, args, rawArgs } = aiResult ? resolveAction(aiResult, c) : { action: 'NONE', args: {}, rawArgs: {} };
   const common = { bot_turns: (wd.bot_turns || 0) + 1 };
   const baseLeadPatch = cleanLeadPatch(aiResult && aiResult.lead, c);
@@ -875,7 +1062,9 @@ function toWorkflowResult(aiResult, ctx) {
   const leadMeta = modelLeadMeta(c);
 
   const prefix = mediaPrefixFor(c, reply);
-  const shown = prefix && reply ? `${prefix}\n${reply}` : reply;
+  // The notice about the attachment is the server's line alone; the model's own words about it go (§8.4).
+  if (prefix) reply = withoutMediaTalk(reply);
+  const shown = prefix && reply ? `${prefix}\n${reply}` : (prefix || reply);
   const mtext = (ack) => textMessage(shown, ack, reply);
 
   if (!wd.disclosed_at && /مساعد شِفت|SHIFT's AI assistant/.test(reply) && reply.includes(SITE_HOST)) common.disclosed_at = at;
@@ -893,7 +1082,7 @@ function toWorkflowResult(aiResult, ctx) {
         workflowDataPatch: { roleplay: roleplay.endState(wd.roleplay, 'done', c.now) },
       }));
     }
-    if (!reply) return finish(aiFailureResult(c));
+    if (!reply && !prefix) return finish(aiFailureResult(c));
     const turn = roleplay.nextTurn(wd.roleplay, c.now);
     // The start line never reached the customer (replyBatcher.deliveredView): it leads this first turn,
     // so nothing in character is ever read without the example label (G6).
@@ -986,7 +1175,7 @@ function toWorkflowResult(aiResult, ctx) {
   if (inSandbox(c) && (action === 'CAPTURE_TIME' || (action === 'FLAG_FOR_TEAM' && rawArgs.reason === 'meeting'))) {
     action = 'NONE';
   }
-  if (!reply && !['OPT_OUT', 'NOT_NOW', 'HANDOFF_TO_HUMAN'].includes(action)) return finish(aiFailureResult(c));
+  if (!reply && !prefix && !['OPT_OUT', 'NOT_NOW', 'HANDOFF_TO_HUMAN'].includes(action)) return finish(aiFailureResult(c));
 
   switch (action) {
     case 'FLAG_FOR_TEAM': {
@@ -1273,6 +1462,7 @@ function roleplayEndResult(ctx) {
 }
 
 module.exports = {
+  blockedReplyResult,
   NEEDS_TEAM_PRIORITY,
   MEDIA_TYPES,
   mergeNeedsTeam,

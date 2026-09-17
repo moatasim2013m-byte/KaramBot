@@ -18,7 +18,7 @@ const { extractCustomerNumbers, normalize } = require('./lead');
 const OLD_HOST = ['shifts-ai', 'store'].join('.');
 
 const CODES = ['markdown', 'digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'identity', 'questions',
-  'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step'];
+  'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step', 'training_claim'];
 
 const ARABIC_LETTER_RE = /[ء-يٮ-ۓۺ-ۿ]/g;
 const LATIN_LETTER_RE = /[A-Za-z]/g;
@@ -254,6 +254,40 @@ function allowedNumberSet(vctx = {}) {
   return set;
 }
 
+/**
+ * A clock time in a sentence that arranges the call («نرتّب الموعد اليوم الساعة 12:00 تقريبًا») is a fact
+ * about an appointment, not a figure of speech: the customer never said 12:00 — they wrote «بعد ساعه»
+ * (owner phone test 2026-09-17, 16:52). Such a time is allowed only when the customer wrote it, or when
+ * the server put it on the table (a slot offer, the stored preferred time).
+ */
+const APPOINTMENT_RE = /موعد|مواعيد|المكالمة|مكالمة|نرتّب|نرتب|أرتّب|ارتب|نحجز|احجز|نثبّت|نثبت|نحكيك|نحكي معك|اجتماع|\bappointment\b|\bthe call\b|\ba call\b|\bmeeting\b|\bschedul\w*\b|\bbook\w*\b/i;
+
+/** A time OF DAY, not a duration: «الساعة 12», «12:00», «5 مساءً», "at 5pm" (never «قبل 24 ساعة»). */
+function isClockTimeOfDay(text, n) {
+  const before = text.slice(0, n.start);
+  const after = text.slice(n.end);
+  if (/^:\d{2}/.test(after)) return true;
+  if (DURATION_UNIT_RE.test(after)) return false;
+  const clockValue = typeof n.value === 'number' && n.value >= 0 && n.value <= 24;
+  if (clockValue && (/(?:الساعة|الساعه)\s*$/.test(before) || /\bat\s*$/i.test(before))) return true;
+  return TIME_UNIT_RE.test(after) && !DURATION_UNIT_RE.test(after);
+}
+
+/** Numbers the server itself put in front of the customer: offered slot titles and the stored time. */
+function serverTimeNumbers(vctx = {}) {
+  const set = new Set();
+  const add = (text) => {
+    for (const v of extractCustomerNumbers(String(text || ''))) {
+      const c = canonicalOf(v);
+      if (c !== null) set.add(c);
+    }
+  };
+  for (const o of Array.isArray(vctx.offers) ? vctx.offers : []) add(o && o.title);
+  const pt = vctx.lead && vctx.lead.preferred_time;
+  add(typeof pt === 'string' ? pt : (pt && pt.text) || '');
+  return set;
+}
+
 function clauseBounds(text, index) {
   let start = 0;
   let end = text.length;
@@ -279,6 +313,7 @@ function checkDigits(line, vctx = {}) {
   const money = spans(text, MONEY_KEYWORDS_RE);
   let allowed = null;
   let verbatim = null;
+  let serverTimes = null;
   const blocks = [];
   for (const n of findNumbers(text)) {
     if (isCallLength(text, n)) {
@@ -286,7 +321,17 @@ function checkDigits(line, vctx = {}) {
       continue;
     }
     if (!inClaimContext(text, n, keywords, money)) continue;
-    if (isTimeNumber(text, n, money)) continue;
+    if (isTimeNumber(text, n, money)) {
+      if (!isClockTimeOfDay(text, n) || !APPOINTMENT_RE.test(clauseAt(text, n.start))) continue;
+      // The minutes of a clock time belong to the hour beside them, not to a claim of their own.
+      if (/\d{1,2}:$/.test(text.slice(0, n.start))) continue;
+      const clock = n.value === null || n.value === undefined ? null : roleplay.canonical(n.value);
+      allowed = allowed || allowedNumberSet(vctx);
+      serverTimes = serverTimes || serverTimeNumbers(vctx);
+      if (clock === null || allowed.has(clock) || serverTimes.has(clock)) continue;
+      blocks.push({ code: 'digits', detail: n.raw });
+      continue;
+    }
     if (isConsentDelay(text, n, money)) continue;
     if (isQuotedFromCustomer(text, n, vctx) && !affirmsOffer(text, n)) continue;
     const value = n.value === null || n.value === undefined ? null : roleplay.canonical(n.value);
@@ -331,10 +376,86 @@ function checkGuarantee(line, vctx = {}) {
   return m ? [{ code: 'guarantee', detail: m[0] }] : [];
 }
 
-function checkOverclaim(line) {
+function checkOverclaim(line, vctx = {}) {
   const s = String(line || '');
   const m = OVERCLAIM_RE.exec(s);
-  return m && !OVERCLAIM_OK_RE.test(s) ? [{ code: 'overclaim', detail: m[0] }] : [];
+  if (m && !OVERCLAIM_OK_RE.test(s)) return [{ code: 'overclaim', detail: m[0] }];
+  return checkIntegrationClaim(s, vctx);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// §5.4 (b″) integrating a named third-party system
+//
+// Owner phone test 2026-09-15, 16:42: the customer said they run «نظام nexus» and the reply promised
+// «بنقدر نربط نظام nexus مع الواتساب أو التقويمات أو أي نظام ثاني» — a capability promise about a system
+// nobody at SHIFT has seen. The generic statement that SHIFT builds integrations stays allowed, as does
+// «الفريق بيتأكد إذا نظامك بيسمح بالربط»; naming the customer's system as connectable does not.
+
+const CONNECT_CLAIM_RE = /(?:بنقدر|منقدر|بقدر|نقدر|فينا|بنعرف|رح|بن)\s*(?:نربط|نربطه|نربطها|نوصل|نوصله|ندمج|ندمجه|نركّب|نركب)|\bwe can (?:connect|integrate|link|hook up|plug)\b|\bcan be (?:connected|integrated|linked)\b|\bwe(?:'ll| will) (?:connect|integrate|link)\b/i;
+// Systems SHIFT names in its own material: saying these can be connected is not a claim about an unknown one.
+const KNOWN_SYSTEM_RE = /^(?:واتساب|whatsapp|جوجل|google|التقويم|التقويمات|calendar|انستغرام|instagram|فيسبوك|facebook|shopify|شوبيفاي|zapier|make|n8n|كرم|karam|shift|شِفت|شفت|إكسل|اكسل|excel|sheets|شيتس)$/i;
+const SYSTEM_NAME_RE = /(?:نظام|النظام|برنامج|البرنامج|سيستم|السيستم|\bsystem\b|\bsoftware\b|\bplatform\b|\bERP\b|\bPOS\b)\s+(?:اسمه\s+|called\s+|named\s+)?([A-Za-z][A-Za-z0-9._+-]{2,}|[\u0621-\u064A]{3,})/gi;
+
+function escapeRe(v) {
+  return String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Third-party systems the customer named in their own messages. */
+function customerSystemNames(vctx) {
+  const names = new Set();
+  for (const t of customerTexts(vctx)) {
+    SYSTEM_NAME_RE.lastIndex = 0;
+    for (const m of String(t).matchAll(SYSTEM_NAME_RE)) {
+      const name = m[1];
+      if (name && !KNOWN_SYSTEM_RE.test(name)) names.add(name);
+    }
+  }
+  return names;
+}
+
+function checkIntegrationClaim(line, vctx = {}) {
+  if (!CONNECT_CLAIM_RE.test(line)) return [];
+  for (const name of customerSystemNames(vctx)) {
+    if (new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, 'iu').test(line)) {
+      return [{ code: 'overclaim', detail: `integration:${name}` }];
+    }
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The model is not trained by SHIFT
+//
+// Owner phone test 2026-09-15, 16:12: «أنا نموذج ذكاء اصطناعي مدرب خصيصًا كوكيل لخدمة العملاء وأتمتة
+// الأعمال في شِفت.» Karam is a general model with SHIFT's information in the prompt. The prompt's own
+// intro («نفس محرّك كرم اللي بنركّبه عندك، بس بمعلومات شِفت») stays allowed.
+
+const TRAINING_CLAIM_RE = /مدرب خصيص|مدرّب خصيص|مدربة خصيص|مدرّبة خصيص|مدرب عند|مدرّب عند|مدربني|درّبوني|دربوني|درّبني|دربني|درّبناه|دربناه|درّبنا|دربنا\s+النموذج|طوّرناه|طورناه|طوّرنا النموذج|طورنا النموذج|صنعناه|صنعنا النموذج|بنيناه|بنينا النموذج|صمّمناه|صممناه|نموذج خاص فينا|نموذجنا الخاص|\bcustom[- ]trained\b|\btrained (?:me )?specifically\b|\bspecially trained\b|\bwe (?:trained|built|developed|created|made) (?:the |our |this )?(?:model|ai|me)\b|\bour own (?:model|ai)\b|\bbuilt in[- ]house\b/i;
+
+const TRAINING_HONEST = {
+  ar: 'بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت.',
+  en: "I run on an AI model, and my information comes from SHIFT.",
+};
+
+function checkTrainingClaim(line) {
+  const m = TRAINING_CLAIM_RE.exec(String(line || ''));
+  return m ? [{ code: 'training_claim', detail: m[0] }] : [];
+}
+
+/** The sentences that claim SHIFT trained the model, replaced by the approved wording. */
+function withApprovedTraining(line, lang) {
+  const approved = TRAINING_HONEST[lang === 'en' ? 'en' : 'ar'];
+  const sentences = splitSentences(line);
+  if (!sentences.length) return approved;
+  let used = false;
+  const out = sentences.map((sentence) => {
+    if (!TRAINING_CLAIM_RE.test(sentence)) return sentence;
+    if (used) return '';
+    used = true;
+    const tail = /\s$/.test(sentence) ? ' ' : '';
+    return `${approved}${tail}`;
+  });
+  return out.join('').trim() || approved;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -896,6 +1017,8 @@ function hintFor(code, lang) {
       return 'ردك السابق فيه ضمانة أو ادعاء. الفائدة هدف مش نتيجة، ونفس المحرّك بس بمعلومات شِفت.';
     case 'claimed_action':
       return 'لا تقل سجّلت أو حجزت أو بعثت. النظام بيضيف التأكيد. قل «بحطها بالحسبان» أو «بلاحظ».';
+    case 'training_claim':
+      return 'ما حدا بشِفت درّب النموذج. قل: «بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت».';
     case 'identity':
       return 'العميل سأل إذا إنت بوت: جاوب بصدق إنك كرم، مساعد شِفت الذكي (ذكاء اصطناعي)، واعرض التحويل لشخص.';
     case 'language':
@@ -941,6 +1064,13 @@ function checkModelLine(input, vctx, attempt) {
     line = HONEST_IDENTITY[vctx.lang === 'en' ? 'en' : 'ar'];
   }
 
+  // SHIFT did not train the model: the claim is replaced by the approved wording, whatever else was said.
+  const training = checkTrainingClaim(line);
+  if (training.length) {
+    events.push(...training);
+    line = withApprovedTraining(line, vctx.lang);
+  }
+
   const identity = checkIdentity(line, vctx);
   if (identity.length) {
     if (attempt >= 2) {
@@ -953,7 +1083,7 @@ function checkModelLine(input, vctx, attempt) {
 
   events.push(...regen(checkDigits(line, vctx)));
   events.push(...regen(checkGuarantee(line, vctx)));
-  events.push(...regen(checkOverclaim(line)));
+  events.push(...regen(checkOverclaim(line, vctx)));
   events.push(...regen(checkClaimedAction(line, vctx)));
   events.push(...regen(checkLanguage(line, vctx.lang)));
   return { line, events };
@@ -1218,6 +1348,7 @@ module.exports = {
   checkDigits,
   checkGuarantee,
   checkOverclaim,
+  checkTrainingClaim,
   checkClaimedAction,
   checkHumanClaim,
   isIdentityQuestion,

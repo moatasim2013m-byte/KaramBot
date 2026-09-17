@@ -524,7 +524,7 @@ describe('verdict matrix (§5.1)', () => {
 
   test('CODES lists every code the validators emit', () => {
     expect(v.CODES).toEqual(['markdown', 'digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'identity',
-      'questions', 'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step']);
+      'questions', 'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step', 'training_claim']);
   });
 
   test('the old host literal never appears in validator output', () => {
@@ -899,5 +899,69 @@ describe('review round 2 (validators)', () => {
     test.each(['بطلبلك مكالمة 15 دقيقة مع الفريق — أيهم أريح إلك؟', 'I can request a 15-minute call with the team.'])('D9: the call length is never named: %s', (line) => {
       expect(v.checkDigits(line, baseCtx())).toEqual([expect.objectContaining({ code: 'digits', detail: '15' })]);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Owner phone test, 15 Sep 2026: two claims the bot made about itself and about a customer's system.
+
+describe('the model is not trained by SHIFT (16:12:20)', () => {
+  test.each([
+    'أنا نموذج ذكاء اصطناعي مدرب خصيصًا كوكيل لخدمة العملاء وأتمتة الأعمال في شِفت.',
+    'أنا مدرّب خصيصاً على شغل شِفت.',
+    'إحنا درّبنا النموذج على بيانات شِفت.',
+    'طوّرناه بأنفسنا بشِفت.',
+    "I'm a custom-trained AI agent for SHIFT.",
+    'We trained the model on our own data.',
+  ])('«%s» is blocked', (line) => {
+    expect(v.checkTrainingClaim(line).map((b) => b.code)).toEqual(['training_claim']);
+  });
+
+  test.each([
+    'نفس محرّك كرم اللي بنركّبه عندك، بس بمعلومات شِفت.',
+    'بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت.',
+    'أنا كرم، مساعد شِفت الذكي.',
+    'The same Karam engine we set up at your place, but running on SHIFT\'s information.',
+  ])('«%s» passes', (line) => {
+    expect(v.checkTrainingClaim(line)).toEqual([]);
+  });
+
+  test('the claim is replaced by the approved wording, and the rest of the line stays', () => {
+    const line = 'أنا نموذج ذكاء اصطناعي مدرب خصيصًا كوكيل لخدمة العملاء في شِفت. كيف بقدر أساعدك؟';
+    const r = v.validateResult(reply([textPart(line)]), baseCtx());
+    const text = r.result.messages[0].text;
+    expect(text).toContain('بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت.');
+    expect(text).not.toContain('مدرب خصيص');
+    expect(text).toContain('كيف بقدر أساعدك؟');
+    expect(r.blocks.map((b) => b.code)).toContain('training_claim');
+  });
+
+  test('the English replacement', () => {
+    const r = v.validateResult(reply([textPart("I'm a custom-trained AI agent for SHIFT. How can I help?")]), baseCtx({ lang: 'en' }));
+    expect(r.result.messages[0].text).toContain('I run on an AI model, and my information comes from SHIFT.');
+    expect(r.result.messages[0].text).not.toMatch(/custom-trained/i);
+  });
+});
+
+describe('integrating a system nobody at SHIFT has seen (16:42:04)', () => {
+  const nexus = { batchTexts: ['إحنا عنا نظام nexus للمخزون'] };
+
+  test('naming the customer\'s system as connectable is an over-claim', () => {
+    expect(v.checkOverclaim('بنقدر نربط نظام nexus مع الواتساب أو التقويمات أو أي نظام ثاني.', baseCtx(nexus))
+      .map((b) => b.code)).toEqual(['overclaim']);
+    expect(v.checkOverclaim('We can connect Nexus to WhatsApp and your calendars.', baseCtx(nexus))
+      .map((b) => b.code)).toEqual(['overclaim']);
+  });
+
+  test('the generic statement and the honest check with the team stay allowed', () => {
+    expect(v.checkOverclaim('بنعمل ربط مخصص حسب النظام، والفريق بيتأكد إذا نظامك بيسمح بالربط.', baseCtx(nexus))).toEqual([]);
+    expect(v.checkOverclaim('بنقدر نربط كرم مع واتساب وجوجل كاليندر.', baseCtx(nexus))).toEqual([]);
+    expect(v.checkOverclaim('بنقدر نربط نظام nexus مع الواتساب.', baseCtx())).toEqual([]);
+  });
+
+  test('the whole reply is regenerated, never sent as it is', () => {
+    const r = v.validateResult(reply([textPart('أكيد، بنقدر نربط نظام nexus مع الواتساب.')]), baseCtx(nexus));
+    expect(r.verdict).toBe('regenerate');
+    expect(r.blocks.map((b) => b.code)).toContain('overclaim');
   });
 });

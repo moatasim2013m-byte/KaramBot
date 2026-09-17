@@ -340,6 +340,32 @@ function activeBooking(wd, now = new Date()) {
   return toMs(b.end) > toMs(now) ? b : null;
 }
 
+/**
+ * A PR1/PR2 call REQUEST with no calendar event behind it: a time the customer gave (lead.preferred_time)
+ * or a slot tap still waiting for one (capture_pending). Owner phone test 2026-09-17: such a conversation
+ * sits at `captured`/`pending`, and before this it could never be turned into a real booking — «بدي أغيّر
+ * الموعد» fell through to the model, which improvised a time and re-sent the old request ack.
+ */
+function callRequestOpen(wd) {
+  if (!wd || typeof wd !== 'object') return false;
+  const lead = wd.lead && typeof wd.lead === 'object' ? wd.lead : {};
+  const pt = lead.preferred_time;
+  const hasTime = typeof pt === 'string' ? !!pt.trim() : !!(pt && typeof pt === 'object' && Object.keys(pt).length);
+  return hasTime || !!(wd.capture_pending && typeof wd.capture_pending === 'object');
+}
+
+/**
+ * The `captured` stage blocks sales steps while the team's request is open (concierge), but it must not
+ * block the calendar: with booking on and no event yet, the customer may still turn their old request into
+ * a real booking. `handoff` and `closed` stay locked.
+ */
+function calendarOpenAt(business, conversation, now = new Date(), env = process.env) {
+  const stage = conversation && conversation.current_state;
+  if (stage !== 'captured') return false;
+  if (!bookingConfig(business, env).enabled) return false;
+  return !activeBooking((conversation && conversation.workflow_data) || {}, now);
+}
+
 /** An event id Google accepts (base32hex, 5–1024 chars), derived so a retry of the same booking reuses it. */
 function eventIdFor(conversationId, startIso, seq = 1) {
   const digest = crypto.createHash('sha256').update(`${conversationId}|${startIso}|${seq}`).digest();
@@ -870,11 +896,12 @@ function negatedAt(s, index) {
 }
 
 /**
- * 'cancel' | 'change' | null for the customer's text while a booking exists. Short messages only: a long
- * message that happens to contain «ألغي» goes to the model, which answers as a concierge.
+ * 'cancel' | 'change' | null for the customer's text while a booking — or a call request with no event
+ * yet — exists. Short messages only: a long message that happens to contain «ألغي» goes to the model,
+ * which answers as a concierge. `requestOpen: false` (handoff, closed) keeps a request out of this path.
  */
-function textIntent(texts, wd, now = new Date()) {
-  if (!activeBooking(wd, now)) return null;
+function textIntent(texts, wd, now = new Date(), { requestOpen = true } = {}) {
+  if (!activeBooking(wd, now) && !(requestOpen && callRequestOpen(wd))) return null;
   const s = (Array.isArray(texts) ? texts : [texts]).filter((t) => typeof t === 'string').join('\n').trim();
   if (!s || s.split(/\s+/).length > INTENT_MAX_WORDS) return null;
   const cancel = CANCEL_RE.exec(s);
@@ -884,10 +911,45 @@ function textIntent(texts, wd, now = new Date()) {
   return null;
 }
 
+/**
+ * «بدي ألغي» with only a call request on file (no calendar event): the request is stopped, honestly and
+ * without pretending a booking existed, and the team's meeting entry is resolved so nobody chases it.
+ */
+function cancelRequestResult(c) {
+  const lead = c.lead || {};
+  const pt = lead.preferred_time;
+  const when = typeof pt === 'string' ? pt : (pt && typeof pt === 'object' && pt.text) || '';
+  const nt = c.wd.needs_team;
+  const meetingOpen = !!(nt && nt.reason === 'meeting' && !nt.resolved_at);
+  const otherOpen = !!(nt && !nt.resolved_at && nt.reason !== 'meeting');
+  const result = baseResult({
+    kind: 'reply',
+    action: 'CANCEL_CALL',
+    messages: [text(isEn(c.lang)
+      ? "OK, I've stopped the call request. If you'd like to arrange another time, just tell me."
+      : 'تمام، أوقفت طلب المكالمة. إذا حبيت نرتّب وقت ثاني احكيلي.')],
+    // Another open request (a quote, a person) keeps the conversation on the team's list.
+    stateUpdate: otherOpen ? {} : { status: 'open', ...(c.conversation.current_state === 'captured' ? { current_state: 'close' } : {}) },
+    workflowDataPatch: {
+      capture_pending: null, slot_offers: [], nudge: null, call_request_cancelled_at: c.at,
+    },
+    alert: { reason: 'call_request_cancelled', summary: `انلغى طلب المكالمة${when ? `: ${when}` : ''}`.slice(0, 200) },
+  });
+  if (meetingOpen) {
+    const match = { reason: 'meeting', at: nt.at };
+    if ('resolved_at' in nt) match.resolved_at = null;
+    result.needsTeamMerge = { match, patch: { resolved_at: c.at, resolved_by: 'request_cancelled' }, entry: null };
+  }
+  return result;
+}
+
 /** «بدي ألغي» → a confirmation with [ألغِ المكالمة][خليها]: a typed word never deletes a booking by itself. */
 function cancelAskResult(ctx) {
   const c = tapContext(ctx);
   const current = activeBooking(c.wd, c.now);
+  if (!current && callRequestOpen(c.wd)) {
+    return withLastBot(cancelRequestResult(c), { conversation: c.conversation, now: c.now });
+  }
   const r = current
     ? baseResult({
       kind: 'reply',
@@ -1054,6 +1116,8 @@ module.exports = {
   changeTextResult,
   templateReplyId,
   activeBooking,
+  callRequestOpen,
+  calendarOpenAt,
   reminderDue,
   reminderLang,
   reminderPart,

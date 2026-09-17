@@ -190,6 +190,17 @@ function expiredSlot(lang) {
   return isEn(lang) ? 'That option is out of date — which day and time suits you now?' : 'الخيار هاد قديم — أي يوم ووقت بناسبك هلأ؟';
 }
 
+/**
+ * The model refused to generate (safety). Nothing was delayed, so the delay line would be a lie (owner
+ * phone test 2026-09-15, 16:14): one calm line that keeps the door open, and no buttons under it.
+ * OWNER-APPROVAL-PENDING wording.
+ */
+function blockedReply(lang) {
+  return isEn(lang)
+    ? "I can't reply to that one. If there's something about your business I can help with, I'm here."
+    : 'ما بقدر أرد على هالرسالة. إذا في شي بقدر أساعدك فيه بشغلك، أنا هون.';
+}
+
 function aiFailure(lang, { withButtons = false } = {}) {
   if (withButtons) {
     return isEn(lang)
@@ -272,6 +283,16 @@ function mediaPrefix(type, lang, { captioned = false } = {}) {
 /** The customer agreed to a call without a time and there are no slots to offer: ask, record nothing. */
 function callTimeAsk(lang) {
   return isEn(lang) ? 'Which day and time suit you?' : 'أي يوم ووقت بناسبك؟';
+}
+
+/**
+ * The same question went out three times with no answer (owner phone test 2026-09-17): the bot stops
+ * repeating it and the team takes the conversation over. OWNER-APPROVAL-PENDING wording.
+ */
+function askHandover(lang) {
+  return isEn(lang)
+    ? "I'll pass this to the SHIFT team — they'll agree a time with you here."
+    : 'بمرّر الموضوع لفريق شِفت وبيتفقوا معك على وقت هون.';
 }
 
 /** Body of a slot-buttons message when the model line is empty. */
@@ -445,5 +466,7 @@ module.exports = {
   mediaPrefix,
   purposeLine,
   slotsBody,
+  blockedReply,
+  askHandover,
   callTimeAsk,
 };
