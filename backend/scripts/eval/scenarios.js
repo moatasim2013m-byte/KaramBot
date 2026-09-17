@@ -26,6 +26,9 @@ const MONDAY_11 = '2026-09-14T11:00:00+03:00';
 // Slot ids the server offers on Monday 11:00 with the default team hours (Sun–Thu 09:00–18:00).
 const SLOT_TODAY = 'slot:2026-09-14T16:00+03:00/18:00';
 const SLOT_TOMORROW = 'slot:2026-09-15T10:00+03:00/12:00';
+// Booking scenarios (16, 17): the calendar client is faked by the harness, every slot free.
+const CAL_ID = 'sales-eval@group.calendar.google.invalid';
+const TOMORROW_10 = '2026-09-15T07:00:00.000Z';
 
 /** A scripted model reply in the PR2 response schema. */
 function M(reply, { action = 'NONE', stage = 'discovery', next = 'question', args = {}, buttons = [], lead = {} } = {}) {
@@ -752,10 +755,80 @@ const ALL = [
       },
     },
   },
+  // ── round-2 review: the two booking paths the eval suite never replayed ────────────────────────────
+  {
+    id: 16,
+    title: 'Booked call → «بدي ألغي المكالمة» → confirm → the event is deleted',
+    clock: MONDAY_11,
+    env: { SHIFT_SALES_CALENDAR_ID: CAL_ID },
+    stage: 'captured',
+    conversation: { status: 'pending' },
+    lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 4 },
+    workflow_data: {
+      bot_turns: 6,
+      booking: {
+        event_id: 'ev_eval_16', calendar_id: CAL_ID, start: TOMORROW_10, end: '2026-09-15T07:30:00.000Z',
+        tz: 'Asia/Amman', status: 'booked', booked_at: '2026-09-14T08:00:00.000Z', seq: 1,
+        offer_id: 'book:2026-09-15T07:00:00.000Z', lang: 'ar', reminders: {},
+        details_pending: false, details_missing: [], history: [],
+      },
+    },
+    turns: [
+      {
+        inbound: 'بدي ألغي المكالمة',
+        model: [],
+        note: 'a cancel is deterministic: the server asks to confirm before it touches the calendar',
+        expect: { aiCalls: 0, outbound: 1, buttons: { includes: ['book_cancel', 'book_ok'] } },
+      },
+      {
+        inbound: { tap: 'book_cancel', title: 'ألغِ المكالمة' },
+        model: [],
+        expect: { aiCalls: 0, outbound: 1, textExcludes: ['؟'] },
+      },
+    ],
+    expect: {
+      state: {
+        'workflow_data.booking.status': 'cancelled',
+        'workflow_data.booking.cancelled_at': { present: true },
+      },
+    },
+  },
+  {
+    id: 17,
+    title: 'A captured free-text time becomes a real booked slot',
+    clock: MONDAY_11,
+    env: { SHIFT_SALES_CALENDAR_ID: CAL_ID },
+    stage: 'close',
+    lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 3 },
+    workflow_data: { bot_turns: 5, disclosed_at: '2026-09-14T07:00:00.000Z' },
+    turns: [
+      {
+        inbound: 'خلينا نحكي بكرا بعد الظهر',
+        model: M('تمام.', { action: 'CAPTURE_TIME', args: { time_text: 'بكرا بعد الظهر' }, stage: 'close', next: 'confirmed' }),
+        note: 'review #15: the honest «طلب مش موعد مؤكد» ack, and the real slots in the same turn',
+        expect: {
+          text: { contains: 'طلب' },
+          buttons: { match: 'book:' },
+        },
+      },
+      {
+        inbound: { tapMatch: '^book:' },
+        model: [],
+        expect: { aiCalls: 0, outbound: 1, text: { contains: 'بتوقيت عمّان' } },
+      },
+    ],
+    expect: {
+      state: {
+        'workflow_data.booking.status': 'booked',
+        'workflow_data.booking.event_id': { present: true },
+        'conversation.current_state': 'captured',
+      },
+    },
+  },
 ];
 
 function byId(id) {
   return ALL.find((s) => String(s.id) === String(id)) || null;
 }
 
-module.exports = { ALL, byId, M, SLOT_TODAY, SLOT_TOMORROW };
+module.exports = { ALL, byId, M, SLOT_TODAY, SLOT_TOMORROW, CAL_ID };
