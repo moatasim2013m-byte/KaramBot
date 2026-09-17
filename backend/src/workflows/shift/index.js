@@ -236,9 +236,14 @@ function buildVctx(r, ctx, { attempt, history, ai }) {
   // Round-2 review #2/#11: with booking on, only the server names a day and a time. A stored booking is
   // the one true appointment; anything else the model puts on the table is invented.
   const active = booking.activeBooking(wd, ctx.now);
-  const bookingWhen = active && active.start
-    ? (() => { const w = booking.whenParts(active.start, ctx.now, active.tz, ctx.lang); return `${w.day} ${w.time}`; })()
-    : null;
+  const whenText = (start, tz) => {
+    const w = booking.whenParts(start, ctx.now, tz, ctx.lang);
+    return `${w.day} ${w.time}`;
+  };
+  const bookingWhen = active && active.start ? whenText(active.start, active.tz) : null;
+  // A stored REQUEST only grounds a day through its absolute start — never through its free text (#11).
+  const pt = lead.preferred_time;
+  const requestStart = pt && typeof pt === 'object' && pt.start ? pt.start : null;
 
   return {
     attempt,
@@ -254,6 +259,7 @@ function buildVctx(r, ctx, { attempt, history, ai }) {
       return !(gap !== null && gap >= 24);
     })(),
     booking: active ? { when: bookingWhen, status: active.status } : null,
+    requestWhen: requestStart ? whenText(requestStart, (pt && pt.tz) || undefined) : null,
     roleplayActive,
     disclosed: !!(wd.disclosed_at || wdp.disclosed_at),
     batchTexts: ctx.batchTexts,
@@ -706,6 +712,9 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
       const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now, { requestOpen });
       if (intent === 'cancel') return booking.cancelAskResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
       if (intent === 'change') return await booking.changeTextResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
+      // «شو عن موعدنا؟» is a lookup, not small talk (round-2 review #12): it is answered from the record,
+      // with the absolute day and Amman time, and it says whether that record is a booking or a request.
+      if (intent === 'status') return booking.statusResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
     }
     // PR3: when a call can be booked, the offers are the calendar's free slots (`book:<iso>`). Unconfigured,
     // SHIFT_BOOKING=0 or a calendar error keeps PR2's window offers and their "request" semantics.

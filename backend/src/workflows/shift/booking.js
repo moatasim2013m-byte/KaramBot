@@ -891,6 +891,20 @@ const CHANGE_RE = new RegExp([
   '\\b(?:another|a different) time\\b',
 ].join('|'), 'i');
 
+/**
+ * Round-2 review #12: «شً عل موعدنا» was answered with «العفو أستاذ معتصم، وأهلاً وسهلاً بك بأي وقت 👋».
+ * A question about the appointment is a lookup, not small talk: it is answered from the record.
+ */
+const STATUS_RE = new RegExp([
+  `(?<![${AR}])(?:شو|إيش|ايش|وين|كيف|متى|إمتى|امتى|شً)\\s*(?:صار|وصل|عن|على|عل|مع|أخبار|اخبار|في)?\\s*(?:ال|ب|بال|ل|لل|عن|في)?\\s*(?:موعد|موعدنا|موعدي|مكالمة|المكالمة|مكالمتنا|مكالمتي|الحجز|حجزي|الطلب|طلبي)(?![${AR}])`,
+  `(?<![${AR}])(?:ال)?(?:موعد|موعدنا|موعدي|مكالمة|المكالمة|مكالمتنا|مكالمتي|الحجز|حجزي)\\s*(?:هو|كان|صار)?\\s*(?:متى|إمتى|امتى|امته|كم|وين)(?![${AR}])`,
+  `(?<![${AR}])(?:أكدلي|اكدلي|ذكّرني|ذكرني|فكرني)\\s*(?:ب)?(?:ال)?(?:موعد|المكالمة|الحجز)(?![${AR}])`,
+  '\\bwhen (?:is|was) (?:my|our|the) (?:call|appointment|meeting|booking)\\b',
+  '\\bwhat(?:\'s| is| about) (?:my|our|the) (?:call|appointment|meeting|booking)\\b',
+  '\\bany update on (?:my|our|the) (?:call|appointment|meeting|booking|request)\\b',
+  '\\b(?:confirm|remind me of) (?:my|our|the) (?:call|appointment|booking)\\b',
+].join('|'), 'i');
+
 function negatedAt(s, index) {
   return NEGATION_RE.test(s.slice(Math.max(0, index - 12), index));
 }
@@ -908,7 +922,57 @@ function textIntent(texts, wd, now = new Date(), { requestOpen = true } = {}) {
   if (cancel && !negatedAt(s, cancel.index)) return 'cancel';
   const change = CHANGE_RE.exec(s);
   if (change && !negatedAt(s, change.index)) return 'change';
+  if (STATUS_RE.test(s)) return 'status';
   return null;
+}
+
+const STATUS_TEXTS = {
+  booked: {
+    ar: ({ day, time }) => `مكالمتك مع فريق شِفت محجوزة: ${day} الساعة ${time} بتوقيت عمّان. رح نذكّرك قبلها.`,
+    en: ({ day, time }) => `Your call with the SHIFT team is booked for ${day} at ${time} Amman time. We'll remind you before it.`,
+  },
+  request: {
+    ar: (when) => `طلب مكالمتك عند الفريق${when ? `: ${when} بتوقيت عمّان` : ''} — طلب، مش موعد مؤكد لسه. بتحب أعرضلك أقرب أوقات الفريق لنثبّته؟`,
+    en: (when) => `Your call request is with the team${when ? `: ${when} Amman time` : ''} — a request, not a confirmed booking yet. Would you like the team's nearest times so we can fix it?`,
+  },
+  none: {
+    ar: 'ما في موعد ولا طلب مكالمة مسجّل حاليًا. بتحب نرتّب وحدة؟',
+    en: "There's no appointment or call request on file right now. Would you like to arrange one?",
+  },
+};
+
+/**
+ * «شو عن موعدنا؟» answered from state (#12): the absolute day and Amman time of a REAL booking, or the
+ * stored request said plainly to be a request. Never the model's memory of an old chat line (#11).
+ */
+function statusResult(ctx) {
+  const c = tapContext(ctx);
+  const current = activeBooking(c.wd, c.now);
+  if (current) {
+    const when = whenParts(current.start, c.now, current.tz || c.teamHours.tz, c.lang);
+    return withLastBot(baseResult({
+      kind: 'reply',
+      action: 'BOOKING_STATUS',
+      messages: [{ type: 'interactive', text: STATUS_TEXTS.booked[isEn(c.lang) ? 'en' : 'ar'](when), buttons: confirmButtons(c.lang), serverButtons: true }],
+    }), { conversation: c.conversation, now: c.now });
+  }
+  if (callRequestOpen(c.wd)) {
+    // The stored request's own absolute time when it has one; its free text is never replayed as a date.
+    const pt = c.lead.preferred_time;
+    const start = pt && typeof pt === 'object' ? pt.start : null;
+    const when = start ? (({ day, time }) => `${day} الساعة ${time}`)(whenParts(start, c.now, c.teamHours.tz, c.lang)) : '';
+    const enWhen = start ? (({ day, time }) => `${day} at ${time}`)(whenParts(start, c.now, c.teamHours.tz, c.lang)) : '';
+    return withLastBot(baseResult({
+      kind: 'reply',
+      action: 'BOOKING_STATUS',
+      messages: [{ type: 'text', text: STATUS_TEXTS.request[isEn(c.lang) ? 'en' : 'ar'](isEn(c.lang) ? enWhen : when) }],
+    }), { conversation: c.conversation, now: c.now });
+  }
+  return withLastBot(baseResult({
+    kind: 'reply',
+    action: 'BOOKING_STATUS',
+    messages: [{ type: 'text', text: isEn(c.lang) ? STATUS_TEXTS.none.en : STATUS_TEXTS.none.ar }],
+  }), { conversation: c.conversation, now: c.now });
 }
 
 /**
@@ -1114,6 +1178,7 @@ module.exports = {
   textIntent,
   cancelAskResult,
   changeTextResult,
+  statusResult,
   templateReplyId,
   activeBooking,
   callRequestOpen,

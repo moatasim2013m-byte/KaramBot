@@ -75,6 +75,11 @@ const TEXTS = {
   prefillQuote: 'رد التحية، التعريف القياسي، ثم نمط السعر: عرض مكتوب بدون مكالمة وسؤال نطاق واحد.',
   sectorList: 'تعريف بجملة ثم قائمة القطاع (sector_list).',
   quotePending: 'عرض السعر عند الفريق — لا تذكر سعرًا ولا موعد إرساله.',
+  // Round-2 review #16: the price answer ended discovery — «الأسعار بتعتمد على المنتجات المطلوبة وحجم
+  // المنشأة» then «الفريق بيتواصل معك», with no scoping question and no next step.
+  priceAsk: 'سؤال سعر: «ما عندي سعر معتمد أقدر أعطيك إياه هون، وما بدي أخمّن.» ثم سؤال نطاق واحد فقط '
+    + '(مثلًا: «بدك الرد على الاستفسارات بس، ولا كمان استقبال الطلبات؟») واعرض الخطوة التالية: عيّنة أو '
+    + 'مكالمة قصيرة مع الفريق. ممنوع تنهي الرد بـ«الفريق بيتواصل معك» بدون سؤال النطاق والخطوة.',
   discoveryQ1: 'مين بيرد على واتساب حاليًا؟',
   discoveryQ2: 'شو بيصير بالرسائل بعد الدوام أو وقت الضغط؟',
   sample: 'اعرض: اسألني عن كرم، أو صورة القطاع (SEND_SAMPLE)، أو تجربة على منشأته.',
@@ -212,6 +217,13 @@ function baseRow(ctx, wd, lead) {
   return quotePending ? `${TEXTS.quotePending} ${stageText}` : stageText;
 }
 
+// «قديش السعر؟», «بكم الباقة؟», «كم بتكلف؟», "how much", "what's the price", "your pricing".
+const PRICE_Q_RE = /قديش|كم(?:\s+)?(?:بتكلف|بيكلف|سعر|التكلفة|الكلفة)|بكم|السعر|الأسعار|الاسعار|التكلفة|الكلفة|تسعير|التسعير|باقات|الباقات|\bprice|\bpricing\b|\bcost\b|\bhow much\b|\bquote\b|\bpackages?\b/i;
+
+function asksPrice(texts) {
+  return (Array.isArray(texts) ? texts : []).some((t) => typeof t === 'string' && PRICE_Q_RE.test(t));
+}
+
 function objectiveFor(ctx = {}) {
   const c = ctx || {};
   const wd = c.wd || (c.conversation && c.conversation.workflow_data) || {};
@@ -233,7 +245,9 @@ function objectiveFor(ctx = {}) {
     return imageRead ? `${TEXTS.roleplaySetup} ${TEXTS.roleplaySetupImage}` : TEXTS.roleplaySetup;
   }
 
-  const base = baseRow({ ...c, stage }, wd, lead);
+  let base = baseRow({ ...c, stage }, wd, lead);
+  // A price question outranks the stage row: it is the one turn that most often ends the conversation.
+  if (!locked && asksPrice(c.batchTexts)) base = `${TEXTS.priceAsk} ${base}`;
   const gap = typeof c.gapHours === 'number' ? c.gapHours : gapHoursFrom(wd, c.history, c.now);
   if (gap !== null && gap >= 24 && wd.disclosed_at) return `${TEXTS.reintro} ${base}`;
   return base;
@@ -241,6 +255,7 @@ function objectiveFor(ctx = {}) {
 
 module.exports = {
   objectiveFor,
+  asksPrice,
   gapHoursFrom,
   isBareGreeting,
   siteEstimates,

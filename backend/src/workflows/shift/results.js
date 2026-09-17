@@ -454,9 +454,21 @@ function renderCaptureAck(capture, storedLead) {
   // The ack says the time is recorded: a model sentence asking the customer to choose one cannot precede it.
   const line = withoutChooseAsk(capture.modelLine);
   const reply = line ? withoutChooseAsk(capture.modelReply || capture.modelLine) : null;
+  // Round-2 review #15: the free-text time is captured honestly as «طلب مش موعد مؤكد» — and then the
+  // real slots go out in the same turn, so the request can become a booking instead of waiting.
+  const offers = Array.isArray(capture.offers) ? capture.offers.slice(0, 3) : [];
+  const slotPart = offers.length
+    ? [{
+      type: 'interactive',
+      text: acks.slotsBody(capture.lang),
+      ack: acks.slotsBody(capture.lang),
+      buttons: offers.map((o) => ({ id: o.id, title: o.title })),
+      serverButtons: true,
+    }]
+    : [];
   return {
     relayed,
-    messages: [textMessage(line, ack, reply)],
+    messages: [textMessage(line, ack, reply), ...slotPart],
     workflowDataPatch: relayed
       ? { requested_time_change: { text: capture.requested?.text || capture.when, at: capture.at } }
       : {},
@@ -496,6 +508,9 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, modelReply, le
   // with the lead saveLead persisted, which is what the customer is told.
   const capture = { requested, when, lang: c.lang, modelLine: modelLine || null, at };
   if (modelLine && modelReply) capture.modelReply = modelReply;
+  // Only REAL calendar slots (`book:<iso>`): a PR2 window offer would make a second request, not a booking.
+  const realSlots = (c.offers || []).filter((o) => o && typeof o.id === 'string' && o.id.startsWith('book:')).slice(0, 3);
+  if (realSlots.length && !inSandbox(c)) capture.offers = realSlots.map((o) => ({ id: o.id, title: o.title }));
   const preview = renderCaptureAck(capture, lead);
 
   return emptyResult({

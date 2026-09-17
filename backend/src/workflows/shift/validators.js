@@ -573,17 +573,45 @@ function clockTokens(text) {
   return out;
 }
 
-/** Every day and time the server or the customer has already put on the table. */
+/**
+ * Every day, time and day+time PAIR the server or the customer has put on the table RIGHT NOW.
+ *
+ * Pairs, not two independent sets: the clinic had typed «الدوام من ١٠ الصبح ل ٨ المسا» and the team was
+ * offering «الأحد 9:00 الصبح», so «الأحد» and «10» were each "known" — and «أقرب موعد متوفر هو الأحد
+ * الساعة 10:00 الصبح» was a diary entry nobody had made.
+ *
+ * Round-2 review #11: a DAY may only come from something absolute — the team's current offers, the stored
+ * booking or request re-rendered for today (vctx.bookingWhen / vctx.requestWhen), or what the customer
+ * typed in THIS batch. Old chat text is not a date: «بتابع معك الموعد بكرا بين 10 و12» on 17 Sep was a
+ * window copied out of a conversation from another day. An hour alone carries no day, so a clock value
+ * may also come from the stored request's own words and from older messages.
+ */
+function whenKeysOf(text) {
+  const days = dayTokens(text);
+  const times = clockTokens(text);
+  const keys = new Set();
+  for (const d of days) {
+    keys.add(`d:${d}`);
+    for (const t of times) keys.add(`${d}|${t}`);
+  }
+  for (const t of times) keys.add(`t:${t}`);
+  return keys;
+}
+
 function groundedWhen(vctx = {}) {
-  const parts = [];
-  for (const o of Array.isArray(vctx.offers) ? vctx.offers : []) if (o && o.title) parts.push(o.title);
-  const booking = vctx.booking && typeof vctx.booking === 'object' ? vctx.booking : null;
-  if (booking && booking.when) parts.push(booking.when);
+  const keys = new Set();
+  const addAll = (set) => { for (const k of set) keys.add(k); };
+  // Absolute sources: each one grounds its own day, its own time, and their pairing.
+  for (const o of Array.isArray(vctx.offers) ? vctx.offers : []) if (o && o.title) addAll(whenKeysOf(o.title));
+  const booked = vctx.booking && typeof vctx.booking === 'object' ? vctx.booking : null;
+  if (booked && booked.when) addAll(whenKeysOf(booked.when));
+  if (vctx.requestWhen) addAll(whenKeysOf(vctx.requestWhen));
+  for (const t of Array.isArray(vctx.batchTexts) ? vctx.batchTexts : []) addAll(whenKeysOf(t));
+  // Hour-only sources: the stored request's free text and older messages ground a clock value, never a day.
   const pt = vctx.lead && vctx.lead.preferred_time;
-  parts.push(typeof pt === 'string' ? pt : (pt && pt.text) || '');
-  parts.push(...customerTexts(vctx));
-  const text = parts.filter(Boolean).join(' \n ');
-  return { days: dayTokens(text), times: clockTokens(text) };
+  const loose = [typeof pt === 'string' ? pt : (pt && pt.text) || '', ...customerTexts(vctx)];
+  for (const t of loose) for (const v of clockTokens(t)) keys.add(`t:${v}`);
+  return keys;
 }
 
 function checkAppointmentTime(line, vctx = {}) {
@@ -596,15 +624,16 @@ function checkAppointmentTime(line, vctx = {}) {
   const times = clockTokens(s);
   if (!days.size && !times.size) return [];
   const grounded = groundedWhen(vctx);
-  const badDay = Array.from(days).find((d) => !grounded.days.has(d));
-  const badTime = Array.from(times).find((t) => !grounded.times.has(t));
-  // A real booking is the truth about its own time; only a time that is not it is invented.
-  const stated = `${badDay || ''} ${badTime || ''}`.trim();
-  if (!stated && vctx.booking) return [];
-  if (!badDay && !badTime && vctx.booking) return [];
-  // With no booking behind it, offering a specific slot in prose is itself the claim.
-  if (!vctx.booking) return [{ code: 'appointment_time', detail: stated || 'no_booking' }];
-  return [{ code: 'appointment_time', detail: stated }];
+  const ungrounded = [];
+  if (days.size && times.size) {
+    for (const d of days) for (const t of times) if (!grounded.has(`${d}|${t}`)) ungrounded.push(`${d}|${t}`);
+  } else if (days.size) {
+    for (const d of days) if (!grounded.has(`d:${d}`)) ungrounded.push(d);
+  } else {
+    for (const t of times) if (!grounded.has(`t:${t}`)) ungrounded.push(t);
+  }
+  if (!ungrounded.length) return [];
+  return [{ code: 'appointment_time', detail: ungrounded.join(',').slice(0, 60) }];
 }
 
 // ---------------------------------------------------------------------------------------------------

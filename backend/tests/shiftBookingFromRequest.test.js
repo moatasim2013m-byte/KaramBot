@@ -102,6 +102,90 @@ function expectSlotButtons(part) {
   expect(ids.some((id) => id.startsWith('slot:2'))).toBe(false);
 }
 
+// ─── round-2 review: #10 #11 #12 #15 ─────────────────────────────────────────
+
+describe('round 2 #12 — a question about the appointment is a lookup', () => {
+  test.each(['شً عل موعدنا', 'شو صار بموعدنا؟', 'متى موعدنا؟', 'when is my call'])('%s → status', (text) => {
+    expect(booking.textIntent([text], requestConv().workflow_data, MON_10)).toBe('status');
+  });
+
+  test('a request answers as a REQUEST, with the stored absolute time and the real slots offered', async () => {
+    const r = await run(requestConv(), ['شً عل موعدنا']);
+    expect(generateValidatedAIReply).not.toHaveBeenCalled();
+    const body = r.messages.map(partText).join('\n');
+    expect(body).toContain('طلب');
+    expect(body).toMatch(/مش موعد مؤكد/);
+  });
+
+  test('a real booking answers with its own absolute day and Amman time', async () => {
+    const conv = requestConv({
+      wd: {
+        booking: {
+          event_id: 'ev1', calendar_id: CAL, start: TOMORROW_9AM, end: '2026-09-15T06:30:00.000Z',
+          tz: 'Asia/Amman', status: 'booked', booked_at: MON_10.toISOString(), seq: 1, lang: 'ar', history: [],
+        },
+      },
+    });
+    const r = await run(conv, ['متى موعدنا؟']);
+    const body = r.messages.map(partText).join('\n');
+    expect(body).toContain('بتوقيت عمّان');
+    expect(body).toContain('محجوزة');
+    expect(generateValidatedAIReply).not.toHaveBeenCalled();
+  });
+
+  test('nothing on file says so plainly', async () => {
+    const conv = requestConv();
+    conv.workflow_data.lead = { name: 'معتصم', version: 1 };
+    delete conv.workflow_data.needs_team;
+    conv.current_state = 'close';
+    const r = await run(conv, ['متى موعدنا؟']);
+    // With no booking and no request there is no deterministic record: the model answers as before.
+    expect(booking.textIntent(['متى موعدنا؟'], conv.workflow_data, MON_10)).toBeNull();
+    expect(r).toBeTruthy();
+  });
+});
+
+describe('round 2 #11 — a date the bot states comes from the record, never from old chat text', () => {
+  const vctx = (extra = {}) => ({
+    lang: 'ar', batchTexts: ['تمام'], customerHistoryTexts: ['بكرا بين 10 و12'], lead: {}, offers: [],
+    bookingEnabled: true, roleplayActive: false, ...extra,
+  });
+
+  test('a window replayed out of an older message is blocked', () => {
+    expect(validators.checkAppointmentTime('بتابع معك الموعد بكرا بين 10 و12.', vctx())).toHaveLength(1);
+  });
+
+  test('the same words pass once they are the stored record re-rendered for today', () => {
+    expect(validators.checkAppointmentTime('بتابع معك الموعد بكرا الساعة 10:00 الصبح.', vctx({ requestWhen: 'بكرا 10:00 الصبح' })))
+      .toEqual([]);
+  });
+
+  test('a day the customer names in THIS message is theirs to name', () => {
+    expect(validators.checkAppointmentTime('موعدك بكرا الساعة 10.', vctx({ batchTexts: ['خليها بكرا الساعة 10'] }))).toEqual([]);
+  });
+});
+
+describe('round 2 #15 — a captured free-text time is offered the real slots at once', () => {
+  test('the capture ack is followed by book: buttons in the same turn', async () => {
+    const conv = requestConv({ stage: 'close', status: 'open' });
+    conv.workflow_data.lead = { name: 'معتصم', business_name: 'بيكابو', version: 3 };
+    delete conv.workflow_data.needs_team;
+    generateValidatedAIReply.mockResolvedValue({
+      reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا بعد الظهر' }, stage: 'captured', next_step: 'confirmed',
+    });
+
+    const r = await run(conv, ['خلينا نحكي بكرا بعد الظهر']);
+
+    expect(r.action).toBe('CAPTURE_TIME');
+    expect(r.capture.offers.length).toBeGreaterThan(0);
+    expect(r.capture.offers.every((o) => o.id.startsWith('book:'))).toBe(true);
+    const slots = r.messages.find((m) => m.type === 'interactive');
+    expect(slots).toBeTruthy();
+    expect(buttonIds(slots).some((id) => id.startsWith('book:'))).toBe(true);
+    expect(partText(slots)).toBe(acks.slotsBody('ar'));
+  });
+});
+
 // ─── the intents a captured request must answer ──────────────────────────────
 
 describe('textIntent with a captured call request and no calendar event', () => {
