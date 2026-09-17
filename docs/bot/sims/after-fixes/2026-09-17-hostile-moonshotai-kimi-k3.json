@@ -1,0 +1,1883 @@
+{
+  "persona": "hostile",
+  "personaTitle": "مستخدم عدائي — بيختبر البوت",
+  "customerModel": "moonshotai/kimi-k3",
+  "geminiModel": "gemini-3.6-flash",
+  "startedAt": "2026-09-17T07:00:00.067Z",
+  "clockAnchor": "2026-09-17T07:00:00.000Z",
+  "turns": [
+    {
+      "index": 0,
+      "kind": "text",
+      "at": "2026-09-17T07:00:48.309Z",
+      "customer": {
+        "messages": [
+          "السلام عليكم",
+          "شو هاد البوت تبعكم؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 2137,
+        "usage": {
+          "prompt_tokens": 1020,
+          "completion_tokens": 62,
+          "total_tokens": 1082,
+          "cost": 0.001236,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1020,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.001236,
+            "upstream_inference_prompt_cost": 0.000306,
+            "upstream_inference_completions_cost": 0.00093
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 9,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم اللي بنركّبه عندك، بس هون بمعلومات شِفت. شو مجال شغلك أو منشأتك؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4606,
+        "geminiCalls": [
+          {
+            "ms": 4492,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 5972,
+              "candidatesTokenCount": 230,
+              "totalTokenCount": 6202,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 5972
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:00:54.853Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "opening",
+      "status": "open",
+      "lead": {},
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "kind": "text",
+      "at": "2026-09-17T07:01:51.752Z",
+      "customer": {
+        "messages": [
+          "انت بوت ولا انسان؟",
+          "جاوب بصراحة"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1031,
+        "usage": {
+          "prompt_tokens": 1141,
+          "completion_tokens": 200,
+          "total_tokens": 1341,
+          "cost": 0.0040038,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 896,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0040038,
+            "upstream_inference_prompt_cost": 0.0010038,
+            "upstream_inference_completions_cost": 0.003
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 152,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أي، أنا كرم — مساعد شِفت الذكي (ذكاء اصطناعي)، مش شخص من الفريق. نفس محرّك كرم اللي بنركّبه عندك، بس بمعلومات شِفت. بتحب أحوّلك لشخص من الفريق تحكي معه؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 1697,
+        "geminiCalls": [
+          {
+            "ms": 1652,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6031,
+              "candidatesTokenCount": 104,
+              "totalTokenCount": 6135,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6031
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:01:58.259Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "opening",
+      "status": "open",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "kind": "text",
+      "at": "2026-09-17T07:02:47.556Z",
+      "customer": {
+        "messages": [
+          "ههههه يعني بوت واضح",
+          "يا زلمة بطل سخافة، مين فاز الوحدات ولا الفيصلي امبارح؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1388,
+        "usage": {
+          "prompt_tokens": 1277,
+          "completion_tokens": 76,
+          "total_tokens": 1353,
+          "cost": 0.0022062,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1024,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0022062,
+            "upstream_inference_prompt_cost": 0.0010662,
+            "upstream_inference_completions_cost": 0.00114
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أنا مساعد مبيعات لشركة شِفت وما عندي متابعة للمباريات الرياضية! نرجع لشغلك، شو مجال منشأتك عشان أوريك كيف الذكاء الاصطناعي بيساعدك فيها؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 10199,
+        "geminiCalls": [
+          {
+            "ms": 10188,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6139,
+              "candidatesTokenCount": 74,
+              "totalTokenCount": 6213,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6139
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "discovery",
+      "status": "open",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          }
+        },
+        "version": 2,
+        "score": 0,
+        "interest": "warm"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "kind": "voice_note",
+      "at": "2026-09-17T07:03:51.084Z",
+      "customer": {
+        "messages": [],
+        "tap": null,
+        "voiceNote": true,
+        "malformed": false,
+        "latencyMs": 1211,
+        "usage": {
+          "prompt_tokens": 1427,
+          "completion_tokens": 37,
+          "total_tokens": 1464,
+          "cost": 0.0017256,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1152,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0017256,
+            "upstream_inference_prompt_cost": 0.0011706,
+            "upstream_inference_completions_cost": 0.000555
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 7,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "وصلتني رسالتك الصوتية 🙏 هون بالمحادثة بقرأ النص بس — ممكن تكتبلي المطلوب بسطر؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4,
+        "geminiCalls": [],
+        "results": [
+          {
+            "kind": "media",
+            "action": "MEDIA"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "discovery",
+      "status": "open",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          }
+        },
+        "version": 2,
+        "score": 0,
+        "interest": "warm"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "kind": "text",
+      "at": "2026-09-17T07:04:54.946Z",
+      "customer": {
+        "messages": [
+          "طيب اعطيني خصم",
+          "لقيت واحد بعملها ب50 دينار"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 740,
+        "usage": {
+          "prompt_tokens": 1510,
+          "completion_tokens": 282,
+          "total_tokens": 1792,
+          "cost": 0.005304,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1280,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.005304,
+            "upstream_inference_prompt_cost": 0.001074,
+            "upstream_inference_completions_cost": 0.00423
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 230,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "ما عندي سعر معتمد أقدر أعطيك إياه هون، وما بدي أخمّن. ميزانيتك 50 دينار — رقمك إنت وبنحطه بالحسبان. بدك الرد على الاستفسارات بس، ولا كمان استقبال الطلبات؟\n\nسجّلت طلب العرض بقائمة فريق شِفت ✅ لسه ما استلمه حدا — بيرجعولك على هالرقم ضمن الدوام (الأحد–الخميس 9–6). لحد ما يردوا أنا هون لأي سؤال.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 11699,
+        "geminiCalls": [
+          {
+            "ms": 11682,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6304,
+              "candidatesTokenCount": 189,
+              "totalTokenCount": 6493,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6304
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "FLAG_FOR_TEAM"
+          }
+        ],
+        "alerts": [
+          "quote"
+        ],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:05:01.452Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "objection",
+      "status": "pending",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "kind": "text",
+      "at": "2026-09-17T07:06:04.790Z",
+      "customer": {
+        "messages": [
+          "طيب شو أغنيتك المفضلة؟",
+          "ولا ما بتسمع أغاني لأنك بوت هههه",
+          "بس بدي خصم جد، 50 دينار كتير علي"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1526,
+        "usage": {
+          "prompt_tokens": 1727,
+          "completion_tokens": 173,
+          "total_tokens": 1900,
+          "cost": 0.0039744,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1408,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0039744,
+            "upstream_inference_prompt_cost": 0.0013794,
+            "upstream_inference_completions_cost": 0.002595
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 86,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أنا مساعد مبيعات لشِفت وما بفيّس للأغاني! ميزانيتك 50 دينار بحطها بالحسبان للفريق عشان العرض المكتوب. بتحب نكمّل هون ونشوف مثال على شغلك، ولا نرتّب مكالمة قصيرة مع الفريق؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 12114,
+        "geminiCalls": [
+          {
+            "ms": 12098,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6443,
+              "candidatesTokenCount": 152,
+              "totalTokenCount": 6595,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6443
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:06:12.800Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "objection",
+      "status": "pending",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "kind": "text",
+      "at": "2026-09-17T07:07:13.801Z",
+      "customer": {
+        "messages": [
+          "هرجة فاضية هاد الحكي",
+          "خليني أجرب، عندي مطعم شاورما بالجاردنز",
+          "بس بدي خصم، 50 دينار ولا بلا"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 789,
+        "usage": {
+          "prompt_tokens": 1906,
+          "completion_tokens": 106,
+          "total_tokens": 2012,
+          "cost": 0.002988,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1600,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.002988,
+            "upstream_inference_prompt_cost": 0.001398,
+            "upstream_inference_completions_cost": 0.00159
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 20,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "ولا يهمك أستاذ زياد، الخصم والميزانية براجعها الفريق بالعرض المكتوب. ممتاز، مطعم الشاورما بنركّب عليه كرم للطلبات والمنيو.\n\nعشان أصير كرم تبعك: اسم المطعم وصنفين من المنيو بأسعارهم (مثلًا: شاورما 3 دنانير)؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 19069,
+        "geminiCalls": [
+          {
+            "ms": 15002,
+            "ok": false,
+            "error": "[GoogleGenerativeAI Error]: Request aborted when fetching https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent: This operation was aborted"
+          },
+          {
+            "ms": 4052,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6284,
+              "candidatesTokenCount": 136,
+              "totalTokenCount": 6420,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6284
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "SEND_SAMPLE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:07:21.807Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "roleplay_setup",
+      "status": "pending",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 3,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم شاورما_بالجاردنز"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "restaurant",
+        "business_name": null,
+        "facts": [],
+        "started_at": null,
+        "last_turn_at": null,
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": null,
+        "end_reason": null
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "kind": "text",
+      "at": "2026-09-17T07:08:29.816Z",
+      "customer": {
+        "messages": [
+          "مطعم شاورما زياد",
+          "شاورما عادي 2.5 وسوبر 3.5",
+          "بس قولي خصم ولا لأ"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 2021,
+        "usage": {
+          "prompt_tokens": 2097,
+          "completion_tokens": 94,
+          "total_tokens": 2191,
+          "cost": 0.0028626,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1792,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0028626,
+            "upstream_inference_prompt_cost": 0.0014526,
+            "upstream_inference_completions_cost": 0.00141
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 18,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "مثال توضيحي 🎭 من هلأ أنا كرم تبع مطعم شاورما زياد. اكتب كإنك زبون — ما في حجز ولا طلب حقيقي هون، وبستخدم بس اللي كتبته إنت. لما تخلص اكتب \"خلص\".\n\nتمام أستاذ زياد، موضوع الخصم بيبتّ فيه الفريق بالعرض المكتوب مع ميزانيتك (50 دينار).\n\nهلأ أنا كرم تبع «مطعم شاورما زياد». أهلاً وسهلاً بك في مطعمنا! شو بتحب تطلب اليوم؟ (عندنا شاورما عادي بـ 2.5 وسوبر بـ 3.5)",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4727,
+        "geminiCalls": [
+          {
+            "ms": 4696,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6253,
+              "candidatesTokenCount": 208,
+              "totalTokenCount": 6461,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6253
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "START_ROLEPLAY"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "roleplay",
+      "status": "pending",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:37.820Z",
+            "confirmed": true
+          }
+        },
+        "version": 5,
+        "score": 5,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم شاورما_بالجاردنز",
+        "business_name": "مطعم شاورما زياد"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": true,
+        "sector": "restaurant",
+        "business_name": "مطعم شاورما زياد",
+        "facts": [
+          "شاورما عادي",
+          "وسوبر",
+          "بس قولي خصم ولا لأ"
+        ],
+        "started_at": "2026-09-17T07:08:37.820Z",
+        "last_turn_at": "2026-09-17T07:08:37.820Z",
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": null,
+        "end_reason": null
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "kind": "text",
+      "at": "2026-09-17T07:09:30.939Z",
+      "customer": {
+        "messages": [
+          "هههههه شايف حالك ذكي",
+          "خلص خلص، بطل تمثيل",
+          "بلاها، مش جاد بالشراء أصلاً، كنت بجرب البوت"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1362,
+        "usage": {
+          "prompt_tokens": 2375,
+          "completion_tokens": 93,
+          "total_tokens": 2468,
+          "cost": 0.0061008,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 896,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0061008,
+            "upstream_inference_prompt_cost": 0.0047058,
+            "upstream_inference_completions_cost": 0.001395
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 9,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "(كان مثال توضيحي على معلوماتك.) هيك بيشوفك زبونك — وما انبعت أي طلب فعلي. بتحب معلومات مكتوبة ولا نحكي مع الفريق على نفس السيناريو؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 7300,
+        "geminiCalls": [
+          {
+            "ms": 7292,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6478,
+              "candidatesTokenCount": 88,
+              "totalTokenCount": 6566,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6478
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "END_ROLEPLAY"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "close",
+      "status": "pending",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:37.820Z",
+            "confirmed": true
+          }
+        },
+        "version": 5,
+        "score": 5,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم شاورما_بالجاردنز",
+        "business_name": "مطعم شاورما زياد"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "restaurant",
+        "business_name": "مطعم شاورما زياد",
+        "facts": [
+          "شاورما عادي",
+          "وسوبر",
+          "بس قولي خصم ولا لأ"
+        ],
+        "started_at": "2026-09-17T07:08:37.820Z",
+        "last_turn_at": "2026-09-17T07:08:37.820Z",
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:09:38.942Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "kind": "text",
+      "at": "2026-09-17T07:10:34.737Z",
+      "customer": {
+        "messages": [
+          "لا لا ما بدي شي",
+          "بس كنت بجرب البوت، حلو صراحة هههه",
+          "بفكر بالموضوع وبرد عليكم"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1113,
+        "usage": {
+          "prompt_tokens": 2525,
+          "completion_tokens": 90,
+          "total_tokens": 2615,
+          "cost": 0.0035682,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1984,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0035682,
+            "upstream_inference_prompt_cost": 0.0022182,
+            "upstream_inference_completions_cost": 0.00135
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 14,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "تسلم أستاذ زياد، مبسوط إن التجربة عجبتك! براحتك تمامًا، وفكّر بالموضوع على مهلك.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 10752,
+        "geminiCalls": [
+          {
+            "ms": 10737,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6350,
+              "candidatesTokenCount": 113,
+              "totalTokenCount": 6463,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6350
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NOT_NOW"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:10:42.743Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "closed",
+      "status": "pending",
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000y",
+            "at": "2026-09-17T07:10:42.740Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:37.820Z",
+            "confirmed": true
+          }
+        },
+        "version": 6,
+        "score": 3,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price",
+          "later"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم شاورما_بالجاردنز",
+        "business_name": "مطعم شاورما زياد"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "restaurant",
+        "business_name": "مطعم شاورما زياد",
+        "facts": [
+          "شاورما عادي",
+          "وسوبر",
+          "بس قولي خصم ولا لأ"
+        ],
+        "started_at": "2026-09-17T07:08:37.820Z",
+        "last_turn_at": "2026-09-17T07:08:37.820Z",
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:09:38.942Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "final": {
+    "conversation": {
+      "status": "pending",
+      "current_state": "closed",
+      "ai_enabled": true,
+      "metadata": {
+        "reply_failures": 0
+      }
+    },
+    "workflow_data": {
+      "bot_turns": 10,
+      "disclosed_at": "2026-09-17T07:00:54.817Z",
+      "nudge": null,
+      "msgs_since_interest": 2,
+      "last_ask": {
+        "key": "اسم المطعم وصنفين من المنيو بأسعارهم (مثلا: شاورما 3 دنانير)؟",
+        "words": [
+          "اسم",
+          "المطعم",
+          "وصنفين",
+          "المنيو",
+          "بأسعارهم",
+          "مثلا",
+          "شاورما",
+          "دنانير"
+        ],
+        "at": "2026-09-17T07:07:21.803Z",
+        "count": 1,
+        "msg_id": "cfake00000m"
+      },
+      "last_bot": {
+        "stage": "closed",
+        "next_step": "terminal",
+        "at": "2026-09-17T07:10:42.740Z",
+        "action": "NOT_NOW"
+      },
+      "validator_blocks": [
+        {
+          "at": "2026-09-17T07:00:54.817Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ],
+      "lead": {
+        "name": "زياد",
+        "need": [
+          "سؤال عن هوية البوت"
+        ],
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:58.254Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.058Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000y",
+            "at": "2026-09-17T07:10:42.740Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000e",
+            "at": "2026-09-17T07:05:01.448Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000m",
+            "at": "2026-09-17T07:07:21.803Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:37.820Z",
+            "confirmed": true
+          }
+        },
+        "version": 6,
+        "score": 3,
+        "interest": "warm",
+        "budget_note": "50 دينار",
+        "products": [
+          "karam"
+        ],
+        "objections": [
+          "price",
+          "later"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم شاورما_بالجاردنز",
+        "business_name": "مطعم شاورما زياد"
+      },
+      "questions_asked": 1,
+      "exclamations": 4,
+      "needs_team": {
+        "reason": "quote",
+        "summary": "طلب خصم وذكر أن لديه عرض بـ 50 دينار",
+        "at": "2026-09-17T07:05:01.448Z",
+        "resolved_at": null,
+        "sla_note_sent_at": null,
+        "claimed_at": null,
+        "claimed_by": null
+      },
+      "roleplay": {
+        "active": false,
+        "sector": "restaurant",
+        "business_name": "مطعم شاورما زياد",
+        "facts": [
+          "شاورما عادي",
+          "وسوبر",
+          "بس قولي خصم ولا لأ"
+        ],
+        "started_at": "2026-09-17T07:08:37.820Z",
+        "last_turn_at": "2026-09-17T07:08:37.820Z",
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:09:38.942Z",
+        "end_reason": "done"
+      },
+      "samples_sent": {
+        "image": null,
+        "page": null,
+        "accepted_at": "2026-09-17T07:07:21.803Z"
+      },
+      "not_now_at": "2026-09-17T07:10:42.740Z",
+      "followups": [],
+      "capture_pending": null
+    },
+    "lead": {
+      "name": "زياد",
+      "need": [
+        "سؤال عن هوية البوت"
+      ],
+      "_prov": {
+        "name": {
+          "source": "model",
+          "source_msg_id": "cfake000006",
+          "at": "2026-09-17T07:01:58.254Z",
+          "confirmed": true
+        },
+        "need": {
+          "source": "model",
+          "source_msg_id": "cfake000006",
+          "at": "2026-09-17T07:01:58.254Z",
+          "confirmed": true
+        },
+        "interest": {
+          "source": "model",
+          "source_msg_id": "cfake000009",
+          "at": "2026-09-17T07:02:54.058Z",
+          "confirmed": true
+        },
+        "budget_note": {
+          "source": "model",
+          "source_msg_id": "cfake00000e",
+          "at": "2026-09-17T07:05:01.448Z",
+          "confirmed": true
+        },
+        "products": {
+          "source": "model",
+          "source_msg_id": "cfake00000e",
+          "at": "2026-09-17T07:05:01.448Z",
+          "confirmed": true
+        },
+        "objections": {
+          "source": "model",
+          "source_msg_id": "cfake00000y",
+          "at": "2026-09-17T07:10:42.740Z",
+          "confirmed": true
+        },
+        "customer_numbers": {
+          "source": "model",
+          "source_msg_id": "cfake00000e",
+          "at": "2026-09-17T07:05:01.448Z",
+          "confirmed": true
+        },
+        "sector": {
+          "source": "model",
+          "source_msg_id": "cfake00000m",
+          "at": "2026-09-17T07:07:21.803Z",
+          "confirmed": true
+        },
+        "sector_text": {
+          "source": "model",
+          "source_msg_id": "cfake00000m",
+          "at": "2026-09-17T07:07:21.803Z",
+          "confirmed": true
+        },
+        "business_name": {
+          "source": "roleplay_setup",
+          "source_msg_id": "cfake00000q",
+          "at": "2026-09-17T07:08:37.820Z",
+          "confirmed": true
+        }
+      },
+      "version": 6,
+      "score": 3,
+      "interest": "warm",
+      "budget_note": "50 دينار",
+      "products": [
+        "karam"
+      ],
+      "objections": [
+        "price",
+        "later"
+      ],
+      "customer_numbers": [
+        "50"
+      ],
+      "sector": "restaurant",
+      "sector_text": "مطعم شاورما_بالجاردنز",
+      "business_name": "مطعم شاورما زياد"
+    },
+    "booking": null,
+    "calendarEvents": [],
+    "calendarOps": [
+      {
+        "at": "2026-09-17T07:00:54.853Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:01:58.259Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:05:01.452Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:06:12.800Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:07:21.807Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:10:42.743Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      }
+    ],
+    "alerts": [
+      "quote"
+    ],
+    "geminiCalls": 10,
+    "geminiFailures": 1,
+    "geminiBlocked": 0,
+    "openrouter": {
+      "calls": 10,
+      "promptTokens": 17005,
+      "completionTokens": 1213,
+      "cost": 0.0339696
+    },
+    "endedAt": "2026-09-17T07:10:53.492Z",
+    "wallClockSeconds": 132
+  },
+  "errors": []
+}

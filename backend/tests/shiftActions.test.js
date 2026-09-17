@@ -122,9 +122,13 @@ describe('normalizeActionArgs (§2.3)', () => {
     expect(r.args).not.toHaveProperty('reason');
   });
 
-  test('START_ROLEPLAY without a business name → ok:false', () => {
-    expect(normalizeActionArgs('START_ROLEPLAY', { business_name: '   ', facts: ['x'] })).toMatchObject({ ok: false, reason: 'no_business_name' });
-    expect(normalizeActionArgs('START_ROLEPLAY', {}).ok).toBe(false);
+  test('START_ROLEPLAY without a business name is still ok — results.js reads it from the customer', () => {
+    // Round-2 review #1: a missing name is no longer bad args. The model sent null on every
+    // START_ROLEPLAY in the 2026-09-17 sims and the example never opened.
+    expect(normalizeActionArgs('START_ROLEPLAY', { business_name: '   ', facts: ['x'] }))
+      .toMatchObject({ ok: true, args: { business_name: '', facts: ['x'] } });
+    expect(normalizeActionArgs('START_ROLEPLAY', {}))
+      .toEqual({ ok: true, args: { sector: 'other', business_name: '', facts: [] } });
   });
 
   test('START_ROLEPLAY with a name and no facts is still ok (canStart decides)', () => {

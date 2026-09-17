@@ -451,10 +451,10 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(userTurn).toContain('الأزرار المتاحة الآن: لا أزرار');
   });
 
-  test('without deadlineAt the deadline is now + 25 s', async () => {
+  test('without deadlineAt the deadline is now + 30 s', async () => {
     generateValidatedAIReply.mockResolvedValue({ reply: 'هلا', action: 'NONE' });
     await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'هلا' }], { now: MON_11 });
-    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 25000);
+    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 30000);
   });
 
   test('SHIFT_AI_DEADLINE_MS overrides the default deadline (read at module load)', async () => {
@@ -851,5 +851,50 @@ describe('SHIFT workflow — PR1 review round 2', () => {
       const p = buildSystemPrompt(business, '', { now: MON_11, offers, stage, stageLocked: false });
       expect(p).toContain(offers[0].id);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Owner phone test, 15 Sep 2026 16:14:32: an insult was answered with «معلش، تأخر ردّي شوي. رسالتك وصلت،
+// وفريق شِفت بيكمّل معك هون.» Nothing was delayed — the model refused to generate. A refusal gets its own
+// calm line, no slot buttons, and no team task: there is no lead here for staff to chase.
+
+describe('a generation the model refused', () => {
+  const blocked = () => generateValidatedAIReply.mockImplementation(async (system, user, history, opts) => {
+    if (opts && typeof opts.onBlocked === 'function') opts.onBlocked('SAFETY');
+    return null;
+  });
+
+  test('AR: a calm line that never claims a delay, no buttons, no needs_team, no alert', async () => {
+    blocked();
+    prisma.message.findMany.mockResolvedValue([]);
+    const conversation = conv({ current_state: 'discovery', workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 3 } });
+    const r = await processShiftBatch(business, conversation, [{ id: 'm1', message_type: 'text', text_body: 'كس اختك' }], { now: MON_11 });
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages[0].text).toBe(acks.blockedReply('ar'));
+    expect(r.messages[0].text).not.toMatch(/تأخر|delay/);
+    expect(r.messages[0].buttons).toBeUndefined();
+    expect(r.needsTeam).toBeNull();
+    expect(r.workflowDataPatch.needs_team).toBeUndefined();
+    expect(r.alert).toBeNull();
+    expect(r.workflowDataPatch.blocked_replies).toEqual([{ at: MON_11.toISOString(), reason: 'SAFETY' }]);
+    expect(r.stateUpdate.current_state).toBeUndefined();
+  });
+
+  test('EN: the English line', async () => {
+    blocked();
+    prisma.message.findMany.mockResolvedValue([]);
+    const conversation = conv({ workflow_data: { lead: { language: 'en', version: 1 }, bot_turns: 2 } });
+    const r = await processShiftBatch(business, conversation, [{ id: 'm1', message_type: 'text', text_body: 'f*** you' }], { now: MON_11 });
+    expect(r.messages[0].text).toBe(acks.blockedReply('en'));
+  });
+
+  test('a plain AI failure still says the reply is delayed and still reaches the team', async () => {
+    generateValidatedAIReply.mockResolvedValue(null);
+    prisma.message.findMany.mockResolvedValue([]);
+    const r = await processShiftBatch(business, conv({ workflow_data: { bot_turns: 3 } }),
+      [{ id: 'm1', message_type: 'text', text_body: 'شو الأسعار؟' }], { now: MON_11 });
+    expect(r.messages[0].text).toContain('تأخر ردّي');
+    expect(r.needsTeam).toMatchObject({ reason: 'ai_failure' });
   });
 });

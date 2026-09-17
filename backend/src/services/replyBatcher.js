@@ -47,8 +47,10 @@ const sseEmitter = require('../utils/sseEmitter');
 const { SITE_HOST } = require('../config/site');
 
 const LEASE_TTL_MS = 60000;
-// 25 s: live Gemini latency reached 12–17 s on 2026-09-15; the typing indicator covers the wait.
-const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 25000;
+// 30 s: attempt 1 is capped at 15 s, so 25 s left a hung first attempt only 10 s for the retry and two
+// of the six 2026-09-17 sims spent the whole budget on two aborts and answered «تأخر ردّي». 30 s gives
+// the retry a full 15 s (on a shrunk turn). Healthy calls are unaffected — p50 5.3 s, p90 12.1 s.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 30000;
 const HUMAN_ACTIVE_MS = 30 * 60 * 1000;
 const MAX_BATCH = 20;
 const MAX_REPLY_FAILURES = 3;

@@ -18,7 +18,9 @@ const { decrypt } = require('../utils/tokenCrypto');
 const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure', 'reply_failures', 'billing', 'sla_breached',
   'awaiting_staff', 'ambiguous_send', 'inbound_without_outbound', 'window_closing', 'hot_lead', 'unsent_reply',
   // PR3: sales-call bookings in Google Calendar and their reminders.
-  'booking_booked', 'booking_rescheduled', 'booking_cancelled', 'booking_failed', 'booking_change_request', 'reminder_blocked'];
+  'booking_booked', 'booking_rescheduled', 'booking_cancelled', 'booking_failed', 'booking_change_request', 'reminder_blocked',
+  // A call REQUEST (no calendar event) the customer stopped.
+  'call_request_cancelled'];
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -43,6 +45,7 @@ const ALERT_LABELS = {
   booking_failed: 'الحجز بالتقويم ما زبط — طلب مكالمة بدون موعد مؤكد',
   booking_change_request: 'طلب تغيير/إلغاء مكالمة ما انعمل بالتقويم',
   reminder_blocked: 'تذكير المكالمة ما انبعت (القالب أو طريقة الدفع)',
+  call_request_cancelled: 'العميل أوقف طلب المكالمة',
 };
 
 const WEBHOOK_TIMEOUT_MS = 5000;

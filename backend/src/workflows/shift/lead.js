@@ -38,10 +38,48 @@ function cut(str, max = MAX_TEXT) {
   return chars.length > max ? chars.slice(0, max).join('') : str;
 }
 
-function cleanText(value) {
+/**
+ * Round-2 review #4: the model's own instruction text was stored in a lead field and rendered into the
+ * team's calendar event —
+ *   sector_text = "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, …"
+ * — in 3 of the six 2026-09-17 runs. Every free-text field the model fills goes through here first: a
+ * lead value is one line of something a customer typed, nothing else.
+ */
+const CONTROL_RE = /[\u0000-\u0008\u000B-\u001F\u007F\u200B-\u200F\u2028\u2029\uFEFF]/g;
+// Where the model stopped answering and started reciting its own instructions. The value is cut here.
+const INSTRUCTION_RE = /\b(?:valid\s+json|json\s+(?:only|output|format)|strict\s+schema|schema\s+mapping|output\s+format|single\s+quote|surrounding\s+extra\s+text|extra\s+text|context\s+requirements?|requirements?\s*:|system\s+prompt|assistant\s*:|as\s+required|parsed?\s+as|plain\s+text\s+output|no\s+extra\s+text|do\s+not\s+include|respond\s+with|instructions?\s*:|action_args|next_step|action\s*:|reply\s*:|null\s*,|\bstring\b\s*,)/i;
+// Field-level caps: a business's kind, name or city is a handful of words, not a paragraph.
+const SCALAR_MAX = { name: 60, business_name: 80, sector_text: 60, city: 40, budget_note: 80 };
+
+function sanitizeFreeText(value, max = MAX_TEXT, { allowNumeric = false, multiline = false } = {}) {
   if (typeof value !== 'string' && typeof value !== 'number') return undefined;
-  const s = cut(String(value).trim());
-  return s ? s : undefined;
+  let s = String(value).replace(CONTROL_RE, ' ');
+  // One line: a lead scalar that grew a second line grew it from the model, not the customer. A staff
+  // member typing into the Inbox may legitimately use two lines, so their patch keeps them.
+  if (!multiline) s = s.split(/[\r\n]/)[0];
+  else s = s.replace(/\r/g, '');
+  const m = INSTRUCTION_RE.exec(s);
+  if (m) {
+    // Keep what came before the boilerplate, back to the last word boundary («مطعم مندي» out of
+    // «مطعم منديFilter Context Requirements: …»).
+    s = s.slice(0, m.index).trimEnd().replace(/[A-Za-z]+$/, '');
+  }
+  // «مطعم منديFilter»: a Latin run welded to the end of an Arabic value is the seam of a concatenation,
+  // never a name someone typed.
+  s = s.replace(/(?<=[\u0621-\u064A])[A-Za-z]+$/, '');
+  s = s.replace(/\s{2,}/g, ' ').trim().replace(/[\s،,:;|\-–—]+$/, '');
+  if (!s) return undefined;
+  // Still reciting after the cut, or no letter at all: it is not something a customer typed.
+  if (INSTRUCTION_RE.test(s)) return undefined;
+  // A time is a legitimate value with no letters in it at all («4:30», «١٠:٣٠»).
+  if (!allowNumeric && !/[\p{L}]/u.test(s)) return undefined;
+  if (allowNumeric && !/[\p{L}\p{N}]/u.test(s)) return undefined;
+  const out = cut(s, max);
+  return out ? out : undefined;
+}
+
+function cleanText(value, max = MAX_TEXT, opts) {
+  return sanitizeFreeText(value, max, opts);
 }
 
 /**
@@ -82,16 +120,18 @@ function pickObject(obj, keys) {
 function stringList(value) {
   if (value === undefined || value === null) return [];
   const list = Array.isArray(value) ? value : [value];
-  return list.map(cleanText).filter(Boolean);
+  return list.map((v) => cleanText(v)).filter(Boolean);
 }
 
 /** Rule 1: bring a raw patch (model JSON, button, staff form) into the stored shape; invalid values drop. */
-function normalizePatch(patch) {
+function normalizePatch(patch, { source } = {}) {
   const out = {};
   if (!patch || typeof patch !== 'object') return out;
 
+  // Only the model recites its own instructions; a staff edit is typed by a person and keeps its shape.
+  const opts = { multiline: source === 'staff' };
   for (const field of TEXT_SCALARS) {
-    const v = cleanText(patch[field]);
+    const v = cleanText(patch[field], SCALAR_MAX[field] || MAX_TEXT, opts);
     if (v !== undefined) out[field] = v;
   }
 
@@ -106,7 +146,8 @@ function normalizePatch(patch) {
   }
 
   if (typeof patch.preferred_time === 'string') {
-    const text = cleanText(patch.preferred_time);
+    // «4:30» / «١٠:٣٠» carry no letter and are still the time the customer named.
+    const text = cleanText(patch.preferred_time, MAX_TEXT, { ...opts, allowNumeric: true });
     if (text) out.preferred_time = { text };
   } else if (patch.preferred_time && typeof patch.preferred_time === 'object' && !Array.isArray(patch.preferred_time)) {
     const pt = pickObject(patch.preferred_time, PREFERRED_TIME_KEYS);
@@ -163,6 +204,41 @@ function extractCustomerNumbers(text) {
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
   const matches = western.match(/\d+(?:[.,]\d+)?/g) || [];
   return Array.from(new Set(matches.map(String)));
+}
+
+/**
+ * Round-2 review #9: «بكرا الساعة 4 العصر» put "4" in customer_numbers, and the digit guard then let the
+ * bot quote 4 back as one of the customer's business figures. A clock time is not a figure about the
+ * business, so the spans that read as times of day are removed before the numbers are harvested.
+ */
+const CLOCK_SPAN_RE = new RegExp([
+  '(?:الساعة|الساعه)\\s*\\d{1,2}(?:\\s*[:٫.]\\s*\\d{2})?',
+  '\\d{1,2}\\s*[:]\\s*\\d{2}',
+  '\\d{1,2}\\s*(?:الصبح|الصباح|المسا|المساء|مساءً|مساء|صباحًا|صباحا|الظهر|العصر|الليل|am|pm|a\\.m\\.|p\\.m\\.)',
+  '\\bat\\s+\\d{1,2}\\b',
+  // A window: «بين 10 و12», "between 10 and 12" — both ends are clock times.
+  '(?:بين|between)\\s*\\d{1,2}\\s*(?:و|and|-|–)\\s*\\d{1,2}',
+  '\\d{1,2}\\s*(?:-|–|إلى|الى|ل)\\s*\\d{1,2}\\s*(?:الصبح|الصباح|المسا|المساء|الظهر|العصر)',
+].join('|'), 'gi');
+
+// «ممكن نخليها الساعة ٢ الظهر بدل ١١؟» — the 11 has no clock word of its own, but it is the hour it
+// replaces. Only inside a message that is already talking about a clock time (sim round 2, clinic).
+const CLOCK_MARKER_RE = /الساعة|الساعه|الصبح|الصباح|المسا|المساء|الظهر|العصر|الليل|بكرا|بكرة|بكره|اليوم|\d\s*[:]\s*\d{2}|\bam\b|\bpm\b|\bo'clock\b|\btomorrow\b|\btoday\b/i;
+const REPLACED_HOUR_RE = /(?:بدل|بدال|بدلا|بدلًا(?:\s*من)?|عوضا عن|عوضًا عن|instead of)\s*(?:ال)?\s*\d{1,2}(?![\d])/gi;
+// «خلوها بكرة بعد العصر | من 4 لحد 6» — a bare hour range, in a batch that is already naming a time.
+const HOUR_RANGE_RE = /(?:من|from)\s*(?:ال)?\s*\d{1,2}\s*(?:لحد|إلى|الى|حتى|لل|ل|-|–|—|to|till|until)\s*(?:ال)?\s*\d{1,2}(?![\d])/gi;
+
+/** The customer's numbers with the clock times taken out (rule 4 + review #9). */
+function businessNumbersOf(text) {
+  if (typeof text !== 'string' || !text) return [];
+  const western = text
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+  let stripped = western.replace(CLOCK_SPAN_RE, ' ');
+  if (CLOCK_MARKER_RE.test(western)) {
+    stripped = stripped.replace(REPLACED_HOUR_RE, ' ').replace(HOUR_RANGE_RE, ' ');
+  }
+  return extractCustomerNumbers(stripped);
 }
 
 /** True only when the customer explicitly corrects a value in this message and names the new one. */
@@ -238,7 +314,7 @@ function mergeLead(existing = {}, patch = {}, meta) {
   const lead = JSON.parse(JSON.stringify(base));
   const prov = { ...(lead._prov || {}) };
   const changed = [];
-  const normalized = normalizePatch(patch);
+  const normalized = normalizePatch(patch, { source: m.source });
 
   for (const field of LEAD_SCALARS) {
     const value = normalized[field];
@@ -263,7 +339,7 @@ function mergeLead(existing = {}, patch = {}, meta) {
   }
 
   if (m.source === 'model' || m.source === 'button') {
-    const numbers = extractCustomerNumbers(m.inboundText);
+    const numbers = businessNumbersOf(m.inboundText);
     if (numbers.length) {
       const current = Array.isArray(base.customer_numbers) ? base.customer_numbers : [];
       const next = capList('customer_numbers', dedupe(current.concat(numbers)));
@@ -324,6 +400,8 @@ async function saveLead(conversationId, patch, meta, { expectedVersion } = {}) {
 module.exports = {
   mergeLead,
   extractCustomerNumbers,
+  businessNumbersOf,
+  sanitizeFreeText,
   isCorrection,
   computeScore,
   saveLead,

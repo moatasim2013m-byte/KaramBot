@@ -263,15 +263,15 @@ describe('SHIFT bot end to end', () => {
 
   test('(d) AI rejects twice → exactly one fallback, pending, needs_team.ai_failure', async () => {
     seedShiftBusiness();
-    mockGenerateContent
-      .mockRejectedValueOnce(new Error('503 overloaded'))
-      .mockRejectedValueOnce(new Error('503 overloaded'));
+    // Round-2 review #3: a 503 costs milliseconds, so it no longer spends one of the two attempts —
+    // it is retried while the deadline holds another call. The fallback comes only when they all fail.
+    mockGenerateContent.mockRejectedValue(new Error('503 overloaded'));
 
     await postWebhook(inboundPayload({ text: 'شو بتقدموا للمطاعم؟' }));
     await settle();
     await advance(5000);
 
-    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(mockGenerateContent.mock.calls.length).toBeGreaterThan(2);
     expect(sends()).toHaveLength(1);
     expect(sendText(sends()[0])).toBe(acks.aiFailure('ar', { withButtons: sends()[0].type === 'interactive' }));
     expect(botRows()).toHaveLength(1);
@@ -1560,6 +1560,75 @@ describe('PR3 booking in Google Calendar end to end', () => {
     expect(conv.workflow_data.booking).toMatchObject({ event_id: 'shevent', status: 'cancelled' });
     expect(conv).toMatchObject({ status: 'open', current_state: 'close' });
     expect(conv.workflow_data.needs_team.resolved_at).toBeTruthy();
+    expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
+  });
+
+  test('a captured PR2 call request → «بدي أغيّر الموعد» → real slots → tap → the event is created', async () => {
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'pending', ai_enabled: true, current_state: 'captured',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: {
+          // Left by PR2: a call REQUEST with a time the customer gave, and no calendar event behind it.
+          lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'other', preferred_time: { text: 'بكرا 10–12' }, version: 3 },
+          bot_turns: 6,
+          needs_team: { reason: 'meeting', summary: 'بكرا 10–12', at: START.toISOString(), resolved_at: null, claimed_at: null, sla_note_sent_at: null },
+        },
+      }],
+    });
+
+    // 1. «بدي اغير الموعد» is answered by the server: the calendar's free slots, no model call at all.
+    await postWebhook(inboundPayload({ text: 'بدي اغير الموعد' }));
+    await settle();
+    await advance(5000);
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(sends()).toHaveLength(1);
+    const offer = sends()[0];
+    expect(sendText(offer)).toBe(`أكيد. ${acks.slotsBody('ar')}`);
+    expect(sendText(offer)).not.toMatch(/[؟?][\s\S]*[؟?]/);
+    const ids = offer.interactive.action.buttons.map((b) => b.reply.id);
+    expect(ids).toEqual(['book:2026-09-16T08:00:00.000Z', 'book:2026-09-17T06:00:00.000Z', 'slot:other']);
+    expect(conversationOf().workflow_data.booking).toBeUndefined();
+
+    // 2. The tap turns the old request into a real booking.
+    jest.setSystemTime(new Date(START.getTime() + 60 * 1000));
+    await postWebhook(tapPayload('book:2026-09-16T08:00:00.000Z', 'الأربعاء 11:00 الصبح'));
+    await settle();
+    await advance(100);
+    expect(calendarCalls('/events')).toHaveLength(1);
+    const conv = conversationOf();
+    expect(conv.workflow_data.booking).toMatchObject({ status: 'booked', start: '2026-09-16T08:00:00.000Z' });
+    expect(sendText(sends()[1]).startsWith('ثبّتنا مكالمتك مع فريق شِفت: يوم الأربعاء 16/9 الساعة 11:00 الصبح'.replace('يوم الأربعاء', 'الأربعاء'))).toBe(true);
+    expect(conv).toMatchObject({ status: 'pending', current_state: 'captured' });
+    expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
+  });
+
+  test('a captured PR2 call request → «بدي ألغي» → the request is stopped, the team\'s meeting entry resolved', async () => {
+    const business = seedShiftBusiness();
+    db.seed({
+      conversations: [{
+        business_id: business.id, customer_wa_id: CUSTOMER, status: 'pending', ai_enabled: true, current_state: 'captured',
+        last_inbound_at: START, last_message_at: START,
+        workflow_data: {
+          lead: { name: 'معتصم', business_name: 'بيكابو', preferred_time: { text: 'بكرا 10–12' }, version: 3 },
+          bot_turns: 6,
+          needs_team: { reason: 'meeting', summary: 'بكرا 10–12', at: START.toISOString(), resolved_at: null, claimed_at: null, sla_note_sent_at: null },
+        },
+      }],
+    });
+    axios.delete.mockReset();
+
+    await postWebhook(inboundPayload({ text: 'بدي ألغي' }));
+    await settle();
+    await advance(5000);
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(axios.delete).not.toHaveBeenCalled();
+    expect(sendText(sends()[0])).toBe('تمام، أوقفت طلب المكالمة. إذا حبيت نرتّب وقت ثاني احكيلي.');
+    const conv = conversationOf();
+    expect(conv).toMatchObject({ status: 'open', current_state: 'close' });
+    expect(conv.workflow_data.needs_team.resolved_at).toBeTruthy();
+    expect(conv.workflow_data.booking).toBeUndefined();
     expect(inboundRows().every((m) => m.status === 'answered')).toBe(true);
   });
 

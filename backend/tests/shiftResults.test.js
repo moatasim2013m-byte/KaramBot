@@ -112,32 +112,65 @@ describe('START_ROLEPLAY', () => {
     expect(r.workflowDataPatch).not.toHaveProperty('roleplay');
   });
 
-  test('no business name → bad args → NONE with the model line', () => {
+  // Round-2 review #1: a missing name no longer drops the action on the floor — with nothing in the
+  // customer's own words either, the server asks for it in its own fixed words (once).
+  test('no business name anywhere → the fixed setup ask, not the model line', () => {
     const r = toWorkflowResult(start({ facts: FACTS }, 'شو اسم المطعم؟'), ctx({ stage: 'roleplay_setup', wd: { roleplay: setupRoleplay() } }));
-    expect(r.action).toBe('NONE');
-    expect(r.messages[0].text).toBe('شو اسم المطعم؟');
+    expect(r.action).toBe('START_ROLEPLAY');
+    expect(r.messages[0].text).toBe(roleplay.setupAsk('restaurant', 'ar'));
+    expect(r.workflowDataPatch.roleplay).toMatchObject({ active: false, business_name: null });
   });
 
-  test('no facts: asks twice (model line dropped), then starts name-only', () => {
+  // Round-2 review #1: the ask used to go out a second time word for word. It now goes out once, and
+  // the next START_ROLEPLAY opens the example on the name alone rather than asking again.
+  test('no facts: asks once (model line dropped), then starts name-only', () => {
     let wd = { roleplay: setupRoleplay({ setup_asks: 0 }) };
     const ai = start({ sector: 'restaurant', business_name: 'مطعم الساحة', facts: [] }, 'يلا نبدأ!');
     const ask = roleplay.setupAsk('restaurant', 'ar');
 
     const first = toWorkflowResult(ai, ctx({ stage: 'roleplay_setup', wd }));
     expect(first.messages).toEqual([{ type: 'text', text: ask }]);
-    expect(first.workflowDataPatch.roleplay).toMatchObject({ active: false, setup_asks: 1 });
+    expect(first.workflowDataPatch.roleplay).toMatchObject({ active: false, setup_asks: 1, last_setup_ask: ask });
     expect(first.stateUpdate).toEqual({ current_state: 'roleplay_setup' });
     expect(first.leadPatch).toBeNull();
 
     wd = { roleplay: first.workflowDataPatch.roleplay };
     const second = toWorkflowResult(ai, ctx({ stage: 'roleplay_setup', wd }));
-    expect(second.messages).toEqual([{ type: 'text', text: ask }]);
-    expect(second.workflowDataPatch.roleplay.setup_asks).toBe(2);
+    expect(second.messages.map((m) => m.text)).not.toContain(ask);
+    expect(second.stateUpdate).toEqual({ current_state: 'roleplay' });
+    expect(second.workflowDataPatch.roleplay).toMatchObject({ active: true, facts: [], business_name: 'مطعم الساحة' });
+  });
 
-    wd = { roleplay: second.workflowDataPatch.roleplay };
-    const third = toWorkflowResult(ai, ctx({ stage: 'roleplay_setup', wd }));
-    expect(third.stateUpdate).toEqual({ current_state: 'roleplay' });
-    expect(third.workflowDataPatch.roleplay).toMatchObject({ active: true, facts: [], business_name: 'مطعم الساحة', setup_asks: 2 });
+  test('no name at all, twice → the team takes it over instead of a third ask', () => {
+    const ai = start({ sector: 'restaurant', business_name: null, facts: [] }, 'يلا نبدأ!');
+    const ask = roleplay.setupAsk('restaurant', 'ar');
+
+    const first = toWorkflowResult(ai, ctx({ stage: 'roleplay_setup', wd: { roleplay: setupRoleplay({ setup_asks: 0 }) }, texts: ['ما بدي أكتب إشي'] }));
+    expect(first.messages).toEqual([{ type: 'text', text: ask }]);
+
+    const second = toWorkflowResult(ai, ctx({
+      stage: 'roleplay_setup', wd: { roleplay: first.workflowDataPatch.roleplay }, texts: ['ما بدي أكتب إشي'],
+    }));
+    expect(second.messages.map((m) => m.text)).not.toContain(ask);
+    expect(second.messages[0].text).toBe(acks.roleplaySetupGaveUp('ar'));
+    expect(second.stateUpdate).toMatchObject({ current_state: 'fit', status: 'pending' });
+    expect(second.needsTeamCandidate.reason).toBe('demo');
+  });
+
+  // The customer answered the ask in her own words and the model still sent business_name: null — every
+  // START_ROLEPLAY in the six 2026-09-17 sims did. Her words are the setup.
+  test('the name and facts are read from the customer\'s own setup turn when the model omits them', () => {
+    const ai = start({ sector: 'clinic', business_name: null, facts: [] }, 'تمام!');
+    const r = toWorkflowResult(ai, ctx({
+      stage: 'roleplay_setup',
+      wd: { lead: { sector: 'clinic' }, roleplay: setupRoleplay({ sector: 'clinic', setup_asks: 1 }) },
+      texts: ['عيادة سمايل كير، خدماتنا تنظيف وتلميع، وحشوات تجميلية', 'الدوام من ١٠ الصبح ل ٨ المسا عدا الجمعة'],
+    }));
+    expect(r.action).toBe('START_ROLEPLAY');
+    expect(r.stateUpdate).toEqual({ current_state: 'roleplay' });
+    expect(r.workflowDataPatch.roleplay).toMatchObject({ active: true, business_name: 'عيادة سمايل كير' });
+    expect(r.workflowDataPatch.roleplay.facts.length).toBeGreaterThan(0);
+    expect(r.messages[0].text).toContain(roleplay.startLine('عيادة سمايل كير', 'ar'));
   });
 });
 
@@ -692,10 +725,15 @@ describe('review round 1 (results)', () => {
   test('minor: a name that is only a link or an offer does not start the example', () => {
     const r = toWorkflowResult(
       { reply: 'يلا.', action: 'START_ROLEPLAY', action_args: { sector: 'restaurant', business_name: 'www.shift-offer.co', facts: FACTS } },
-      ctx({ stage: 'roleplay_setup', wd: { lead: { sector: 'restaurant' }, roleplay: setupRoleplay() }, roleplayOn: true, vetted: new Set() }),
+      ctx({
+        stage: 'roleplay_setup', wd: { lead: { sector: 'restaurant' }, roleplay: setupRoleplay() },
+        roleplayOn: true, vetted: new Set(), texts: ['هاد الرابط'],
+      }),
     );
-    expect(r.action).not.toBe('START_ROLEPLAY');
-    expect(r.workflowDataPatch.roleplay).toBeUndefined();
+    // The example does not open on a link. It now asks for the name instead of passing the model line on.
+    expect(r.workflowDataPatch.roleplay.active).toBe(false);
+    expect(r.workflowDataPatch.roleplay.business_name).toBeNull();
+    expect(r.messages[0].text).toBe(roleplay.setupAsk('restaurant', 'ar'));
   });
 
   test('minor: a reply that already offered a step restarts the commitment count', () => {

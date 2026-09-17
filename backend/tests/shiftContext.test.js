@@ -287,10 +287,23 @@ describe('objectiveFor — the 18 rows', () => {
   test('9. first reply, no sector, bare greeting → sector list', () => {
     expect(obj({ stage: 'opening', wd: {}, batchTexts: ['مرحبا'] })).toBe(T.sectorList);
     expect(obj({ stage: 'opening', wd: {}, batchTexts: ['السلام عليكم'] })).toBe(T.sectorList);
-    expect(obj({ stage: 'opening', wd: {}, batchTexts: ['مرحبا، كم السعر؟'] })).toBe(T.opening);
+    // Round-2 review #16: a price question outranks the sector list AND carries its own shape.
+    expect(obj({ stage: 'opening', wd: {}, batchTexts: ['مرحبا، كم السعر؟'] })).toBe(`${T.priceAsk} ${T.opening}`);
     expect(obj({ stage: 'opening', wd: {}, batchTexts: ['مرحبا عندي عيادة أسنان بإربد'] })).toBe(T.opening);
     expect(obj({ stage: 'opening', wd: {}, lead: { sector: 'clinic' }, batchTexts: ['مرحبا'] })).toBe(T.opening);
   });
+
+  test('16. a price question anywhere carries the hold-the-line + one scoping question + a step shape', () => {
+    for (const text of ['قديش بتكلف؟', 'بكم الباقة؟', 'what is the price?', 'how much does it cost']) {
+      const objective = obj({ stage: 'discovery', wd: {}, batchTexts: [text] });
+      expect(objective).toContain('ما عندي سعر معتمد');
+      expect(objective).toContain('سؤال نطاق واحد');
+      expect(objective).toContain('الخطوة التالية');
+    }
+    // A concierge stage still belongs to the team: no price pattern there.
+    expect(obj({ stage: 'captured', locked: true, wd: {}, batchTexts: ['قديش بتكلف؟'] })).not.toContain('ما عندي سعر معتمد');
+  });
+
 
   test('10. calculator echo after a slot tap, once', () => {
     const lead = { site_estimates: [{ value: '40', unit: 'msgs_per_day' }, { value: '180', unit: 'jod_per_month' }] };

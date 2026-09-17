@@ -49,6 +49,8 @@ const state = {
   modelCalls: [],
   graphSends: [],
   alertPosts: [],
+  calendarOps: [],
+  calendarEvents: new Map(),
   live404: false,
 };
 
@@ -110,7 +112,37 @@ const fakeGemini = {
   SchemaType: { STRING: 'string', NUMBER: 'number', INTEGER: 'integer', BOOLEAN: 'boolean', ARRAY: 'array', OBJECT: 'object' },
 };
 
-const fakes = { axios: fakeAxios, gemini: fakeGemini };
+/**
+ * The Google Calendar client, faked (round-2 review: the eval suite had no booking path at all, so the
+ * cancel flow and "a captured free-text time becomes a real slot" were never replayed). Every free slot
+ * is free and every write succeeds; the ops are recorded so a scenario can assert on them.
+ */
+const fakeCalendar = {
+  freeBusy: async () => ({ ok: true, busy: [] }),
+  getEvent: async (calendarId, eventId) => {
+    const known = state.calendarEvents.get(eventId);
+    return known ? { ok: true, event: known } : { ok: false, error: { kind: 'not_found' } };
+  },
+  insertEvent: async (calendarId, event) => {
+    state.calendarOps.push({ op: 'insert', id: event && event.id });
+    const stored = { ...event, id: (event && event.id) || `ev_${state.calendarOps.length}` };
+    state.calendarEvents.set(stored.id, stored);
+    return { ok: true, event: stored };
+  },
+  patchEvent: async (calendarId, eventId, patch) => {
+    state.calendarOps.push({ op: 'patch', id: eventId });
+    const stored = { ...(state.calendarEvents.get(eventId) || { id: eventId }), ...patch };
+    state.calendarEvents.set(eventId, stored);
+    return { ok: true, event: stored };
+  },
+  deleteEvent: async (calendarId, eventId) => {
+    state.calendarOps.push({ op: 'delete', id: eventId });
+    state.calendarEvents.delete(eventId);
+    return { ok: true };
+  },
+};
+
+const fakes = { axios: fakeAxios, gemini: fakeGemini, calendar: fakeCalendar };
 
 // ─── Clock ──────────────────────────────────────────────────────────────────
 
@@ -160,6 +192,7 @@ function deps() {
     replyBatcher: require(path.join(ROOT, 'src/services/replyBatcher')),
     sweeper: require(path.join(ROOT, 'src/services/shiftSweeper')),
     shift: require(path.join(ROOT, 'src/workflows/shift')),
+    booking: require(path.join(ROOT, 'src/workflows/shift/booking')),
     tokenCrypto: require(path.join(ROOT, 'src/utils/tokenCrypto')),
   };
 }
@@ -358,6 +391,9 @@ async function runScenario(scenario, { mode = 'replay', quiet = true } = {}) {
     state.modelCalls = [];
     state.graphSends = [];
     state.alertPosts = [];
+    state.calendarOps = [];
+    state.calendarEvents = new Map();
+    if (d.booking && typeof d.booking.resetBusyCache === 'function') d.booking.resetBusyCache();
     db.reset();
     db.seed({
       businesses: [{
@@ -396,8 +432,19 @@ async function runScenario(scenario, { mode = 'replay', quiet = true } = {}) {
         const items = Array.isArray(turn.inbound) ? turn.inbound : [turn.inbound];
         for (let j = 0; j < items.length; j += 1) {
           if (j > 0) state.nowMs += 1000;
-          const msg = waMessage(items[j], state.nowMs);
-          const copies = items[j] && items[j].duplicate ? 2 : 1;
+          // `tapMatch` taps a button the SERVER just built, whose id is not knowable when the scenario is
+          // written: a calendar slot is `book:<iso>` off the team's real grid at the scenario's clock.
+          let item = items[j];
+          if (item && item.tapMatch) {
+            const re = new RegExp(item.tapMatch);
+            const offered = state.graphSends.slice(0, sendsStart).flatMap((p) => (p.payload && p.payload.interactive
+              && p.payload.interactive.action && p.payload.interactive.action.buttons) || []);
+            const hit = offered.map((b) => b.reply).filter(Boolean).reverse().find((b) => re.test(b.id));
+            if (!hit) throw new Error(`eval: no button matching ${item.tapMatch} was offered before this turn`);
+            item = { ...item, tap: hit.id, title: item.title || hit.title };
+          }
+          const msg = waMessage(item, state.nowMs);
+          const copies = item && item.duplicate ? 2 : 1;
           for (let c = 0; c < copies; c += 1) {
             const { items: persisted } = await messageProcessor.persistInbound(entryFor([msg], scenario.profileName));
             for (const it of persisted) if (it.message && !inboundRows.some((r) => r.id === it.message.id)) inboundRows.push(it.message);
@@ -657,6 +704,7 @@ function installHooks({ live }) {
   const fakeDb = require(path.join(ROOT, 'tests/helpers/fakeDb')).getFakeDb();
   const prismaPath = path.join(ROOT, 'src/config/prisma.js');
   const jsonbPath = path.join(ROOT, 'src/db/jsonb.js');
+  const calendarPath = path.join(ROOT, 'src/services/googleCalendar.js');
   const originalLoad = Module._load;
   let liveModule = null;
   Module._load = function evalLoad(request, parent, isMain) {
@@ -678,6 +726,7 @@ function installHooks({ live }) {
       }
       if (resolved === prismaPath) return fakeDb.prisma;
       if (resolved === jsonbPath) return fakeDb.jsonb;
+      if (resolved === calendarPath) return fakeCalendar;
     }
     return originalLoad.call(this, request, parent, isMain);
   };

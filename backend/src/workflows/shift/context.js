@@ -201,7 +201,7 @@ function isStaffAlert(m) {
  * Role-tagged history, oldest first (the caller passes it in that order), last 12 turns. Customer lines
  * are JSON strings; bot and staff lines are server text flattened to one line.
  */
-function formatHistoryV2(messages, lang = 'ar') {
+function formatHistoryV2(messages, lang = 'ar', turns = HISTORY_TURNS) {
   const rows = (Array.isArray(messages) ? messages : []).filter((m) => m && !isStaffAlert(m));
   const lines = [];
   for (const m of rows) {
@@ -218,7 +218,7 @@ function formatHistoryV2(messages, lang = 'ar') {
     const staff = !bot && !!m.sent_by_user_id;
     lines.push(`${staff ? 'الفريق' : 'كرم'}: ${text}`);
   }
-  return lines.slice(-HISTORY_TURNS).join('\n');
+  return lines.slice(-Math.max(1, Number(turns) || HISTORY_TURNS)).join('\n');
 }
 
 function isLocked(conversation, stage) {
@@ -251,7 +251,7 @@ function clockLine(business, now) {
 
 /**
  * ctx = { business, conversation, batchMessages (or batch), history (oldest first), now, lang, offers,
- *         prefill?, hint?, locked?, stage?, gapHours?, firstReply? }
+ *         prefill?, hint?, locked?, stage?, gapHours?, firstReply?, historyTurns? }
  */
 function buildUserTurn(ctx = {}) {
   const c = ctx || {};
@@ -325,7 +325,9 @@ function buildUserTurn(ctx = {}) {
   if (roleplayActive) blocks.push(roleplay.roleplayBlock(rp, lang));
   else if (roleplay.endUnannounced(rp, now)) blocks.push(IDLE_END_BLOCK);
 
-  const historyText = formatHistoryV2(history, lang);
+  // A retry after a timeout resends a shorter turn: measured p90 7.6 s at ~4k prompt tokens against
+  // 12.5 s at ~6k (the 2026-09-17 sims), so half the history is roughly half the wait.
+  const historyText = formatHistoryV2(history, lang, c.historyTurns);
   blocks.push(`المحادثة حتى الآن (الأقدم أولًا، كل سطر بدوره):\n${historyText || '(لا توجد رسائل سابقة)'}`);
 
   const batchLines = batchTexts.map((t) => stripHeaders(t)).filter(Boolean);

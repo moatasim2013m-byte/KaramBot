@@ -429,6 +429,197 @@ describe('role-play', () => {
 
 // ─── Integration fixes (PR2 integration pass) ────────────────────────────────
 
+/**
+ * Round-2 review #1 — the clinic transcript of 2026-09-17 (docs/bot/sims/2026-09-17-clinic-*.md).
+ * The customer answered the setup ask in full; the model still sent START_ROLEPLAY with
+ * business_name: null and empty facts, twice, and the same ask went out again word for word.
+ */
+describe('review round 2: the example opens on the customer\'s own setup answer', () => {
+  const SETUP = ['عيادة سمايل كير، خدماتنا تنظيف وتلميع، وحشوات تجميلية', 'الدوام من ١٠ الصبح ل ٨ المسا عدا الجمعة'];
+
+  function seedSetup(setup_asks = 1) {
+    const ask = roleplay.setupAsk('clinic', 'ar');
+    return seedShift({
+      current_state: 'roleplay_setup',
+      workflow_data: {
+        lead: { sector: 'clinic', sector_text: 'عيادة أسنان', version: 1 },
+        roleplay: { active: false, sector: 'clinic', business_name: null, facts: [], setup_asks, last_setup_ask: ask },
+        bot_turns: 4,
+        disclosed_at: START.toISOString(),
+      },
+    });
+  }
+
+  test('START_ROLEPLAY with business_name null opens the sandbox on her words', async () => {
+    const { conv } = seedSetup();
+    script({
+      reply: 'تمام دكتورة رنا.', action: 'START_ROLEPLAY', action_args: { sector: 'clinic', business_name: null, facts: [] },
+      stage: 'roleplay_setup', next_step: 'confirmed',
+    });
+
+    const { parts } = await turn(conv, SETUP);
+
+    expect(bodyOf(parts[0]).startsWith(roleplay.startLine('عيادة سمايل كير', 'ar'))).toBe(true);
+    const c = convRow(conv.id);
+    expect(c.current_state).toBe('roleplay');
+    expect(c.workflow_data.roleplay).toMatchObject({ active: true, business_name: 'عيادة سمايل كير' });
+    expect(c.workflow_data.roleplay.facts.length).toBeGreaterThan(0);
+  });
+
+  test('the identical setup ask is never sent twice', async () => {
+    const { conv } = seedSetup();
+    const ask = roleplay.setupAsk('clinic', 'ar');
+    script({
+      reply: 'شو اسم العيادة؟', action: 'START_ROLEPLAY', action_args: { sector: 'clinic', business_name: null, facts: [] },
+      stage: 'roleplay_setup', next_step: 'question',
+    });
+
+    const { parts } = await turn(conv, ['ما بدي أكتب إشي، وريني بس']);
+
+    expect(parts.map(bodyOf)).not.toContain(ask);
+    expect(bodyOf(parts[0])).toBe(acks.roleplaySetupGaveUp('ar'));
+    expect(convRow(conv.id).current_state).toBe('fit');
+  });
+
+  test('a name we already stored is enough once the asks are spent', async () => {
+    const { conv } = seedShift({
+      current_state: 'roleplay_setup',
+      workflow_data: {
+        lead: { sector: 'clinic', business_name: 'عيادة سمايل كير', version: 1 },
+        roleplay: { active: false, sector: 'clinic', business_name: null, facts: [], setup_asks: 2 },
+        bot_turns: 5,
+        disclosed_at: START.toISOString(),
+      },
+    });
+    script({
+      reply: 'يلا.', action: 'START_ROLEPLAY', action_args: { sector: 'clinic', business_name: null, facts: [] },
+      stage: 'roleplay_setup', next_step: 'confirmed',
+    });
+
+    const { parts } = await turn(conv, ['جربيني هلأ']);
+
+    expect(bodyOf(parts[0]).startsWith(roleplay.startLine('عيادة سمايل كير', 'ar'))).toBe(true);
+    expect(convRow(conv.id).workflow_data.roleplay).toMatchObject({ active: true, facts: [] });
+  });
+});
+
+describe('review round 2: the identity answer and the invented diary', () => {
+  test('#6 an identity question is answered even when the digit guard takes the line', async () => {
+    const { conv } = seedShift({ current_state: 'fit', workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() } });
+    // The competitor price is a digits block, so both attempts end in the stage fallback — which used to
+    // be «ما بدي أعطيك جواب مش دقيق…» with the identity answer nowhere in it.
+    const priced = { reply: 'واحد بعملها بخمسين دينار بس إحنا أفضل.', action: 'NONE', stage: 'fit', next_step: 'question' };
+    script(priced, priced);
+
+    const { parts } = await turn(conv, ['انت بوت ولا انسان جاوبني واضح', 'وبعدين لقيت واحد بعملها بخمسين دينار']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('مساعد شِفت الذكي');
+    expect(body).toContain('ذكاء اصطناعي');
+    expect(body).not.toMatch(/خمسين|50/);
+  });
+
+  test('#2 an invented appointment is replaced by the team\'s real slots', async () => {
+    process.env.SHIFT_SALES_CALENDAR_ID = 'sim-sales-calendar@group.calendar.google.invalid';
+    const { conv } = seedShift({ current_state: 'close', workflow_data: { lead: { sector: 'clinic', name: 'رنا', version: 1 }, bot_turns: 6, disclosed_at: START.toISOString() } });
+    const invented = { reply: 'أقرب موعد متوفر هو الأحد الساعة 7:00 الصبح.', action: 'NONE', stage: 'close', next_step: 'question' };
+    script(invented, invented);
+
+    const { parts } = await turn(conv, ['متى في وقت متاح للمكالمة؟']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).not.toContain('أقرب موعد متوفر');
+    expect(body).toContain(acks.slotsBody('ar'));
+    expect(parts.some((p) => p.type === 'interactive')).toBe(true);
+    delete process.env.SHIFT_SALES_CALENDAR_ID;
+  });
+});
+
+describe('review round 2, code review follow-ups', () => {
+  test('a third unanswered ask escalates even after the move-on line replaced the second', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const ask = { reply: 'شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+
+    script(ask, ask);
+    await turn(conv, ['مرحبا']);
+    script(ask, ask);
+    const t2 = await turn(conv, ['طيب']);
+    expect(t2.parts.map(bodyOf).join('\n')).toContain(acks.askMovedOn('ar'));
+    script(ask, ask);
+    const t3 = await turn(conv, ['هاه']);
+
+    expect(t3.parts.map(bodyOf).join('\n')).toContain(acks.askHandover('ar'));
+    expect(convRow(conv.id).status).toBe('pending');
+  });
+
+  test('«خليني احكي مع إنسان، إنت بوت ولا لأ؟» is transferred AND answered', async () => {
+    const { conv } = seedShift({ current_state: 'fit', workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() } });
+
+    const { parts } = await turn(conv, ['خليني احكي مع إنسان واضح، إنت بوت ولا لأ؟']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('ذكاء اصطناعي');
+    expect(body).toContain('ولا يهمك');
+    expect(convRow(conv.id).current_state).toBe('handoff');
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
+  test('the identity answer survives a CAPTURE_TIME, which the batcher re-renders from `capture`', async () => {
+    const { conv } = seedShift({
+      current_state: 'close',
+      workflow_data: { lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 3 }, bot_turns: 5, disclosed_at: START.toISOString() },
+    });
+    const capture = {
+      reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا بعد الظهر' }, stage: 'close', next_step: 'confirmed',
+    };
+    script(capture, capture);
+
+    const { parts } = await turn(conv, ['انت بوت ولا انسان؟', 'وخلينا نحكي بكرا بعد الظهر']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('ذكاء اصطناعي');
+    expect(body).toContain('سجّلت طلب مكالمة');
+  });
+});
+
+describe('review round 2 #7 — one discovery question, not three', () => {
+  test('the same unanswered question is dropped the second time and a step is offered', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const askA = { reply: 'أهلًا فيك. شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    const askB = { reply: 'تمام. طيب شو مجال شغلك حاليًا؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(askA, askA);
+
+    const t1 = await turn(conv, ['مرحبا']);
+    expect(bodyOf(t1.parts[0])).toContain('شو مجال شغلك؟');
+
+    script(askB, askB);
+    const t2 = await turn(conv, ['طيب']);
+
+    const body = t2.parts.map(bodyOf).join('\n');
+    expect(body).not.toContain('شو مجال شغلك');
+    expect(body).toContain(acks.askMovedOn('ar'));
+  });
+
+  test('a third unanswered ask hands the thread to the team', async () => {
+    const { conv } = seedShift({
+      current_state: 'discovery',
+      workflow_data: {
+        lead: { version: 1 },
+        bot_turns: 3,
+        disclosed_at: START.toISOString(),
+        last_ask: { key: 'شو مجال شغلك', words: ['مجال', 'شغلك'], at: START.toISOString(), count: 2, msg_id: 'old' },
+      },
+    });
+    const ask = { reply: 'شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(ask, ask);
+
+    const { parts } = await turn(conv, ['طيب']);
+
+    expect(parts.map(bodyOf).join('\n')).toContain(acks.askHandover('ar'));
+    expect(convRow(conv.id).status).toBe('pending');
+  });
+});
+
 describe('integration fixes', () => {
   test('a tier-2 handoff whose model line invents a price → the fixed handoff line, ack and alert kept, one model call', async () => {
     const { conv } = seedShift({ current_state: 'discovery' });

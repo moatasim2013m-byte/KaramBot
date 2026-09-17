@@ -108,17 +108,93 @@ function cleanFacts(facts) {
 /**
  * Whether START_ROLEPLAY may begin now. The setup is asked at most MAX_SETUP_ASKS times; after that a
  * name alone is enough — a prospect who will not type a menu still gets to see the example.
+ *
+ * Round-2 review #1: the missing-name check used to come FIRST, so the relaxation below could never be
+ * reached when the model left business_name null (it did that in all six 2026-09-17 sims, and the same
+ * setup ask went out again on a customer who had already typed her clinic's name, services and hours).
+ * The asks budget is now spent before either omission is fatal, and running out with no name at all is
+ * its own reason — the caller hands over instead of asking a third time.
  */
 function canStart(conversation, args) {
   if (!roleplayEnabled()) return { ok: false, reason: 'disabled' };
   if (!conversation || conversation.current_state !== 'roleplay_setup') return { ok: false, reason: 'wrong_stage' };
   const a = args && typeof args === 'object' ? args : {};
   const name = typeof a.business_name === 'string' ? a.business_name.trim() : '';
-  if (!name) return { ok: false, reason: 'no_name' };
-  if (cleanFacts(a.facts).length) return { ok: true };
+  const facts = cleanFacts(a.facts);
+  if (name && facts.length) return { ok: true };
   const asks = Number((currentRoleplay(conversation) || {}).setup_asks) || 0;
-  if (asks < MAX_SETUP_ASKS) return { ok: false, reason: 'no_facts_first_ask' };
-  return { ok: true, nameOnly: true };
+  if (asks < MAX_SETUP_ASKS) return { ok: false, reason: name ? 'no_facts_first_ask' : 'no_name' };
+  if (name) return { ok: true, nameOnly: true };
+  return { ok: false, reason: 'no_name_final' };
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Reading the setup out of the customer's own words (round-2 review #1). The model is not the only
+// source of the example's name and facts: the customer typed them, and «عيادة سمايل كير، خدماتنا تنظيف
+// وتلميع | الدوام من ١٠ الصبح ل ٨ المسا» is a complete setup whatever the model put in action_args.
+
+const BUSINESS_HEAD_RE = /^(?:عيادة|عياده|مركز|مجمع|مستشفى|مختبر|صيدلية|مطعم|مطبخ|كافيه|كافي|مقهى|متجر|محل|بوتيك|معرض|صالون|كوافير|جيم|نادي|مخبز|فرن|حلويات|شركة|مؤسسة|مكتب|ورشة|كراج|فندق|clinic|center|centre|restaurant|cafe|coffee|store|shop|salon|gym|bakery|company|studio)(?:\s|$)/i;
+// The lead must be the whole word «اسم…» followed by a space or a colon: without the boundary «اسمك شو»
+// became the name «ك شو» and «اسمعني منيح» became «عني منيح» (round-2 code review).
+const NAME_LEAD_RE = /^(?:اسم(?:ها|ه|نا)?(?:\s+(?:ال)?(?:منشأة|محل|مطعم|عيادة|متجر|شركة|مركز))?\s*[:：]\s*|اسم(?:ها|ه|نا)?\s+(?:ال)?(?:منشأة|محل|مطعم|عيادة|متجر|شركة|مركز)\s+|the name is\s+|name\s*[:：]\s*)/i;
+// «اسمه …» on its own proves nothing — «اسمك شو» opens the same way — so it is stripped only when what
+// follows names a kind of business.
+const WEAK_NAME_LEAD_RE = /^اسم(?:ها|ه|نا|هم)?\s+/i;
+const SEGMENT_SPLIT_RE = /[\n،,؛;.!|·•]+|\s-\s/;
+// «عيادة سمايل كير والدوام من ١٠ ل ٨» is one segment: the name ends where the next subject starts.
+const NAME_TAIL_RE = /\s+و?(?:الدوام|الأوقات|الاوقات|أوقات|اوقات|ساعات|خدماتنا|خدمات|المنيو|القائمة|الفرع|الفروع|التوصيل|العنوان|بنفتح|منفتح|بنشتغل|منشتغل|opening|hours|services|menu|delivery)(?:\s|$)[\s\S]*$/i;
+const SETUP_NAME_MAX = 40;
+const SETUP_FACT_MAX = 120;
+const SETUP_FACTS_MAX = 6;
+
+function setupSegments(texts) {
+  const out = [];
+  for (const t of (Array.isArray(texts) ? texts : [texts])) {
+    if (typeof t !== 'string') continue;
+    for (const raw of t.split(SEGMENT_SPLIT_RE)) {
+      const seg = raw.replace(/\s{2,}/g, ' ').trim();
+      if (seg) out.push(seg);
+    }
+  }
+  return out;
+}
+
+/**
+ * The business name the customer typed, or ''. Only a segment that names a kind of business («عيادة …»,
+ * «مطعم …») or that the customer introduced as a name («اسمه …») counts: a free sentence about opening
+ * hours must never become the example's name.
+ */
+function businessNameFrom(texts) {
+  for (const seg of setupSegments(texts)) {
+    const led = NAME_LEAD_RE.test(seg);
+    let candidate = seg.replace(NAME_LEAD_RE, '').replace(NAME_TAIL_RE, '')
+      .replace(/[\s،,.\-–—]+$/, '').trim();
+    if (!led && WEAK_NAME_LEAD_RE.test(candidate)) {
+      const stripped = candidate.replace(WEAK_NAME_LEAD_RE, '').trim();
+      if (BUSINESS_HEAD_RE.test(stripped)) candidate = stripped;
+    }
+    if (!candidate) continue;
+    if (Array.from(candidate).length > SETUP_NAME_MAX) continue;
+    if (!BUSINESS_HEAD_RE.test(candidate) && !led) continue;
+    // A bare kind with no name («عيادة») says nothing: the example needs something to be called. The same
+    // two-word floor applies to «اسمه X» — one word after it is as likely to be a fragment as a name.
+    if (candidate.split(/\s+/).length < 2) continue;
+    return candidate;
+  }
+  return '';
+}
+
+/** The customer's other setup segments as facts — their words only, so the start line stays true. */
+function factsFrom(texts, name) {
+  const skip = typeof name === 'string' ? name.trim() : '';
+  const out = [];
+  for (const seg of setupSegments(texts)) {
+    if (skip && (seg === skip || seg.includes(skip))) continue;
+    if (Array.from(seg).length < 3) continue;
+    out.push(Array.from(seg).slice(0, SETUP_FACT_MAX).join(''));
+    if (out.length === SETUP_FACTS_MAX) break;
+  }
+  return out;
 }
 
 /** The complete roleplay object (§1.3): producers write it whole, spread from what they read. */
@@ -404,6 +480,8 @@ module.exports = {
   endUnannounced,
   groundFacts,
   canStart,
+  businessNameFrom,
+  factsFrom,
   startState,
   isActive,
   isExit,

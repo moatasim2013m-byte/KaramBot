@@ -331,6 +331,142 @@ describe('deadline mode', () => {
     expect(onRetry).not.toHaveBeenCalled();
   });
 
+  // ── round-2 review #3: 17% of the 64 real Gemini calls in the 2026-09-17 sims failed. 7 of the 11
+  // were 503s returned in 0.4–1.3 s, and one conversation spent BOTH its attempts on two of them
+  // inside 0.94 s and then told the customer the reply was delayed, with 24 s of deadline unused.
+
+  test('a fast 503 is retried at once and does not spend an attempt', async () => {
+    const e503 = new Error('[GoogleGenerativeAI Error]: Error fetching from https://x: [503 Service Unavailable] This model is currently experiencing high demand.');
+    mockGenerateContent
+      .mockRejectedValueOnce(e503)
+      .mockRejectedValueOnce(e503)
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000,
+    });
+
+    expect(result.reply).toBe('تمام');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    // the third call is still attempt 1's budget, and carries no correction prompt
+    expect(mockGenerateContent.mock.calls[2][1]).toEqual({ timeout: expect.any(Number) });
+    expect(mockGenerateContent.mock.calls[2][0].contents[0].parts[0].text).toBe('U');
+  });
+
+  test('two 503s then a bad answer still leave a real correction attempt', async () => {
+    const e503 = new Error('[503 Service Unavailable] high demand');
+    mockGenerateContent
+      .mockRejectedValueOnce(e503)
+      .mockResolvedValueOnce(reply('garbage'))
+      .mockRejectedValueOnce(e503)
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, correctionPrompt: 'CORRECT',
+    });
+
+    expect(result.reply).toBe('تمام');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+    expect(mockGenerateContent.mock.calls[3][0].contents[0].parts[0].text).toBe('U\n\nCORRECT');
+  });
+
+  test('transient retries stop once the deadline no longer holds one', async () => {
+    const e503 = new Error('503 Service Unavailable');
+    mockGenerateContent.mockRejectedValue(e503);
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, deadlineAt: Date.now() + 400,
+    });
+    expect(result).toBeNull();
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('a timeout buys a third attempt when the deadline still holds one', async () => {
+    jest.useFakeTimers();
+    const start = Date.now();
+    mockGenerateContent
+      .mockImplementationOnce(never)                                   // attempt 1: hangs to its 15 s cap
+      .mockImplementationOnce(async () => { throw new Error('This operation was aborted'); })
+      .mockImplementationOnce(async () => reply({ reply: 'تمام' }));
+
+    const promise = generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: start + 40000,
+    });
+    await jest.advanceTimersByTimeAsync(15000);
+    await jest.advanceTimersByTimeAsync(1000);
+    await expect(promise).resolves.toEqual(expect.objectContaining({ reply: 'تمام' }));
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+  });
+
+  test('an invalid answer twice is never given a third attempt', async () => {
+    mockGenerateContent.mockResolvedValue(reply('garbage'));
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, deadlineAt: Date.now() + 25000,
+    });
+    expect(result).toBeNull();
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+  });
+
+  test('retryUserMessage is sent only after a timeout, never after a bad answer', async () => {
+    mockGenerateContent
+      .mockRejectedValueOnce(new Error('This operation was aborted'))
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+    await generateValidatedAIReply('S', 'LONG', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, retryUserMessage: 'SHORT',
+    });
+    expect(mockGenerateContent.mock.calls[1][0].contents[0].parts[0].text).toBe('SHORT');
+
+    mockGenerateContent.mockReset();
+    mockGenerateContent
+      .mockResolvedValueOnce(reply('garbage'))
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+    await generateValidatedAIReply('S', 'LONG', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, retryUserMessage: 'SHORT', correctionPrompt: 'CORRECT',
+    });
+    expect(mockGenerateContent.mock.calls[1][0].contents[0].parts[0].text).toBe('LONG\n\nCORRECT');
+  });
+
+  test('a MAX_TOKENS finish makes the retry drop thinking and double the room', async () => {
+    // clinic/glm-5.3 turn 2, 2026-09-17: two MAX_TOKENS finishes in a row, and the customer was told the
+    // reply was delayed. The model spent the whole output budget thinking; the retry needs more of it.
+    mockGenerateContent
+      .mockResolvedValueOnce(reply('', { candidates: [{ finishReason: 'MAX_TOKENS' }] }))
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000,
+    });
+
+    expect(result.reply).toBe('تمام');
+    const first = mockGetGenerativeModel.mock.calls[0][0].generationConfig;
+    const second = mockGetGenerativeModel.mock.calls[1][0].generationConfig;
+    expect(first.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+    expect(second.thinkingConfig).toBeUndefined();
+    expect(second.maxOutputTokens).toBe(first.maxOutputTokens * 2);
+  });
+
+  test('two hung attempts still leave a third chance inside a 30 s deadline', async () => {
+    // Both 2026-09-17 re-runs ended their dead turns on 15 s + 15 s. The retry is capped lower so the
+    // budget holds one more call.
+    jest.useFakeTimers();
+    const start = Date.now();
+    mockGenerateContent
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(async () => reply({ reply: 'تمام' }));
+
+    const promise = generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: start + 30000,
+    });
+    await jest.advanceTimersByTimeAsync(15000);
+    expect(mockGenerateContent.mock.calls[1][1]).toEqual({ timeout: 10000 });
+    await jest.advanceTimersByTimeAsync(10000);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    expect(mockGenerateContent.mock.calls[2][1].timeout).toBeGreaterThan(0);
+    await jest.advanceTimersByTimeAsync(10);
+    await expect(promise).resolves.toEqual(expect.objectContaining({ reply: 'تمام' }));
+    expect(Date.now() - start).toBeLessThanOrEqual(30000);
+  });
+
   test('12. retrySystemPrompt is used on attempt 2', async () => {
     mockGenerateContent
       .mockRejectedValueOnce(new Error('timeout'))
@@ -378,5 +514,54 @@ describe('usage log', () => {
     mockGenerateContent.mockResolvedValue(reply({ reply: 'x' }));
     await generateValidatedAIReply('S', 'U');
     expect(usageLines()).toEqual([expect.objectContaining({ attempt: 1, ok: true, conv: null })]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Owner phone test, 15 Sep 2026 16:14:32: an insult was answered with «معلش، تأخر ردّي شوي» — the
+// AI-failure fallback. Nothing was delayed: Gemini refused on safety grounds. A refusal is classified
+// and reported separately, and it is never retried with a correction prompt.
+
+describe('a blocked generation is not a timeout', () => {
+  const blockedResponse = (extra) => ({ response: { text: () => '', candidates: [{ finishReason: 'SAFETY' }], ...extra } });
+
+  test('finishReason SAFETY → onBlocked with the reason, no second attempt, null', async () => {
+    mockGenerateContent.mockResolvedValue(blockedResponse());
+    const onBlocked = jest.fn();
+    const r = await generateValidatedAIReply('S', 'U', [], {
+      validActions: SHIFT_ACTIONS, jsonMode: true, deadlineAt: Date.now() + 25000, onBlocked,
+    });
+    expect(r).toBeNull();
+    expect(onBlocked).toHaveBeenCalledWith('SAFETY');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('a blocked prompt (promptFeedback.blockReason) counts too', async () => {
+    mockGenerateContent.mockResolvedValue({
+      response: { text: () => '', promptFeedback: { blockReason: 'PROHIBITED_CONTENT' }, candidates: [] },
+    });
+    const onBlocked = jest.fn();
+    await generateValidatedAIReply('S', 'U', [], { validActions: SHIFT_ACTIONS, jsonMode: true, onBlocked });
+    expect(onBlocked).toHaveBeenCalledWith('PROHIBITED_CONTENT');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('an SDK that throws on a blocked candidate is classified, not counted as a timeout', async () => {
+    mockGenerateContent.mockRejectedValue(new Error('Text not available. Candidate was blocked due to SAFETY'));
+    const onBlocked = jest.fn();
+    await generateValidatedAIReply('S', 'U', [], { validActions: SHIFT_ACTIONS, jsonMode: true, onBlocked });
+    expect(onBlocked).toHaveBeenCalledWith('SAFETY');
+  });
+
+  test('a real timeout is still a timeout: onBlocked is never called and the retry runs', async () => {
+    jest.useFakeTimers();
+    mockGenerateContent.mockImplementationOnce(never).mockResolvedValueOnce(reply({ reply: 'تمام', action: 'NONE' }));
+    const onBlocked = jest.fn();
+    const promise = generateValidatedAIReply('S', 'U', [], {
+      validActions: SHIFT_ACTIONS, jsonMode: true, deadlineAt: Date.now() + 25000, onBlocked,
+    });
+    await jest.advanceTimersByTimeAsync(25000);
+    expect(await promise).toMatchObject({ reply: 'تمام' });
+    expect(onBlocked).not.toHaveBeenCalled();
   });
 });

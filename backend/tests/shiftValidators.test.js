@@ -28,7 +28,7 @@ const reply = (messages, extra = {}) => ({
   kind: 'reply', action: 'NONE', messages, stateUpdate: {}, workflowDataPatch: {}, leadPatch: null, ...extra,
 });
 const baseCtx = (extra = {}) => ({
-  attempt: 1, lang: 'ar', stage: 'discovery', action: 'NONE', roleplayActive: false, disclosed: true,
+  attempt: 1, lang: 'ar', stage: 'discovery', action: 'NONE', roleplayActive: false, disclosed: true, disclosedBefore: true,
   batchTexts: ['مرحبا'], customerHistoryTexts: [], lead: {}, roleplayFacts: [], allowedButtonIds: new Set(),
   offers: [], stageLocked: false, explicitTimeRequest: false, compoundAskAllowed: false, now: new Date('2026-09-15T09:00:00Z'),
   ...extra,
@@ -397,7 +397,8 @@ describe('length split (§5.11)', () => {
 
   test('in a result: model line on the head, ack and buttons on the tail', () => {
     const allowed = new Set(['lead_talk']);
-    const modelLine = `${'كلام '.repeat(100)}تمام.`;
+    // Varied filler: a hundred copies of one word is a stutter now, and the stutter guard collapses it.
+    const modelLine = `${Array.from({ length: 100 }, (_, i) => `ك${String(i).padStart(3, '0')}`).join(' ')} تمام.`;
     const ack = 'أ'.repeat(300);
     const part = { type: 'interactive', text: `${modelLine}\n\n${ack}`, modelLine, ack, buttons: [{ id: 'lead_talk', title: 'احكي مع الفريق' }] };
     const r = v.validateResult(reply([part]), baseCtx({ allowedButtonIds: allowed, stage: 'fit' }));
@@ -482,6 +483,138 @@ describe('stageFallback (§5.13)', () => {
   });
 });
 
+// ─── round-2 review ──────────────────────────────────────────────────────────
+
+describe('round 2 #2/#10/#11 — an appointment the server never made', () => {
+  const booked = { bookingEnabled: true, offers: [{ id: 'book:a', title: 'اليوم 12:30 الظهر' }, { id: 'book:b', title: 'الأحد 9:00 الصبح' }] };
+
+  test('an invented diary is blocked even when the customer typed the same hour', () => {
+    // «الدوام من ١٠ الصبح ل ٨ المسا» made 10 an allowed number, so the digit guard let this through.
+    const ctx = baseCtx({ ...booked, batchTexts: ['الدوام من ١٠ الصبح ل ٨ المسا'] });
+    expect(v.checkDigits('أقرب موعد متوفر هو الأحد الساعة 10:00 الصبح', ctx)).toEqual([]);
+    expect(v.checkAppointmentTime('أقرب موعد متوفر هو الأحد الساعة 10:00 الصبح', ctx))
+      .toEqual([{ code: 'appointment_time', detail: expect.any(String) }]);
+  });
+
+  test('a booking claim outside a real booking is blocked', () => {
+    expect(v.checkAppointmentTime('تمام دكتورة رنا، تثبّت موعد بكرا الساعة 11 الصبح.', baseCtx(booked)))
+      .toEqual([{ code: 'appointment_time', detail: expect.any(String) }]);
+  });
+
+  test('#10 a call at a named time for a request that is not a booking is blocked', () => {
+    expect(v.checkAppointmentTime('وبيحكوا معك اتصال بكرا بين 10 و12 لتحديد الوقت بالضبط.', baseCtx(booked)))
+      .toHaveLength(1);
+  });
+
+  test('#11 the stored booking\'s own time passes, a replayed one does not', () => {
+    const withBooking = baseCtx({ ...booked, booking: { when: 'الأحد 20/9 9:00 الصبح', status: 'booked' } });
+    expect(v.checkAppointmentTime('موعدك هو الأحد الساعة 9:00 الصبح.', withBooking)).toEqual([]);
+    expect(v.checkAppointmentTime('بتابع معك الموعد بكرا بين 10 و12.', withBooking)).toHaveLength(1);
+  });
+
+  test('the team\'s own offered slots and ordinary talk about a call pass', () => {
+    expect(v.checkAppointmentTime('أقرب أوقات الفريق: اليوم 12:30 الظهر.', baseCtx(booked))).toEqual([]);
+    expect(v.checkAppointmentTime('بتحب نرتب مكالمة قصيرة مع الفريق؟', baseCtx(booked))).toEqual([]);
+  });
+
+  test('inside the example, and with booking off, nothing is blocked', () => {
+    expect(v.checkAppointmentTime('بثبتلك موعد بكرا الساعة 11.', baseCtx({ ...booked, roleplayActive: true }))).toEqual([]);
+    expect(v.checkAppointmentTime('بثبتلك موعد بكرا الساعة 11.', baseCtx({ bookingEnabled: false }))).toEqual([]);
+  });
+});
+
+describe('round 2 #5 — the privacy notice is whole or absent', () => {
+  const purpose = acks.purposeLine('ar');
+
+  test('the torn notice from the transcript is put back whole', () => {
+    const torn = 'ولا يهمك أستاذ أبو محمد، بنرتّبها مع الفريق. shifts-ai.com/privacy). شو اسم المطعم الكريم؟';
+    const r = v.validateResult(reply([{ type: 'text', text: torn }]), baseCtx());
+    expect(r.result.messages[0].text).toContain(purpose);
+    expect(r.result.messages[0].text).not.toMatch(/الفريق\.\s*shifts-ai\.com/);
+  });
+
+  test('the notice is restored once, never twice', () => {
+    // Round-2 code review: a global regex inserted a second copy when a reply carried two orphan tails.
+    const twice = 'سطر. shifts-ai.com/privacy). وسطر تاني shifts-ai.com/privacy). شو الاسم؟';
+    const r = v.validateResult(reply([{ type: 'text', text: twice }]), baseCtx());
+    expect(r.result.messages[0].text.split('بنستخدم اللي بتكتبه').length - 1).toBe(1);
+  });
+
+  test('a notice a length split left half in the part before is not re-opened here', () => {
+    const head = { type: 'text', text: 'تمام. (بنستخدم اللي بتكتبه عشان نرد' };
+    const tail = { type: 'text', text: 'عليك — التفاصيل: shifts-ai.com/privacy)' };
+    const r = v.validateResult(reply([head, tail]), baseCtx());
+    expect(r.result.messages[1].text).toBe(tail.text);
+  });
+
+  test('a whole notice is left exactly as it is', () => {
+    const whole = `تمام. بس أكّدلي اسم المطعم؟ ${purpose}`;
+    const r = v.validateResult(reply([{ type: 'text', text: whole }]), baseCtx());
+    expect(r.result.messages[0].text).toBe(whole);
+    expect(r.blocks.map((b) => b.code)).not.toContain('privacy_notice');
+  });
+
+  test('the trims that tore it no longer split a parenthesis', () => {
+    const line = `تمام. ${purpose} أي يوم ووقت بناسبك؟`;
+    // The trims drop a time question and any piece ending on a colon — but never half a bracket.
+    const r = v.validateResult(reply([{ type: 'text', text: line }]), baseCtx());
+    expect(r.result.messages[0].text).toContain(purpose);
+  });
+});
+
+describe('round 2 #8 — one introduction per conversation', () => {
+  const intro = 'أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم اللي بنركّبه عندك، بس هون بمعلومات شِفت.';
+
+  test('a repeat intro is removed, the rest of the line stays', () => {
+    const r = v.validateResult(reply([textPart(`${intro} ممتاز! أقرب أوقات الفريق.`)]), baseCtx({ disclosedBefore: true }));
+    expect(r.result.messages[0].text).toBe('ممتاز! أقرب أوقات الفريق.');
+    expect(r.blocks.map((b) => b.code)).toContain('repeat_intro');
+  });
+
+  test('the first introduction is never stripped', () => {
+    const r = v.validateResult(reply([textPart(`${intro} شو نوع شغلك؟`)]), baseCtx({ disclosedBefore: false }));
+    expect(r.result.messages[0].text).toContain('أنا كرم');
+    expect(r.blocks.map((b) => b.code)).not.toContain('repeat_intro');
+  });
+
+  test('the honest identity answer is never stripped as a repeat', () => {
+    const ctx = baseCtx({ disclosedBefore: true, batchTexts: ['انت بوت ولا انسان'] });
+    const r = v.validateResult(reply([textPart(v.HONEST_IDENTITY.ar)]), ctx);
+    expect(r.result.messages[0].text).toBe(v.HONEST_IDENTITY.ar);
+  });
+});
+
+describe('round 2 #14 — SHIFT did not build the model', () => {
+  test.each([
+    'ورا كرم محرك ذكاء اصطناعي طورته شركة شِفت.',
+    'المحرك تبعنا، طوّرناه بشِفت.',
+    'هاد نموذج تبعنا.',
+  ])('%s is replaced by the approved wording', (line) => {
+    const r = v.validateResult(reply([textPart(line)]), baseCtx());
+    expect(r.blocks.map((b) => b.code)).toContain('training_claim');
+    expect(r.result.messages[0].text).toContain('بشتغل على نموذج ذكاء اصطناعي');
+  });
+
+  test('the approved intro still passes', () => {
+    const line = 'نفس محرّك كرم اللي بنركّبه عندك، بس هون بمعلومات شِفت.';
+    expect(v.checkTrainingClaim(line)).toEqual([]);
+  });
+});
+
+describe('round 2 #17 — a repeated phrase', () => {
+  test('«حقك علي حقك علينا» loses the first copy', () => {
+    const r = v.validateResult(reply([textPart('حقك علي حقك علينا، منرتبها مع الفريق.')]), baseCtx());
+    expect(r.result.messages[0].text).toBe('حقك علينا، منرتبها مع الفريق.');
+    expect(r.blocks.map((b) => b.code)).toContain('stutter');
+  });
+
+  test('two different phrases that merely rhyme are left alone', () => {
+    for (const line of ['بدك قهوة بدك شاي؟', 'أهلًا وسهلًا فيك.', 'تمام تمام، منكمل.']) {
+      expect(v.dedupeStutter(line)).toBe(line);
+    }
+  });
+});
+
 describe('verdict matrix (§5.1)', () => {
   test('a digits block on attempt 1 → regenerate; on attempt 2 → fallback', () => {
     const r1 = v.validateResult(reply([textPart('باقتنا حوالي 50 دينار بالشهر.')]), baseCtx());
@@ -524,7 +657,8 @@ describe('verdict matrix (§5.1)', () => {
 
   test('CODES lists every code the validators emit', () => {
     expect(v.CODES).toEqual(['markdown', 'digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'identity',
-      'questions', 'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step']);
+      'questions', 'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step', 'training_claim',
+      'appointment_time', 'repeat_intro', 'stutter', 'privacy_notice']);
   });
 
   test('the old host literal never appears in validator output', () => {
@@ -899,5 +1033,75 @@ describe('review round 2 (validators)', () => {
     test.each(['بطلبلك مكالمة 15 دقيقة مع الفريق — أيهم أريح إلك؟', 'I can request a 15-minute call with the team.'])('D9: the call length is never named: %s', (line) => {
       expect(v.checkDigits(line, baseCtx())).toEqual([expect.objectContaining({ code: 'digits', detail: '15' })]);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Owner phone test, 15 Sep 2026: two claims the bot made about itself and about a customer's system.
+
+describe('the model is not trained by SHIFT (16:12:20)', () => {
+  test.each([
+    'أنا نموذج ذكاء اصطناعي مدرب خصيصًا كوكيل لخدمة العملاء وأتمتة الأعمال في شِفت.',
+    'أنا مدرّب خصيصاً على شغل شِفت.',
+    'إحنا درّبنا النموذج على بيانات شِفت.',
+    'طوّرناه بأنفسنا بشِفت.',
+    "I'm a custom-trained AI agent for SHIFT.",
+    'We trained the model on our own data.',
+  ])('«%s» is blocked', (line) => {
+    expect(v.checkTrainingClaim(line).map((b) => b.code)).toEqual(['training_claim']);
+  });
+
+  test.each([
+    'نفس محرّك كرم اللي بنركّبه عندك، بس بمعلومات شِفت.',
+    'بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت.',
+    'أنا كرم، مساعد شِفت الذكي.',
+    'The same Karam engine we set up at your place, but running on SHIFT\'s information.',
+  ])('«%s» passes', (line) => {
+    expect(v.checkTrainingClaim(line)).toEqual([]);
+  });
+
+  test('the claim is replaced by the approved wording, and the rest of the line stays', () => {
+    const line = 'أنا نموذج ذكاء اصطناعي مدرب خصيصًا كوكيل لخدمة العملاء في شِفت. كيف بقدر أساعدك؟';
+    const r = v.validateResult(reply([textPart(line)]), baseCtx());
+    const text = r.result.messages[0].text;
+    expect(text).toContain('بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت.');
+    expect(text).not.toContain('مدرب خصيص');
+    expect(text).toContain('كيف بقدر أساعدك؟');
+    expect(r.blocks.map((b) => b.code)).toContain('training_claim');
+  });
+
+  test('the English replacement', () => {
+    const r = v.validateResult(reply([textPart("I'm a custom-trained AI agent for SHIFT. How can I help?")]), baseCtx({ lang: 'en' }));
+    expect(r.result.messages[0].text).toContain('I run on an AI model, and my information comes from SHIFT.');
+    expect(r.result.messages[0].text).not.toMatch(/custom-trained/i);
+  });
+});
+
+describe('integrating a system nobody at SHIFT has seen (16:42:04)', () => {
+  const nexus = { batchTexts: ['إحنا عنا نظام nexus للمخزون'] };
+
+  test('naming the customer\'s system as connectable is an over-claim', () => {
+    expect(v.checkOverclaim('بنقدر نربط نظام nexus مع الواتساب أو التقويمات أو أي نظام ثاني.', baseCtx(nexus))
+      .map((b) => b.code)).toEqual(['overclaim']);
+    expect(v.checkOverclaim('We can connect Nexus to WhatsApp and your calendars.', baseCtx(nexus))
+      .map((b) => b.code)).toEqual(['overclaim']);
+  });
+
+  test('the generic statement and the honest check with the team stay allowed', () => {
+    expect(v.checkOverclaim('بنعمل ربط مخصص حسب النظام، والفريق بيتأكد إذا نظامك بيسمح بالربط.', baseCtx(nexus))).toEqual([]);
+    expect(v.checkOverclaim('بنقدر نربط كرم مع واتساب وجوجل كاليندر.', baseCtx(nexus))).toEqual([]);
+    // Round-2 review #13: a categorical «بنقدر نربط النظام» is the same promise whether or not the
+    // customer named the system, so this one is blocked now too.
+    expect(v.checkOverclaim('بنقدر نربط نظام nexus مع الواتساب.', baseCtx()))
+      .toEqual([{ code: 'overclaim', detail: 'integration:categorical' }]);
+    expect(v.checkOverclaim('أكيد بنقدر نربط الكاش ونقاط البيع مع النظام لتتبع المبيعات والمخزون.', baseCtx()))
+      .toEqual([{ code: 'overclaim', detail: 'integration:categorical' }]);
+    expect(v.checkOverclaim('شِفت بتعمل أتمتة مخصّصة، والفريق بيتأكد إذا نظامك بيسمح بالربط.', baseCtx())).toEqual([]);
+  });
+
+  test('the whole reply is regenerated, never sent as it is', () => {
+    const r = v.validateResult(reply([textPart('أكيد، بنقدر نربط نظام nexus مع الواتساب.')]), baseCtx(nexus));
+    expect(r.verdict).toBe('regenerate');
+    expect(r.blocks.map((b) => b.code)).toContain('overclaim');
   });
 });

@@ -26,19 +26,22 @@ const prefillParser = require('./prefill');
 const assets = require('./assets');
 const context = require('./context');
 const booking = require('./booking');
+const objectives = require('./objectives');
 const promptAr = require('./prompt.ar');
 const { mergeLead } = require('./lead');
 const { buildSystemPrompt, formatHistory, SHIFT_KNOWLEDGE } = require('./prompt');
 const {
-  toWorkflowResult, roleplayEndResult, isStageLocked, compose, MEDIA_TYPES,
+  toWorkflowResult, roleplayEndResult, isStageLocked, compose, MEDIA_TYPES, blockedReplyResult, slotOfferResult,
 } = require('./results');
 const { SHIFT_ACTIONS, NEXT_STEPS, actionSetFor } = require('./actions');
 
 const HISTORY_LIMIT = 12;
 const STAFF_ALERT_KIND = 'staff_alert';
 const RETRY_HISTORY = 6;
-// 25 s: live Gemini latency reached 12–17 s on 2026-09-15; the typing indicator covers the wait.
-const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 25000;
+// 30 s: attempt 1 is capped at 15 s, so 25 s left a hung first attempt only 10 s for the retry and two
+// of the six 2026-09-17 sims spent the whole budget on two aborts and answered «تأخر ردّي». 30 s gives
+// the retry a full 15 s (on a shrunk turn). Healthy calls are unaffected — p50 5.3 s, p90 12.1 s.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 30000;
 // Attempt B only when a whole model call still fits before the batch deadline (§10.1 step 10).
 const MIN_REGENERATE_MS = 4000;
 const VALIDATOR_BLOCKS_MAX = 20;
@@ -230,11 +233,33 @@ function buildVctx(r, ctx, { attempt, history, ai }) {
     return id === 'lead_call';
   });
 
+  // Round-2 review #2/#11: with booking on, only the server names a day and a time. A stored booking is
+  // the one true appointment; anything else the model puts on the table is invented.
+  const active = booking.activeBooking(wd, ctx.now);
+  const whenText = (start, tz) => {
+    const w = booking.whenParts(start, ctx.now, tz, ctx.lang);
+    return `${w.day} ${w.time}`;
+  };
+  const bookingWhen = active && active.start ? whenText(active.start, active.tz) : null;
+  // A stored REQUEST only grounds a day through its absolute start — never through its free text (#11).
+  const pt = lead.preferred_time;
+  const requestStart = pt && typeof pt === 'object' && pt.start ? pt.start : null;
+
   return {
     attempt,
     lang: ctx.lang,
     stage,
     action: r.action,
+    bookingEnabled: booking.bookingConfig(ctx.business).enabled,
+    // Whether we had ALREADY introduced ourselves before this turn — results sets disclosed_at on the
+    // very turn the intro goes out, so `disclosed` alone would strip the first introduction (#8).
+    disclosedBefore: (() => {
+      if (!wd.disclosed_at) return false;
+      const gap = objectives.gapHoursFrom(wd, [], ctx.now);
+      return !(gap !== null && gap >= 24);
+    })(),
+    booking: active ? { when: bookingWhen, status: active.status } : null,
+    requestWhen: requestStart ? whenText(requestStart, (pt && pt.tz) || undefined) : null,
     roleplayActive,
     disclosed: !!(wd.disclosed_at || wdp.disclosed_at),
     batchTexts: ctx.batchTexts,
@@ -400,26 +425,30 @@ function promptFor(ctx, history, hint) {
   }
   // The static prompt is per sector only (cache-eligible); everything that changes is in the user turn.
   // provider.js has no retry user-turn option (and is frozen for PR2), so the retry resends this turn.
+  const turnOpts = {
+    business,
+    conversation,
+    batchMessages,
+    history,
+    now,
+    lang,
+    offers,
+    prefill: ctx.prefill || null,
+    hint: hint || undefined,
+    // A re-run of the first reply to a site message is still the first reply the customer receives.
+    firstReply: ctx.prefillRerun ? true : undefined,
+  };
   return {
     system: promptAr.buildStaticPrompt({ sector: (wd.lead && wd.lead.sector) || undefined }),
     retrySystem: undefined,
-    user: context.buildUserTurn({
-      business,
-      conversation,
-      batchMessages,
-      history,
-      now,
-      lang,
-      offers,
-      prefill: ctx.prefill || null,
-      hint: hint || undefined,
-      // A re-run of the first reply to a site message is still the first reply the customer receives.
-      firstReply: ctx.prefillRerun ? true : undefined,
-    }),
+    user: context.buildUserTurn(turnOpts),
+    // Only used when an attempt timed out: the same turn on half the history, because prompt size is
+    // what the latency tracks (sims 2026-09-17: p90 7.6 s at ~4k tokens vs 12.5 s at ~6k).
+    retryUser: context.buildUserTurn({ ...turnOpts, historyTurns: RETRY_HISTORY }),
   };
 }
 
-async function callModel(ctx, history, { deadlineAt, onRetry, hint, firstAttemptMs }) {
+async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, firstAttemptMs }) {
   const set = actionSetFor();
   const prompt = promptFor(ctx, history, hint);
   const opts = {
@@ -434,13 +463,65 @@ async function callModel(ctx, history, { deadlineAt, onRetry, hint, firstAttempt
     nextSteps: NEXT_STEPS,
     conversationId: ctx.conversation.id,
   };
+  if (onBlocked) opts.onBlocked = onBlocked;
   if (prompt.retrySystem) opts.retrySystemPrompt = prompt.retrySystem;
+  if (prompt.retryUser && prompt.retryUser !== prompt.user) opts.retryUserMessage = prompt.retryUser;
   if (firstAttemptMs) opts.firstAttemptMs = firstAttemptMs;
   return generateValidatedAIReply(prompt.system, prompt.user, [], opts);
 }
 
-/** Steps 4 and 7–11 of §10.1: tier-1 handoff, prompt, model call, validators. */
-async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
+/**
+ * Round-2 review #6: «انت بوت ولا انسان جاوبني واضح» went unanswered twice — the digit guard stripped the
+ * competitor-price sentence with it and the stage fallback («ما بدي أعطيك جواب مش دقيق…») took its place.
+ * The honest line is owed whatever else the validators remove, so it is added back here, at the one point
+ * every reply passes through.
+ */
+const MAX_PARTS = 3;
+const IDENTITY_TEXT_MAX = 4096;
+
+function ensureIdentityAnswer(result, ctx) {
+  // A handoff is included: «خليني احكي مع إنسان واضح، إنت بوت ولا لأ؟» asks both things at once, and the
+  // transfer alone leaves the question hanging (sim round 2c, hostile/glm-5.3 turn 5).
+  if (!result) return result;
+  if (!(ctx.batchTexts || []).some(validators.isIdentityQuestion)) return result;
+  const honest = validators.HONEST_IDENTITY[ctx.lang === 'en' ? 'en' : 'ar'];
+  // A capture is re-rendered by the batcher from `capture.modelLine`, not from `messages`.
+  if (result.capture && !validators.isHonestIdentity(result.capture.modelLine)) {
+    const line = result.capture.modelLine;
+    result = { ...result, capture: { ...result.capture, modelLine: line ? `${honest}\n\n${line}` : honest } };
+    delete result.capture.modelReply;
+  }
+  const messages = result.messages || [];
+  if (messages.some((m) => m && validators.isHonestIdentity(m.text))) return result;
+  // A plain text part can carry it; an interactive body has its own tight limit, so the line goes in
+  // front as a message of its own while there is room for one.
+  const idx = messages.findIndex((m) => m && m.type === 'text' && typeof m.text === 'string' && m.text.trim());
+  if (idx >= 0 && Array.from(`${honest}\n\n${messages[idx].text}`).length <= IDENTITY_TEXT_MAX) {
+    const next = messages.slice();
+    next[idx] = { ...messages[idx], text: `${honest}\n\n${messages[idx].text}`.trim() };
+    return { ...result, messages: next };
+  }
+  if (messages.length < MAX_PARTS) return { ...result, messages: [{ type: 'text', text: honest }, ...messages] };
+  // Three parts already: the honest answer becomes a plain first part of its own. A fresh object, so a
+  // list's `sections` or an interactive's `buttons` do not travel with a part that no longer has them.
+  const next = messages.slice();
+  next[0] = { type: 'text', text: honest };
+  return { ...result, messages: next };
+}
+
+/**
+ * Steps 4 and 7–11 of §10.1: tier-1 handoff, prompt, model call, validators.
+ *
+ * The identity guarantee is applied to `capture.modelLine` too: for a CAPTURE_TIME the batcher rebuilds
+ * the parts from `result.capture` after the lead is saved, so a line injected into `messages` alone would
+ * be thrown away — and «إنت بوت ولا إنسان؟» sent in the same batch as a time would go unanswered, which
+ * is the failure #6 exists to prevent.
+ */
+async function answer(ctx, history, opts = {}) {
+  return ensureIdentityAnswer(await answerInner(ctx, history, opts), ctx);
+}
+
+async function answerInner(ctx, history, { deadlineAt, onRetry } = {}) {
   const { business, conversation, now, lang, joinedText } = ctx;
   const wd = conversation.workflow_data || {};
 
@@ -460,7 +541,14 @@ async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
   }
 
   const deadline = deadlineAt ?? now.getTime() + AI_DEADLINE_MS;
-  const ai = await callModel(ctx, history, { deadlineAt: deadline, onRetry });
+  // A generation the model refused is not a slow one: it never gets the «تأخر ردّي» line (2026-09-15).
+  let blockedReason = null;
+  const onBlocked = (reason) => { blockedReason = reason; };
+  const ai = await callModel(ctx, history, { deadlineAt: deadline, onRetry, onBlocked });
+  if (!ai && blockedReason) {
+    console.warn(`[shift] model refused to generate conversation=${conversation.id} reason=${blockedReason}`);
+    return blockedReplyResult(ctx, blockedReason);
+  }
   if (!ai) console.error(`[shift] AI failed for conversation=${conversation.id} — sending the fallback`);
   const r = toWorkflowResult(ai, ctx);
   if (ai && r.kind === 'handoff') return checkedHandoff(r, ctx, history, ai);
@@ -485,6 +573,18 @@ async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
       entries.push(blockEntry(v2, 2, now));
       if (v2.verdict === 'ok') return withBlocks(syncCapture(v2.result, r2), entries, wd);
       if (r2.action === r.action) base = r2;
+    }
+  }
+
+  // Round-2 review #2: an invented appointment is not answered with a generic line — it is answered with
+  // the real slots. Silence about the diary while the customer is asking for a time is what made the
+  // model improvise one in the first place.
+  const blockedCodes = new Set(entries.flatMap((e) => (e && e.codes) || []));
+  if (blockedCodes.has('appointment_time')) {
+    const offer = slotOfferResult(ctx, base);
+    if (offer) {
+      console.warn(`[shift] invented appointment replaced by the real slots conversation=${conversation.id}`);
+      return withBlocks(offer, entries, wd);
     }
   }
 
@@ -571,11 +671,21 @@ function prefillFor(ctx, history) {
   }
 }
 
+/**
+ * A `captured` conversation with only a call request is not locked against the calendar (owner phone test
+ * 2026-09-17): the customer may still turn that request into a real booking. `handoff` and `closed` are.
+ */
+function calendarUnlocked(ctx) {
+  return booking.calendarOpenAt(ctx.business, ctx.conversation, ctx.now);
+}
+
 function shouldOfferCalendar(ctx) {
   const conv = ctx.conversation;
   const wd = conv.workflow_data || {};
   if (!booking.bookingConfig(ctx.business).enabled) return false;
-  if (isStageLocked(conv) || roleplay.isActive(wd) || ROLEPLAY_STAGES.includes(conv.current_state)) return false;
+  if (roleplay.isActive(wd) || ROLEPLAY_STAGES.includes(conv.current_state)) return false;
+  if (isStageLocked(conv) && !calendarUnlocked(ctx)) return false;
+  if (conv.current_state === 'closed') return false;
   return !booking.activeBooking(wd, ctx.now) && !wantsPerson(ctx);
 }
 
@@ -621,9 +731,15 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
     // PR3: «بدي ألغي المكالمة» / «ممكن نغيّر الموعد؟» while a call is booked is deterministic (no model): a
     // cancel is confirmed with buttons first, a change gets the calendar's free slots.
     if (!roleplay.isActive(ctx.conversation.workflow_data || {}) && !wantsPerson(ctx)) {
-      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now);
+      // A call request with no event yet is answered here too (2026-09-17), but never from `handoff` or
+      // `closed`: those stages belong to the team and to the opt-out.
+      const requestOpen = !['handoff', 'closed'].includes(ctx.conversation.current_state);
+      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now, { requestOpen });
       if (intent === 'cancel') return booking.cancelAskResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
       if (intent === 'change') return await booking.changeTextResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
+      // «شو عن موعدنا؟» is a lookup, not small talk (round-2 review #12): it is answered from the record,
+      // with the absolute day and Amman time, and it says whether that record is a booking or a request.
+      if (intent === 'status') return booking.statusResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
     }
     // PR3: when a call can be booked, the offers are the calendar's free slots (`book:<iso>`). Unconfigured,
     // SHIFT_BOOKING=0 or a calendar error keeps PR2's window offers and their "request" semantics.

@@ -13,12 +13,14 @@
 const { SITE_HOST } = require('../../config/site');
 const acks = require('./acks');
 const roleplay = require('./roleplay');
+const hours = require('./hours');
 const { extractCustomerNumbers, normalize } = require('./lead');
 
 const OLD_HOST = ['shifts-ai', 'store'].join('.');
 
 const CODES = ['markdown', 'digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'identity', 'questions',
-  'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step'];
+  'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step', 'training_claim', 'appointment_time',
+  'repeat_intro', 'stutter', 'privacy_notice'];
 
 const ARABIC_LETTER_RE = /[ء-يٮ-ۓۺ-ۿ]/g;
 const LATIN_LETTER_RE = /[A-Za-z]/g;
@@ -254,6 +256,40 @@ function allowedNumberSet(vctx = {}) {
   return set;
 }
 
+/**
+ * A clock time in a sentence that arranges the call («نرتّب الموعد اليوم الساعة 12:00 تقريبًا») is a fact
+ * about an appointment, not a figure of speech: the customer never said 12:00 — they wrote «بعد ساعه»
+ * (owner phone test 2026-09-17, 16:52). Such a time is allowed only when the customer wrote it, or when
+ * the server put it on the table (a slot offer, the stored preferred time).
+ */
+const APPOINTMENT_RE = /موعد|مواعيد|المكالمة|مكالمة|نرتّب|نرتب|أرتّب|ارتب|نحجز|احجز|نثبّت|نثبت|نحكيك|نحكي معك|اجتماع|\bappointment\b|\bthe call\b|\ba call\b|\bmeeting\b|\bschedul\w*\b|\bbook\w*\b/i;
+
+/** A time OF DAY, not a duration: «الساعة 12», «12:00», «5 مساءً», "at 5pm" (never «قبل 24 ساعة»). */
+function isClockTimeOfDay(text, n) {
+  const before = text.slice(0, n.start);
+  const after = text.slice(n.end);
+  if (/^:\d{2}/.test(after)) return true;
+  if (DURATION_UNIT_RE.test(after)) return false;
+  const clockValue = typeof n.value === 'number' && n.value >= 0 && n.value <= 24;
+  if (clockValue && (/(?:الساعة|الساعه)\s*$/.test(before) || /\bat\s*$/i.test(before))) return true;
+  return TIME_UNIT_RE.test(after) && !DURATION_UNIT_RE.test(after);
+}
+
+/** Numbers the server itself put in front of the customer: offered slot titles and the stored time. */
+function serverTimeNumbers(vctx = {}) {
+  const set = new Set();
+  const add = (text) => {
+    for (const v of extractCustomerNumbers(String(text || ''))) {
+      const c = canonicalOf(v);
+      if (c !== null) set.add(c);
+    }
+  };
+  for (const o of Array.isArray(vctx.offers) ? vctx.offers : []) add(o && o.title);
+  const pt = vctx.lead && vctx.lead.preferred_time;
+  add(typeof pt === 'string' ? pt : (pt && pt.text) || '');
+  return set;
+}
+
 function clauseBounds(text, index) {
   let start = 0;
   let end = text.length;
@@ -279,6 +315,7 @@ function checkDigits(line, vctx = {}) {
   const money = spans(text, MONEY_KEYWORDS_RE);
   let allowed = null;
   let verbatim = null;
+  let serverTimes = null;
   const blocks = [];
   for (const n of findNumbers(text)) {
     if (isCallLength(text, n)) {
@@ -286,7 +323,17 @@ function checkDigits(line, vctx = {}) {
       continue;
     }
     if (!inClaimContext(text, n, keywords, money)) continue;
-    if (isTimeNumber(text, n, money)) continue;
+    if (isTimeNumber(text, n, money)) {
+      if (!isClockTimeOfDay(text, n) || !APPOINTMENT_RE.test(clauseAt(text, n.start))) continue;
+      // The minutes of a clock time belong to the hour beside them, not to a claim of their own.
+      if (/\d{1,2}:$/.test(text.slice(0, n.start))) continue;
+      const clock = n.value === null || n.value === undefined ? null : roleplay.canonical(n.value);
+      allowed = allowed || allowedNumberSet(vctx);
+      serverTimes = serverTimes || serverTimeNumbers(vctx);
+      if (clock === null || allowed.has(clock) || serverTimes.has(clock)) continue;
+      blocks.push({ code: 'digits', detail: n.raw });
+      continue;
+    }
     if (isConsentDelay(text, n, money)) continue;
     if (isQuotedFromCustomer(text, n, vctx) && !affirmsOffer(text, n)) continue;
     const value = n.value === null || n.value === undefined ? null : roleplay.canonical(n.value);
@@ -331,10 +378,97 @@ function checkGuarantee(line, vctx = {}) {
   return m ? [{ code: 'guarantee', detail: m[0] }] : [];
 }
 
-function checkOverclaim(line) {
+function checkOverclaim(line, vctx = {}) {
   const s = String(line || '');
   const m = OVERCLAIM_RE.exec(s);
-  return m && !OVERCLAIM_OK_RE.test(s) ? [{ code: 'overclaim', detail: m[0] }] : [];
+  if (m && !OVERCLAIM_OK_RE.test(s)) return [{ code: 'overclaim', detail: m[0] }];
+  return checkIntegrationClaim(s, vctx);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// §5.4 (b″) integrating a named third-party system
+//
+// Owner phone test 2026-09-15, 16:42: the customer said they run «نظام nexus» and the reply promised
+// «بنقدر نربط نظام nexus مع الواتساب أو التقويمات أو أي نظام ثاني» — a capability promise about a system
+// nobody at SHIFT has seen. The generic statement that SHIFT builds integrations stays allowed, as does
+// «الفريق بيتأكد إذا نظامك بيسمح بالربط»; naming the customer's system as connectable does not.
+
+const CONNECT_CLAIM_RE = /(?:بنقدر|منقدر|بقدر|نقدر|فينا|بنعرف|رح|بن)\s*(?:نربط|نربطه|نربطها|نوصل|نوصله|ندمج|ندمجه|نركّب|نركب)|\bwe can (?:connect|integrate|link|hook up|plug)\b|\bcan be (?:connected|integrated|linked)\b|\bwe(?:'ll| will) (?:connect|integrate|link)\b/i;
+// Systems SHIFT names in its own material: saying these can be connected is not a claim about an unknown one.
+const KNOWN_SYSTEM_RE = /^(?:واتساب|whatsapp|جوجل|google|التقويم|التقويمات|calendar|انستغرام|instagram|فيسبوك|facebook|shopify|شوبيفاي|zapier|make|n8n|كرم|karam|shift|شِفت|شفت|إكسل|اكسل|excel|sheets|شيتس)$/i;
+const SYSTEM_NAME_RE = /(?:نظام|النظام|برنامج|البرنامج|سيستم|السيستم|\bsystem\b|\bsoftware\b|\bplatform\b|\bERP\b|\bPOS\b)\s+(?:اسمه\s+|called\s+|named\s+)?([A-Za-z][A-Za-z0-9._+-]{2,}|[\u0621-\u064A]{3,})/gi;
+
+function escapeRe(v) {
+  return String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Third-party systems the customer named in their own messages. */
+function customerSystemNames(vctx) {
+  const names = new Set();
+  for (const t of customerTexts(vctx)) {
+    SYSTEM_NAME_RE.lastIndex = 0;
+    for (const m of String(t).matchAll(SYSTEM_NAME_RE)) {
+      const name = m[1];
+      if (name && !KNOWN_SYSTEM_RE.test(name)) names.add(name);
+    }
+  }
+  return names;
+}
+
+// Round-2 review #13: «أكيد بنقدر نربط الكاش ونقاط البيع مع النظام لتتبع المبيعات والمخزون» names no
+// system and still passed — a categorical promise about the customer's own equipment is the same claim
+// as naming it. What stays allowed is the generic statement that SHIFT builds custom integrations, and
+// that the team will check whether a particular setup can be connected.
+const CONNECT_OBJECT_RE = /(?:نظام|النظام|نظامك|أنظمة|الأنظمة|أنظمتك|برنامج|البرنامج|برنامجك|جهاز|أجهزة|الأجهزة|الكاش|الكاشير|كاشير|نقاط البيع|نقطة البيع|المخزون|الفواتير|الحسابات|المبيعات|قاعدة البيانات|الموقع|متجرك|\bPOS\b|\bERP\b|\bcash register\b|\bpoint of sale\b|\binventory\b|\byour (?:system|systems|software|setup|pos|till)\b)/i;
+// The honest shapes: a conditional, or a statement that the team checks first.
+const CONNECT_OK_RE = /بيتأكد|بنتأكد|منتأكد|بيشوف(?:وا)? إذا|بنشوف إذا|منشوف إذا|إذا بيسمح|اذا بيسمح|بيعتمد على|حسب النظام|الفريق (?:بي|ب)?(?:تأكد|شوف|حدد|درس)|بدها دراسة|محتاج(?:ة)? دراسة|\bthe team (?:will |can )?(?:check|confirm|look|assess|review)\b|\bdepends on\b|\bif (?:it|your system) (?:supports|allows)\b/i;
+
+function checkIntegrationClaim(line, vctx = {}) {
+  if (!CONNECT_CLAIM_RE.test(line)) return [];
+  for (const name of customerSystemNames(vctx)) {
+    if (new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, 'iu').test(line)) {
+      return [{ code: 'overclaim', detail: `integration:${name}` }];
+    }
+  }
+  if (CONNECT_OBJECT_RE.test(line) && !CONNECT_OK_RE.test(line)) {
+    return [{ code: 'overclaim', detail: 'integration:categorical' }];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The model is not trained by SHIFT
+//
+// Owner phone test 2026-09-15, 16:12: «أنا نموذج ذكاء اصطناعي مدرب خصيصًا كوكيل لخدمة العملاء وأتمتة
+// الأعمال في شِفت.» Karam is a general model with SHIFT's information in the prompt. The prompt's own
+// intro («نفس محرّك كرم اللي بنركّبه عندك، بس بمعلومات شِفت») stays allowed.
+
+const TRAINING_CLAIM_RE = /مدرب خصيص|مدرّب خصيص|مدربة خصيص|مدرّبة خصيص|مدرب عند|مدرّب عند|مدربني|درّبوني|دربوني|درّبني|دربني|درّبناه|دربناه|درّبنا|دربنا\s+النموذج|طوّرناه|طورناه|طوّرنا النموذج|طورنا النموذج|صنعناه|صنعنا النموذج|بنيناه|بنينا النموذج|صمّمناه|صممناه|نموذج خاص فينا|نموذجنا الخاص|طوّرته|طورته|طوّرتها|طورتها|طوّرته شركة|طورته شركة|طوّرناها|طورناها|صنعته|صنعتها|بنته|بنتها|صمّمته|صممته|محرك تبعنا|المحرك تبعنا|محركنا|نموذج تبعنا|النموذج تبعنا|نموذج شِفت|نموذج شفت|محرك شِفت الخاص|\bcustom[- ]trained\b|\btrained (?:me )?specifically\b|\bspecially trained\b|\bwe (?:trained|built|developed|created|made) (?:the |our |this )?(?:model|ai|me)\b|\bour own (?:model|ai)\b|\bbuilt in[- ]house\b/i;
+
+const TRAINING_HONEST = {
+  ar: 'بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت.',
+  en: "I run on an AI model, and my information comes from SHIFT.",
+};
+
+function checkTrainingClaim(line) {
+  const m = TRAINING_CLAIM_RE.exec(String(line || ''));
+  return m ? [{ code: 'training_claim', detail: m[0] }] : [];
+}
+
+/** The sentences that claim SHIFT trained the model, replaced by the approved wording. */
+function withApprovedTraining(line, lang) {
+  const approved = TRAINING_HONEST[lang === 'en' ? 'en' : 'ar'];
+  const sentences = splitSentences(line);
+  if (!sentences.length) return approved;
+  let used = false;
+  const out = sentences.map((sentence) => {
+    if (!TRAINING_CLAIM_RE.test(sentence)) return sentence;
+    if (used) return '';
+    used = true;
+    const tail = /\s$/.test(sentence) ? ' ' : '';
+    return `${approved}${tail}`;
+  });
+  return out.join('').trim() || approved;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -390,6 +524,189 @@ function checkClaimedAction(line, vctx = {}) {
     if (!isNegated(s, m.index)) blocks.push({ code: 'claimed_action', detail: m[0] });
   }
   return blocks;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Round-2 review #2/#10/#11 — an appointment the server never made
+//
+// The sandbox stayed shut in the 2026-09-17 sims, so the model improvised a diary on SHIFT's own number:
+// «أقرب موعد متوفر هو الأحد الساعة 10:00 الصبح» and «تمام دكتورة رنا، تثبّت موعد بكرا الساعة 11 الصبح».
+// The digit guard let both through because the customer had typed 10 and 11 herself (her opening hours).
+// A day and a time are not figures: with booking on, only the server offers a slot, and only a stored
+// booking has one. Anything else is replaced by the real offer.
+
+const DAY_WORD_RE = new RegExp(
+  `(?:${hours.WEEKDAYS_AR.join('|')}|بكرا|بكرة|بكره|اليوم|بعد بكرا|بعد بكرة|${hours.WEEKDAYS_EN.join('|')}|today|tomorrow)`,
+  'gi',
+);
+// «الساعة 10», «10:30», «10 الصبح», "at 10", "10am" — a time of day, never a duration.
+const CLOCK_RE = /(?:الساعة|الساعه|\bat\s)\s*([0-9٠-٩۰-۹]{1,2})(?:\s*[:٫.]\s*([0-9٠-٩۰-۹]{2}))?|\b([0-9٠-٩۰-۹]{1,2})\s*[:]\s*([0-9٠-٩۰-۹]{2})\b|\b([0-9٠-٩۰-۹]{1,2})\s*(?:الصبح|الصباح|المسا|المساء|الظهر|العصر|am|pm)\b/gi;
+// The line does not merely discuss appointments — it puts one on the table.
+const SLOT_ASSERT_RE = /أقرب موعد|اقرب موعد|أقرب وقت|اقرب وقت|موعد متوفر|موعد متاح|متوفر(?:ة)? (?:هو|يوم|بكرا|اليوم)|بثبتلك|بثبّتلك|تثبّت(?:لك)? موعد|تثبت(?:لك)? موعد|بحجزلك|بنحجزلك|منحجزلك|بستناك|بنستناك|بنحكيك|بيحكوا معك|بيتصلوا فيك|بيتصلوا عليك|رح نحكيك|رح يتصلوا|(?:ال)?(?:موعد|مكالمة|اتصال)ك?\s+(?:هو|بكرا|بكرة|اليوم|يوم|الساعة|بين)|(?:اتصال|مكالمة)\s+(?:بكرا|بكرة|اليوم|يوم|الساعة)|\bearliest (?:available|slot|time)\b|\bnext available\b|\bis available (?:on|at)\b|\bI(?:'ll| will) (?:book|hold|put) you\b|\byour (?:slot|appointment) is\b|\b(?:they|the team) will call you (?:tomorrow|today|at|between)\b/i;
+
+function normalizeDayToken(token) {
+  const t = normalize(token);
+  if (/^(?:بكرا|بكرة|بكره|tomorrow)$/.test(t)) return 'tomorrow';
+  if (/^(?:اليوم|today)$/.test(t)) return 'today';
+  const en = hours.WEEKDAYS_EN.findIndex((w) => w.toLowerCase() === t.toLowerCase());
+  if (en >= 0) return `wd${en}`;
+  const ar = hours.WEEKDAYS_AR.findIndex((w) => normalize(w) === t);
+  return ar >= 0 ? `wd${ar}` : t;
+}
+
+function dayTokens(text) {
+  const out = new Set();
+  for (const m of String(text || '').matchAll(DAY_WORD_RE)) out.add(normalizeDayToken(m[0]));
+  return out;
+}
+
+function clockTokens(text) {
+  const out = new Set();
+  const s = roleplay.toWesternDigits(String(text || ''));
+  for (const m of s.matchAll(CLOCK_RE)) {
+    const hh = m[1] || m[3] || m[5];
+    if (hh === undefined) continue;
+    const n = Number(hh);
+    if (!Number.isFinite(n) || n > 24) continue;
+    out.add(String(n % 12));
+  }
+  return out;
+}
+
+/**
+ * Every day, time and day+time PAIR the server or the customer has put on the table RIGHT NOW.
+ *
+ * Pairs, not two independent sets: the clinic had typed «الدوام من ١٠ الصبح ل ٨ المسا» and the team was
+ * offering «الأحد 9:00 الصبح», so «الأحد» and «10» were each "known" — and «أقرب موعد متوفر هو الأحد
+ * الساعة 10:00 الصبح» was a diary entry nobody had made.
+ *
+ * Round-2 review #11: a DAY may only come from something absolute — the team's current offers, the stored
+ * booking or request re-rendered for today (vctx.bookingWhen / vctx.requestWhen), or what the customer
+ * typed in THIS batch. Old chat text is not a date: «بتابع معك الموعد بكرا بين 10 و12» on 17 Sep was a
+ * window copied out of a conversation from another day. An hour alone carries no day, so a clock value
+ * may also come from the stored request's own words and from older messages.
+ */
+function whenKeysOf(text) {
+  const days = dayTokens(text);
+  const times = clockTokens(text);
+  const keys = new Set();
+  for (const d of days) {
+    keys.add(`d:${d}`);
+    for (const t of times) keys.add(`${d}|${t}`);
+  }
+  for (const t of times) keys.add(`t:${t}`);
+  return keys;
+}
+
+function groundedWhen(vctx = {}) {
+  const keys = new Set();
+  const addAll = (set) => { for (const k of set) keys.add(k); };
+  // Absolute sources: each one grounds its own day, its own time, and their pairing.
+  for (const o of Array.isArray(vctx.offers) ? vctx.offers : []) if (o && o.title) addAll(whenKeysOf(o.title));
+  const booked = vctx.booking && typeof vctx.booking === 'object' ? vctx.booking : null;
+  if (booked && booked.when) addAll(whenKeysOf(booked.when));
+  if (vctx.requestWhen) addAll(whenKeysOf(vctx.requestWhen));
+  for (const t of Array.isArray(vctx.batchTexts) ? vctx.batchTexts : []) addAll(whenKeysOf(t));
+  // Hour-only sources: the stored request's free text and older messages ground a clock value, never a day.
+  const pt = vctx.lead && vctx.lead.preferred_time;
+  const loose = [typeof pt === 'string' ? pt : (pt && pt.text) || '', ...customerTexts(vctx)];
+  for (const t of loose) for (const v of clockTokens(t)) keys.add(`t:${v}`);
+  return keys;
+}
+
+function checkAppointmentTime(line, vctx = {}) {
+  if (vctx.roleplayActive || !vctx.bookingEnabled) return [];
+  const s = String(line || '');
+  // SLOT_ASSERT_RE is the whole gate: «وبيحكوا معك اتصال بكرا بين 10 و12» names no «موعد» and is still a
+  // promise of a call at a named time (round-2 review #10).
+  if (!SLOT_ASSERT_RE.test(s)) return [];
+  const days = dayTokens(s);
+  const times = clockTokens(s);
+  if (!days.size && !times.size) return [];
+  const grounded = groundedWhen(vctx);
+  const ungrounded = [];
+  if (days.size && times.size) {
+    for (const d of days) for (const t of times) if (!grounded.has(`${d}|${t}`)) ungrounded.push(`${d}|${t}`);
+  } else if (days.size) {
+    for (const d of days) if (!grounded.has(`d:${d}`)) ungrounded.push(d);
+  } else {
+    for (const t of times) if (!grounded.has(`t:${t}`)) ungrounded.push(t);
+  }
+  if (!ungrounded.length) return [];
+  return [{ code: 'appointment_time', detail: ungrounded.join(',').slice(0, 60) }];
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Round-2 review #8 — one introduction per conversation
+//
+// «أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم…» arrived at turn 9 after the same opener at
+// turns 1 and 4. The `disclosed` flag was already in the prompt; it is now enforced.
+
+const INTRO_RE = /(?:أنا|انا)\s+كرم[،,]?\s*(?:مساعد|المساعد)\s+شِ?فت\s+الذكي|\bI'?m Karam,? (?:SHIFT'?s|the SHIFT) AI assistant\b/i;
+// The honest answer to «إنت بوت؟» opens the same way and must never be stripped as a repeat intro.
+// NOT a bare \bAI\b: «shifts-ai.com» matches that, and the repeat intro carries the host.
+const INTRO_KEEP_RE = /ذكاء اصطناعي|مش شخص|بحوّلك|بحولك|\bnot a (?:person|human)\b|\(an AI\)|\bartificial intelligence\b|\btransfer you\b/i;
+
+function checkRepeatIntro(line, vctx = {}) {
+  if (!vctx.disclosedBefore || (vctx.batchTexts || []).some(isIdentityQuestion)) return [];
+  const m = splitSentences(line).find((sentence) => INTRO_RE.test(sentence) && !INTRO_KEEP_RE.test(sentence));
+  return m ? [{ code: 'repeat_intro', detail: m.trim().slice(0, 60) }] : [];
+}
+
+/** The repeated introduction removed; everything else the model said stays. */
+function withoutRepeatIntro(line) {
+  const sentences = splitSentences(line);
+  const kept = sentences.filter((sentence) => !(INTRO_RE.test(sentence) && !INTRO_KEEP_RE.test(sentence)));
+  return kept.join('').replace(/\s{2,}/g, ' ').trim();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Round-2 review #17 — «حقك علي حقك علينا»
+//
+// An immediately repeated phrase of two or more words, where the second is the first with a different
+// ending. Cheap, and it only ever deletes the earlier copy of something the line says twice.
+
+const STUTTER_MAX_WORDS = 6;
+
+/**
+ * The same word, or the same word with a different ending («علي» / «علينا»). Deliberately narrow: one
+ * must be a prefix of the other, so «كلمة97» and «كلمة98» — or «قهوة» and «شاي» — are never "the same".
+ */
+function similarWord(a, b) {
+  if (a === b) return true;
+  if (/\d/.test(a) || /\d/.test(b)) return false;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.length < 3 || long.length - short.length > 2) return false;
+  return long.startsWith(short);
+}
+
+function dedupeStutter(line) {
+  const s = String(line || '');
+  const words = s.split(/(\s+)/);
+  const tokens = [];
+  for (let i = 0; i < words.length; i += 2) tokens.push({ word: words[i], gap: words[i + 1] || '' });
+  const norm = tokens.map((t) => normalize(t.word).replace(/[^\p{L}\p{N}]/gu, ''));
+  for (let n = STUTTER_MAX_WORDS; n >= 2; n -= 1) {
+    for (let i = 0; i + 2 * n <= tokens.length; i += 1) {
+      if (norm.slice(i, i + n).some((w) => !w)) continue;
+      let same = true;
+      let exact = false;
+      for (let k = 0; k < n; k += 1) {
+        if (!similarWord(norm[i + k], norm[i + n + k])) { same = false; break; }
+        if (norm[i + k] === norm[i + n + k]) exact = true;
+      }
+      // At least one word repeated verbatim: two merely similar phrases are not a stutter.
+      if (!same || !exact) continue;
+      const out = [...tokens.slice(0, i), ...tokens.slice(i + n)];
+      return dedupeStutter(out.map((t, idx) => t.word + (idx === out.length - 1 ? '' : (t.gap || ' '))).join('').trim());
+    }
+  }
+  return s;
+}
+
+function checkStutter(line) {
+  const cleaned = dedupeStutter(line);
+  return cleaned === String(line || '') ? [] : [{ code: 'stutter', detail: cleaned.slice(0, 60) }];
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -896,6 +1213,8 @@ function hintFor(code, lang) {
       return 'ردك السابق فيه ضمانة أو ادعاء. الفائدة هدف مش نتيجة، ونفس المحرّك بس بمعلومات شِفت.';
     case 'claimed_action':
       return 'لا تقل سجّلت أو حجزت أو بعثت. النظام بيضيف التأكيد. قل «بحطها بالحسبان» أو «بلاحظ».';
+    case 'training_claim':
+      return 'ما حدا بشِفت درّب النموذج. قل: «بشتغل على نموذج ذكاء اصطناعي، ومعلوماتي من شِفت».';
     case 'identity':
       return 'العميل سأل إذا إنت بوت: جاوب بصدق إنك كرم، مساعد شِفت الذكي (ذكاء اصطناعي)، واعرض التحويل لشخص.';
     case 'language':
@@ -904,6 +1223,10 @@ function hintFor(code, lang) {
       return 'سؤال واحد بس بآخر الرد.';
     case 'link':
       return `لا تكتب أي رابط غير ${SITE_HOST} وصفحاته المسموحة.`;
+    case 'appointment_time':
+      return 'لا تذكر يوم أو ساعة لموعد أو مكالمة. النظام بيعرض الأوقات المتاحة بأزرار — اكتفِ بعرض المكالمة.';
+    case 'repeat_intro':
+      return 'عرّفت بنفسك قبل هيك: لا تعيد التعريف.';
     default:
       return null;
   }
@@ -941,6 +1264,13 @@ function checkModelLine(input, vctx, attempt) {
     line = HONEST_IDENTITY[vctx.lang === 'en' ? 'en' : 'ar'];
   }
 
+  // SHIFT did not train the model: the claim is replaced by the approved wording, whatever else was said.
+  const training = checkTrainingClaim(line);
+  if (training.length) {
+    events.push(...training);
+    line = withApprovedTraining(line, vctx.lang);
+  }
+
   const identity = checkIdentity(line, vctx);
   if (identity.length) {
     if (attempt >= 2) {
@@ -951,10 +1281,30 @@ function checkModelLine(input, vctx, attempt) {
     }
   }
 
+  // Round-2 review #8: the introduction is removed, not regenerated — the rest of the line is fine.
+  const intro = checkRepeatIntro(line, vctx);
+  if (intro.length) {
+    const without = withoutRepeatIntro(line);
+    if (without) {
+      events.push(...intro);
+      line = without;
+    } else {
+      events.push(...regen(intro));
+    }
+  }
+
+  // Round-2 review #17: «حقك علي حقك علينا» — the earlier copy goes, nothing else changes.
+  const stutter = checkStutter(line);
+  if (stutter.length) {
+    events.push(...stutter);
+    line = dedupeStutter(line);
+  }
+
   events.push(...regen(checkDigits(line, vctx)));
   events.push(...regen(checkGuarantee(line, vctx)));
-  events.push(...regen(checkOverclaim(line)));
+  events.push(...regen(checkOverclaim(line, vctx)));
   events.push(...regen(checkClaimedAction(line, vctx)));
+  events.push(...regen(checkAppointmentTime(line, vctx)));
   events.push(...regen(checkLanguage(line, vctx.lang)));
   return { line, events };
 }
@@ -974,6 +1324,28 @@ function withModelLine(part, newLine) {
   const replaced = replaceSegment(part.text, part.modelLine, newLine);
   const text = replaced !== null ? replaced : [newLine, part.ack].filter(Boolean).join('\n\n');
   return { ...part, text, modelLine: newLine };
+}
+
+/**
+ * Round-2 review #5 — the privacy notice is atomic: whole or absent, never a fragment.
+ *
+ * Whatever trimmed the reply, a bare «shifts-ai.com/privacy)» with no «(بنستخدم …» in front of it is a
+ * torn notice. It is put back whole rather than left as a stray URL and a stray bracket.
+ */
+const PRIVACY_WHOLE_RE = /\((?:بنستخدم|we use what you write)[^)]*\/privacy\)/i;
+// NOT global: one torn notice is restored once, and a part that already carries a whole one is skipped
+// above — two insertions would read the notice back to the customer one and a half times.
+const PRIVACY_ORPHAN_RE = /[ \t]*(?:—|-)?[ \t]*(?:التفاصيل|details)?[ \t]*[:：]?[ \t]*[A-Za-z0-9.\-/]*\/privacy\)/i;
+// The head of a notice a length split left in the previous part: its tail must not be restored whole.
+const PRIVACY_HEAD_RE = /\((?:بنستخدم|we use what you write)/i;
+
+function repairPrivacyNotice(text, lang, { headElsewhere = false } = {}) {
+  const s = String(text == null ? '' : text);
+  if (!/\/privacy\)/.test(s) || PRIVACY_WHOLE_RE.test(s)) return { text: s, repaired: false };
+  // A split put the notice's opening in the part before this one: the two halves are still one notice.
+  if (headElsewhere) return { text: s, repaired: false };
+  const out = s.replace(PRIVACY_ORPHAN_RE, ` ${acks.purposeLine(lang)}`).replace(/[ \t]{2,}/g, ' ').trim();
+  return { text: out, repaired: out !== s };
 }
 
 const TEXT_BEARING = ['text', 'interactive', 'list', 'cta_url'];
@@ -1180,6 +1552,17 @@ function validateResult(result, vctx = {}) {
       // A text fallback of injected buttons carries the words the buttons part ends up with, after any split.
       .map((p) => (p && p.fallback && p.fallback.type === 'text' && !p.serverButtons ? { ...p, fallback: { type: 'text', text: p.text } } : p));
 
+    // The privacy notice survives every trim above whole, or not at all (#5).
+    const noticeHeadSeen = messages.some((p) => p && typeof p.text === 'string'
+      && PRIVACY_HEAD_RE.test(p.text) && !PRIVACY_WHOLE_RE.test(p.text));
+    messages = messages.map((p) => {
+      if (!p || !TEXT_BEARING.includes(p.type)) return p;
+      const fixed = repairPrivacyNotice(p.text, ctx.lang, { headElsewhere: noticeHeadSeen });
+      if (!fixed.repaired) return p;
+      events.push({ code: 'privacy_notice', detail: 'restored' });
+      return { ...p, text: fixed.text };
+    });
+
     out = { ...out, messages };
     // g: next_step → last_bot
     const repaired = repairNextStep(out, { next_step: ctx.modelNextStep }, { stage: ctx.stage, now: ctx.now });
@@ -1218,9 +1601,17 @@ module.exports = {
   checkDigits,
   checkGuarantee,
   checkOverclaim,
+  checkTrainingClaim,
   checkClaimedAction,
+  checkAppointmentTime,
+  checkRepeatIntro,
+  withoutRepeatIntro,
+  checkStutter,
+  dedupeStutter,
+  repairPrivacyNotice,
   checkHumanClaim,
   isIdentityQuestion,
+  isHonestIdentity,
   checkIdentity,
   countQuestions,
   trimQuestions,

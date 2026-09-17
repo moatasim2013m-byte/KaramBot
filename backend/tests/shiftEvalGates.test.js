@@ -21,6 +21,8 @@ jest.mock('../src/config/prisma', () => require('./helpers/fakeDb').getFakeDb().
 jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb);
 jest.mock('axios', () => require('../scripts/eval-shift').fakes.axios);
 jest.mock('@google/generative-ai', () => require('../scripts/eval-shift').fakes.gemini);
+// Scenarios 16 and 17 book, move and cancel a real event: the calendar client is faked the same way.
+jest.mock('../src/services/googleCalendar', () => require('../scripts/eval-shift').fakes.calendar);
 
 const fs = require('fs');
 const path = require('path');
@@ -224,9 +226,9 @@ describe('eval replay — all scenarios through the real pipeline (no network)',
   });
   afterAll(() => logSpy.forEach((s) => s.mockRestore()));
 
-  test('the scenario list covers eval conversations 1–15', () => {
+  test('the scenario list covers eval conversations 1–15, plus the two booking paths (16, 17)', () => {
     const groups = new Set(scenarios.ALL.map((s) => String(s.id).replace(/[a-z]$/, '')));
-    expect([...groups].sort((a, b) => a - b)).toEqual(Array.from({ length: 15 }, (_, i) => String(i + 1)));
+    expect([...groups].sort((a, b) => a - b)).toEqual(Array.from({ length: 17 }, (_, i) => String(i + 1)));
   });
 
   test('scenario 12 references the reliability suites that already cover the rest', () => {

@@ -697,8 +697,8 @@ describe('runBatch', () => {
     });
     await batcher.runBatch(conv.id);
     await settle();
-    // 25 s: live Gemini latency reached 12–17 s (2026-09-15), so the old 18 s cut good replies off.
-    expect(budgetMs).toBe(25000);
+    // 30 s: 15 s for attempt 1 and a full 15 s for a retry after it hangs (round-2 review #3).
+    expect(budgetMs).toBe(30000);
     expect(whatsapp.markAsRead).toHaveBeenCalledWith('pnid_shift', 'plain_test_token', a.meta_message_id, { typing: true });
   });
 });
