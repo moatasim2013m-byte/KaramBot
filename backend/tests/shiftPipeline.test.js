@@ -503,6 +503,38 @@ describe('review round 2: the example opens on the customer\'s own setup answer'
   });
 });
 
+describe('review round 2: the identity answer and the invented diary', () => {
+  test('#6 an identity question is answered even when the digit guard takes the line', async () => {
+    const { conv } = seedShift({ current_state: 'fit', workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() } });
+    // The competitor price is a digits block, so both attempts end in the stage fallback — which used to
+    // be «ما بدي أعطيك جواب مش دقيق…» with the identity answer nowhere in it.
+    const priced = { reply: 'واحد بعملها بخمسين دينار بس إحنا أفضل.', action: 'NONE', stage: 'fit', next_step: 'question' };
+    script(priced, priced);
+
+    const { parts } = await turn(conv, ['انت بوت ولا انسان جاوبني واضح', 'وبعدين لقيت واحد بعملها بخمسين دينار']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('مساعد شِفت الذكي');
+    expect(body).toContain('ذكاء اصطناعي');
+    expect(body).not.toMatch(/خمسين|50/);
+  });
+
+  test('#2 an invented appointment is replaced by the team\'s real slots', async () => {
+    process.env.SHIFT_SALES_CALENDAR_ID = 'sim-sales-calendar@group.calendar.google.invalid';
+    const { conv } = seedShift({ current_state: 'close', workflow_data: { lead: { sector: 'clinic', name: 'رنا', version: 1 }, bot_turns: 6, disclosed_at: START.toISOString() } });
+    const invented = { reply: 'أقرب موعد متوفر هو الأحد الساعة 7:00 الصبح.', action: 'NONE', stage: 'close', next_step: 'question' };
+    script(invented, invented);
+
+    const { parts } = await turn(conv, ['متى في وقت متاح للمكالمة؟']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).not.toContain('أقرب موعد متوفر');
+    expect(body).toContain(acks.slotsBody('ar'));
+    expect(parts.some((p) => p.type === 'interactive')).toBe(true);
+    delete process.env.SHIFT_SALES_CALENDAR_ID;
+  });
+});
+
 describe('integration fixes', () => {
   test('a tier-2 handoff whose model line invents a price → the fixed handoff line, ack and alert kept, one model call', async () => {
     const { conv } = seedShift({ current_state: 'discovery' });

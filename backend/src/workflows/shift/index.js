@@ -26,11 +26,12 @@ const prefillParser = require('./prefill');
 const assets = require('./assets');
 const context = require('./context');
 const booking = require('./booking');
+const objectives = require('./objectives');
 const promptAr = require('./prompt.ar');
 const { mergeLead } = require('./lead');
 const { buildSystemPrompt, formatHistory, SHIFT_KNOWLEDGE } = require('./prompt');
 const {
-  toWorkflowResult, roleplayEndResult, isStageLocked, compose, MEDIA_TYPES, blockedReplyResult,
+  toWorkflowResult, roleplayEndResult, isStageLocked, compose, MEDIA_TYPES, blockedReplyResult, slotOfferResult,
 } = require('./results');
 const { SHIFT_ACTIONS, NEXT_STEPS, actionSetFor } = require('./actions');
 
@@ -232,11 +233,27 @@ function buildVctx(r, ctx, { attempt, history, ai }) {
     return id === 'lead_call';
   });
 
+  // Round-2 review #2/#11: with booking on, only the server names a day and a time. A stored booking is
+  // the one true appointment; anything else the model puts on the table is invented.
+  const active = booking.activeBooking(wd, ctx.now);
+  const bookingWhen = active && active.start
+    ? (() => { const w = booking.whenParts(active.start, ctx.now, active.tz, ctx.lang); return `${w.day} ${w.time}`; })()
+    : null;
+
   return {
     attempt,
     lang: ctx.lang,
     stage,
     action: r.action,
+    bookingEnabled: booking.bookingConfig(ctx.business).enabled,
+    // Whether we had ALREADY introduced ourselves before this turn — results sets disclosed_at on the
+    // very turn the intro goes out, so `disclosed` alone would strip the first introduction (#8).
+    disclosedBefore: (() => {
+      if (!wd.disclosed_at) return false;
+      const gap = objectives.gapHoursFrom(wd, [], ctx.now);
+      return !(gap !== null && gap >= 24);
+    })(),
+    booking: active ? { when: bookingWhen, status: active.status } : null,
     roleplayActive,
     disclosed: !!(wd.disclosed_at || wdp.disclosed_at),
     batchTexts: ctx.batchTexts,
@@ -447,8 +464,33 @@ async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, f
   return generateValidatedAIReply(prompt.system, prompt.user, [], opts);
 }
 
+/**
+ * Round-2 review #6: «انت بوت ولا انسان جاوبني واضح» went unanswered twice — the digit guard stripped the
+ * competitor-price sentence with it and the stage fallback («ما بدي أعطيك جواب مش دقيق…») took its place.
+ * The honest line is owed whatever else the validators remove, so it is added back here, at the one point
+ * every reply passes through.
+ */
+function ensureIdentityAnswer(result, ctx) {
+  if (!result || result.kind === 'handoff') return result;
+  if (!(ctx.batchTexts || []).some(validators.isIdentityQuestion)) return result;
+  const honest = validators.HONEST_IDENTITY[ctx.lang === 'en' ? 'en' : 'ar'];
+  const messages = result.messages || [];
+  const idx = messages.findIndex((m) => m && typeof m.text === 'string' && m.text.trim());
+  if (idx < 0) return { ...result, messages: [...messages, { type: 'text', text: honest }] };
+  if (messages.some((m) => m && validators.isHonestIdentity(m.text))) return result;
+  const part = messages[idx];
+  const text = `${honest}\n\n${part.text}`.trim();
+  const next = messages.slice();
+  next[idx] = { ...part, text };
+  return { ...result, messages: next };
+}
+
 /** Steps 4 and 7–11 of §10.1: tier-1 handoff, prompt, model call, validators. */
-async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
+async function answer(ctx, history, opts = {}) {
+  return ensureIdentityAnswer(await answerInner(ctx, history, opts), ctx);
+}
+
+async function answerInner(ctx, history, { deadlineAt, onRetry } = {}) {
   const { business, conversation, now, lang, joinedText } = ctx;
   const wd = conversation.workflow_data || {};
 
@@ -500,6 +542,18 @@ async function answer(ctx, history, { deadlineAt, onRetry } = {}) {
       entries.push(blockEntry(v2, 2, now));
       if (v2.verdict === 'ok') return withBlocks(syncCapture(v2.result, r2), entries, wd);
       if (r2.action === r.action) base = r2;
+    }
+  }
+
+  // Round-2 review #2: an invented appointment is not answered with a generic line — it is answered with
+  // the real slots. Silence about the diary while the customer is asking for a time is what made the
+  // model improvise one in the first place.
+  const blockedCodes = new Set(entries.flatMap((e) => (e && e.codes) || []));
+  if (blockedCodes.has('appointment_time')) {
+    const offer = slotOfferResult(ctx, base);
+    if (offer) {
+      console.warn(`[shift] invented appointment replaced by the real slots conversation=${conversation.id}`);
+      return withBlocks(offer, entries, wd);
     }
   }
 

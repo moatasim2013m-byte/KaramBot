@@ -1512,6 +1512,24 @@ function startRoleplayResult(c, { rawArgs, args, reply, shown, lead, at }) {
 }
 
 /**
+ * Round-2 review #2: the real slot offer, in place of a line that named an appointment the server never
+ * made. The customer asked about a time; they get the team's actual times, not a generic apology.
+ */
+function slotOfferResult(ctx, base) {
+  const c = fillCtx(ctx);
+  const r = callTimeAskResult(c, { shown: '', reply: '', locked: isStageLocked(c.conversation), leadPatch: null });
+  if (!r) return null;
+  const keep = base && typeof base === 'object' ? base : {};
+  return {
+    ...r,
+    // The state, acks and alerts the blocked result had already earned stay; only its words go.
+    needsTeam: keep.needsTeam ?? r.needsTeam,
+    needsTeamCandidate: keep.needsTeamCandidate ?? r.needsTeamCandidate,
+    alert: keep.alert ?? r.alert,
+  };
+}
+
+/**
  * The END result for index.js's deterministic exit (§10.1 step 3): the whole batch was «خلص».
  * Same shape as an END_ROLEPLAY with an empty model line.
  */
@@ -1533,5 +1551,6 @@ module.exports = {
   customerCallTime,
   toWorkflowResult,
   roleplayEndResult,
+  slotOfferResult,
   compose,
 };
