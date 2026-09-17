@@ -425,6 +425,25 @@ describe('deadline mode', () => {
     expect(mockGenerateContent.mock.calls[1][0].contents[0].parts[0].text).toBe('LONG\n\nCORRECT');
   });
 
+  test('a MAX_TOKENS finish makes the retry drop thinking and double the room', async () => {
+    // clinic/glm-5.3 turn 2, 2026-09-17: two MAX_TOKENS finishes in a row, and the customer was told the
+    // reply was delayed. The model spent the whole output budget thinking; the retry needs more of it.
+    mockGenerateContent
+      .mockResolvedValueOnce(reply('', { candidates: [{ finishReason: 'MAX_TOKENS' }] }))
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000,
+    });
+
+    expect(result.reply).toBe('تمام');
+    const first = mockGetGenerativeModel.mock.calls[0][0].generationConfig;
+    const second = mockGetGenerativeModel.mock.calls[1][0].generationConfig;
+    expect(first.thinkingConfig).toEqual({ thinkingLevel: 'minimal' });
+    expect(second.thinkingConfig).toBeUndefined();
+    expect(second.maxOutputTokens).toBe(first.maxOutputTokens * 2);
+  });
+
   test('12. retrySystemPrompt is used on attempt 2', async () => {
     mockGenerateContent
       .mockRejectedValueOnce(new Error('timeout'))

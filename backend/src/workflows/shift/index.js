@@ -476,18 +476,29 @@ async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, f
  * The honest line is owed whatever else the validators remove, so it is added back here, at the one point
  * every reply passes through.
  */
+const MAX_PARTS = 3;
+const IDENTITY_TEXT_MAX = 4096;
+
 function ensureIdentityAnswer(result, ctx) {
   if (!result || result.kind === 'handoff') return result;
   if (!(ctx.batchTexts || []).some(validators.isIdentityQuestion)) return result;
-  const honest = validators.HONEST_IDENTITY[ctx.lang === 'en' ? 'en' : 'ar'];
   const messages = result.messages || [];
-  const idx = messages.findIndex((m) => m && typeof m.text === 'string' && m.text.trim());
-  if (idx < 0) return { ...result, messages: [...messages, { type: 'text', text: honest }] };
   if (messages.some((m) => m && validators.isHonestIdentity(m.text))) return result;
-  const part = messages[idx];
-  const text = `${honest}\n\n${part.text}`.trim();
+  const honest = validators.HONEST_IDENTITY[ctx.lang === 'en' ? 'en' : 'ar'];
+  // A plain text part can carry it; an interactive body has its own tight limit, so the line goes in
+  // front as a message of its own while there is room for one.
+  const idx = messages.findIndex((m) => m && m.type === 'text' && typeof m.text === 'string' && m.text.trim());
+  if (idx >= 0 && Array.from(`${honest}\n\n${messages[idx].text}`).length <= IDENTITY_TEXT_MAX) {
+    const next = messages.slice();
+    next[idx] = { ...messages[idx], text: `${honest}\n\n${messages[idx].text}`.trim() };
+    return { ...result, messages: next };
+  }
+  if (messages.length < MAX_PARTS) return { ...result, messages: [{ type: 'text', text: honest }, ...messages] };
+  // Three parts already: the honest answer replaces the words of the first one.
   const next = messages.slice();
-  next[idx] = { ...part, text };
+  next[0] = { ...next[0], type: 'text', text: honest };
+  delete next[0].buttons;
+  delete next[0].modelLine;
   return { ...result, messages: next };
 }
 

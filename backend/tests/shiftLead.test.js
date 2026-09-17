@@ -184,6 +184,9 @@ describe('round 2 #9 — a clock time is not a business figure', () => {
     ['نحكي 4:30 بكرا', []],
     ['عندي 40 رسالة باليوم وبخسر 180 دينار', ['40', '180']],
     ['بكرا الساعة 4 العصر، وميزانيتي 50 دينار', ['50']],
+    // Sim round 2: the hour a customer replaces is still an hour, even with no clock word of its own.
+    ['ممكن نخليها الساعة ٢ الظهر بدل ١١؟', []],
+    ['بدل 11 موظف صار 9', ['11', '9']],
   ])('%s → %s', (text, expected) => {
     expect(businessNumbersOf(text)).toEqual(expected);
   });

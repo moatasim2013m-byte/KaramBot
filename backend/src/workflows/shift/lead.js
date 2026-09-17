@@ -214,13 +214,20 @@ const CLOCK_SPAN_RE = new RegExp([
   '\\d{1,2}\\s*(?:-|–|إلى|الى|ل)\\s*\\d{1,2}\\s*(?:الصبح|الصباح|المسا|المساء|الظهر|العصر)',
 ].join('|'), 'gi');
 
+// «ممكن نخليها الساعة ٢ الظهر بدل ١١؟» — the 11 has no clock word of its own, but it is the hour it
+// replaces. Only inside a message that is already talking about a clock time (sim round 2, clinic).
+const CLOCK_MARKER_RE = /الساعة|الساعه|الصبح|الصباح|المسا|المساء|الظهر|العصر|\d\s*[:]\s*\d{2}|\bam\b|\bpm\b|\bo'clock\b/i;
+const REPLACED_HOUR_RE = /(?:بدل|بدال|بدلا|بدلًا(?:\s*من)?|عوضا عن|عوضًا عن|instead of)\s*(?:ال)?\s*\d{1,2}(?![\d])/gi;
+
 /** The customer's numbers with the clock times taken out (rule 4 + review #9). */
 function businessNumbersOf(text) {
   if (typeof text !== 'string' || !text) return [];
   const western = text
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
-  return extractCustomerNumbers(western.replace(CLOCK_SPAN_RE, ' '));
+  let stripped = western.replace(CLOCK_SPAN_RE, ' ');
+  if (CLOCK_MARKER_RE.test(western)) stripped = stripped.replace(REPLACED_HOUR_RE, ' ');
+  return extractCustomerNumbers(stripped);
 }
 
 /** True only when the customer explicitly corrects a value in this message and names the new one. */

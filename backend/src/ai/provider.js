@@ -87,8 +87,12 @@ async function callGemini(systemPrompt, userMessage, opts = {}) {
       const useSystemInstruction = opts.systemInstruction && process.env.GEMINI_TEXT_MODE !== '1';
       if (useSystemInstruction) params.systemInstruction = systemPrompt;
       if (opts.jsonMode) {
-        params.generationConfig = { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: SHIFT_MAX_OUTPUT_TOKENS };
-        if (SHIFT_THINKING_LEVEL !== 'off') params.generationConfig.thinkingConfig = { thinkingLevel: SHIFT_THINKING_LEVEL };
+        // `thinkingOff` / `maxOutputTokens` are set by the retry after a MAX_TOKENS finish: the model spent
+        // the whole budget thinking and returned nothing usable, so the next attempt gets room and no
+        // hidden thinking (clinic/glm-5.3 turn 2, 2026-09-17: two MAX_TOKENS finishes, a dead turn).
+        const cap = opts.maxOutputTokens || SHIFT_MAX_OUTPUT_TOKENS;
+        params.generationConfig = { responseMimeType: 'application/json', temperature: 0.4, maxOutputTokens: cap };
+        if (SHIFT_THINKING_LEVEL !== 'off' && !opts.thinkingOff) params.generationConfig.thinkingConfig = { thinkingLevel: SHIFT_THINKING_LEVEL };
         if (opts.responseSchema) params.generationConfig.responseSchema = opts.responseSchema;
       }
       geminiModel = genAI.getGenerativeModel(params);
@@ -118,6 +122,14 @@ async function callGemini(systemPrompt, userMessage, opts = {}) {
     return text;
   } finally {
     const usage = (response && response.usageMetadata) || {};
+    const finishReason = response?.candidates?.[0]?.finishReason ?? null;
+    if (typeof opts.onFinish === 'function') {
+      try {
+        opts.onFinish(finishReason);
+      } catch (cbErr) {
+        console.warn('[ai] onFinish failed:', cbErr.message);
+      }
+    }
     logUsage({
       model,
       ms: Date.now() - started,
@@ -394,6 +406,9 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
   let answeredBadly = false;
   let lastFailure = null;    // 'invalid' | 'timeout' | 'transient' | 'error'
   let sawTimeout = false;
+  // The model used the whole output budget on hidden thinking and produced no parsable JSON.
+  let sawTokenLimit = false;
+  const onFinish = (reason) => { if (reason === 'MAX_TOKENS') sawTokenLimit = true; };
   const maxAttempts = () => (sawTimeout ? MAX_ATTEMPTS : BASE_ATTEMPTS);
 
   while (attempts < maxAttempts()) {
@@ -423,8 +438,15 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
     else if (sawTimeout && opts.retryUserMessage) message = opts.retryUserMessage;
     const system = attempts > 1 && opts.retrySystemPrompt ? opts.retrySystemPrompt : systemPrompt;
 
+    // After a MAX_TOKENS finish, thinking off and double the room: the same call with the same budget
+    // would run out the same way.
+    const budgetOpts = sawTokenLimit
+      ? { thinkingOff: true, maxOutputTokens: (Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 2048) * 2 }
+      : {};
     try {
-      const raw = await generateAIReply(system, message, history, { ...callOpts, attemptMs, attempt: attempts });
+      const raw = await generateAIReply(system, message, history, {
+        ...callOpts, ...budgetOpts, onFinish, attemptMs, attempt: attempts,
+      });
       const parsed = parseModelJSON(raw, opts.jsonMode);
       const validation = validateAIResult(parsed, validActions, enums);
       if (validation.valid) return parsed;

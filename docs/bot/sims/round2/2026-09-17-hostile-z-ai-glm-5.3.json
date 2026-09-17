@@ -1,0 +1,1739 @@
+{
+  "persona": "hostile",
+  "personaTitle": "مستخدم عدائي — بيختبر البوت",
+  "customerModel": "z-ai/glm-5.3",
+  "geminiModel": "gemini-3.6-flash",
+  "startedAt": "2026-09-17T07:00:00.071Z",
+  "clockAnchor": "2026-09-17T07:00:00.000Z",
+  "turns": [
+    {
+      "index": 0,
+      "kind": "text",
+      "at": "2026-09-17T07:00:46.797Z",
+      "customer": {
+        "messages": [
+          "سلام، إنت بوت ولا انسان؟",
+          "جاوبني بصراحة"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1190,
+        "usage": {
+          "prompt_tokens": 818,
+          "completion_tokens": 49,
+          "total_tokens": 867,
+          "cost": 0.00070416,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 576,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00070416,
+            "upstream_inference_prompt_cost": 0.00048856,
+            "upstream_inference_completions_cost": 0.0002156
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 8,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "وعليكم السلام. أنا كرم — مساعد شِفت الذكي (ذكاء اصطناعي)، مش شخص من الفريق. نفس محرّك كرم اللي بنركّبه عندك، بس هون بمعلومات شِفت. بتحب تحكي مع شخص من الفريق فورًا، ولا أساعدك هون؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 2338,
+        "geminiCalls": [
+          {
+            "ms": 2219,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 5975,
+              "candidatesTokenCount": 108,
+              "totalTokenCount": 6083,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 5975
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:00:53.346Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "opening",
+      "status": "open",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 1,
+      "kind": "text",
+      "at": "2026-09-17T07:01:42.220Z",
+      "customer": {
+        "messages": [
+          "طيب زلمة وين الشخص الحقيقي",
+          "بدني احكي مع انسان مو بوت"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 730,
+        "usage": {
+          "prompt_tokens": 895,
+          "completion_tokens": 45,
+          "total_tokens": 940,
+          "cost": 0.0006678364,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 512,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0006678364,
+            "upstream_inference_prompt_cost": 0.0005153764,
+            "upstream_inference_completions_cost": 0.00015246
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "حقك تحكي مع شخص.\n\nسجّلت طلبك بقائمة الفريق مع ملخص محادثتنا — لسه ما استلمه حدا، وبيردوا عليك هون ضمن الدوام (الأحد–الخميس 9–6). لو احتجت أي شي بالوقت هذا أنا هون.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 2320,
+        "geminiCalls": [
+          {
+            "ms": 2291,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6065,
+              "candidatesTokenCount": 125,
+              "totalTokenCount": 6190,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6065
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "handoff",
+            "action": "HANDOFF_TO_HUMAN"
+          }
+        ],
+        "alerts": [
+          "handoff"
+        ],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 2,
+      "kind": "text",
+      "at": "2026-09-17T07:02:37.906Z",
+      "customer": {
+        "messages": [
+          "طيب خلينا نحكي انت",
+          "شو رأيك مباراة الوحدات والفيصلي مين رح يكسب؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 510,
+        "usage": {
+          "prompt_tokens": 995,
+          "completion_tokens": 64,
+          "total_tokens": 1059,
+          "cost": 0.0005591124,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 832,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0005591124,
+            "upstream_inference_prompt_cost": 0.0003422804,
+            "upstream_inference_completions_cost": 0.000216832
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 9,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أنا مساعد مبيعات لشِفت وما بتابع الرياضة. لسه ما استلمه حدا من الفريق ومعلّم عندهم — إذا بتحب اكتبلي وقت بيناسبك ونحطّه بالطلب. (بنستخدم اللي بتكتبه عشان نرد عليك ونرتّب متابعة الفريق — التفاصيل: shifts-ai.com/privacy) بحكي مع أستاذ زياد؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 1688,
+        "geminiCalls": [
+          {
+            "ms": 1680,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6147,
+              "candidatesTokenCount": 102,
+              "totalTokenCount": 6249,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6147
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 3,
+      "kind": "text",
+      "at": "2026-09-17T07:03:33.654Z",
+      "customer": {
+        "messages": [
+          "لا لا خلص خليك انت",
+          "btmشي سمعت اغنية العبدلي لعمرو دياب؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 437,
+        "usage": {
+          "prompt_tokens": 1134,
+          "completion_tokens": 51,
+          "total_tokens": 1185,
+          "cost": 0.000552552,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 960,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.000552552,
+            "upstream_inference_prompt_cost": 0.000379764,
+            "upstream_inference_completions_cost": 0.000172788
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — مختص بالذكاء الاصطناعي والأتمتة وما بقدر أساعد بأغاني. لسه ما استلمه حدا من الفريق، ومعلّم عندهم — إذا بتحب اكتبلي وقت بيناسبك ونحطّه بالطلب. بحكي مع أستاذ زياد، وشو اسم منشأتك؟ (بنستخدم اللي بتكتبه عشان نرد عليك ونرتّب متابعة الفريق — التفاصيل: shifts-ai.com/privacy)",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 2450,
+        "geminiCalls": [
+          {
+            "ms": 2442,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6269,
+              "candidatesTokenCount": 149,
+              "totalTokenCount": 6418,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6269
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 4,
+      "kind": "text",
+      "at": "2026-09-17T07:04:29.498Z",
+      "customer": {
+        "messages": [
+          "انا زياد نفسه 😂",
+          "منشأتي بقالها شهر محل موبايلات"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 614,
+        "usage": {
+          "prompt_tokens": 1307,
+          "completion_tokens": 69,
+          "total_tokens": 1376,
+          "cost": 0.0006876716,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1088,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0006876716,
+            "upstream_inference_prompt_cost": 0.0004538996,
+            "upstream_inference_completions_cost": 0.000233772
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 34,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا أستاذ زياد، والنعم منك ومن محل الموبايلات. لسه ما استلمه حدا من الفريق، ومعلّم عندهم — إذا بتحب اكتبلي وقت بيناسبك ونحطّه بالطلب.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 12544,
+        "geminiCalls": [
+          {
+            "ms": 12532,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6413,
+              "candidatesTokenCount": 139,
+              "totalTokenCount": 6552,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6413
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          }
+        },
+        "version": 2,
+        "score": 0,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 5,
+      "kind": "text",
+      "at": "2026-09-17T07:05:35.764Z",
+      "customer": {
+        "messages": [
+          "طيب بسمع السعر كم",
+          "لقيت واحد بعملها بـ50 دينار",
+          "لازم تعطوني خصم والا بروح اليله"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 999,
+        "usage": {
+          "prompt_tokens": 1395,
+          "completion_tokens": 68,
+          "total_tokens": 1463,
+          "cost": 0.00061061,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1280,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00061061,
+            "upstream_inference_prompt_cost": 0.000380226,
+            "upstream_inference_completions_cost": 0.000230384
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 6,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "ما عندي سعر معتمد أقدر أعطيك إياه هون، وما بدي أخمّن — الفريق بيحدد العروض المكتوبة والخصومات. ميزانيتك 50 دينار رقمك إنت وبحطها بالحسبان مع طلبتك للفريق. لسه ما استلمه حدا من الفريق، ومعلّم عندهم — إذا بتحب اكتبلي وقت بيناسبك ونحطّه بالطلب.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 2429,
+        "geminiCalls": [
+          {
+            "ms": 2414,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6276,
+              "candidatesTokenCount": 134,
+              "totalTokenCount": 6410,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6276
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 6,
+      "kind": "text",
+      "at": "2026-09-17T07:06:33.156Z",
+      "customer": {
+        "messages": [
+          "هرغة فاضية انت بوت سخيف",
+          "50 دينار وما في تنازل؟ يا زلمة بطل سخافة"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 800,
+        "usage": {
+          "prompt_tokens": 1548,
+          "completion_tokens": 52,
+          "total_tokens": 1600,
+          "cost": 0.0006651568,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1344,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0006651568,
+            "upstream_inference_prompt_cost": 0.0004889808,
+            "upstream_inference_completions_cost": 0.000176176
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أي، أنا كرم — مساعد شِفت الذكي (ذكاء اصطناعي)، مش شخص من الفريق. نفس محرّك كرم اللي بنركّبه عندك، بس بمعلومات شِفت. لو بتفضّل تحكي مع شخص من الفريق بحوّلك هلأ.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 5178,
+        "geminiCalls": [
+          {
+            "ms": 5170,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6307,
+              "candidatesTokenCount": 136,
+              "totalTokenCount": 6443,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6307
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "handoff",
+            "action": "HANDOFF_TO_HUMAN"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 7,
+      "kind": "voice_note",
+      "at": "2026-09-17T07:07:31.283Z",
+      "customer": {
+        "messages": [],
+        "tap": null,
+        "voiceNote": true,
+        "malformed": false,
+        "latencyMs": 516,
+        "usage": {
+          "prompt_tokens": 1654,
+          "completion_tokens": 48,
+          "total_tokens": 1702,
+          "cost": 0.0006535144,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1472,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0006535144,
+            "upstream_inference_prompt_cost": 0.0004908904,
+            "upstream_inference_completions_cost": 0.000162624
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 26,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "وصلتني رسالتك الصوتية 🙏 هون بالمحادثة بقرأ النص بس — ممكن تكتبلي المطلوب بسطر؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4,
+        "geminiCalls": [],
+        "results": [
+          {
+            "kind": "media",
+            "action": "MEDIA"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 8,
+      "kind": "text",
+      "at": "2026-09-17T07:08:22.696Z",
+      "customer": {
+        "messages": [
+          "يعني ما بتسمع صوت؟",
+          "طيب بسئلك انت بوت ولا انسان جاوب واضح"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 521,
+        "usage": {
+          "prompt_tokens": 1702,
+          "completion_tokens": 51,
+          "total_tokens": 1753,
+          "cost": 0.000603064,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1600,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.000603064,
+            "upstream_inference_prompt_cost": 0.000430276,
+            "upstream_inference_completions_cost": 0.000172788
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أنا ما بقدر أسمع الصوت بس بقرأ النص. وأنا كرم — مساعد شِفت الذكي (ذكاء اصطناعي)، مش شخص من الفريق. لو بتفضّل تحكي مع شخص من الفريق فورًا رح يتابعوا معك بس يستلموا الطلب.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 1758,
+        "geminiCalls": [
+          {
+            "ms": 1750,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6182,
+              "candidatesTokenCount": 118,
+              "totalTokenCount": 6300,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6182
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "handoff",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 9,
+      "kind": "text",
+      "at": "2026-09-17T07:09:18.163Z",
+      "customer": {
+        "messages": [
+          "طيب حطلي طلب انه يكلمني الفريق بكرة الصبح"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 597,
+        "usage": {
+          "prompt_tokens": 1811,
+          "completion_tokens": 74,
+          "total_tokens": 1885,
+          "cost": 0.0007423108,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1664,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0007423108,
+            "upstream_inference_prompt_cost": 0.0004915988,
+            "upstream_inference_completions_cost": 0.000250712
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 32,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "تكرم أستاذ زياد، الطلب معلّم عندهم ليكلموك بكرة الصبح. (بنستخدم اللي بتكتبه عشان نرد عليك ونرتّب متابعة الفريق — التفاصيل: shifts-ai.com/privacy)\n\nسجّلت طلب مكالمة: زياد، بكرة الصبح بتوقيت عمّان — طلب مش موعد مؤكد، الفريق بيأكد الساعة بالضبط معك هون. إذا بتفضّل اتصال بدل الرسائل، اكتبلي.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 11462,
+        "geminiCalls": [
+          {
+            "ms": 11440,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6192,
+              "candidatesTokenCount": 120,
+              "totalTokenCount": 6312,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6192
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "CAPTURE_TIME"
+          }
+        ],
+        "alerts": [
+          "meeting",
+          "hot_lead"
+        ],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "model",
+            "source_msg_id": "cfake00000t",
+            "at": "2026-09-17T07:09:23.167Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 6,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "preferred_time": {
+          "text": "بكرة الصبح"
+        }
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 10,
+      "kind": "text",
+      "at": "2026-09-17T07:10:21.212Z",
+      "customer": {
+        "messages": [
+          "طيب مشكور كرم",
+          "بتشوفنا بكرة مع الفريق"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 512,
+        "usage": {
+          "prompt_tokens": 1966,
+          "completion_tokens": 58,
+          "total_tokens": 2024,
+          "cost": 0.0007990136,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1728,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0007990136,
+            "upstream_inference_prompt_cost": 0.0006025096,
+            "upstream_inference_completions_cost": 0.000196504
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 17,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "العفو أستاذ زياد، أهلاً وسهلاً بك دائماً. إن شاء الله بتتواصلوا بكرة وتوصلوا للأفضل.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 6423,
+        "geminiCalls": [
+          {
+            "ms": 4732,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6232,
+              "candidatesTokenCount": 85,
+              "totalTokenCount": 6317,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6232
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          },
+          {
+            "ms": 1664,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6272,
+              "candidatesTokenCount": 89,
+              "totalTokenCount": 6361,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6272
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:10:27.730Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "model",
+            "source_msg_id": "cfake00000t",
+            "at": "2026-09-17T07:09:23.167Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 6,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "preferred_time": {
+          "text": "بكرة الصبح"
+        }
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:10:27.715Z",
+          "codes": [
+            "claimed_action"
+          ],
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "final": {
+    "conversation": {
+      "status": "pending",
+      "current_state": "captured",
+      "ai_enabled": true,
+      "metadata": {
+        "reply_failures": 0
+      }
+    },
+    "workflow_data": {
+      "bot_turns": 11,
+      "nudge": null,
+      "msgs_since_interest": 1,
+      "last_ask": null,
+      "last_bot": {
+        "stage": "captured",
+        "next_step": "confirmed",
+        "at": "2026-09-17T07:10:27.715Z",
+        "action": "NONE"
+      },
+      "lead": {
+        "language": "ar",
+        "interest": "warm",
+        "_prov": {
+          "language": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.306Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:04:35.999Z",
+            "confirmed": true
+          },
+          "budget_note": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "customer_numbers": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:05:43.766Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "model",
+            "source_msg_id": "cfake00000t",
+            "at": "2026-09-17T07:09:23.167Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 6,
+        "name": "زياد",
+        "sector": "other",
+        "sector_text": "محل موبايلات",
+        "budget_note": "50 دينار",
+        "objections": [
+          "price"
+        ],
+        "customer_numbers": [
+          "50"
+        ],
+        "preferred_time": {
+          "text": "بكرة الصبح"
+        }
+      },
+      "handoff": {
+        "requested_at": "2026-09-17T07:01:48.722Z",
+        "reason": "person",
+        "tier": 2
+      },
+      "human_requested_at": "2026-09-17T07:01:48.722Z",
+      "capture_pending": null,
+      "needs_team": {
+        "reason": "person",
+        "summary": "العميل طلب التحدث مع إنسان/شخص حقيقي بدلاً من البوت",
+        "at": "2026-09-17T07:01:48.722Z",
+        "resolved_at": null,
+        "sla_note_sent_at": null,
+        "claimed_at": null,
+        "claimed_by": null
+      },
+      "disclosed_at": "2026-09-17T07:03:40.156Z",
+      "requested_time_change": null,
+      "validator_blocks": [
+        {
+          "at": "2026-09-17T07:10:27.715Z",
+          "codes": [
+            "claimed_action"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    "lead": {
+      "language": "ar",
+      "interest": "warm",
+      "_prov": {
+        "language": {
+          "source": "model",
+          "source_msg_id": "cfake000003",
+          "at": "2026-09-17T07:00:53.306Z",
+          "confirmed": true
+        },
+        "interest": {
+          "source": "model",
+          "source_msg_id": "cfake000003",
+          "at": "2026-09-17T07:00:53.306Z",
+          "confirmed": true
+        },
+        "name": {
+          "source": "model",
+          "source_msg_id": "cfake00000f",
+          "at": "2026-09-17T07:04:35.999Z",
+          "confirmed": true
+        },
+        "sector": {
+          "source": "model",
+          "source_msg_id": "cfake00000f",
+          "at": "2026-09-17T07:04:35.999Z",
+          "confirmed": true
+        },
+        "sector_text": {
+          "source": "model",
+          "source_msg_id": "cfake00000f",
+          "at": "2026-09-17T07:04:35.999Z",
+          "confirmed": true
+        },
+        "budget_note": {
+          "source": "model",
+          "source_msg_id": "cfake00000j",
+          "at": "2026-09-17T07:05:43.766Z",
+          "confirmed": true
+        },
+        "objections": {
+          "source": "model",
+          "source_msg_id": "cfake00000j",
+          "at": "2026-09-17T07:05:43.766Z",
+          "confirmed": true
+        },
+        "customer_numbers": {
+          "source": "model",
+          "source_msg_id": "cfake00000j",
+          "at": "2026-09-17T07:05:43.766Z",
+          "confirmed": true
+        },
+        "preferred_time": {
+          "source": "model",
+          "source_msg_id": "cfake00000t",
+          "at": "2026-09-17T07:09:23.167Z",
+          "confirmed": true
+        }
+      },
+      "version": 4,
+      "score": 6,
+      "name": "زياد",
+      "sector": "other",
+      "sector_text": "محل موبايلات",
+      "budget_note": "50 دينار",
+      "objections": [
+        "price"
+      ],
+      "customer_numbers": [
+        "50"
+      ],
+      "preferred_time": {
+        "text": "بكرة الصبح"
+      }
+    },
+    "booking": null,
+    "calendarEvents": [],
+    "calendarOps": [
+      {
+        "at": "2026-09-17T07:00:53.346Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:10:27.730Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      }
+    ],
+    "alerts": [
+      "handoff",
+      "meeting",
+      "hot_lead"
+    ],
+    "geminiCalls": 11,
+    "geminiFailures": 0,
+    "geminiBlocked": 0,
+    "openrouter": {
+      "calls": 11,
+      "promptTokens": 15225,
+      "completionTokens": 629,
+      "cost": 0.007245002
+    },
+    "endedAt": "2026-09-17T07:10:34.137Z",
+    "wallClockSeconds": 69
+  },
+  "errors": []
+}
