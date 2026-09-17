@@ -17,6 +17,10 @@ const SHIFT_MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 
 // 'minimal' measured 4.6–8.2 s with complete JSON; set GEMINI_THINKING_LEVEL=off to omit the field.
 const SHIFT_THINKING_LEVEL = process.env.GEMINI_THINKING_LEVEL || 'minimal';
 const DEFAULT_FIRST_ATTEMPT_MS = 15000;
+// A RETRY that has not answered in 10 s is hung like the attempt before it: measured over 126 real calls
+// (the two 2026-09-17 re-runs) a successful retry came back in 2.2–9.5 s, while every failure sat at the
+// cap exactly. Capping the retry lower is what makes room for a third chance inside the same deadline.
+const RETRY_ATTEMPT_MS = Number(process.env.GEMINI_RETRY_ATTEMPT_MS) || 10000;
 // Below this there is no point starting a second attempt: the model p50 alone is longer.
 const MIN_RETRY_MS = 1500;
 
@@ -428,7 +432,10 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
     attempts += 1;
     // Everything left goes to the last attempt we are allowed; before that, one attempt may not eat
     // the whole deadline (attempt 1 = 15 s of 25 s, attempt 2 = the 10 s that remain).
-    const attemptMs = attempts >= maxAttempts() ? remaining() : Math.min(firstAttemptMs, remaining());
+    // The first attempt gets the full cap — healthy calls reach 14.7 s and none of them should be thrown
+    // away — and a retry gets less, so a third chance still fits when both hang.
+    const cap = attempts === 1 ? firstAttemptMs : RETRY_ATTEMPT_MS;
+    const attemptMs = attempts >= maxAttempts() ? remaining() : Math.min(cap, remaining());
     if (attemptMs <= 0) break;
 
     // The correction prompt only helps when the model answered badly, not when it timed out. A retry

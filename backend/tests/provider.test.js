@@ -444,6 +444,29 @@ describe('deadline mode', () => {
     expect(second.maxOutputTokens).toBe(first.maxOutputTokens * 2);
   });
 
+  test('two hung attempts still leave a third chance inside a 30 s deadline', async () => {
+    // Both 2026-09-17 re-runs ended their dead turns on 15 s + 15 s. The retry is capped lower so the
+    // budget holds one more call.
+    jest.useFakeTimers();
+    const start = Date.now();
+    mockGenerateContent
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(async () => reply({ reply: 'تمام' }));
+
+    const promise = generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: start + 30000,
+    });
+    await jest.advanceTimersByTimeAsync(15000);
+    expect(mockGenerateContent.mock.calls[1][1]).toEqual({ timeout: 10000 });
+    await jest.advanceTimersByTimeAsync(10000);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    expect(mockGenerateContent.mock.calls[2][1].timeout).toBeGreaterThan(0);
+    await jest.advanceTimersByTimeAsync(10);
+    await expect(promise).resolves.toEqual(expect.objectContaining({ reply: 'تمام' }));
+    expect(Date.now() - start).toBeLessThanOrEqual(30000);
+  });
+
   test('12. retrySystemPrompt is used on attempt 2', async () => {
     mockGenerateContent
       .mockRejectedValueOnce(new Error('timeout'))
