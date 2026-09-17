@@ -451,10 +451,10 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(userTurn).toContain('الأزرار المتاحة الآن: لا أزرار');
   });
 
-  test('without deadlineAt the deadline is now + 25 s', async () => {
+  test('without deadlineAt the deadline is now + 30 s', async () => {
     generateValidatedAIReply.mockResolvedValue({ reply: 'هلا', action: 'NONE' });
     await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'هلا' }], { now: MON_11 });
-    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 25000);
+    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 30000);
   });
 
   test('SHIFT_AI_DEADLINE_MS overrides the default deadline (read at module load)', async () => {

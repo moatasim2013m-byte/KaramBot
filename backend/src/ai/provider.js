@@ -346,62 +346,118 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
 }
 
 /**
- * Deadline mode (SHIFT): one absolute deadline shared by at most two attempts, so the
- * customer never waits past it for a reply or the fallback.
+ * Deadline mode (SHIFT): one absolute deadline shared by the whole reply, spent over a few attempts.
+ *
+ * Measured on the six 2026-09-17 simulations (64 real Gemini calls, 11 failures = 17%):
+ *   - 7 of the 11 were `503 Service Unavailable — high demand`, returned in 0.4–1.3 s. The old code
+ *     spent one of its two attempts on each, and one conversation burned BOTH attempts on two 503s
+ *     inside 0.94 s and then answered «تأخر ردّي» with 24 s of deadline still unused.
+ *   - 4 were true aborts at the per-attempt cap (15 s, then 10 s for the retry).
+ *   - successful calls: p50 5.3 s, p90 12.1 s, max 14.2 s — so the 15 s first cap is right, and
+ *     lowering it would abort healthy calls; the tail is prompt-size bound (p90 7.6 s at ~4k prompt
+ *     tokens vs 12.5 s at ~6k), which is why a retry after a TIMEOUT resends a shrunk turn.
+ *
+ * So: a transient upstream failure (5xx / 429 / socket) is not an attempt — it is retried at once,
+ * as often as the deadline allows, and the fallback is only reached when no retry fits any more.
  */
+// A transient failure is free to retry: it cost milliseconds and the next call usually succeeds.
+const TRANSIENT_RE = /\b(408|409|429|500|502|503|504)\b|service unavailable|unavailable|overloaded|high demand|try again|internal error|rate.?limit|quota|econnreset|etimedout|enotfound|eai_again|socket hang up|network|fetch failed/i;
+// Our own abort (SDK timeout or the JS race): the model never answered inside the cap.
+const TIMEOUT_RE = /aborted|abort|timeout|timed out|deadline/i;
+const TRANSIENT_BACKOFF_MS = 250;
+const MAX_TRANSIENT_RETRIES = Number(process.env.GEMINI_MAX_TRANSIENT_RETRIES) || 4;
+// Real answers the model gets per reply. Two, as before — except after an attempt that timed out:
+// then a third is allowed if the deadline still holds one, because silence is the worst answer and a
+// hung socket says nothing about the next call. A badly-formed answer still gets its one correction.
+const BASE_ATTEMPTS = 2;
+const MAX_ATTEMPTS = Number(process.env.GEMINI_MAX_ATTEMPTS) || 3;
+
+function classifyError(err) {
+  const message = (err && err.message) || '';
+  if (TIMEOUT_RE.test(message)) return 'timeout';
+  if (TRANSIENT_RE.test(message)) return 'transient';
+  return 'error';
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function deadlineReply(systemPrompt, userMessage, history, opts, { validActions, correctionPrompt, enums, callOpts }) {
   const remaining = () => opts.deadlineAt - Date.now();
   const firstAttemptMs = opts.firstAttemptMs || DEFAULT_FIRST_ATTEMPT_MS;
   const tag = opts.conversationId ? ` conv=${opts.conversationId}` : '';
 
-  // The correction prompt only helps when the model answered badly, not when it timed out.
-  let firstInvalid = false;
-  try {
-    const attemptMs = Math.min(firstAttemptMs, remaining());
-    if (attemptMs <= 0) throw new Error('deadline already passed');
-    const raw = await generateAIReply(systemPrompt, userMessage, history, { ...callOpts, attemptMs, attempt: 1 });
-    const parsed = parseModelJSON(raw, opts.jsonMode);
-    const validation = validateAIResult(parsed, validActions, enums);
-    if (validation.valid) return parsed;
-    firstInvalid = true;
-    console.warn(`[AI] attempt 1 invalid (${validation.reason})${tag}`);
-  } catch (err) {
-    // A refusal is not a slow answer: a correction prompt will not change it.
-    if (reportBlocked(err, opts)) return null;
-    console.error(`[AI] attempt 1 failed${tag}:`, err.message);
-  }
+  let attempts = 0;          // model answers (or timeouts) so far — transient failures do not count
+  let transientRetries = 0;
+  let invalidCount = 0;
+  // Sticky: once the model has answered badly the correction prompt rides every later attempt, even
+  // if a 503 or a timeout came in between.
+  let answeredBadly = false;
+  let lastFailure = null;    // 'invalid' | 'timeout' | 'transient' | 'error'
+  let sawTimeout = false;
+  const maxAttempts = () => (sawTimeout ? MAX_ATTEMPTS : BASE_ATTEMPTS);
 
-  if (remaining() < MIN_RETRY_MS) {
-    console.error(`[AI] no time left for a retry${tag}`);
-    return null;
-  }
+  while (attempts < maxAttempts()) {
+    if (attempts > 0 || transientRetries > 0) {
+      if (remaining() < MIN_RETRY_MS) break;
+      if (typeof opts.onRetry === 'function') {
+        try {
+          await opts.onRetry();
+        } catch (err) {
+          console.warn(`[AI] onRetry failed${tag}:`, err.message);
+        }
+      }
+      if (lastFailure === 'transient' || lastFailure === 'error') await sleep(TRANSIENT_BACKOFF_MS);
+    }
+    if (remaining() <= 0) break;
 
-  if (typeof opts.onRetry === 'function') {
+    attempts += 1;
+    // Everything left goes to the last attempt we are allowed; before that, one attempt may not eat
+    // the whole deadline (attempt 1 = 15 s of 25 s, attempt 2 = the 10 s that remain).
+    const attemptMs = attempts >= maxAttempts() ? remaining() : Math.min(firstAttemptMs, remaining());
+    if (attemptMs <= 0) break;
+
+    // The correction prompt only helps when the model answered badly, not when it timed out. A retry
+    // after a timeout resends the shrunk turn instead: half the prompt is roughly half the latency.
+    let message = userMessage;
+    if (answeredBadly) message = `${userMessage}\n\n${correctionPrompt}`;
+    else if (sawTimeout && opts.retryUserMessage) message = opts.retryUserMessage;
+    const system = attempts > 1 && opts.retrySystemPrompt ? opts.retrySystemPrompt : systemPrompt;
+
     try {
-      await opts.onRetry();
+      const raw = await generateAIReply(system, message, history, { ...callOpts, attemptMs, attempt: attempts });
+      const parsed = parseModelJSON(raw, opts.jsonMode);
+      const validation = validateAIResult(parsed, validActions, enums);
+      if (validation.valid) return parsed;
+      invalidCount += 1;
+      answeredBadly = true;
+      lastFailure = 'invalid';
+      console.warn(`[AI] attempt ${attempts} invalid (${validation.reason})${tag}`);
+      // One correction prompt, as before: a model that answered badly twice will not answer well next.
+      if (invalidCount >= 2 || attempts >= maxAttempts() || remaining() < MIN_RETRY_MS) {
+        const repaired = validation.repairable && repairResult(parsed, validActions, enums);
+        if (repaired) return repaired;
+        if (invalidCount >= 2) break;
+      }
     } catch (err) {
-      console.warn(`[AI] onRetry failed${tag}:`, err.message);
+      // A refusal is not a slow answer: a correction prompt will not change it.
+      if (reportBlocked(err, opts)) return null;
+      const kind = classifyError(err);
+      console.error(`[AI] attempt ${attempts} ${kind}${tag}:`, err.message);
+      if (kind === 'timeout') {
+        lastFailure = 'timeout';
+        sawTimeout = true;
+      } else if (kind === 'transient' && transientRetries < MAX_TRANSIENT_RETRIES) {
+        // Not an attempt: it failed upstream in milliseconds and the deadline is untouched.
+        transientRetries += 1;
+        attempts -= 1;
+        lastFailure = kind;
+      } else {
+        lastFailure = kind;
+      }
     }
   }
 
-  try {
-    const attemptMs = remaining();
-    if (attemptMs <= 0) throw new Error('deadline passed before retry');
-    const message = firstInvalid ? `${userMessage}\n\n${correctionPrompt}` : userMessage;
-    const raw = await generateAIReply(opts.retrySystemPrompt || systemPrompt, message, history,
-      { ...callOpts, attemptMs, attempt: 2 });
-    const parsed = parseModelJSON(raw, opts.jsonMode);
-    const validation = validateAIResult(parsed, validActions, enums);
-    if (validation.valid) return parsed;
-    const repaired = validation.repairable && repairResult(parsed, validActions, enums);
-    if (repaired) return repaired;
-    console.error(`[AI] attempt 2 invalid (${validation.reason})${tag} | Raw:`, raw?.slice(0, 200));
-  } catch (err) {
-    if (reportBlocked(err, opts)) return null;
-    console.error(`[AI] attempt 2 failed${tag}:`, err.message);
-  }
-
-  console.error(`[AI] Both attempts failed${tag} for message: "${String(userMessage).slice(0, 50)}"`);
+  console.error(`[AI] all attempts failed${tag} (attempts=${attempts} transient=${transientRetries} left=${Math.max(0, remaining())}ms) for message: "${String(userMessage).slice(0, 50)}"`);
   return null;
 }
 

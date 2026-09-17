@@ -37,8 +37,10 @@ const { SHIFT_ACTIONS, NEXT_STEPS, actionSetFor } = require('./actions');
 const HISTORY_LIMIT = 12;
 const STAFF_ALERT_KIND = 'staff_alert';
 const RETRY_HISTORY = 6;
-// 25 s: live Gemini latency reached 12–17 s on 2026-09-15; the typing indicator covers the wait.
-const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 25000;
+// 30 s: attempt 1 is capped at 15 s, so 25 s left a hung first attempt only 10 s for the retry and two
+// of the six 2026-09-17 sims spent the whole budget on two aborts and answered «تأخر ردّي». 30 s gives
+// the retry a full 15 s (on a shrunk turn). Healthy calls are unaffected — p50 5.3 s, p90 12.1 s.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 30000;
 // Attempt B only when a whole model call still fits before the batch deadline (§10.1 step 10).
 const MIN_REGENERATE_MS = 4000;
 const VALIDATOR_BLOCKS_MAX = 20;
@@ -400,22 +402,26 @@ function promptFor(ctx, history, hint) {
   }
   // The static prompt is per sector only (cache-eligible); everything that changes is in the user turn.
   // provider.js has no retry user-turn option (and is frozen for PR2), so the retry resends this turn.
+  const turnOpts = {
+    business,
+    conversation,
+    batchMessages,
+    history,
+    now,
+    lang,
+    offers,
+    prefill: ctx.prefill || null,
+    hint: hint || undefined,
+    // A re-run of the first reply to a site message is still the first reply the customer receives.
+    firstReply: ctx.prefillRerun ? true : undefined,
+  };
   return {
     system: promptAr.buildStaticPrompt({ sector: (wd.lead && wd.lead.sector) || undefined }),
     retrySystem: undefined,
-    user: context.buildUserTurn({
-      business,
-      conversation,
-      batchMessages,
-      history,
-      now,
-      lang,
-      offers,
-      prefill: ctx.prefill || null,
-      hint: hint || undefined,
-      // A re-run of the first reply to a site message is still the first reply the customer receives.
-      firstReply: ctx.prefillRerun ? true : undefined,
-    }),
+    user: context.buildUserTurn(turnOpts),
+    // Only used when an attempt timed out: the same turn on half the history, because prompt size is
+    // what the latency tracks (sims 2026-09-17: p90 7.6 s at ~4k tokens vs 12.5 s at ~6k).
+    retryUser: context.buildUserTurn({ ...turnOpts, historyTurns: RETRY_HISTORY }),
   };
 }
 
@@ -436,6 +442,7 @@ async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, f
   };
   if (onBlocked) opts.onBlocked = onBlocked;
   if (prompt.retrySystem) opts.retrySystemPrompt = prompt.retrySystem;
+  if (prompt.retryUser && prompt.retryUser !== prompt.user) opts.retryUserMessage = prompt.retryUser;
   if (firstAttemptMs) opts.firstAttemptMs = firstAttemptMs;
   return generateValidatedAIReply(prompt.system, prompt.user, [], opts);
 }

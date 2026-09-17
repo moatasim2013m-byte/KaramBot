@@ -1401,7 +1401,39 @@ function exampleBusinessName(value) {
   return cutCodePoints(head, EXAMPLE_NAME_MAX).trim();
 }
 
-/** §9.2 step 3. Returns null for wrong_stage / disabled / no_name (then NONE with the model line). */
+/**
+ * Two setup asks and still nothing to build the example on: stop asking. The customer is told once, the
+ * team gets the thread, and the stage leaves roleplay_setup so the next turn is an ordinary one.
+ */
+function roleplaySetupHandover(c, sector, prev, at) {
+  const candidate = needsTeamEntry('demo', `تعذّر تجهيز المثال التوضيحي (${sector}) بعد طلبين`, at);
+  const needs = mergeNeedsTeam(c.wd.needs_team, candidate);
+  return emptyResult({
+    action: 'START_ROLEPLAY',
+    messages: [textMessage(acks.roleplaySetupGaveUp(c.lang))],
+    stateUpdate: { current_state: 'fit', status: 'pending' },
+    workflowDataPatch: {
+      roleplay: buttons.roleplayObject(prev, { sector, setup_asks: roleplay.MAX_SETUP_ASKS, end_reason: 'setup_failed' }),
+      ...(needs ? { needs_team: needs } : {}),
+    },
+    needsTeam: needs,
+    needsTeamCandidate: candidate,
+    alert: { reason: 'needs_team', summary: candidate.summary },
+  });
+}
+
+/** The texts of THIS turn only — the answer to the setup ask, before any older message. */
+function batchTextsOf(c) {
+  const out = [];
+  for (const m of c.batchMessages) {
+    if (typeof m.text_body === 'string' && m.text_body.trim()) out.push(m.text_body);
+    const sm = shiftMediaOf(m, c);
+    if (sm && sm.status === 'ok' && typeof sm.text === 'string' && sm.text.trim()) out.push(sm.text);
+  }
+  return out;
+}
+
+/** §9.2 step 3. Returns null for wrong_stage / disabled (then NONE with the model line). */
 function startRoleplayResult(c, { rawArgs, args, reply, shown, lead, at }) {
   const wd = c.wd;
   const prev = wd.roleplay && typeof wd.roleplay === 'object' ? wd.roleplay : null;
@@ -1410,27 +1442,53 @@ function startRoleplayResult(c, { rawArgs, args, reply, shown, lead, at }) {
   // Only numbers the customer typed survive in the facts (review r2 #2): an invented price there would be an
   // allowed number inside the example, against the start line's «بستخدم بس اللي كتبته إنت».
   const texts = customerTextsOf(c);
+  const batchTexts = batchTextsOf(c);
+  // Round-2 review #1: the model left business_name null on every START_ROLEPLAY in the six sims, so the
+  // example never opened for a customer who had already typed her clinic's name, services and hours. The
+  // name is hers, not the model's — read it back from her own words (then from what we already stored).
+  const typedName = exampleBusinessName(roleplay.businessNameFrom(batchTexts));
+  const businessName = exampleBusinessName(args.business_name)
+    || typedName
+    || exampleBusinessName(prev && prev.business_name)
+    || exampleBusinessName(lead.business_name)
+    || exampleBusinessName(roleplay.businessNameFrom(texts));
+  let facts = roleplay.groundFacts(args.facts, texts);
+  // Only from a turn that IS the answer to the setup ask — one that named the business. «تمام» on its
+  // own is not a menu, and a stray line must never become a fact the example then quotes back.
+  if (!facts.length && typedName) facts = roleplay.groundFacts(roleplay.factsFrom(batchTexts, typedName), texts);
   const startArgs = {
     ...args,
     sector: hasSector ? args.sector : undefined,
-    business_name: exampleBusinessName(args.business_name),
-    facts: roleplay.groundFacts(args.facts, texts),
+    business_name: businessName,
+    facts,
   };
   const check = roleplay.canStart(c.conversation, startArgs);
   const sector = sampleSector(startArgs.sector || prev?.sector || lead.sector);
 
-  if (!check.ok && check.reason === 'no_facts_first_ask') {
-    // The model line is dropped: the fixed ask names exactly what the example needs.
-    return emptyResult({
-      action: 'START_ROLEPLAY',
-      messages: [textMessage(roleplay.setupAsk(sector, c.lang))],
-      stateUpdate: { current_state: 'roleplay_setup' },
-      workflowDataPatch: {
-        roleplay: buttons.roleplayObject(prev, { sector, setup_asks: (Number(prev?.setup_asks) || 0) + 1 }),
-      },
-    });
+  if (!check.ok && (check.reason === 'no_facts_first_ask' || check.reason === 'no_name')) {
+    const ask = roleplay.setupAsk(sector, c.lang);
+    // Never the same ask twice (round-2 review #1): the customer already answered it once, and repeating
+    // it word for word is what made the sims loop. With a name, open the example on the name alone.
+    const repeat = !!(prev && prev.last_setup_ask === ask);
+    if (!repeat) {
+      // The model line is dropped: the fixed ask names exactly what the example needs.
+      return emptyResult({
+        action: 'START_ROLEPLAY',
+        messages: [textMessage(ask)],
+        stateUpdate: { current_state: 'roleplay_setup' },
+        workflowDataPatch: {
+          roleplay: buttons.roleplayObject(prev, {
+            sector, setup_asks: (Number(prev?.setup_asks) || 0) + 1, last_setup_ask: ask,
+          }),
+        },
+      });
+    }
+    if (!startArgs.business_name) return roleplaySetupHandover(c, sector, prev, at);
+  } else if (!check.ok && check.reason === 'no_name_final') {
+    return roleplaySetupHandover(c, sector, prev, at);
+  } else if (!check.ok) {
+    return null;
   }
-  if (!check.ok) return null;
 
   const state = roleplay.startState({ ...startArgs, sector }, c.now, prev);
   const start = roleplay.startLine(state.business_name, c.lang);

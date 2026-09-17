@@ -172,11 +172,12 @@ function normalizeActionArgs(action, args) {
   switch (action) {
     case 'SEND_SAMPLE':
       return { ok: true, args: { sector: normalizeSector(a.sector) } };
-    case 'START_ROLEPLAY': {
-      const businessName = text(a.business_name, 80);
-      const out = { sector: normalizeSector(a.sector), business_name: businessName, facts: normalizeFacts(a.facts) };
-      return businessName ? { ok: true, args: out } : { ok: false, args: out, reason: 'no_business_name' };
-    }
+    case 'START_ROLEPLAY':
+      // A missing business_name is NOT bad args (round-2 review #1). The model sent null on every
+      // START_ROLEPLAY in the six 2026-09-17 sims, and rejecting the action here — before roleplay's own
+      // canStart — is what kept the example shut and the same setup ask looping. results.js fills the
+      // name from the customer's own setup turn and decides there whether the example can open.
+      return { ok: true, args: { sector: normalizeSector(a.sector), business_name: text(a.business_name, 80), facts: normalizeFacts(a.facts) } };
     case 'FLAG_FOR_TEAM':
       return {
         ok: true,

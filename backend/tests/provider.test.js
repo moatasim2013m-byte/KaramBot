@@ -331,6 +331,100 @@ describe('deadline mode', () => {
     expect(onRetry).not.toHaveBeenCalled();
   });
 
+  // ── round-2 review #3: 17% of the 64 real Gemini calls in the 2026-09-17 sims failed. 7 of the 11
+  // were 503s returned in 0.4–1.3 s, and one conversation spent BOTH its attempts on two of them
+  // inside 0.94 s and then told the customer the reply was delayed, with 24 s of deadline unused.
+
+  test('a fast 503 is retried at once and does not spend an attempt', async () => {
+    const e503 = new Error('[GoogleGenerativeAI Error]: Error fetching from https://x: [503 Service Unavailable] This model is currently experiencing high demand.');
+    mockGenerateContent
+      .mockRejectedValueOnce(e503)
+      .mockRejectedValueOnce(e503)
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000,
+    });
+
+    expect(result.reply).toBe('تمام');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    // the third call is still attempt 1's budget, and carries no correction prompt
+    expect(mockGenerateContent.mock.calls[2][1]).toEqual({ timeout: expect.any(Number) });
+    expect(mockGenerateContent.mock.calls[2][0].contents[0].parts[0].text).toBe('U');
+  });
+
+  test('two 503s then a bad answer still leave a real correction attempt', async () => {
+    const e503 = new Error('[503 Service Unavailable] high demand');
+    mockGenerateContent
+      .mockRejectedValueOnce(e503)
+      .mockResolvedValueOnce(reply('garbage'))
+      .mockRejectedValueOnce(e503)
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, correctionPrompt: 'CORRECT',
+    });
+
+    expect(result.reply).toBe('تمام');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(4);
+    expect(mockGenerateContent.mock.calls[3][0].contents[0].parts[0].text).toBe('U\n\nCORRECT');
+  });
+
+  test('transient retries stop once the deadline no longer holds one', async () => {
+    const e503 = new Error('503 Service Unavailable');
+    mockGenerateContent.mockRejectedValue(e503);
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, deadlineAt: Date.now() + 400,
+    });
+    expect(result).toBeNull();
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
+
+  test('a timeout buys a third attempt when the deadline still holds one', async () => {
+    jest.useFakeTimers();
+    const start = Date.now();
+    mockGenerateContent
+      .mockImplementationOnce(never)                                   // attempt 1: hangs to its 15 s cap
+      .mockImplementationOnce(async () => { throw new Error('This operation was aborted'); })
+      .mockImplementationOnce(async () => reply({ reply: 'تمام' }));
+
+    const promise = generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: start + 40000,
+    });
+    await jest.advanceTimersByTimeAsync(15000);
+    await jest.advanceTimersByTimeAsync(1000);
+    await expect(promise).resolves.toEqual(expect.objectContaining({ reply: 'تمام' }));
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+  });
+
+  test('an invalid answer twice is never given a third attempt', async () => {
+    mockGenerateContent.mockResolvedValue(reply('garbage'));
+    const result = await generateValidatedAIReply('S', 'U', [], {
+      jsonMode: true, deadlineAt: Date.now() + 25000,
+    });
+    expect(result).toBeNull();
+    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+  });
+
+  test('retryUserMessage is sent only after a timeout, never after a bad answer', async () => {
+    mockGenerateContent
+      .mockRejectedValueOnce(new Error('This operation was aborted'))
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+    await generateValidatedAIReply('S', 'LONG', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, retryUserMessage: 'SHORT',
+    });
+    expect(mockGenerateContent.mock.calls[1][0].contents[0].parts[0].text).toBe('SHORT');
+
+    mockGenerateContent.mockReset();
+    mockGenerateContent
+      .mockResolvedValueOnce(reply('garbage'))
+      .mockResolvedValueOnce(reply({ reply: 'تمام' }));
+    await generateValidatedAIReply('S', 'LONG', [], {
+      jsonMode: true, systemInstruction: true, deadlineAt: Date.now() + 25000, retryUserMessage: 'SHORT', correctionPrompt: 'CORRECT',
+    });
+    expect(mockGenerateContent.mock.calls[1][0].contents[0].parts[0].text).toBe('LONG\n\nCORRECT');
+  });
+
   test('12. retrySystemPrompt is used on attempt 2', async () => {
     mockGenerateContent
       .mockRejectedValueOnce(new Error('timeout'))

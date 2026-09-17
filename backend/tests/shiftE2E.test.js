@@ -263,15 +263,15 @@ describe('SHIFT bot end to end', () => {
 
   test('(d) AI rejects twice → exactly one fallback, pending, needs_team.ai_failure', async () => {
     seedShiftBusiness();
-    mockGenerateContent
-      .mockRejectedValueOnce(new Error('503 overloaded'))
-      .mockRejectedValueOnce(new Error('503 overloaded'));
+    // Round-2 review #3: a 503 costs milliseconds, so it no longer spends one of the two attempts —
+    // it is retried while the deadline holds another call. The fallback comes only when they all fail.
+    mockGenerateContent.mockRejectedValue(new Error('503 overloaded'));
 
     await postWebhook(inboundPayload({ text: 'شو بتقدموا للمطاعم؟' }));
     await settle();
     await advance(5000);
 
-    expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    expect(mockGenerateContent.mock.calls.length).toBeGreaterThan(2);
     expect(sends()).toHaveLength(1);
     expect(sendText(sends()[0])).toBe(acks.aiFailure('ar', { withButtons: sends()[0].type === 'interactive' }));
     expect(botRows()).toHaveLength(1);

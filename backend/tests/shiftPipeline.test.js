@@ -429,6 +429,80 @@ describe('role-play', () => {
 
 // ─── Integration fixes (PR2 integration pass) ────────────────────────────────
 
+/**
+ * Round-2 review #1 — the clinic transcript of 2026-09-17 (docs/bot/sims/2026-09-17-clinic-*.md).
+ * The customer answered the setup ask in full; the model still sent START_ROLEPLAY with
+ * business_name: null and empty facts, twice, and the same ask went out again word for word.
+ */
+describe('review round 2: the example opens on the customer\'s own setup answer', () => {
+  const SETUP = ['عيادة سمايل كير، خدماتنا تنظيف وتلميع، وحشوات تجميلية', 'الدوام من ١٠ الصبح ل ٨ المسا عدا الجمعة'];
+
+  function seedSetup(setup_asks = 1) {
+    const ask = roleplay.setupAsk('clinic', 'ar');
+    return seedShift({
+      current_state: 'roleplay_setup',
+      workflow_data: {
+        lead: { sector: 'clinic', sector_text: 'عيادة أسنان', version: 1 },
+        roleplay: { active: false, sector: 'clinic', business_name: null, facts: [], setup_asks, last_setup_ask: ask },
+        bot_turns: 4,
+        disclosed_at: START.toISOString(),
+      },
+    });
+  }
+
+  test('START_ROLEPLAY with business_name null opens the sandbox on her words', async () => {
+    const { conv } = seedSetup();
+    script({
+      reply: 'تمام دكتورة رنا.', action: 'START_ROLEPLAY', action_args: { sector: 'clinic', business_name: null, facts: [] },
+      stage: 'roleplay_setup', next_step: 'confirmed',
+    });
+
+    const { parts } = await turn(conv, SETUP);
+
+    expect(bodyOf(parts[0]).startsWith(roleplay.startLine('عيادة سمايل كير', 'ar'))).toBe(true);
+    const c = convRow(conv.id);
+    expect(c.current_state).toBe('roleplay');
+    expect(c.workflow_data.roleplay).toMatchObject({ active: true, business_name: 'عيادة سمايل كير' });
+    expect(c.workflow_data.roleplay.facts.length).toBeGreaterThan(0);
+  });
+
+  test('the identical setup ask is never sent twice', async () => {
+    const { conv } = seedSetup();
+    const ask = roleplay.setupAsk('clinic', 'ar');
+    script({
+      reply: 'شو اسم العيادة؟', action: 'START_ROLEPLAY', action_args: { sector: 'clinic', business_name: null, facts: [] },
+      stage: 'roleplay_setup', next_step: 'question',
+    });
+
+    const { parts } = await turn(conv, ['ما بدي أكتب إشي، وريني بس']);
+
+    expect(parts.map(bodyOf)).not.toContain(ask);
+    expect(bodyOf(parts[0])).toBe(acks.roleplaySetupGaveUp('ar'));
+    expect(convRow(conv.id).current_state).toBe('fit');
+  });
+
+  test('a name we already stored is enough once the asks are spent', async () => {
+    const { conv } = seedShift({
+      current_state: 'roleplay_setup',
+      workflow_data: {
+        lead: { sector: 'clinic', business_name: 'عيادة سمايل كير', version: 1 },
+        roleplay: { active: false, sector: 'clinic', business_name: null, facts: [], setup_asks: 2 },
+        bot_turns: 5,
+        disclosed_at: START.toISOString(),
+      },
+    });
+    script({
+      reply: 'يلا.', action: 'START_ROLEPLAY', action_args: { sector: 'clinic', business_name: null, facts: [] },
+      stage: 'roleplay_setup', next_step: 'confirmed',
+    });
+
+    const { parts } = await turn(conv, ['جربيني هلأ']);
+
+    expect(bodyOf(parts[0]).startsWith(roleplay.startLine('عيادة سمايل كير', 'ar'))).toBe(true);
+    expect(convRow(conv.id).workflow_data.roleplay).toMatchObject({ active: true, facts: [] });
+  });
+});
+
 describe('integration fixes', () => {
   test('a tier-2 handoff whose model line invents a price → the fixed handoff line, ack and alert kept, one model call', async () => {
     const { conv } = seedShift({ current_state: 'discovery' });

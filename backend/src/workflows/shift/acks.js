@@ -289,6 +289,16 @@ function callTimeAsk(lang) {
  * The same question went out three times with no answer (owner phone test 2026-09-17): the bot stops
  * repeating it and the team takes the conversation over. OWNER-APPROVAL-PENDING wording.
  */
+/**
+ * The example could not be set up twice running (round-2 review #1). Saying so once and moving on beats
+ * sending the same setup ask a third time, which is what the 2026-09-17 sims did.
+ */
+function roleplaySetupGaveUp(lang) {
+  return isEn(lang)
+    ? "Let's leave the example for now — the team can walk you through it live instead. Shall I arrange a short call?"
+    : 'خلينا نترك المثال هلأ — الفريق بيقدر يوريك إياه مباشرة. بترتبلك مكالمة قصيرة؟';
+}
+
 function askHandover(lang) {
   return isEn(lang)
     ? "I'll pass this to the SHIFT team — they'll agree a time with you here."
@@ -468,5 +478,6 @@ module.exports = {
   slotsBody,
   blockedReply,
   askHandover,
+  roleplaySetupGaveUp,
   callTimeAsk,
 };

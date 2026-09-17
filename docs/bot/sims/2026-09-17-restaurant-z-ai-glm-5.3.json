@@ -1,0 +1,1892 @@
+{
+  "persona": "restaurant",
+  "personaTitle": "صاحب مطعم في إربد — مستعجل ومتشكك",
+  "customerModel": "z-ai/glm-5.3",
+  "geminiModel": "gemini-3.6-flash",
+  "startedAt": "2026-09-17T07:00:00.077Z",
+  "clockAnchor": "2026-09-17T07:00:00.000Z",
+  "turns": [
+    {
+      "index": 0,
+      "kind": "text",
+      "at": "2026-09-17T07:00:46.679Z",
+      "customer": {
+        "messages": [
+          "مساء الخير",
+          "شو هاي الخدمة اللي بتنشرو عنها بوت واتساب؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1186,
+        "usage": {
+          "prompt_tokens": 805,
+          "completion_tokens": 50,
+          "total_tokens": 855,
+          "cost": 0.00048684,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 768,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00048684,
+            "upstream_inference_prompt_cost": 0.00026684,
+            "upstream_inference_completions_cost": 0.00022
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "عشان أفيدك صح: مين بيرد على رسائل واتساب عندكم حاليًا؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 9477,
+        "geminiCalls": [
+          {
+            "ms": 7639,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 5904,
+              "candidatesTokenCount": 206,
+              "totalTokenCount": 6110,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 5904
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          },
+          {
+            "ms": 1279,
+            "ok": false,
+            "error": "[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent: [503 Service Unavailable] This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+          },
+          {
+            "ms": 401,
+            "ok": false,
+            "error": "[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent: [503 Service Unavailable] This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:00:53.253Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "opening",
+      "status": "open",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "kind": "text",
+      "at": "2026-09-17T07:01:49.514Z",
+      "customer": {
+        "messages": [
+          "أنا موظفي بيرد بس مش دايماً متوفر",
+          "بس قلي شو هاي البوت بالزبط؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 659,
+        "usage": {
+          "prompt_tokens": 860,
+          "completion_tokens": 78,
+          "total_tokens": 938,
+          "cost": 0.0005171936,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 768,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0005171936,
+            "upstream_inference_prompt_cost": 0.0002529296,
+            "upstream_inference_completions_cost": 0.000264264
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 32,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا أبو محمد. كرم بوت هو مساعد ذكاء اصطناعي على واتساب، بيرد من قائمة منشأتك وأسعارها وأوقاتها ليلًا ونهارًا، بيأخذ الطلبات والمواعيد وبيحوّل الملاحظات لموظفك مع السياق كاملًا.\n\nشو نوع نشاطكم أو مجال شغلكم؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 6134,
+        "geminiCalls": [
+          {
+            "ms": 6109,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 5947,
+              "candidatesTokenCount": 140,
+              "totalTokenCount": 6087,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 5947
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:01:56.022Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "discovery",
+      "status": "open",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:56.016Z",
+            "confirmed": true
+          }
+        },
+        "version": 2,
+        "score": 0,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "kind": "text",
+      "at": "2026-09-17T07:02:48.698Z",
+      "customer": {
+        "messages": [
+          "عندنا مطعم مندي بإربد",
+          "طيب كم التكلفة؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 672,
+        "usage": {
+          "prompt_tokens": 997,
+          "completion_tokens": 50,
+          "total_tokens": 1047,
+          "cost": 0.0005138364,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 832,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0005138364,
+            "upstream_inference_prompt_cost": 0.0003444364,
+            "upstream_inference_completions_cost": 0.0001694
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 7,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا بك وبأهل إربد. بالنسبة للتكلفة، ما عندي تسعيرة معتمدة أشاركها هون بتتحدد على قد شغلك، والفريق بيطلعلك عرض مكتوب بدون مكالمة إذا بتحب. شو بيصير برسائل الواتساب عندك بعد الدوام أو وقت الضغط بالعمود؟\n\nسجّلت طلب العرض بقائمة فريق شِفت ✅ لسه ما استلمه حدا — بيرجعولك على هالرقم ضمن الدوام (الأحد–الخميس 9–6). لحد ما يردوا أنا هون لأي سؤال.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 11838,
+        "geminiCalls": [
+          {
+            "ms": 11826,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6090,
+              "candidatesTokenCount": 1083,
+              "totalTokenCount": 7173,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6090
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "FLAG_FOR_TEAM"
+          }
+        ],
+        "alerts": [
+          "quote"
+        ],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "objection",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:56.016Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 3,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text "
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "kind": "text",
+      "at": "2026-09-17T07:03:55.327Z",
+      "customer": {
+        "messages": [
+          "طيب انا اصلا عندي موظف بيرد",
+          "شو بتفيدني هاي؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 923,
+        "usage": {
+          "prompt_tokens": 1180,
+          "completion_tokens": 83,
+          "total_tokens": 1263,
+          "cost": 0.000710556,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 960,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.000710556,
+            "upstream_inference_prompt_cost": 0.000429352,
+            "upstream_inference_completions_cost": 0.000281204
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 44,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "حقك تسأل، والموظف أساسي طبعًا. كرم بيساعد الموظف وما بيلغيه — بيستلم الطلبات والأسئلة بنفس اللحظة لما الموظف يكون مشغول بطلبات الصالة أو بعد ما يسكر المطعم.\n\nأقرب أوقات الفريق:",
+            "buttons": [
+              {
+                "id": "book:2026-09-17T09:30:00.000Z",
+                "title": "اليوم 12:30 الظهر"
+              },
+              {
+                "id": "book:2026-09-20T06:00:00.000Z",
+                "title": "الأحد 9:00 الصبح"
+              },
+              {
+                "id": "slot:other",
+                "title": "وقت ثاني"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 12614,
+        "geminiCalls": [
+          {
+            "ms": 12598,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6164,
+              "candidatesTokenCount": 111,
+              "totalTokenCount": 6275,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6164
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:04:01.836Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "objection",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:56.016Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000c",
+            "at": "2026-09-17T07:04:01.830Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 3,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "kind": "text",
+      "at": "2026-09-17T07:05:13.320Z",
+      "customer": {
+        "messages": [
+          "طيب بس بدي اعرف السعر قبلها",
+          "ليش لسا ما قليتوا كم بياخد"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 9408,
+        "usage": {
+          "prompt_tokens": 1358,
+          "completion_tokens": 71,
+          "total_tokens": 1429,
+          "cost": 0.00133808,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 768,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00133808,
+            "upstream_inference_prompt_cost": 0.00102568,
+            "upstream_inference_completions_cost": 0.0003124
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 25,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "سؤالك بمحله. الأسعار بتتحدد حسب حجم الطلبات وعدد الفروع، وما بدي أعطيك رقم مش دقيق. الفريق بيجهزلك عرض مكتوب ومخصص لمطعمك. بتحب الردود تكون بس للطلبات والتوصيل ولا لحجوزات الطاولات كمان؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 2129,
+        "geminiCalls": [
+          {
+            "ms": 2107,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6295,
+              "candidatesTokenCount": 186,
+              "totalTokenCount": 6481,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6295
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "FLAG_FOR_TEAM"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:05:19.832Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "objection",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:56.016Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          }
+        },
+        "version": 5,
+        "score": 3,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff",
+          "price"
+        ],
+        "products": [
+          "karam"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "kind": "text",
+      "at": "2026-09-17T07:06:07.916Z",
+      "customer": {
+        "messages": [
+          "الطلبات والتوصيل اكيد",
+          "والحجز كمان أحيانا",
+          "طيب متى بيكلمني حدا؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 595,
+        "usage": {
+          "prompt_tokens": 1420,
+          "completion_tokens": 58,
+          "total_tokens": 1478,
+          "cost": 0.0022432,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0022432,
+            "upstream_inference_prompt_cost": 0.001988,
+            "upstream_inference_completions_cost": 0.0002552
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 6,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "تمام، بحط بالحسبان إنك بدك الطلبات والتوصيل مع الحجوزات. التواصل بيصير بوقت إنت بتختاره للتوضيح. أقرب أوقات الفريق:",
+            "buttons": [
+              {
+                "id": "book:2026-09-17T09:30:00.000Z",
+                "title": "اليوم 12:30 الظهر"
+              },
+              {
+                "id": "book:2026-09-20T06:00:00.000Z",
+                "title": "الأحد 9:00 الصبح"
+              },
+              {
+                "id": "slot:other",
+                "title": "وقت ثاني"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4495,
+        "geminiCalls": [
+          {
+            "ms": 2467,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6351,
+              "candidatesTokenCount": 268,
+              "totalTokenCount": 6619,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6351
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          },
+          {
+            "ms": 1988,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6391,
+              "candidatesTokenCount": 182,
+              "totalTokenCount": 6573,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6391
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "close",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:06:15.930Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          }
+        },
+        "version": 6,
+        "score": 3,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر",
+          "طلبات وتوصيل وحجوزات طاولات"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff",
+          "price"
+        ],
+        "products": [
+          "karam"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:06:15.930Z",
+          "codes": [
+            "claimed_action",
+            "dangling_colon"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "kind": "tap",
+      "at": "2026-09-17T07:07:06.141Z",
+      "customer": {
+        "messages": [],
+        "tap": {
+          "id": "book:2026-09-17T09:30:00.000Z",
+          "title": "اليوم 12:30 الظهر"
+        },
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 571,
+        "usage": {
+          "prompt_tokens": 1578,
+          "completion_tokens": 30,
+          "total_tokens": 1608,
+          "cost": 0.00080904,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1344,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00080904,
+            "upstream_inference_prompt_cost": 0.00067704,
+            "upstream_inference_completions_cost": 0.000132
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "ثبّتنا مكالمتك مع فريق شِفت: اليوم الساعة 12:30 الظهر بتوقيت عمّان. رح نذكّرك قبلها.\n\nوشو اسم المحل عشان الفريق يكون جاهز؟",
+            "buttons": [
+              {
+                "id": "book_ok",
+                "title": "تمام"
+              },
+              {
+                "id": "book_change",
+                "title": "غيّر الموعد"
+              },
+              {
+                "id": "book_cancel",
+                "title": "ألغِ المكالمة"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 10,
+        "geminiCalls": [],
+        "results": [],
+        "alerts": [
+          "booking_booked",
+          "hot_lead"
+        ],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:07:11.144Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-17T10:00:00.000Z",
+          "busy": 0
+        },
+        {
+          "at": "2026-09-17T07:07:11.145Z",
+          "op": "insertEvent",
+          "eventId": "shud3ogvdh83641scaim49r6tn",
+          "summary": "مكالمة شِفت — أبو محمد (+962790000555)",
+          "start": {
+            "dateTime": "2026-09-17T09:30:00.000Z",
+            "timeZone": "Asia/Amman"
+          },
+          "end": {
+            "dateTime": "2026-09-17T10:00:00.000Z",
+            "timeZone": "Asia/Amman"
+          }
+        }
+      ],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:06:15.930Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000l",
+            "at": "2026-09-17T07:07:11.143Z",
+            "confirmed": true
+          }
+        },
+        "version": 7,
+        "score": 6,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر",
+          "طلبات وتوصيل وحجوزات طاولات"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff",
+          "price"
+        ],
+        "products": [
+          "karam"
+        ],
+        "preferred_time": {
+          "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+          "start": "2026-09-17T09:30:00.000Z",
+          "end": "2026-09-17T10:00:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-17T09:30:00.000Z"
+        }
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "booked",
+        "booked_at": "2026-09-17T07:07:11.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-17T09:30:00.000Z",
+        "source_msg_id": "cfake00000l",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": true,
+        "details_missing": [
+          "business_name"
+        ],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:07:11.143Z"
+          }
+        ]
+      },
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:06:15.930Z",
+          "codes": [
+            "claimed_action",
+            "dangling_colon"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "kind": "tap",
+      "at": "2026-09-17T07:07:56.878Z",
+      "customer": {
+        "messages": [
+          "مطعم بيت المندي بإربد"
+        ],
+        "tap": {
+          "id": "book_ok",
+          "title": "تمام"
+        },
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 540,
+        "usage": {
+          "prompt_tokens": 1668,
+          "completion_tokens": 35,
+          "total_tokens": 1703,
+          "cost": 0.00081112,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1472,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00081112,
+            "upstream_inference_prompt_cost": 0.00065712,
+            "upstream_inference_completions_cost": 0.000154
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "تمام 👍 منحكي معك اليوم الساعة 12:30 الظهر بتوقيت عمّان.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 19,
+        "geminiCalls": [],
+        "results": [],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:06:15.930Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000l",
+            "at": "2026-09-17T07:07:11.143Z",
+            "confirmed": true
+          }
+        },
+        "version": 7,
+        "score": 6,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر",
+          "طلبات وتوصيل وحجوزات طاولات"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff",
+          "price"
+        ],
+        "products": [
+          "karam"
+        ],
+        "preferred_time": {
+          "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+          "start": "2026-09-17T09:30:00.000Z",
+          "end": "2026-09-17T10:00:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-17T09:30:00.000Z"
+        }
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "booked",
+        "booked_at": "2026-09-17T07:07:11.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-17T09:30:00.000Z",
+        "source_msg_id": "cfake00000l",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": true,
+        "details_missing": [
+          "business_name"
+        ],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:07:11.143Z"
+          }
+        ]
+      },
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:06:15.930Z",
+          "codes": [
+            "claimed_action",
+            "dangling_colon"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "kind": "text",
+      "at": "2026-09-17T07:08:47.679Z",
+      "customer": {
+        "messages": [
+          "مطعم بيت المندي بإربد",
+          "منشوفكم اليوم"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 452,
+        "usage": {
+          "prompt_tokens": 1665,
+          "completion_tokens": 56,
+          "total_tokens": 1721,
+          "cost": 0.0011182,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1280,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0011182,
+            "upstream_inference_prompt_cost": 0.0008718,
+            "upstream_inference_completions_cost": 0.0002464
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 20,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلاً أستاذ أبو محمد، أهلاً بأهل إربد. بحط اسم مطعم بيت المندي بالحسبان وبلفّت نظر الفريق له قبل المكالمة 👋",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 6652,
+        "geminiCalls": [
+          {
+            "ms": 1806,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6330,
+              "candidatesTokenCount": 127,
+              "totalTokenCount": 6457,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6330
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          },
+          {
+            "ms": 4819,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6370,
+              "candidatesTokenCount": 127,
+              "totalTokenCount": 6497,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6370
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:09:00.829Z",
+          "op": "patchEvent",
+          "eventId": "shud3ogvdh83641scaim49r6tn",
+          "patch": {
+            "summary": "مكالمة شِفت — مطعم بيت المندي (+962790000555)",
+            "description": "الاسم: أبو محمد\nالمنشأة: مطعم بيت المندي\nالقطاع: مطعم/كافيه — مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text \nالاحتياج: موظف بيرد بس مش دايماً متوفر، طلبات وتوصيل وحجوزات طاولات\nواتساب: +962790000555\nالملف الشخصي: أبو محمد\n\nInbox: https://inbox.sim.test\nconversation=cfake000001"
+          },
+          "found": true
+        }
+      ],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:06:15.930Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000l",
+            "at": "2026-09-17T07:07:11.143Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "model",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:54.186Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:54.186Z",
+            "confirmed": true
+          }
+        },
+        "version": 8,
+        "score": 8,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر",
+          "طلبات وتوصيل وحجوزات طاولات"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff",
+          "price"
+        ],
+        "products": [
+          "karam"
+        ],
+        "preferred_time": {
+          "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+          "start": "2026-09-17T09:30:00.000Z",
+          "end": "2026-09-17T10:00:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-17T09:30:00.000Z"
+        },
+        "business_name": "مطعم بيت المندي",
+        "city": "إربد"
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "booked",
+        "booked_at": "2026-09-17T07:07:11.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-17T09:30:00.000Z",
+        "source_msg_id": "cfake00000l",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:07:11.143Z"
+          }
+        ],
+        "details_synced_at": "2026-09-17T07:09:00.827Z"
+      },
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:06:15.930Z",
+          "codes": [
+            "claimed_action",
+            "dangling_colon"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:08:54.186Z",
+          "codes": [
+            "claimed_action"
+          ],
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "final": {
+    "conversation": {
+      "status": "pending",
+      "current_state": "captured",
+      "ai_enabled": true,
+      "metadata": {
+        "reply_failures": 0
+      }
+    },
+    "workflow_data": {
+      "bot_turns": 7,
+      "disclosed_at": "2026-09-17T07:00:53.192Z",
+      "nudge": null,
+      "msgs_since_interest": 0,
+      "last_ask": null,
+      "last_bot": {
+        "stage": "captured",
+        "next_step": "confirmed",
+        "at": "2026-09-17T07:08:54.186Z",
+        "action": "NONE"
+      },
+      "validator_blocks": [
+        {
+          "at": "2026-09-17T07:00:53.192Z",
+          "codes": [
+            "digits",
+            "questions"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:06:15.930Z",
+          "codes": [
+            "claimed_action",
+            "dangling_colon"
+          ],
+          "attempt": 1
+        },
+        {
+          "at": "2026-09-17T07:08:54.186Z",
+          "codes": [
+            "claimed_action"
+          ],
+          "attempt": 1
+        }
+      ],
+      "lead": {
+        "name": "أبو محمد",
+        "_prov": {
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.192Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake00000j",
+            "at": "2026-09-17T07:06:15.930Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:55.199Z",
+            "confirmed": true
+          },
+          "objections": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:19.823Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000l",
+            "at": "2026-09-17T07:07:11.143Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "model",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:54.186Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake00000q",
+            "at": "2026-09-17T07:08:54.186Z",
+            "confirmed": true
+          }
+        },
+        "version": 8,
+        "score": 8,
+        "need": [
+          "موظف بيرد بس مش دايماً متوفر",
+          "طلبات وتوصيل وحجوزات طاولات"
+        ],
+        "sector": "restaurant",
+        "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+        "objections": [
+          "staff",
+          "price"
+        ],
+        "products": [
+          "karam"
+        ],
+        "preferred_time": {
+          "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+          "start": "2026-09-17T09:30:00.000Z",
+          "end": "2026-09-17T10:00:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-17T09:30:00.000Z"
+        },
+        "business_name": "مطعم بيت المندي",
+        "city": "إربد"
+      },
+      "questions_asked": 1,
+      "needs_team": {
+        "reason": "meeting",
+        "summary": "مكالمة محجوزة: اليوم بين 12:30 و1 (الخميس 17/9)",
+        "at": "2026-09-17T07:07:11.143Z",
+        "resolved_at": null,
+        "sla_note_sent_at": null,
+        "claimed_at": null,
+        "claimed_by": null
+      },
+      "slot_offers": [],
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "booked",
+        "booked_at": "2026-09-17T07:07:11.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-17T09:30:00.000Z",
+        "source_msg_id": "cfake00000l",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:07:11.143Z"
+          }
+        ],
+        "details_synced_at": "2026-09-17T07:09:00.827Z"
+      },
+      "capture_pending": null
+    },
+    "lead": {
+      "name": "أبو محمد",
+      "_prov": {
+        "name": {
+          "source": "model",
+          "source_msg_id": "cfake000003",
+          "at": "2026-09-17T07:00:53.192Z",
+          "confirmed": true
+        },
+        "need": {
+          "source": "model",
+          "source_msg_id": "cfake00000j",
+          "at": "2026-09-17T07:06:15.930Z",
+          "confirmed": true
+        },
+        "sector": {
+          "source": "model",
+          "source_msg_id": "cfake000009",
+          "at": "2026-09-17T07:02:55.199Z",
+          "confirmed": true
+        },
+        "sector_text": {
+          "source": "model",
+          "source_msg_id": "cfake000009",
+          "at": "2026-09-17T07:02:55.199Z",
+          "confirmed": true
+        },
+        "objections": {
+          "source": "model",
+          "source_msg_id": "cfake00000f",
+          "at": "2026-09-17T07:05:19.823Z",
+          "confirmed": true
+        },
+        "products": {
+          "source": "model",
+          "source_msg_id": "cfake00000f",
+          "at": "2026-09-17T07:05:19.823Z",
+          "confirmed": true
+        },
+        "preferred_time": {
+          "source": "booking",
+          "source_msg_id": "cfake00000l",
+          "at": "2026-09-17T07:07:11.143Z",
+          "confirmed": true
+        },
+        "business_name": {
+          "source": "model",
+          "source_msg_id": "cfake00000q",
+          "at": "2026-09-17T07:08:54.186Z",
+          "confirmed": true
+        },
+        "city": {
+          "source": "model",
+          "source_msg_id": "cfake00000q",
+          "at": "2026-09-17T07:08:54.186Z",
+          "confirmed": true
+        }
+      },
+      "version": 8,
+      "score": 8,
+      "need": [
+        "موظف بيرد بس مش دايماً متوفر",
+        "طلبات وتوصيل وحجوزات طاولات"
+      ],
+      "sector": "restaurant",
+      "sector_text": "مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text ",
+      "objections": [
+        "staff",
+        "price"
+      ],
+      "products": [
+        "karam"
+      ],
+      "preferred_time": {
+        "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "slot_id": "book:2026-09-17T09:30:00.000Z"
+      },
+      "business_name": "مطعم بيت المندي",
+      "city": "إربد"
+    },
+    "booking": {
+      "event_id": "shud3ogvdh83641scaim49r6tn",
+      "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+      "start": "2026-09-17T09:30:00.000Z",
+      "end": "2026-09-17T10:00:00.000Z",
+      "tz": "Asia/Amman",
+      "status": "booked",
+      "booked_at": "2026-09-17T07:07:11.143Z",
+      "seq": 1,
+      "offer_id": "book:2026-09-17T09:30:00.000Z",
+      "source_msg_id": "cfake00000l",
+      "lang": "ar",
+      "reminders": {},
+      "details_pending": false,
+      "details_missing": [],
+      "history": [
+        {
+          "status": "booked",
+          "start": "2026-09-17T09:30:00.000Z",
+          "at": "2026-09-17T07:07:11.143Z"
+        }
+      ],
+      "details_synced_at": "2026-09-17T07:09:00.827Z"
+    },
+    "calendarEvents": [
+      {
+        "id": "shud3ogvdh83641scaim49r6tn",
+        "status": "confirmed",
+        "summary": "مكالمة شِفت — مطعم بيت المندي (+962790000555)",
+        "start": {
+          "dateTime": "2026-09-17T09:30:00.000Z",
+          "timeZone": "Asia/Amman"
+        },
+        "end": {
+          "dateTime": "2026-09-17T10:00:00.000Z",
+          "timeZone": "Asia/Amman"
+        },
+        "description": "الاسم: أبو محمد\nالمنشأة: مطعم بيت المندي\nالقطاع: مطعم/كافيه — مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text \nالاحتياج: موظف بيرد بس مش دايماً متوفر، طلبات وتوصيل وحجوزات طاولات\nواتساب: +962790000555\nالملف الشخصي: أبو محمد\n\nInbox: https://inbox.sim.test\nconversation=cfake000001"
+      }
+    ],
+    "calendarOps": [
+      {
+        "at": "2026-09-17T07:00:53.253Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:01:56.022Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:04:01.836Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:05:19.832Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:07:11.144Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-17T10:00:00.000Z",
+        "busy": 0
+      },
+      {
+        "at": "2026-09-17T07:07:11.145Z",
+        "op": "insertEvent",
+        "eventId": "shud3ogvdh83641scaim49r6tn",
+        "summary": "مكالمة شِفت — أبو محمد (+962790000555)",
+        "start": {
+          "dateTime": "2026-09-17T09:30:00.000Z",
+          "timeZone": "Asia/Amman"
+        },
+        "end": {
+          "dateTime": "2026-09-17T10:00:00.000Z",
+          "timeZone": "Asia/Amman"
+        }
+      },
+      {
+        "at": "2026-09-17T07:09:00.829Z",
+        "op": "patchEvent",
+        "eventId": "shud3ogvdh83641scaim49r6tn",
+        "patch": {
+          "summary": "مكالمة شِفت — مطعم بيت المندي (+962790000555)",
+          "description": "الاسم: أبو محمد\nالمنشأة: مطعم بيت المندي\nالقطاع: مطعم/كافيه — مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, clean structure correctly parsed as standard text outputs as required without surrounding extra text \nالاحتياج: موظف بيرد بس مش دايماً متوفر، طلبات وتوصيل وحجوزات طاولات\nواتساب: +962790000555\nالملف الشخصي: أبو محمد\n\nInbox: https://inbox.sim.test\nconversation=cfake000001"
+        },
+        "found": true
+      }
+    ],
+    "alerts": [
+      "quote",
+      "booking_booked",
+      "hot_lead"
+    ],
+    "geminiCalls": 11,
+    "geminiFailures": 2,
+    "geminiBlocked": 0,
+    "openrouter": {
+      "calls": 9,
+      "promptTokens": 11531,
+      "completionTokens": 511,
+      "cost": 0.008548066
+    },
+    "endedAt": "2026-09-17T07:09:00.833Z",
+    "wallClockSeconds": 79
+  },
+  "errors": []
+}
