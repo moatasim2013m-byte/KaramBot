@@ -535,6 +535,53 @@ describe('review round 2: the identity answer and the invented diary', () => {
   });
 });
 
+describe('review round 2, code review follow-ups', () => {
+  test('a third unanswered ask escalates even after the move-on line replaced the second', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const ask = { reply: 'شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+
+    script(ask, ask);
+    await turn(conv, ['مرحبا']);
+    script(ask, ask);
+    const t2 = await turn(conv, ['طيب']);
+    expect(t2.parts.map(bodyOf).join('\n')).toContain(acks.askMovedOn('ar'));
+    script(ask, ask);
+    const t3 = await turn(conv, ['هاه']);
+
+    expect(t3.parts.map(bodyOf).join('\n')).toContain(acks.askHandover('ar'));
+    expect(convRow(conv.id).status).toBe('pending');
+  });
+
+  test('«خليني احكي مع إنسان، إنت بوت ولا لأ؟» is transferred AND answered', async () => {
+    const { conv } = seedShift({ current_state: 'fit', workflow_data: { lead: { sector: 'restaurant', version: 1 }, bot_turns: 3, disclosed_at: START.toISOString() } });
+
+    const { parts } = await turn(conv, ['خليني احكي مع إنسان واضح، إنت بوت ولا لأ؟']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('ذكاء اصطناعي');
+    expect(body).toContain('ولا يهمك');
+    expect(convRow(conv.id).current_state).toBe('handoff');
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
+  test('the identity answer survives a CAPTURE_TIME, which the batcher re-renders from `capture`', async () => {
+    const { conv } = seedShift({
+      current_state: 'close',
+      workflow_data: { lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 3 }, bot_turns: 5, disclosed_at: START.toISOString() },
+    });
+    const capture = {
+      reply: 'تمام.', action: 'CAPTURE_TIME', action_args: { time_text: 'بكرا بعد الظهر' }, stage: 'close', next_step: 'confirmed',
+    };
+    script(capture, capture);
+
+    const { parts } = await turn(conv, ['انت بوت ولا انسان؟', 'وخلينا نحكي بكرا بعد الظهر']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('ذكاء اصطناعي');
+    expect(body).toContain('سجّلت طلب مكالمة');
+  });
+});
+
 describe('review round 2 #7 — one discovery question, not three', () => {
   test('the same unanswered question is dropped the second time and a step is offered', async () => {
     const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });

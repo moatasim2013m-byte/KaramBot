@@ -533,6 +533,20 @@ describe('round 2 #5 — the privacy notice is whole or absent', () => {
     expect(r.result.messages[0].text).not.toMatch(/الفريق\.\s*shifts-ai\.com/);
   });
 
+  test('the notice is restored once, never twice', () => {
+    // Round-2 code review: a global regex inserted a second copy when a reply carried two orphan tails.
+    const twice = 'سطر. shifts-ai.com/privacy). وسطر تاني shifts-ai.com/privacy). شو الاسم؟';
+    const r = v.validateResult(reply([{ type: 'text', text: twice }]), baseCtx());
+    expect(r.result.messages[0].text.split('بنستخدم اللي بتكتبه').length - 1).toBe(1);
+  });
+
+  test('a notice a length split left half in the part before is not re-opened here', () => {
+    const head = { type: 'text', text: 'تمام. (بنستخدم اللي بتكتبه عشان نرد' };
+    const tail = { type: 'text', text: 'عليك — التفاصيل: shifts-ai.com/privacy)' };
+    const r = v.validateResult(reply([head, tail]), baseCtx());
+    expect(r.result.messages[1].text).toBe(tail.text);
+  });
+
   test('a whole notice is left exactly as it is', () => {
     const whole = `تمام. بس أكّدلي اسم المطعم؟ ${purpose}`;
     const r = v.validateResult(reply([{ type: 'text', text: whole }]), baseCtx());

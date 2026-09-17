@@ -1333,11 +1333,17 @@ function withModelLine(part, newLine) {
  * torn notice. It is put back whole rather than left as a stray URL and a stray bracket.
  */
 const PRIVACY_WHOLE_RE = /\((?:بنستخدم|we use what you write)[^)]*\/privacy\)/i;
-const PRIVACY_ORPHAN_RE = /[ \t]*(?:—|-)?[ \t]*(?:التفاصيل|details)?[ \t]*[:：]?[ \t]*[A-Za-z0-9.\-/]*\/privacy\)/gi;
+// NOT global: one torn notice is restored once, and a part that already carries a whole one is skipped
+// above — two insertions would read the notice back to the customer one and a half times.
+const PRIVACY_ORPHAN_RE = /[ \t]*(?:—|-)?[ \t]*(?:التفاصيل|details)?[ \t]*[:：]?[ \t]*[A-Za-z0-9.\-/]*\/privacy\)/i;
+// The head of a notice a length split left in the previous part: its tail must not be restored whole.
+const PRIVACY_HEAD_RE = /\((?:بنستخدم|we use what you write)/i;
 
-function repairPrivacyNotice(text, lang) {
+function repairPrivacyNotice(text, lang, { headElsewhere = false } = {}) {
   const s = String(text == null ? '' : text);
   if (!/\/privacy\)/.test(s) || PRIVACY_WHOLE_RE.test(s)) return { text: s, repaired: false };
+  // A split put the notice's opening in the part before this one: the two halves are still one notice.
+  if (headElsewhere) return { text: s, repaired: false };
   const out = s.replace(PRIVACY_ORPHAN_RE, ` ${acks.purposeLine(lang)}`).replace(/[ \t]{2,}/g, ' ').trim();
   return { text: out, repaired: out !== s };
 }
@@ -1547,9 +1553,11 @@ function validateResult(result, vctx = {}) {
       .map((p) => (p && p.fallback && p.fallback.type === 'text' && !p.serverButtons ? { ...p, fallback: { type: 'text', text: p.text } } : p));
 
     // The privacy notice survives every trim above whole, or not at all (#5).
+    const noticeHeadSeen = messages.some((p) => p && typeof p.text === 'string'
+      && PRIVACY_HEAD_RE.test(p.text) && !PRIVACY_WHOLE_RE.test(p.text));
     messages = messages.map((p) => {
       if (!p || !TEXT_BEARING.includes(p.type)) return p;
-      const fixed = repairPrivacyNotice(p.text, ctx.lang);
+      const fixed = repairPrivacyNotice(p.text, ctx.lang, { headElsewhere: noticeHeadSeen });
       if (!fixed.repaired) return p;
       events.push({ code: 'privacy_notice', detail: 'restored' });
       return { ...p, text: fixed.text };

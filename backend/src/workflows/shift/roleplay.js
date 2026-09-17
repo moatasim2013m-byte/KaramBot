@@ -134,7 +134,12 @@ function canStart(conversation, args) {
 // وتلميع | الدوام من ١٠ الصبح ل ٨ المسا» is a complete setup whatever the model put in action_args.
 
 const BUSINESS_HEAD_RE = /^(?:عيادة|عياده|مركز|مجمع|مستشفى|مختبر|صيدلية|مطعم|مطبخ|كافيه|كافي|مقهى|متجر|محل|بوتيك|معرض|صالون|كوافير|جيم|نادي|مخبز|فرن|حلويات|شركة|مؤسسة|مكتب|ورشة|كراج|فندق|clinic|center|centre|restaurant|cafe|coffee|store|shop|salon|gym|bakery|company|studio)(?:\s|$)/i;
-const NAME_LEAD_RE = /^(?:اسم(?:ها|ه|نا)?\s*(?:ال)?(?:منشأة|محل|مطعم|عيادة|متجر|شركة|مركز)?\s*[:：]?\s*|the name is\s*|name\s*[:：]\s*|it'?s\s+|we'?re\s+)/i;
+// The lead must be the whole word «اسم…» followed by a space or a colon: without the boundary «اسمك شو»
+// became the name «ك شو» and «اسمعني منيح» became «عني منيح» (round-2 code review).
+const NAME_LEAD_RE = /^(?:اسم(?:ها|ه|نا)?(?:\s+(?:ال)?(?:منشأة|محل|مطعم|عيادة|متجر|شركة|مركز))?\s*[:：]\s*|اسم(?:ها|ه|نا)?\s+(?:ال)?(?:منشأة|محل|مطعم|عيادة|متجر|شركة|مركز)\s+|the name is\s+|name\s*[:：]\s*)/i;
+// «اسمه …» on its own proves nothing — «اسمك شو» opens the same way — so it is stripped only when what
+// follows names a kind of business.
+const WEAK_NAME_LEAD_RE = /^اسم(?:ها|ه|نا|هم)?\s+/i;
 const SEGMENT_SPLIT_RE = /[\n،,؛;.!|·•]+|\s-\s/;
 // «عيادة سمايل كير والدوام من ١٠ ل ٨» is one segment: the name ends where the next subject starts.
 const NAME_TAIL_RE = /\s+و?(?:الدوام|الأوقات|الاوقات|أوقات|اوقات|ساعات|خدماتنا|خدمات|المنيو|القائمة|الفرع|الفروع|التوصيل|العنوان|بنفتح|منفتح|بنشتغل|منشتغل|opening|hours|services|menu|delivery)(?:\s|$)[\s\S]*$/i;
@@ -161,13 +166,19 @@ function setupSegments(texts) {
  */
 function businessNameFrom(texts) {
   for (const seg of setupSegments(texts)) {
-    const candidate = seg.replace(NAME_LEAD_RE, '').replace(NAME_TAIL_RE, '').split(/[\d٠-٩۰-۹]/)[0]
+    const led = NAME_LEAD_RE.test(seg);
+    let candidate = seg.replace(NAME_LEAD_RE, '').replace(NAME_TAIL_RE, '')
       .replace(/[\s،,.\-–—]+$/, '').trim();
+    if (!led && WEAK_NAME_LEAD_RE.test(candidate)) {
+      const stripped = candidate.replace(WEAK_NAME_LEAD_RE, '').trim();
+      if (BUSINESS_HEAD_RE.test(stripped)) candidate = stripped;
+    }
     if (!candidate) continue;
     if (Array.from(candidate).length > SETUP_NAME_MAX) continue;
-    if (!BUSINESS_HEAD_RE.test(candidate) && !NAME_LEAD_RE.test(seg)) continue;
-    // A bare kind with no name («عيادة») says nothing: the example needs something to be called.
-    if (BUSINESS_HEAD_RE.test(candidate) && candidate.split(/\s+/).length < 2) continue;
+    if (!BUSINESS_HEAD_RE.test(candidate) && !led) continue;
+    // A bare kind with no name («عيادة») says nothing: the example needs something to be called. The same
+    // two-word floor applies to «اسمه X» — one word after it is as likely to be a fragment as a name.
+    if (candidate.split(/\s+/).length < 2) continue;
     return candidate;
   }
   return '';

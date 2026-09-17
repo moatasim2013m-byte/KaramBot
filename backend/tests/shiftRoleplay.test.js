@@ -77,6 +77,31 @@ describe('1–2. canStart', () => {
   });
 });
 
+describe('reading the setup out of the customer\'s words (review r2 #1)', () => {
+  test.each([
+    ['عيادة سمايل كير، خدماتنا تنظيف وتلميع', 'عيادة سمايل كير'],
+    ['أنا كتبتهم قبل شوي، عيادة سمايل كير والدوام من ١٠ ل ٨', 'عيادة سمايل كير'],
+    ['اسم المطعم: بيت المندي', 'بيت المندي'],
+    ['اسمه كافيه الركن', 'كافيه الركن'],
+    ['مطعم 4 فصول', 'مطعم 4 فصول'],
+    // A name is never read out of a question, an insult or an ordinary sentence (round-2 code review).
+    ['اسمك شو', ''],
+    ['اسمعني منيح يا زلمة', ''],
+    ["it's too expensive for me", ''],
+    ['عيادة', ''],
+    ['الدوام من 10 ل 8', ''],
+    ['ما بدي أكتب إشي', ''],
+  ])('%s → %s', (text, expected) => {
+    expect(rp.businessNameFrom([text])).toBe(expected);
+  });
+
+  test('the other segments of the same turn become the facts, the name does not', () => {
+    const texts = ['عيادة سمايل كير، خدماتنا تنظيف وتلميع', 'الدوام من ١٠ الصبح ل ٨ المسا'];
+    const name = rp.businessNameFrom(texts);
+    expect(rp.factsFrom(texts, name)).toEqual(['خدماتنا تنظيف وتلميع', 'الدوام من ١٠ الصبح ل ٨ المسا']);
+  });
+});
+
 describe('state', () => {
   const now = new Date('2026-09-15T10:00:00Z');
 

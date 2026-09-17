@@ -1,0 +1,2698 @@
+{
+  "persona": "clinic",
+  "personaTitle": "صاحبة عيادة — فضولية، بدها عيّنة وتجربة",
+  "customerModel": "moonshotai/kimi-k3",
+  "geminiModel": "gemini-3.6-flash",
+  "startedAt": "2026-09-17T07:00:00.069Z",
+  "clockAnchor": "2026-09-17T07:00:00.000Z",
+  "turns": [
+    {
+      "index": 0,
+      "kind": "text",
+      "at": "2026-09-17T07:00:47.183Z",
+      "customer": {
+        "messages": [
+          "مرحبا",
+          "شفت إعلانكم عن بوت الواتساب، ممكن تفيدوني أكتر؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 873,
+        "usage": {
+          "prompt_tokens": 1050,
+          "completion_tokens": 69,
+          "total_tokens": 1119,
+          "cost": 0.00135,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1050,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00135,
+            "upstream_inference_prompt_cost": 0.000315,
+            "upstream_inference_completions_cost": 0.001035
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 5,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا وسهلًا! أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم اللي بنركّبه عندك، بس هون بمعلومات شِفت.\n\nتفضل، شو مجال شغلك (عيادة، مطعم، متجر) وكيف بتحب نساعدك على الواتساب؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4418,
+        "geminiCalls": [
+          {
+            "ms": 4305,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 5984,
+              "candidatesTokenCount": 138,
+              "totalTokenCount": 6122,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 5984
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:00:53.729Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "opening",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          }
+        },
+        "version": 1,
+        "score": 0
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 1,
+      "kind": "text",
+      "at": "2026-09-17T07:01:45.820Z",
+      "customer": {
+        "messages": [
+          "أهلا كرم، أنا د. رنا صاحبة عيادة أسنان بعمان",
+          "شو بالضبط بيعمل البوت؟ بيرد على الزباين لحالو؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1030,
+        "usage": {
+          "prompt_tokens": 1215,
+          "completion_tokens": 96,
+          "total_tokens": 1311,
+          "cost": 0.002493,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 960,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.002493,
+            "upstream_inference_prompt_cost": 0.001053,
+            "upstream_inference_completions_cost": 0.00144
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 11,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا دكتورة رنا، ونعم العيادة. كرم بيرد تلقائيًا على الاستفسارات، بيعرض الأوقات المتاحة من تقويمك، ويثبّت الموعد أو يعدّله ليلًا ونهارًا. مين بيرد على واتساب العيادة حاليًا وقت أزمة الشغل أو بعد الدوام؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 5256,
+        "geminiCalls": [
+          {
+            "ms": 5231,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6094,
+              "candidatesTokenCount": 265,
+              "totalTokenCount": 6359,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6094
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "discovery",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          }
+        },
+        "version": 2,
+        "score": 0,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 2,
+      "kind": "text",
+      "at": "2026-09-17T07:02:48.485Z",
+      "customer": {
+        "messages": [
+          "صراحة الموظفة بترد بس بدوامها، بعد الساعة ٥ ما حدا بيرد",
+          "وبرمضان الوضع بيكون كارثي 😅"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 2545,
+        "usage": {
+          "prompt_tokens": 1397,
+          "completion_tokens": 81,
+          "total_tokens": 1478,
+          "cost": 0.0024684,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1088,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0024684,
+            "upstream_inference_prompt_cost": 0.0012534,
+            "upstream_inference_completions_cost": 0.001215
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "تمام دكتورة، هاد معناه الاستفسارات والمواعيد بعد الساعة 5 وفي أوقات الضغط بتتأجل لثاني يوم.\n\nأقرب أوقات الفريق:",
+            "buttons": [
+              {
+                "id": "book:2026-09-17T09:30:00.000Z",
+                "title": "اليوم 12:30 الظهر"
+              },
+              {
+                "id": "book:2026-09-20T06:00:00.000Z",
+                "title": "الأحد 9:00 الصبح"
+              },
+              {
+                "id": "slot:other",
+                "title": "وقت ثاني"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 10729,
+        "geminiCalls": [
+          {
+            "ms": 10708,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6133,
+              "candidatesTokenCount": 136,
+              "totalTokenCount": 6269,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6133
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:02:54.990Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "discovery",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 0,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": null,
+      "validatorBlocks": []
+    },
+    {
+      "index": 3,
+      "kind": "text",
+      "at": "2026-09-17T07:03:53.573Z",
+      "customer": {
+        "messages": [
+          "بس قبل ما نحجز مكالمة، فيني أشوف مثال حقيقي؟",
+          "يعني بتقدر تجربلي كأني زبونة بتحجز موعد؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1145,
+        "usage": {
+          "prompt_tokens": 1612,
+          "completion_tokens": 93,
+          "total_tokens": 1705,
+          "cost": 0.002775,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1280,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.002775,
+            "upstream_inference_prompt_cost": 0.00138,
+            "upstream_inference_completions_cost": 0.001395
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 10,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أكيد دكتورة! اللي بتحكي معه هلأ هو نفس محرّك كرم. (بنستخدم اللي بتكتبه عشان نرد عليك ونرتّب متابعة الفريق — التفاصيل: shifts-ai.com/privacy)\n\nعشان أصير كرم تبعك: اسم العيادة وخدمتين (والسعر بس إذا بدك تنشره) وأوقات الدوام؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 5052,
+        "geminiCalls": [
+          {
+            "ms": 5042,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6293,
+              "candidatesTokenCount": 135,
+              "totalTokenCount": 6428,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6293
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:04:00.079Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "roleplay_setup",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          }
+        },
+        "version": 3,
+        "score": 0,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ]
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": null,
+        "facts": [],
+        "started_at": null,
+        "last_turn_at": null,
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": null,
+        "end_reason": null
+      },
+      "validatorBlocks": []
+    },
+    {
+      "index": 4,
+      "kind": "text",
+      "at": "2026-09-17T07:04:53.582Z",
+      "customer": {
+        "messages": [
+          "عيادة سمايل كير",
+          "تنظيف أسنان وتبييض، الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1258,
+        "usage": {
+          "prompt_tokens": 1751,
+          "completion_tokens": 73,
+          "total_tokens": 1824,
+          "cost": 0.0025464,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1408,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0025464,
+            "upstream_inference_prompt_cost": 0.0014514,
+            "upstream_inference_completions_cost": 0.001095
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 5,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "مثال توضيحي 🎭 من هلأ أنا كرم تبع عيادة سمايل كير. اكتب كإنك زبون — ما في حجز ولا طلب حقيقي هون، وبستخدم بس اللي كتبته إنت. لما تخلص اكتب \"خلص\".\n\nأهلًا بك في عيادة سمايل كير! بتحبي تحجزي موعد لتنظيف أو تبييض الأسنان؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 19335,
+        "geminiCalls": [
+          {
+            "ms": 15003,
+            "ok": false,
+            "error": "[GoogleGenerativeAI Error]: Request aborted when fetching https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent: This operation was aborted"
+          },
+          {
+            "ms": 4314,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6075,
+              "candidatesTokenCount": 134,
+              "totalTokenCount": 6209,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6075
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "START_ROLEPLAY"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "roleplay",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 2,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": true,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:05:00.084Z",
+        "turns": 0,
+        "setup_asks": 1,
+        "ended_at": null,
+        "end_reason": null
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "kind": "text",
+      "at": "2026-09-17T07:06:06.773Z",
+      "customer": {
+        "messages": [
+          "مرحبا، بدي أحجز موعد تنظيف لو سمحت",
+          "متى أقرب وقت متاح؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 900,
+        "usage": {
+          "prompt_tokens": 1939,
+          "completion_tokens": 65,
+          "total_tokens": 2004,
+          "cost": 0.002472,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1600,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.002472,
+            "upstream_inference_prompt_cost": 0.001497,
+            "upstream_inference_completions_cost": 0.000975
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا بكِ! خدمات التنظيف متاحة عندنا، ودوامنا من الساعة 10 الصبح لـ 5 المسا. بتحبي يناسبك موعد اليوم أو بكرة ضمن أوقات الدوام لحتى نلخّصه ونرفعه للاستقبال للتاكيد؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 1896,
+        "geminiCalls": [
+          {
+            "ms": 1888,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6540,
+              "candidatesTokenCount": 125,
+              "totalTokenCount": 6665,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6540
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "roleplay",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 2,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": true,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:06:13.276Z",
+        "turns": 1,
+        "setup_asks": 1,
+        "ended_at": null,
+        "end_reason": null
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "kind": "text",
+      "at": "2026-09-17T07:07:03.660Z",
+      "customer": {
+        "messages": [
+          "بكرة الساعة 12 الظهر بيناسبني",
+          "اسمي سارة ورقمي 0791234567"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 902,
+        "usage": {
+          "prompt_tokens": 2092,
+          "completion_tokens": 83,
+          "total_tokens": 2175,
+          "cost": 0.0026826,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1792,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0026826,
+            "upstream_inference_prompt_cost": 0.0014376,
+            "upstream_inference_completions_cost": 0.001245
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 20,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "أهلًا أخت سارة! تلخيص الطلب: حجز موعد تنظيف أسنان لبكرة الساعة 12 الظهر باسم سارة ورقم 0791234567. هل بتحبي أعتمد المعلومات حتى توصل للاستقبال لتأكيد الموعد؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 1828,
+        "geminiCalls": [
+          {
+            "ms": 1820,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6518,
+              "candidatesTokenCount": 126,
+              "totalTokenCount": 6644,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6518
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "roleplay",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 2,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": true,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": null,
+        "end_reason": null
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "kind": "text",
+      "at": "2026-09-17T07:07:59.245Z",
+      "customer": {
+        "messages": [
+          "أيوه تمام، اعتمديها 👍",
+          "خلص"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1235,
+        "usage": {
+          "prompt_tokens": 2234,
+          "completion_tokens": 66,
+          "total_tokens": 2300,
+          "cost": 0.0023352,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1984,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0023352,
+            "upstream_inference_prompt_cost": 0.0013452,
+            "upstream_inference_completions_cost": 0.00099
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 17,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "(كان مثال توضيحي على معلوماتك.) هيك بيشوفك زبونك — وما انبعت أي طلب فعلي. هون ما في تقويم مربوط، فأخذت الطلب بس — بالتطبيق الفعلي بيعرض الأوقات الفاضية من تقويمك. بتحب معلومات مكتوبة ولا نحكي مع الفريق على نفس السيناريو؟",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 3551,
+        "geminiCalls": [
+          {
+            "ms": 3545,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6493,
+              "candidatesTokenCount": 156,
+              "totalTokenCount": 6649,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6493
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "END_ROLEPLAY"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "close",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 2,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "kind": "text",
+      "at": "2026-09-17T07:08:56.859Z",
+      "customer": {
+        "messages": [
+          "عجبني الصراحة 👌",
+          "خلونا نحكي مع الفريق، متى أقرب وقت؟"
+        ],
+        "tap": null,
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1314,
+        "usage": {
+          "prompt_tokens": 2395,
+          "completion_tokens": 75,
+          "total_tokens": 2470,
+          "cost": 0.0026076,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 2112,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0026076,
+            "upstream_inference_prompt_cost": 0.0014826,
+            "upstream_inference_completions_cost": 0.001125
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 11,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "أقرب أوقات الفريق:",
+            "buttons": [
+              {
+                "id": "book:2026-09-17T09:30:00.000Z",
+                "title": "اليوم 12:30 الظهر"
+              },
+              {
+                "id": "book:2026-09-20T06:00:00.000Z",
+                "title": "الأحد 9:00 الصبح"
+              },
+              {
+                "id": "slot:other",
+                "title": "وقت ثاني"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 13396,
+        "geminiCalls": [
+          {
+            "ms": 13380,
+            "ok": true,
+            "finish": "STOP",
+            "blockReason": null,
+            "error": null,
+            "usage": {
+              "promptTokenCount": 6345,
+              "candidatesTokenCount": 215,
+              "totalTokenCount": 6560,
+              "promptTokensDetails": [
+                {
+                  "modality": "TEXT",
+                  "tokenCount": 6345
+                }
+              ],
+              "serviceTier": "standard"
+            }
+          }
+        ],
+        "results": [
+          {
+            "kind": "reply",
+            "action": "NONE"
+          }
+        ],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:09:03.370Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 2
+        }
+      ],
+      "stage": "close",
+      "status": "open",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          }
+        },
+        "version": 4,
+        "score": 2,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير"
+      },
+      "booking": null,
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "kind": "tap",
+      "at": "2026-09-17T07:10:03.663Z",
+      "customer": {
+        "messages": [],
+        "tap": {
+          "id": "book:2026-09-17T09:30:00.000Z",
+          "title": "اليوم 12:30 الظهر"
+        },
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1214,
+        "usage": {
+          "prompt_tokens": 2549,
+          "completion_tokens": 41,
+          "total_tokens": 2590,
+          "cost": 0.0020412,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 2304,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0020412,
+            "upstream_inference_prompt_cost": 0.0014262,
+            "upstream_inference_completions_cost": 0.000615
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "ثبّتنا مكالمتك مع فريق شِفت: اليوم الساعة 12:30 الظهر بتوقيت عمّان. رح نذكّرك قبلها.",
+            "buttons": [
+              {
+                "id": "book_ok",
+                "title": "تمام"
+              },
+              {
+                "id": "book_change",
+                "title": "غيّر الموعد"
+              },
+              {
+                "id": "book_cancel",
+                "title": "ألغِ المكالمة"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 9,
+        "geminiCalls": [],
+        "results": [],
+        "alerts": [
+          "booking_booked"
+        ],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:10:08.666Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-17T10:00:00.000Z",
+          "busy": 0
+        },
+        {
+          "at": "2026-09-17T07:10:08.667Z",
+          "op": "insertEvent",
+          "eventId": "shud3ogvdh83641scaim49r6tn",
+          "summary": "مكالمة شِفت — عيادة سمايل كير (+962790000555)",
+          "start": {
+            "dateTime": "2026-09-17T09:30:00.000Z",
+            "timeZone": "Asia/Amman"
+          },
+          "end": {
+            "dateTime": "2026-09-17T10:00:00.000Z",
+            "timeZone": "Asia/Amman"
+          }
+        }
+      ],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000t",
+            "at": "2026-09-17T07:10:08.664Z",
+            "confirmed": true
+          }
+        },
+        "version": 5,
+        "score": 5,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير",
+        "preferred_time": {
+          "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+          "start": "2026-09-17T09:30:00.000Z",
+          "end": "2026-09-17T10:00:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-17T09:30:00.000Z"
+        }
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "booked",
+        "booked_at": "2026-09-17T07:10:08.664Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-17T09:30:00.000Z",
+        "source_msg_id": "cfake00000t",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:10:08.664Z"
+          }
+        ]
+      },
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "kind": "tap",
+      "at": "2026-09-17T07:10:56.776Z",
+      "customer": {
+        "messages": [],
+        "tap": {
+          "id": "book_change",
+          "title": "غيّر الموعد"
+        },
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 1217,
+        "usage": {
+          "prompt_tokens": 2665,
+          "completion_tokens": 62,
+          "total_tokens": 2727,
+          "cost": 0.0084066,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 192,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0084066,
+            "upstream_inference_prompt_cost": 0.0074766,
+            "upstream_inference_completions_cost": 0.00093
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 24,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "أكيد. أقرب أوقات الفريق:",
+            "buttons": [
+              {
+                "id": "book:2026-09-17T10:00:00.000Z",
+                "title": "اليوم 1:00 الظهر"
+              },
+              {
+                "id": "book:2026-09-20T06:00:00.000Z",
+                "title": "الأحد 9:00 الصبح"
+              },
+              {
+                "id": "slot:other",
+                "title": "وقت ثاني"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 7,
+        "geminiCalls": [],
+        "results": [],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:11:01.781Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-17T09:30:00.000Z",
+          "timeMax": "2026-09-23T15:00:00.000Z",
+          "busy": 3
+        }
+      ],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000t",
+            "at": "2026-09-17T07:10:08.664Z",
+            "confirmed": true
+          }
+        },
+        "version": 5,
+        "score": 5,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير",
+        "preferred_time": {
+          "text": "اليوم بين 12:30 و1 (الخميس 17/9)",
+          "start": "2026-09-17T09:30:00.000Z",
+          "end": "2026-09-17T10:00:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-17T09:30:00.000Z"
+        }
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-17T09:30:00.000Z",
+        "end": "2026-09-17T10:00:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "booked",
+        "booked_at": "2026-09-17T07:10:08.664Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-17T09:30:00.000Z",
+        "source_msg_id": "cfake00000t",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:10:08.664Z"
+          }
+        ]
+      },
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 11,
+      "kind": "tap",
+      "at": "2026-09-17T07:11:48.142Z",
+      "customer": {
+        "messages": [],
+        "tap": {
+          "id": "book:2026-09-20T06:00:00.000Z",
+          "title": "الأحد 9:00 الصبح"
+        },
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 719,
+        "usage": {
+          "prompt_tokens": 2760,
+          "completion_tokens": 41,
+          "total_tokens": 2801,
+          "cost": 0.0025014,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 2368,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.0025014,
+            "upstream_inference_prompt_cost": 0.0018864,
+            "upstream_inference_completions_cost": 0.000615
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "interactive",
+            "text": "غيّرنا موعد مكالمتك مع فريق شِفت: صار الأحد 20/9 الساعة 9:00 الصبح بتوقيت عمّان. رح نذكّرك قبلها.",
+            "buttons": [
+              {
+                "id": "book_ok",
+                "title": "تمام"
+              },
+              {
+                "id": "book_change",
+                "title": "غيّر الموعد"
+              },
+              {
+                "id": "book_cancel",
+                "title": "ألغِ المكالمة"
+              }
+            ],
+            "rows": []
+          }
+        ],
+        "latencyMs": 6,
+        "geminiCalls": [],
+        "results": [],
+        "alerts": [
+          "booking_rescheduled"
+        ],
+        "error": null
+      },
+      "calendar": [
+        {
+          "at": "2026-09-17T07:11:53.144Z",
+          "op": "freeBusy",
+          "timeMin": "2026-09-20T06:00:00.000Z",
+          "timeMax": "2026-09-20T06:30:00.000Z",
+          "busy": 0
+        },
+        {
+          "at": "2026-09-17T07:11:53.144Z",
+          "op": "patchEvent",
+          "eventId": "shud3ogvdh83641scaim49r6tn",
+          "patch": {
+            "start": {
+              "dateTime": "2026-09-20T06:00:00.000Z",
+              "timeZone": "Asia/Amman"
+            },
+            "end": {
+              "dateTime": "2026-09-20T06:30:00.000Z",
+              "timeZone": "Asia/Amman"
+            }
+          },
+          "found": true
+        }
+      ],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000x",
+            "at": "2026-09-17T07:11:53.143Z",
+            "confirmed": true
+          }
+        },
+        "version": 6,
+        "score": 5,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير",
+        "preferred_time": {
+          "text": "يوم الأحد بين 9 و9:30 (20/9)",
+          "start": "2026-09-20T06:00:00.000Z",
+          "end": "2026-09-20T06:30:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-20T06:00:00.000Z"
+        }
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-20T06:00:00.000Z",
+        "end": "2026-09-20T06:30:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "rescheduled",
+        "booked_at": "2026-09-17T07:10:08.664Z",
+        "rescheduled_at": "2026-09-17T07:11:53.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-20T06:00:00.000Z",
+        "source_msg_id": "cfake00000x",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:10:08.664Z"
+          },
+          {
+            "status": "rescheduled",
+            "start": "2026-09-20T06:00:00.000Z",
+            "at": "2026-09-17T07:11:53.143Z"
+          }
+        ]
+      },
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    },
+    {
+      "index": 12,
+      "kind": "tap",
+      "at": "2026-09-17T07:12:39.855Z",
+      "customer": {
+        "messages": [],
+        "tap": {
+          "id": "book_ok",
+          "title": "تمام"
+        },
+        "voiceNote": false,
+        "malformed": false,
+        "latencyMs": 732,
+        "usage": {
+          "prompt_tokens": 2882,
+          "completion_tokens": 60,
+          "total_tokens": 2942,
+          "cost": 0.002634,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 2560,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.002634,
+            "upstream_inference_prompt_cost": 0.001734,
+            "upstream_inference_completions_cost": 0.0009
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 26,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      },
+      "bot": {
+        "parts": [
+          {
+            "type": "text",
+            "text": "تمام 👍 منحكي معك الأحد 20/9 الساعة 9:00 الصبح بتوقيت عمّان.",
+            "buttons": [],
+            "rows": []
+          }
+        ],
+        "latencyMs": 4,
+        "geminiCalls": [],
+        "results": [],
+        "alerts": [],
+        "error": null
+      },
+      "calendar": [],
+      "stage": "captured",
+      "status": "pending",
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000x",
+            "at": "2026-09-17T07:11:53.143Z",
+            "confirmed": true
+          }
+        },
+        "version": 6,
+        "score": 5,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير",
+        "preferred_time": {
+          "text": "يوم الأحد بين 9 و9:30 (20/9)",
+          "start": "2026-09-20T06:00:00.000Z",
+          "end": "2026-09-20T06:30:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-20T06:00:00.000Z"
+        }
+      },
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-20T06:00:00.000Z",
+        "end": "2026-09-20T06:30:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "rescheduled",
+        "booked_at": "2026-09-17T07:10:08.664Z",
+        "rescheduled_at": "2026-09-17T07:11:53.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-20T06:00:00.000Z",
+        "source_msg_id": "cfake00000x",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:10:08.664Z"
+          },
+          {
+            "status": "rescheduled",
+            "start": "2026-09-20T06:00:00.000Z",
+            "at": "2026-09-17T07:11:53.143Z"
+          }
+        ]
+      },
+      "capturePending": null,
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validatorBlocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ]
+    }
+  ],
+  "final": {
+    "conversation": {
+      "status": "pending",
+      "current_state": "captured",
+      "ai_enabled": true,
+      "metadata": {
+        "reply_failures": 0
+      }
+    },
+    "workflow_data": {
+      "bot_turns": 9,
+      "disclosed_at": "2026-09-17T07:00:53.690Z",
+      "nudge": null,
+      "msgs_since_interest": 0,
+      "last_ask": null,
+      "last_bot": {
+        "stage": "captured",
+        "next_step": "confirmed",
+        "at": "2026-09-17T07:12:44.857Z",
+        "action": "BOOKING",
+        "button_id": "book_ok"
+      },
+      "exclamations": 5,
+      "lead": {
+        "interest": "warm",
+        "_prov": {
+          "interest": {
+            "source": "model",
+            "source_msg_id": "cfake000003",
+            "at": "2026-09-17T07:00:53.690Z",
+            "confirmed": true
+          },
+          "name": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "sector_text": {
+            "source": "model",
+            "source_msg_id": "cfake000006",
+            "at": "2026-09-17T07:01:52.322Z",
+            "confirmed": true
+          },
+          "city": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "need": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "products": {
+            "source": "model",
+            "source_msg_id": "cfake000009",
+            "at": "2026-09-17T07:02:54.987Z",
+            "confirmed": true
+          },
+          "business_name": {
+            "source": "roleplay_setup",
+            "source_msg_id": "cfake00000f",
+            "at": "2026-09-17T07:05:00.084Z",
+            "confirmed": true
+          },
+          "preferred_time": {
+            "source": "booking",
+            "source_msg_id": "cfake00000x",
+            "at": "2026-09-17T07:11:53.143Z",
+            "confirmed": true
+          }
+        },
+        "version": 6,
+        "score": 5,
+        "name": "د. رنا",
+        "sector": "clinic",
+        "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+        "city": "عمّان",
+        "need": [
+          "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+        ],
+        "products": [
+          "karam",
+          "bookings"
+        ],
+        "business_name": "عيادة سمايل كير",
+        "preferred_time": {
+          "text": "يوم الأحد بين 9 و9:30 (20/9)",
+          "start": "2026-09-20T06:00:00.000Z",
+          "end": "2026-09-20T06:30:00.000Z",
+          "tz": "Asia/Amman",
+          "slot_id": "book:2026-09-20T06:00:00.000Z"
+        }
+      },
+      "questions_asked": 2,
+      "slot_offers": [],
+      "roleplay": {
+        "active": false,
+        "sector": "clinic",
+        "business_name": "عيادة سمايل كير",
+        "facts": [
+          "خدمات: تنظيف أسنان وتبييض",
+          "الدوام من 10 الصبح لـ 5 المسا"
+        ],
+        "started_at": "2026-09-17T07:05:00.084Z",
+        "last_turn_at": "2026-09-17T07:07:10.162Z",
+        "turns": 2,
+        "setup_asks": 1,
+        "ended_at": "2026-09-17T07:08:05.746Z",
+        "end_reason": "done"
+      },
+      "validator_blocks": [
+        {
+          "at": "2026-09-17T07:05:00.084Z",
+          "codes": [
+            "questions"
+          ],
+          "attempt": 1
+        }
+      ],
+      "booking": {
+        "event_id": "shud3ogvdh83641scaim49r6tn",
+        "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+        "start": "2026-09-20T06:00:00.000Z",
+        "end": "2026-09-20T06:30:00.000Z",
+        "tz": "Asia/Amman",
+        "status": "rescheduled",
+        "booked_at": "2026-09-17T07:10:08.664Z",
+        "rescheduled_at": "2026-09-17T07:11:53.143Z",
+        "seq": 1,
+        "offer_id": "book:2026-09-20T06:00:00.000Z",
+        "source_msg_id": "cfake00000x",
+        "lang": "ar",
+        "reminders": {},
+        "details_pending": false,
+        "details_missing": [],
+        "history": [
+          {
+            "status": "booked",
+            "start": "2026-09-17T09:30:00.000Z",
+            "at": "2026-09-17T07:10:08.664Z"
+          },
+          {
+            "status": "rescheduled",
+            "start": "2026-09-20T06:00:00.000Z",
+            "at": "2026-09-17T07:11:53.143Z"
+          }
+        ]
+      },
+      "capture_pending": null,
+      "needs_team": {
+        "reason": "meeting",
+        "summary": "تغيّر موعد المكالمة: يوم الأحد بين 9 و9:30 (20/9)",
+        "at": "2026-09-17T07:10:08.664Z",
+        "resolved_at": null,
+        "sla_note_sent_at": null,
+        "claimed_at": null,
+        "claimed_by": null
+      }
+    },
+    "lead": {
+      "interest": "warm",
+      "_prov": {
+        "interest": {
+          "source": "model",
+          "source_msg_id": "cfake000003",
+          "at": "2026-09-17T07:00:53.690Z",
+          "confirmed": true
+        },
+        "name": {
+          "source": "model",
+          "source_msg_id": "cfake000006",
+          "at": "2026-09-17T07:01:52.322Z",
+          "confirmed": true
+        },
+        "sector": {
+          "source": "model",
+          "source_msg_id": "cfake000006",
+          "at": "2026-09-17T07:01:52.322Z",
+          "confirmed": true
+        },
+        "sector_text": {
+          "source": "model",
+          "source_msg_id": "cfake000006",
+          "at": "2026-09-17T07:01:52.322Z",
+          "confirmed": true
+        },
+        "city": {
+          "source": "model",
+          "source_msg_id": "cfake000009",
+          "at": "2026-09-17T07:02:54.987Z",
+          "confirmed": true
+        },
+        "need": {
+          "source": "model",
+          "source_msg_id": "cfake000009",
+          "at": "2026-09-17T07:02:54.987Z",
+          "confirmed": true
+        },
+        "products": {
+          "source": "model",
+          "source_msg_id": "cfake000009",
+          "at": "2026-09-17T07:02:54.987Z",
+          "confirmed": true
+        },
+        "business_name": {
+          "source": "roleplay_setup",
+          "source_msg_id": "cfake00000f",
+          "at": "2026-09-17T07:05:00.084Z",
+          "confirmed": true
+        },
+        "preferred_time": {
+          "source": "booking",
+          "source_msg_id": "cfake00000x",
+          "at": "2026-09-17T07:11:53.143Z",
+          "confirmed": true
+        }
+      },
+      "version": 6,
+      "score": 5,
+      "name": "د. رنا",
+      "sector": "clinic",
+      "sector_text": "عيادة أسنان Operations doctor profile confirmed: د. رنا, bus",
+      "city": "عمّان",
+      "need": [
+        "الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل"
+      ],
+      "products": [
+        "karam",
+        "bookings"
+      ],
+      "business_name": "عيادة سمايل كير",
+      "preferred_time": {
+        "text": "يوم الأحد بين 9 و9:30 (20/9)",
+        "start": "2026-09-20T06:00:00.000Z",
+        "end": "2026-09-20T06:30:00.000Z",
+        "tz": "Asia/Amman",
+        "slot_id": "book:2026-09-20T06:00:00.000Z"
+      }
+    },
+    "booking": {
+      "event_id": "shud3ogvdh83641scaim49r6tn",
+      "calendar_id": "sim-sales-calendar@group.calendar.google.invalid",
+      "start": "2026-09-20T06:00:00.000Z",
+      "end": "2026-09-20T06:30:00.000Z",
+      "tz": "Asia/Amman",
+      "status": "rescheduled",
+      "booked_at": "2026-09-17T07:10:08.664Z",
+      "rescheduled_at": "2026-09-17T07:11:53.143Z",
+      "seq": 1,
+      "offer_id": "book:2026-09-20T06:00:00.000Z",
+      "source_msg_id": "cfake00000x",
+      "lang": "ar",
+      "reminders": {},
+      "details_pending": false,
+      "details_missing": [],
+      "history": [
+        {
+          "status": "booked",
+          "start": "2026-09-17T09:30:00.000Z",
+          "at": "2026-09-17T07:10:08.664Z"
+        },
+        {
+          "status": "rescheduled",
+          "start": "2026-09-20T06:00:00.000Z",
+          "at": "2026-09-17T07:11:53.143Z"
+        }
+      ]
+    },
+    "calendarEvents": [
+      {
+        "id": "shud3ogvdh83641scaim49r6tn",
+        "status": "confirmed",
+        "summary": "مكالمة شِفت — عيادة سمايل كير (+962790000555)",
+        "start": {
+          "dateTime": "2026-09-20T06:00:00.000Z",
+          "timeZone": "Asia/Amman"
+        },
+        "end": {
+          "dateTime": "2026-09-20T06:30:00.000Z",
+          "timeZone": "Asia/Amman"
+        },
+        "description": "الاسم: د. رنا\nالمنشأة: عيادة سمايل كير\nالقطاع: عيادة — عيادة أسنان Operations doctor profile confirmed: د. رنا, bus\nالاحتياج: الموظفة بترد بدوامها فقط وبعد 5 أو بالضغط المواعيد بتتأجل\nواتساب: +962790000555\nالملف الشخصي: د. رنا\n\nInbox: https://inbox.sim.test\nconversation=cfake000001"
+      }
+    ],
+    "calendarOps": [
+      {
+        "at": "2026-09-17T07:00:53.729Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:02:54.990Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:04:00.079Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:09:03.370Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 2
+      },
+      {
+        "at": "2026-09-17T07:10:08.666Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-17T10:00:00.000Z",
+        "busy": 0
+      },
+      {
+        "at": "2026-09-17T07:10:08.667Z",
+        "op": "insertEvent",
+        "eventId": "shud3ogvdh83641scaim49r6tn",
+        "summary": "مكالمة شِفت — عيادة سمايل كير (+962790000555)",
+        "start": {
+          "dateTime": "2026-09-17T09:30:00.000Z",
+          "timeZone": "Asia/Amman"
+        },
+        "end": {
+          "dateTime": "2026-09-17T10:00:00.000Z",
+          "timeZone": "Asia/Amman"
+        }
+      },
+      {
+        "at": "2026-09-17T07:11:01.781Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-17T09:30:00.000Z",
+        "timeMax": "2026-09-23T15:00:00.000Z",
+        "busy": 3
+      },
+      {
+        "at": "2026-09-17T07:11:53.144Z",
+        "op": "freeBusy",
+        "timeMin": "2026-09-20T06:00:00.000Z",
+        "timeMax": "2026-09-20T06:30:00.000Z",
+        "busy": 0
+      },
+      {
+        "at": "2026-09-17T07:11:53.144Z",
+        "op": "patchEvent",
+        "eventId": "shud3ogvdh83641scaim49r6tn",
+        "patch": {
+          "start": {
+            "dateTime": "2026-09-20T06:00:00.000Z",
+            "timeZone": "Asia/Amman"
+          },
+          "end": {
+            "dateTime": "2026-09-20T06:30:00.000Z",
+            "timeZone": "Asia/Amman"
+          }
+        },
+        "found": true
+      }
+    ],
+    "alerts": [
+      "booking_booked",
+      "booking_rescheduled"
+    ],
+    "geminiCalls": 10,
+    "geminiFailures": 1,
+    "geminiBlocked": 0,
+    "openrouter": {
+      "calls": 13,
+      "promptTokens": 26541,
+      "completionTokens": 905,
+      "cost": 0.0373134
+    },
+    "endedAt": "2026-09-17T07:12:44.860Z",
+    "wallClockSeconds": 101
+  },
+  "errors": []
+}

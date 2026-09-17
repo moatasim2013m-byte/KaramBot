@@ -51,11 +51,13 @@ const INSTRUCTION_RE = /\b(?:valid\s+json|json\s+(?:only|output|format)|strict\s
 // Field-level caps: a business's kind, name or city is a handful of words, not a paragraph.
 const SCALAR_MAX = { name: 60, business_name: 80, sector_text: 60, city: 40, budget_note: 80 };
 
-function sanitizeFreeText(value, max = MAX_TEXT) {
+function sanitizeFreeText(value, max = MAX_TEXT, { allowNumeric = false, multiline = false } = {}) {
   if (typeof value !== 'string' && typeof value !== 'number') return undefined;
   let s = String(value).replace(CONTROL_RE, ' ');
-  // One line: a lead scalar that grew a second line grew it from the model, not the customer.
-  s = s.split(/[\r\n]/)[0];
+  // One line: a lead scalar that grew a second line grew it from the model, not the customer. A staff
+  // member typing into the Inbox may legitimately use two lines, so their patch keeps them.
+  if (!multiline) s = s.split(/[\r\n]/)[0];
+  else s = s.replace(/\r/g, '');
   const m = INSTRUCTION_RE.exec(s);
   if (m) {
     // Keep what came before the boilerplate, back to the last word boundary («مطعم مندي» out of
@@ -69,13 +71,15 @@ function sanitizeFreeText(value, max = MAX_TEXT) {
   if (!s) return undefined;
   // Still reciting after the cut, or no letter at all: it is not something a customer typed.
   if (INSTRUCTION_RE.test(s)) return undefined;
-  if (!/[\p{L}]/u.test(s)) return undefined;
+  // A time is a legitimate value with no letters in it at all («4:30», «١٠:٣٠»).
+  if (!allowNumeric && !/[\p{L}]/u.test(s)) return undefined;
+  if (allowNumeric && !/[\p{L}\p{N}]/u.test(s)) return undefined;
   const out = cut(s, max);
   return out ? out : undefined;
 }
 
-function cleanText(value, max = MAX_TEXT) {
-  return sanitizeFreeText(value, max);
+function cleanText(value, max = MAX_TEXT, opts) {
+  return sanitizeFreeText(value, max, opts);
 }
 
 /**
@@ -120,12 +124,14 @@ function stringList(value) {
 }
 
 /** Rule 1: bring a raw patch (model JSON, button, staff form) into the stored shape; invalid values drop. */
-function normalizePatch(patch) {
+function normalizePatch(patch, { source } = {}) {
   const out = {};
   if (!patch || typeof patch !== 'object') return out;
 
+  // Only the model recites its own instructions; a staff edit is typed by a person and keeps its shape.
+  const opts = { multiline: source === 'staff' };
   for (const field of TEXT_SCALARS) {
-    const v = cleanText(patch[field], SCALAR_MAX[field] || MAX_TEXT);
+    const v = cleanText(patch[field], SCALAR_MAX[field] || MAX_TEXT, opts);
     if (v !== undefined) out[field] = v;
   }
 
@@ -140,7 +146,8 @@ function normalizePatch(patch) {
   }
 
   if (typeof patch.preferred_time === 'string') {
-    const text = cleanText(patch.preferred_time);
+    // «4:30» / «١٠:٣٠» carry no letter and are still the time the customer named.
+    const text = cleanText(patch.preferred_time, MAX_TEXT, { ...opts, allowNumeric: true });
     if (text) out.preferred_time = { text };
   } else if (patch.preferred_time && typeof patch.preferred_time === 'object' && !Array.isArray(patch.preferred_time)) {
     const pt = pickObject(patch.preferred_time, PREFERRED_TIME_KEYS);
@@ -216,8 +223,10 @@ const CLOCK_SPAN_RE = new RegExp([
 
 // «ممكن نخليها الساعة ٢ الظهر بدل ١١؟» — the 11 has no clock word of its own, but it is the hour it
 // replaces. Only inside a message that is already talking about a clock time (sim round 2, clinic).
-const CLOCK_MARKER_RE = /الساعة|الساعه|الصبح|الصباح|المسا|المساء|الظهر|العصر|\d\s*[:]\s*\d{2}|\bam\b|\bpm\b|\bo'clock\b/i;
+const CLOCK_MARKER_RE = /الساعة|الساعه|الصبح|الصباح|المسا|المساء|الظهر|العصر|الليل|بكرا|بكرة|بكره|اليوم|\d\s*[:]\s*\d{2}|\bam\b|\bpm\b|\bo'clock\b|\btomorrow\b|\btoday\b/i;
 const REPLACED_HOUR_RE = /(?:بدل|بدال|بدلا|بدلًا(?:\s*من)?|عوضا عن|عوضًا عن|instead of)\s*(?:ال)?\s*\d{1,2}(?![\d])/gi;
+// «خلوها بكرة بعد العصر | من 4 لحد 6» — a bare hour range, in a batch that is already naming a time.
+const HOUR_RANGE_RE = /(?:من|from)\s*(?:ال)?\s*\d{1,2}\s*(?:لحد|إلى|الى|حتى|لل|ل|-|–|—|to|till|until)\s*(?:ال)?\s*\d{1,2}(?![\d])/gi;
 
 /** The customer's numbers with the clock times taken out (rule 4 + review #9). */
 function businessNumbersOf(text) {
@@ -226,7 +235,9 @@ function businessNumbersOf(text) {
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
   let stripped = western.replace(CLOCK_SPAN_RE, ' ');
-  if (CLOCK_MARKER_RE.test(western)) stripped = stripped.replace(REPLACED_HOUR_RE, ' ');
+  if (CLOCK_MARKER_RE.test(western)) {
+    stripped = stripped.replace(REPLACED_HOUR_RE, ' ').replace(HOUR_RANGE_RE, ' ');
+  }
   return extractCustomerNumbers(stripped);
 }
 
@@ -303,7 +314,7 @@ function mergeLead(existing = {}, patch = {}, meta) {
   const lead = JSON.parse(JSON.stringify(base));
   const prov = { ...(lead._prov || {}) };
   const changed = [];
-  const normalized = normalizePatch(patch);
+  const normalized = normalizePatch(patch, { source: m.source });
 
   for (const field of LEAD_SCALARS) {
     const value = normalized[field];

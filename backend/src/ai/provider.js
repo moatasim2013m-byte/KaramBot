@@ -381,12 +381,17 @@ const TRANSIENT_RE = /\b(408|409|429|500|502|503|504)\b|service unavailable|unav
 // Our own abort (SDK timeout or the JS race): the model never answered inside the cap.
 const TIMEOUT_RE = /aborted|abort|timeout|timed out|deadline/i;
 const TRANSIENT_BACKOFF_MS = 250;
-const MAX_TRANSIENT_RETRIES = Number(process.env.GEMINI_MAX_TRANSIENT_RETRIES) || 4;
+const envInt = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+};
+const MAX_TRANSIENT_RETRIES = envInt('GEMINI_MAX_TRANSIENT_RETRIES', 4);
 // Real answers the model gets per reply. Two, as before — except after an attempt that timed out:
 // then a third is allowed if the deadline still holds one, because silence is the worst answer and a
 // hung socket says nothing about the next call. A badly-formed answer still gets its one correction.
 const BASE_ATTEMPTS = 2;
-const MAX_ATTEMPTS = Number(process.env.GEMINI_MAX_ATTEMPTS) || 3;
+// Never below BASE_ATTEMPTS: a timeout must not be able to REDUCE what the reply is allowed.
+const MAX_ATTEMPTS = Math.max(BASE_ATTEMPTS, envInt('GEMINI_MAX_ATTEMPTS', 3));
 
 function classifyError(err) {
   const message = (err && err.message) || '';
@@ -426,6 +431,9 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
         }
       }
       if (lastFailure === 'transient' || lastFailure === 'error') await sleep(TRANSIENT_BACKOFF_MS);
+      // onRetry renews the lease and re-posts the typing indicator; both cost time. If they used up what
+      // was left there is no attempt to make, and the customer must not be shown a typing dot for nothing.
+      if (remaining() < MIN_RETRY_MS) break;
     }
     if (remaining() <= 0) break;
 

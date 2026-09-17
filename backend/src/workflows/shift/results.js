@@ -509,8 +509,15 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, modelReply, le
   const capture = { requested, when, lang: c.lang, modelLine: modelLine || null, at };
   if (modelLine && modelReply) capture.modelReply = modelReply;
   // Only REAL calendar slots (`book:<iso>`): a PR2 window offer would make a second request, not a booking.
-  const realSlots = (c.offers || []).filter((o) => o && typeof o.id === 'string' && o.id.startsWith('book:')).slice(0, 3);
-  if (realSlots.length && !inSandbox(c)) capture.offers = realSlots.map((o) => ({ id: o.id, title: o.title }));
+  // The same guards callTimeAskResult applies: never inside the example, never from a stage the team owns
+  // while the calendar is shut, and never straight after «وقت ثاني».
+  const offersBlocked = inSandbox(c)
+    || (isStageLocked(c.conversation) && !calendarOpen(c))
+    || !!(c.wd.capture_pending && c.wd.capture_pending.slot_id === 'other');
+  const realSlots = offersBlocked
+    ? []
+    : (c.offers || []).filter((o) => o && typeof o.id === 'string' && o.id.startsWith('book:')).slice(0, 3);
+  if (realSlots.length) capture.offers = realSlots.map((o) => ({ id: o.id, title: o.title }));
   const preview = renderCaptureAck(capture, lead);
 
   return emptyResult({
@@ -521,6 +528,9 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, modelReply, le
     workflowDataPatch: {
       capture_pending: null,
       bot_turns: (c.wd.bot_turns || 0) + 1,
+      // Recorded like every other offer site, so the tap is read as a slot we issued (its 12 h TTL and
+      // its shorter lead time) instead of a bare id.
+      ...(realSlots.length && { slot_offers: realSlots.map((o) => ({ id: o.id, title: o.title, issued_at: at })) }),
       ...(needs && { needs_team: needs }),
       ...preview.workflowDataPatch,
     },
@@ -1018,9 +1028,10 @@ function repeatedAskGuard(r, c, wdp, action) {
     // Round-2 review #7: ANY question that came back unanswered is dropped the second time — the model's
     // own words go out without it, and the server offers a step instead of asking again.
     const moveOn = acks.askMovedOn(c.lang);
-    wdp.last_ask = {
-      key: normalize(moveOn).slice(0, ASK_KEY_MAX), words: askWordsOf(moveOn).slice(0, 8), at, count: 1, msg_id: msgId,
-    };
+    // The ORIGINAL ask stays on the counter: if the model comes back with it a third time the team takes
+    // the thread, exactly as for a time ask. Storing the move-on line here reset the count to 1 and the
+    // escalation could never be reached (round-2 code review).
+    wdp.last_ask = { key, words, at, count, msg_id: msgId };
     return { ...r, messages: [...head, askPart(last, line, moveOn, null)] };
   }
 
@@ -1589,11 +1600,19 @@ function slotOfferResult(ctx, base) {
   const r = callTimeAskResult(c, { shown: '', reply: '', locked: isStageLocked(c.conversation), leadPatch: null });
   if (!r) return null;
   const keep = base && typeof base === 'object' ? base : {};
+  // Everything the blocked result had already earned stays — its stage, its lead write, its capture, its
+  // turn counters and its alerts — because only the model's WORDS were wrong. Dropping them left a nudge
+  // armed, stopped bot_turns counting and threw away a time the customer had just given.
   return {
     ...r,
-    // The state, acks and alerts the blocked result had already earned stay; only its words go.
+    stateUpdate: { ...(keep.stateUpdate || {}), ...(r.stateUpdate || {}) },
+    workflowDataPatch: { ...(keep.workflowDataPatch || {}), ...(r.workflowDataPatch || {}) },
+    leadPatch: keep.leadPatch ?? r.leadPatch,
+    leadMeta: keep.leadMeta ?? r.leadMeta,
+    capture: keep.capture ?? r.capture,
     needsTeam: keep.needsTeam ?? r.needsTeam,
     needsTeamCandidate: keep.needsTeamCandidate ?? r.needsTeamCandidate,
+    needsTeamMerge: keep.needsTeamMerge ?? r.needsTeamMerge,
     alert: keep.alert ?? r.alert,
   };
 }

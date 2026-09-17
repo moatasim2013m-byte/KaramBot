@@ -480,11 +480,19 @@ const MAX_PARTS = 3;
 const IDENTITY_TEXT_MAX = 4096;
 
 function ensureIdentityAnswer(result, ctx) {
-  if (!result || result.kind === 'handoff') return result;
+  // A handoff is included: «خليني احكي مع إنسان واضح، إنت بوت ولا لأ؟» asks both things at once, and the
+  // transfer alone leaves the question hanging (sim round 2c, hostile/glm-5.3 turn 5).
+  if (!result) return result;
   if (!(ctx.batchTexts || []).some(validators.isIdentityQuestion)) return result;
+  const honest = validators.HONEST_IDENTITY[ctx.lang === 'en' ? 'en' : 'ar'];
+  // A capture is re-rendered by the batcher from `capture.modelLine`, not from `messages`.
+  if (result.capture && !validators.isHonestIdentity(result.capture.modelLine)) {
+    const line = result.capture.modelLine;
+    result = { ...result, capture: { ...result.capture, modelLine: line ? `${honest}\n\n${line}` : honest } };
+    delete result.capture.modelReply;
+  }
   const messages = result.messages || [];
   if (messages.some((m) => m && validators.isHonestIdentity(m.text))) return result;
-  const honest = validators.HONEST_IDENTITY[ctx.lang === 'en' ? 'en' : 'ar'];
   // A plain text part can carry it; an interactive body has its own tight limit, so the line goes in
   // front as a message of its own while there is room for one.
   const idx = messages.findIndex((m) => m && m.type === 'text' && typeof m.text === 'string' && m.text.trim());
@@ -494,15 +502,21 @@ function ensureIdentityAnswer(result, ctx) {
     return { ...result, messages: next };
   }
   if (messages.length < MAX_PARTS) return { ...result, messages: [{ type: 'text', text: honest }, ...messages] };
-  // Three parts already: the honest answer replaces the words of the first one.
+  // Three parts already: the honest answer becomes a plain first part of its own. A fresh object, so a
+  // list's `sections` or an interactive's `buttons` do not travel with a part that no longer has them.
   const next = messages.slice();
-  next[0] = { ...next[0], type: 'text', text: honest };
-  delete next[0].buttons;
-  delete next[0].modelLine;
+  next[0] = { type: 'text', text: honest };
   return { ...result, messages: next };
 }
 
-/** Steps 4 and 7–11 of §10.1: tier-1 handoff, prompt, model call, validators. */
+/**
+ * Steps 4 and 7–11 of §10.1: tier-1 handoff, prompt, model call, validators.
+ *
+ * The identity guarantee is applied to `capture.modelLine` too: for a CAPTURE_TIME the batcher rebuilds
+ * the parts from `result.capture` after the lead is saved, so a line injected into `messages` alone would
+ * be thrown away — and «إنت بوت ولا إنسان؟» sent in the same batch as a time would go unanswered, which
+ * is the failure #6 exists to prevent.
+ */
 async function answer(ctx, history, opts = {}) {
   return ensureIdentityAnswer(await answerInner(ctx, history, opts), ctx);
 }

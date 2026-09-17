@@ -170,6 +170,15 @@ describe('round 2 #4 — model instruction text never reaches a lead field', () 
     expect(lead.name).toBe('أبو محمد');
   });
 
+  test('a time with no letters in it is still stored, and a staff edit keeps its lines', () => {
+    // Round-2 code review: the letter test dropped «4:30», and the one-line rule truncated staff edits.
+    expect(mergeLead({}, { preferred_time: '4:30' }, model()).lead.preferred_time).toEqual({ text: '4:30' });
+    expect(mergeLead({}, { preferred_time: '١٠:٣٠' }, model()).lead.preferred_time).toEqual({ text: '١٠:٣٠' });
+    expect(mergeLead({}, { business_name: 'مطعم الكرم\nفرع الجبيهة' }, staff).lead.business_name)
+      .toBe('مطعم الكرم\nفرع الجبيهة');
+    expect(mergeLead({}, { business_name: 'مطعم الكرم\nreply: كذا' }, model()).lead.business_name).toBe('مطعم الكرم');
+  });
+
   test('ordinary values — Arabic, English and mixed — are untouched', () => {
     const { lead } = mergeLead({}, { business_name: 'Smile Care عيادة', city: 'إربد', sector_text: 'صالون حلاقة' }, model('x'));
     expect(lead).toMatchObject({ business_name: 'Smile Care عيادة', city: 'إربد', sector_text: 'صالون حلاقة' });
@@ -187,6 +196,9 @@ describe('round 2 #9 — a clock time is not a business figure', () => {
     // Sim round 2: the hour a customer replaces is still an hour, even with no clock word of its own.
     ['ممكن نخليها الساعة ٢ الظهر بدل ١١؟', []],
     ['بدل 11 موظف صار 9', ['11', '9']],
+    // Sim round 2c: «خلوها بكرة بعد العصر | من 4 لحد 6» is one call window, not two business figures.
+    ['خلوها بكرة بعد العصر\nمن 4 لحد 6', []],
+    ['عندي من 4 لحد 6 موظفين', ['4', '6']],
   ])('%s → %s', (text, expected) => {
     expect(businessNumbersOf(text)).toEqual(expected);
   });
