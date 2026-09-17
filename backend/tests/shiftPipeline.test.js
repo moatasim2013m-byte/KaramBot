@@ -535,6 +535,44 @@ describe('review round 2: the identity answer and the invented diary', () => {
   });
 });
 
+describe('review round 2 #7 — one discovery question, not three', () => {
+  test('the same unanswered question is dropped the second time and a step is offered', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const askA = { reply: 'أهلًا فيك. شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    const askB = { reply: 'تمام. طيب شو مجال شغلك حاليًا؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(askA, askA);
+
+    const t1 = await turn(conv, ['مرحبا']);
+    expect(bodyOf(t1.parts[0])).toContain('شو مجال شغلك؟');
+
+    script(askB, askB);
+    const t2 = await turn(conv, ['طيب']);
+
+    const body = t2.parts.map(bodyOf).join('\n');
+    expect(body).not.toContain('شو مجال شغلك');
+    expect(body).toContain(acks.askMovedOn('ar'));
+  });
+
+  test('a third unanswered ask hands the thread to the team', async () => {
+    const { conv } = seedShift({
+      current_state: 'discovery',
+      workflow_data: {
+        lead: { version: 1 },
+        bot_turns: 3,
+        disclosed_at: START.toISOString(),
+        last_ask: { key: 'شو مجال شغلك', words: ['مجال', 'شغلك'], at: START.toISOString(), count: 2, msg_id: 'old' },
+      },
+    });
+    const ask = { reply: 'شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(ask, ask);
+
+    const { parts } = await turn(conv, ['طيب']);
+
+    expect(parts.map(bodyOf).join('\n')).toContain(acks.askHandover('ar'));
+    expect(convRow(conv.id).status).toBe('pending');
+  });
+});
+
 describe('integration fixes', () => {
   test('a tier-2 handoff whose model line invents a price → the fixed handoff line, ack and alert kept, one model call', async () => {
     const { conv } = seedShift({ current_state: 'discovery' });

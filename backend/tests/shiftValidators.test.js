@@ -523,6 +523,31 @@ describe('round 2 #2/#10/#11 — an appointment the server never made', () => {
   });
 });
 
+describe('round 2 #5 — the privacy notice is whole or absent', () => {
+  const purpose = acks.purposeLine('ar');
+
+  test('the torn notice from the transcript is put back whole', () => {
+    const torn = 'ولا يهمك أستاذ أبو محمد، بنرتّبها مع الفريق. shifts-ai.com/privacy). شو اسم المطعم الكريم؟';
+    const r = v.validateResult(reply([{ type: 'text', text: torn }]), baseCtx());
+    expect(r.result.messages[0].text).toContain(purpose);
+    expect(r.result.messages[0].text).not.toMatch(/الفريق\.\s*shifts-ai\.com/);
+  });
+
+  test('a whole notice is left exactly as it is', () => {
+    const whole = `تمام. بس أكّدلي اسم المطعم؟ ${purpose}`;
+    const r = v.validateResult(reply([{ type: 'text', text: whole }]), baseCtx());
+    expect(r.result.messages[0].text).toBe(whole);
+    expect(r.blocks.map((b) => b.code)).not.toContain('privacy_notice');
+  });
+
+  test('the trims that tore it no longer split a parenthesis', () => {
+    const line = `تمام. ${purpose} أي يوم ووقت بناسبك؟`;
+    // The trims drop a time question and any piece ending on a colon — but never half a bracket.
+    const r = v.validateResult(reply([{ type: 'text', text: line }]), baseCtx());
+    expect(r.result.messages[0].text).toContain(purpose);
+  });
+});
+
 describe('round 2 #8 — one introduction per conversation', () => {
   const intro = 'أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم اللي بنركّبه عندك، بس هون بمعلومات شِفت.';
 
@@ -619,7 +644,7 @@ describe('verdict matrix (§5.1)', () => {
   test('CODES lists every code the validators emit', () => {
     expect(v.CODES).toEqual(['markdown', 'digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'identity',
       'questions', 'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step', 'training_claim',
-      'appointment_time', 'repeat_intro', 'stutter']);
+      'appointment_time', 'repeat_intro', 'stutter', 'privacy_notice']);
   });
 
   test('the old host literal never appears in validator output', () => {

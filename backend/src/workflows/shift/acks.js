@@ -299,6 +299,16 @@ function roleplaySetupGaveUp(lang) {
     : 'خلينا نترك المثال هلأ — الفريق بيقدر يوريك إياه مباشرة. بترتبلك مكالمة قصيرة؟';
 }
 
+/**
+ * Round-2 review #7: «شو مجال شغلك…؟» went out at turns 1, 3 and 5 until the customer mocked it. The
+ * second time any question comes back unanswered the bot drops it and offers a step instead.
+ */
+function askMovedOn(lang) {
+  return isEn(lang)
+    ? "No problem, we can carry on without it. Would you like to see an example on your business, or a short call with the team?"
+    : 'ولا يهمك، منكمّل بدونها. بتحب أوريك مثال على شغلك، ولا نرتّب مكالمة قصيرة مع الفريق؟';
+}
+
 function askHandover(lang) {
   return isEn(lang)
     ? "I'll pass this to the SHIFT team — they'll agree a time with you here."
@@ -478,6 +488,7 @@ module.exports = {
   slotsBody,
   blockedReply,
   askHandover,
+  askMovedOn,
   roleplaySetupGaveUp,
   callTimeAsk,
 };

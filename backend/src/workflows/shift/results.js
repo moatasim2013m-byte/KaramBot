@@ -349,8 +349,23 @@ function tappedTime(lead) {
 // A line that asks the customer to pick a time cannot stand above «سجّلت طلب مكالمة…» (owner phone test).
 const CHOOSE_TIME_RE = /اختار|اختر|تختار|أي وقت|اي وقت|أي يوم|اي يوم|أي ساعة|اي ساعة|متى بفرغ|متى بتفضى|متى بتفضي|متى بناسبك|متى بيناسبك|إمتى|امتى|وقت بناسبك|وقت بيناسبك|وقت بريحك|الوقت المناسب|وقت مناسب|أقرب أوقات|اقرب أوقات|اقرب اوقات|أقرب اوقات|\bpick\b|\bchoose\b|which (?:day|time)|what time|when (?:are you|you're|would you be) free|when suits|when works|what works|a time that (?:suits|works)|nearest times/i;
 
+/**
+ * Round-2 review #5: the privacy notice «(بنستخدم اللي بتكتبه … — التفاصيل: shifts-ai.com/privacy)»
+ * carries a colon, and a colon used to end a "sentence". withoutTimeAsk then dropped the piece that ends
+ * on it — the opening paren and the whole explanation — and left the customer the orphan
+ * «… بنرتّبها مع الفريق. shifts-ai.com/privacy). شو اسم المطعم الكريم؟». A parenthesis is never split.
+ */
 function sentencesOf(line) {
-  return String(line || '').split(/(?<=[.!؟?:：])(?=\s)|(?<=\n)/);
+  const raw = String(line || '').split(/(?<=[.!؟?:：])(?=\s)|(?<=\n)/);
+  const out = [];
+  let open = 0;
+  for (const piece of raw) {
+    const delta = (piece.match(/[(（]/g) || []).length - (piece.match(/[)）]/g) || []).length;
+    if (open > 0) out[out.length - 1] += piece;
+    else out.push(piece);
+    open = Math.max(0, open + delta);
+  }
+  return out;
 }
 
 function withoutChooseAsk(line) {
@@ -884,13 +899,42 @@ const ASK_REPEAT_MAX = 2;
 const ASK_KEY_MAX = 120;
 const NO_ASK_GUARD_ACTIONS = ['OPT_OUT', 'NOT_NOW', 'HANDOFF_TO_HUMAN', 'START_ROLEPLAY', 'END_ROLEPLAY'];
 
-/** The key of the question a part ends on: 'time' for any day/time ask, its normalized words otherwise. */
+// Words that carry no topic: two asks are "the same" on what they are about, not on their politeness.
+const ASK_STOPWORDS = new Set(['شو', 'ما', 'مين', 'وين', 'كيف', 'هو', 'هي', 'في', 'من', 'عن', 'على', 'مع',
+  'هل', 'يا', 'بس', 'كمان', 'حاليا', 'هلا', 'هلأ', 'لو', 'سمحت', 'ممكن', 'تحب', 'بتحب', 'بدك', 'عندك',
+  'the', 'a', 'an', 'is', 'are', 'do', 'does', 'you', 'your', 'what', 'which', 'who', 'where', 'how', 'of',
+  'in', 'on', 'at', 'to', 'for', 'and', 'or', 'please', 'could', 'would', 'can']);
+
+function askWordsOf(text) {
+  return Array.from(new Set(normalize(text).split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 1 && !ASK_STOPWORDS.has(w))));
+}
+
+/**
+ * The key of the question a part ends on: 'time' for any day/time ask, its normalized words otherwise,
+ * plus the topic words so a reworded repeat of the same question still counts as a repeat (#7).
+ */
 function askKeyOf(part) {
   if (!part || typeof part.text !== 'string') return null;
   const questions = sentencesOf(part.text).filter((s) => /[؟?]/.test(s));
   if (!questions.length) return null;
-  if (questions.some(isTimeQuestion)) return 'time';
-  return normalize(questions.join(' ')).slice(0, ASK_KEY_MAX) || null;
+  const joined = questions.join(' ');
+  if (questions.some(isTimeQuestion)) return { key: 'time', words: [] };
+  const key = normalize(joined).slice(0, ASK_KEY_MAX);
+  return key ? { key, words: askWordsOf(joined).slice(0, 8) } : null;
+}
+
+/** «شو مجال شغلك؟» and «طيب، شو مجال شغلك حاليًا؟» are one ask asked twice. */
+function sameAsk(prev, cur) {
+  if (!prev || !cur) return false;
+  if (prev.key === cur.key) return true;
+  if (prev.key === 'time' || cur.key === 'time') return false;
+  const a = new Set(Array.isArray(prev.words) ? prev.words : []);
+  const b = new Set(Array.isArray(cur.words) ? cur.words : []);
+  if (!a.size || !b.size) return false;
+  let shared = 0;
+  for (const w of b) if (a.has(w)) shared += 1;
+  return shared / Math.max(a.size, b.size) >= 0.6;
 }
 
 function askPart(part, line, ack, buttonList) {
@@ -925,11 +969,16 @@ function repeatedAskGuard(r, c, wdp, action) {
   if (NO_ASK_GUARD_ACTIONS.includes(action) || inSandbox(c) || r.kind === 'handoff') return r;
   // Buttons are a next step, not a question that can be repeated.
   if (partHasButtons(last)) return clear();
-  const key = askKeyOf(last);
-  if (!key) return clear();
-  const count = prev && prev.key === key ? (Number(prev.count) || 1) + 1 : 1;
+  const ask = askKeyOf(last);
+  if (!ask) return clear();
+  const { key, words } = ask;
+  const msgId = c.newest?.id ?? null;
+  // A re-run of the SAME batch (a send that failed, a sweeper requeue) is not the customer ignoring the
+  // question — they never saw it. Only a new inbound batch can repeat an ask.
+  const rerun = !!(prev && msgId && prev.msg_id === msgId);
+  const count = !rerun && sameAsk(prev, ask) ? (Number(prev.count) || 1) + 1 : 1;
   if (count === 1) {
-    wdp.last_ask = { key, at, count };
+    wdp.last_ask = { key, words, at, count, msg_id: msgId };
     return r;
   }
 
@@ -947,12 +996,17 @@ function repeatedAskGuard(r, c, wdp, action) {
   }
   if (key === 'time' && count <= ASK_REPEAT_MAX) {
     // Nothing to offer: the same ask once more, in the server's own words, and counted.
-    wdp.last_ask = { key, at, count };
+    wdp.last_ask = { key, words, at, count, msg_id: msgId };
     return { ...r, messages: [...head, askPart(last, line, acks.callTimeAsk(c.lang), null)] };
   }
   if (count <= ASK_REPEAT_MAX) {
-    wdp.last_ask = { key, at, count };
-    return r;
+    // Round-2 review #7: ANY question that came back unanswered is dropped the second time — the model's
+    // own words go out without it, and the server offers a step instead of asking again.
+    const moveOn = acks.askMovedOn(c.lang);
+    wdp.last_ask = {
+      key: normalize(moveOn).slice(0, ASK_KEY_MAX), words: askWordsOf(moveOn).slice(0, 8), at, count: 1, msg_id: msgId,
+    };
+    return { ...r, messages: [...head, askPart(last, line, moveOn, null)] };
   }
 
   // Asked three times with no answer: the team takes it over, and the bot stops repeating itself.

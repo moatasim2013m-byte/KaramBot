@@ -20,7 +20,7 @@ const OLD_HOST = ['shifts-ai', 'store'].join('.');
 
 const CODES = ['markdown', 'digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'identity', 'questions',
   'buttons', 'dangling_colon', 'split', 'link', 'language', 'next_step', 'training_claim', 'appointment_time',
-  'repeat_intro', 'stutter'];
+  'repeat_intro', 'stutter', 'privacy_notice'];
 
 const ARABIC_LETTER_RE = /[ء-يٮ-ۓۺ-ۿ]/g;
 const LATIN_LETTER_RE = /[A-Za-z]/g;
@@ -1297,6 +1297,22 @@ function withModelLine(part, newLine) {
   return { ...part, text, modelLine: newLine };
 }
 
+/**
+ * Round-2 review #5 — the privacy notice is atomic: whole or absent, never a fragment.
+ *
+ * Whatever trimmed the reply, a bare «shifts-ai.com/privacy)» with no «(بنستخدم …» in front of it is a
+ * torn notice. It is put back whole rather than left as a stray URL and a stray bracket.
+ */
+const PRIVACY_WHOLE_RE = /\((?:بنستخدم|we use what you write)[^)]*\/privacy\)/i;
+const PRIVACY_ORPHAN_RE = /[ \t]*(?:—|-)?[ \t]*(?:التفاصيل|details)?[ \t]*[:：]?[ \t]*[A-Za-z0-9.\-/]*\/privacy\)/gi;
+
+function repairPrivacyNotice(text, lang) {
+  const s = String(text == null ? '' : text);
+  if (!/\/privacy\)/.test(s) || PRIVACY_WHOLE_RE.test(s)) return { text: s, repaired: false };
+  const out = s.replace(PRIVACY_ORPHAN_RE, ` ${acks.purposeLine(lang)}`).replace(/[ \t]{2,}/g, ' ').trim();
+  return { text: out, repaired: out !== s };
+}
+
 const TEXT_BEARING = ['text', 'interactive', 'list', 'cta_url'];
 
 /**
@@ -1501,6 +1517,15 @@ function validateResult(result, vctx = {}) {
       // A text fallback of injected buttons carries the words the buttons part ends up with, after any split.
       .map((p) => (p && p.fallback && p.fallback.type === 'text' && !p.serverButtons ? { ...p, fallback: { type: 'text', text: p.text } } : p));
 
+    // The privacy notice survives every trim above whole, or not at all (#5).
+    messages = messages.map((p) => {
+      if (!p || !TEXT_BEARING.includes(p.type)) return p;
+      const fixed = repairPrivacyNotice(p.text, ctx.lang);
+      if (!fixed.repaired) return p;
+      events.push({ code: 'privacy_notice', detail: 'restored' });
+      return { ...p, text: fixed.text };
+    });
+
     out = { ...out, messages };
     // g: next_step → last_bot
     const repaired = repairNextStep(out, { next_step: ctx.modelNextStep }, { stage: ctx.stage, now: ctx.now });
@@ -1546,6 +1571,7 @@ module.exports = {
   withoutRepeatIntro,
   checkStutter,
   dedupeStutter,
+  repairPrivacyNotice,
   checkHumanClaim,
   isIdentityQuestion,
   isHonestIdentity,

@@ -5,7 +5,7 @@ jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb
 
 const db = require('./helpers/fakeDb').getFakeDb();
 const {
-  mergeLead, extractCustomerNumbers, isCorrection, computeScore, saveLead,
+  mergeLead, extractCustomerNumbers, businessNumbersOf, isCorrection, computeScore, saveLead,
 } = require('../src/workflows/shift/lead');
 
 const AT = '2026-09-14T08:00:00.000Z';
@@ -40,11 +40,12 @@ describe('mergeLead — scalars', () => {
     expect(lead.version).toBe(4);
   });
 
-  test('normalises sector, cuts long strings to 200 code points, preferred_time string → {text}', () => {
+  test('normalises sector, cuts free-text scalars to their own cap, preferred_time string → {text}', () => {
     const long = 'ع'.repeat(250);
     const { lead } = mergeLead({}, { sector: 'Clinic', sector_text: long, preferred_time: 'بكرا الصبح' }, model());
     expect(lead.sector).toBe('clinic');
-    expect(Array.from(lead.sector_text)).toHaveLength(200);
+    // Round-2 review #4: a business's kind is a handful of words — sector_text caps at 60, not 200.
+    expect(Array.from(lead.sector_text)).toHaveLength(60);
     expect(lead.preferred_time).toEqual({ text: 'بكرا الصبح' });
 
     const picked = mergeLead({}, {
@@ -147,6 +148,49 @@ describe('mergeLead — arrays and numbers', () => {
     const { lead, changed } = mergeLead({ site_estimates: [{ n: 1 }] }, { site_estimates: [{ n: 2 }] }, model());
     expect(lead.site_estimates).toEqual([{ n: 1 }]);
     expect(changed).toEqual([]);
+  });
+});
+
+describe('round 2 #4 — model instruction text never reaches a lead field', () => {
+  const JUNK = 'مطعم منديFilter Context Requirements: Valid JSON only, strict schema mapping, single quote output, '
+    + 'clean structure correctly parsed as standard text outputs as required without surrounding extra text ';
+
+  test('the reproduced sector_text keeps only what the customer typed', () => {
+    const { lead } = mergeLead({}, { sector_text: JUNK }, model('عندي مطعم مندي'));
+    expect(lead.sector_text).toBe('مطعم مندي');
+  });
+
+  test('a value that is nothing but boilerplate is dropped', () => {
+    const { lead } = mergeLead({}, { business_name: 'Valid JSON only, strict schema mapping' }, model('مرحبا'));
+    expect(lead.business_name).toBeUndefined();
+  });
+
+  test('control characters and a second line go', () => {
+    const { lead } = mergeLead({}, { name: 'أبو\u0000 محمد\nreply: كذا' }, model('أنا أبو محمد'));
+    expect(lead.name).toBe('أبو محمد');
+  });
+
+  test('ordinary values — Arabic, English and mixed — are untouched', () => {
+    const { lead } = mergeLead({}, { business_name: 'Smile Care عيادة', city: 'إربد', sector_text: 'صالون حلاقة' }, model('x'));
+    expect(lead).toMatchObject({ business_name: 'Smile Care عيادة', city: 'إربد', sector_text: 'صالون حلاقة' });
+  });
+});
+
+describe('round 2 #9 — a clock time is not a business figure', () => {
+  test.each([
+    ['بكرا الساعة 4 العصر', []],
+    ['بكرا بين 10 و12', []],
+    ['الدوام من 10 الصبح ل 8 المسا', []],
+    ['نحكي 4:30 بكرا', []],
+    ['عندي 40 رسالة باليوم وبخسر 180 دينار', ['40', '180']],
+    ['بكرا الساعة 4 العصر، وميزانيتي 50 دينار', ['50']],
+  ])('%s → %s', (text, expected) => {
+    expect(businessNumbersOf(text)).toEqual(expected);
+  });
+
+  test('the harvested lead field follows', () => {
+    const { lead } = mergeLead({}, { name: 'رنا' }, model('بكرا الساعة 4 العصر'));
+    expect(lead.customer_numbers).toBeUndefined();
   });
 });
 
