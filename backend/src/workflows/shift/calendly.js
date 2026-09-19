@@ -31,12 +31,12 @@ const DISPLAY = {
 };
 const BODY = {
   book: {
-    ar: 'اختار الوقت اللي بناسبك من هون، وأول ما تحجز بوصلك تأكيد على الواتساب.',
-    en: "Pick the time that suits you here — as soon as you book, you'll get a confirmation on WhatsApp.",
+    ar: 'اختار الوقت اللي بناسبك من هون، وأول ما تحجز بيوصلك تأكيد.',
+    en: "Pick the time that suits you here — as soon as you book, you'll get a confirmation.",
   },
   reschedule: {
-    ar: 'بتقدر تغيّر موعد المكالمة من هون، وأول ما يتغيّر بوصلك تأكيد على الواتساب. لحد هداك الوقت موعدك الحالي بضل زي ما هو.',
-    en: "You can move the call here — once it's changed you'll get a confirmation on WhatsApp. Until then your current time stays as it is.",
+    ar: 'بتقدر تغيّر موعد المكالمة من هون، وأول ما يتغيّر بيوصلك تأكيد. لحد هداك الوقت موعدك الحالي بضل زي ما هو.',
+    en: "You can move the call here — once it's changed you'll get a confirmation. Until then your current time stays as it is.",
   },
   cancel: {
     ar: 'بتقدر تلغي المكالمة من هون. لحد ما تلغيها بضل موعدك زي ما هو.',

@@ -56,7 +56,7 @@ describe('the link', () => {
     const part = calendly.linkPart({ url: `${URL_BASE}?a1=%2B962790000777`, lang: 'ar' });
     expect(part).toMatchObject({
       type: 'cta_url',
-      text: 'اختار الوقت اللي بناسبك من هون، وأول ما تحجز بوصلك تأكيد على الواتساب.',
+      text: 'اختار الوقت اللي بناسبك من هون، وأول ما تحجز بيوصلك تأكيد.',
       displayText: 'احجز موعدك',
       serverButtons: true,
       bookingLink: { kind: 'book' },
