@@ -4,7 +4,7 @@
 /**
  * Offline eval harness for the SHIFT sales bot (contract §11.3; eval doc «15 conversations»).
  *
- *   node scripts/eval-shift.js [--scenario 1,5] [--live] [--out docs/bot/eval]
+ *   node scripts/eval-shift.js [--scenario 1,5] [--live] [--provider gemini|anthropic] [--out docs/bot/eval]
  *
  * Replay (default) drives every scenario through the REAL pipeline — persistInbound → runBatch →
  * processShiftBatch → validators → deliverResult → services/whatsapp — and the real sweeper, with only the
@@ -14,6 +14,11 @@
  *
  * --live (EVAL_LIVE=1 and GEMINI_API_KEY required) keeps prisma and axios faked but lets the real Gemini
  * SDK answer; a model 404 stops the run (exit 3). It never runs in `npm test`.
+ *
+ * --provider anthropic runs the bot on Claude (AI_PROVIDER=anthropic): in replay a scripted Anthropic client
+ * answers from the same `model` JSON (so the request path through src/ai/anthropic.js is exercised), and with
+ * --live (ANTHROPIC_API_KEY required) the real SDK answers and the run ends with latency p50/p90 and cost per
+ * reply from the returned usage.
  *
  * Jest (tests/shiftEvalGates.test.js) cannot use the Module._load hooks below — it has its own module
  * registry — so the test jest.mocks the same four edges with `fakes.axios` / `fakes.gemini` from this file
@@ -52,6 +57,9 @@ const state = {
   calendarOps: [],
   calendarEvents: new Map(),
   live404: false,
+  // Test hook: when set, the scripted Anthropic client throws this (a function returning an Error) instead
+  // of answering — the failover tests use it to play «credit balance too low».
+  anthropicError: null,
 };
 
 let wamidSeq = 0;
@@ -105,6 +113,29 @@ class FakeGoogleGenerativeAI {
       },
     };
   }
+}
+
+/**
+ * A scripted Anthropic client: same queue as the Gemini fake, answered in the Messages API shape. Errors are
+ * plain Errors (the SDK's classes are not loaded in replay); src/ai/errors.js classifies those by message.
+ */
+function FakeAnthropic() {
+  this.messages = {
+    async create(params) {
+      const userText = params && params.messages && params.messages[0] ? String(params.messages[0].content) : '';
+      state.modelCalls.push({ provider: 'anthropic', params, userText, at: new Date().toISOString() });
+      if (typeof state.anthropicError === 'function') throw state.anthropicError(params);
+      const next = state.modelQueue.length ? state.modelQueue.shift() : undefined;
+      if (next === undefined || next === null) throw new Error('eval: no scripted model reply for this call');
+      if (next && next.__throw) throw new Error(next.__throw);
+      const text = typeof next === 'string' ? next : JSON.stringify(next);
+      return {
+        content: [{ type: 'text', text }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      };
+    },
+  };
 }
 
 const fakeGemini = {
@@ -163,7 +194,7 @@ function applyCalendly(changes) {
   }
 }
 
-const fakes = { axios: fakeAxios, gemini: fakeGemini, calendar: fakeCalendar };
+const fakes = { axios: fakeAxios, gemini: fakeGemini, anthropic: FakeAnthropic, calendar: fakeCalendar };
 
 // ─── Clock ──────────────────────────────────────────────────────────────────
 
@@ -691,7 +722,7 @@ function printTranscript(r, { full = false } = {}) {
 }
 
 function parseArgs(argv) {
-  const args = { scenario: null, live: false, out: null, verbose: false };
+  const args = { scenario: null, live: false, out: null, verbose: false, provider: 'gemini' };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--live') args.live = true;
@@ -699,6 +730,8 @@ function parseArgs(argv) {
     else if (a.startsWith('--scenario=')) args.scenario = a.slice(11).split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--out') args.out = argv[++i];
     else if (a.startsWith('--out=')) args.out = a.slice(6);
+    else if (a === '--provider') args.provider = String(argv[++i] || '').trim();
+    else if (a.startsWith('--provider=')) args.provider = a.slice(11).trim();
     else if (a === '--verbose' || a === '-v') args.verbose = true;
     else if (a === '--help' || a === '-h') args.help = true;
   }
@@ -709,20 +742,24 @@ function parseArgs(argv) {
 // SDKs that make their own HTTP calls (not through axios): loading one in replay is a bug, and it fails loudly.
 const REPLAY_BLOCKED_MODULES = ['openai', '@anthropic-ai/sdk', 'node-fetch', 'undici', 'got'];
 
-function installHooks({ live }) {
+function installHooks({ live, provider = 'gemini' }) {
+  const anthropic = provider === 'anthropic';
   // Test-only defaults so config and token encryption load without a real environment (never production).
   const defaults = {
     NODE_ENV: 'test', DATABASE_URL: 'postgresql://eval:eval@localhost:5432/eval', JWT_SECRET: 'eval_secret_that_is_long_enough_for_the_harness',
     META_APP_SECRET: 'eval_meta_secret', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'eval_verify', TOKEN_ENCRYPTION_KEY: 'b'.repeat(64),
-    AI_PROVIDER: 'gemini', GEMINI_API_KEY: live ? process.env.GEMINI_API_KEY : 'eval_key',
+    AI_PROVIDER: provider, GEMINI_API_KEY: live ? process.env.GEMINI_API_KEY : 'eval_key',
   };
   for (const [k, v] of Object.entries(defaults)) if (!process.env[k] || (k === 'TOKEN_ENCRYPTION_KEY' && !live)) process.env[k] = v;
+  // The provider under test answers every call: no failover to the other one in an eval run.
+  process.env.AI_PROVIDER = provider;
+  delete process.env.AI_FALLBACK_PROVIDER;
   if (!live) {
     // Replay never reaches a network: whatever the shell exported (AI_PROVIDER=openai from a sourced .env,
-    // say), the provider is the scripted Gemini fake, and no other SDK key is left for a fallback to use.
+    // say), the provider is the scripted fake, and no other SDK key is left for a fallback to use.
     process.env.GEMINI_API_KEY = 'eval_key';
-    process.env.AI_PROVIDER = 'gemini';
     for (const k of ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY']) delete process.env[k];
+    if (anthropic) process.env.ANTHROPIC_API_KEY = 'eval_key';
   }
 
   const fakeDb = require(path.join(ROOT, 'tests/helpers/fakeDb')).getFakeDb();
@@ -731,10 +768,16 @@ function installHooks({ live }) {
   const calendarPath = path.join(ROOT, 'src/services/googleCalendar.js');
   const originalLoad = Module._load;
   let liveModule = null;
+  let liveAnthropic = null;
   Module._load = function evalLoad(request, parent, isMain) {
     if (request === 'axios') return fakeAxios;
+    if (request === '@anthropic-ai/sdk' && anthropic) {
+      if (!live) return FakeAnthropic;
+      if (!liveAnthropic) liveAnthropic = wrapLiveAnthropic(originalLoad.call(this, request, parent, isMain));
+      return liveAnthropic;
+    }
     if (!live && REPLAY_BLOCKED_MODULES.includes(request)) {
-      throw new Error(`eval-shift replay: '${request}' would reach the network — replay uses the scripted Gemini fake only`);
+      throw new Error(`eval-shift replay: '${request}' would reach the network — replay uses the scripted model fake only`);
     }
     if (request === '@google/generative-ai') {
       if (!live) return fakeGemini;
@@ -777,17 +820,87 @@ function wrapLiveGemini(real) {
   return { ...real, GoogleGenerativeAI: LiveGoogleGenerativeAI };
 }
 
+// --live --provider anthropic: the real SDK, every call timed with its usage (for p50/p90 and cost).
+function wrapLiveAnthropic(real) {
+  const Base = real.Anthropic || real.default || real;
+  class LiveAnthropic extends Base {
+    constructor(...args) {
+      super(...args);
+      const create = this.messages.create.bind(this.messages);
+      this.messages.create = async (params, options) => {
+        const entry = { provider: 'anthropic', params, at: new Date().toISOString(), started: process.hrtime.bigint() };
+        state.modelCalls.push(entry);
+        try {
+          const msg = await create(params, options);
+          entry.ms = Number(process.hrtime.bigint() - entry.started) / 1e6;
+          entry.usage = msg && msg.usage;
+          entry.stop = msg && msg.stop_reason;
+          entry.ok = true;
+          return msg;
+        } catch (err) {
+          entry.ms = Number(process.hrtime.bigint() - entry.started) / 1e6;
+          entry.ok = false;
+          entry.error = String(err && err.message).slice(0, 200);
+          if (real.NotFoundError && err instanceof real.NotFoundError) state.live404 = true;
+          throw err;
+        }
+      };
+    }
+  }
+  for (const k of Object.getOwnPropertyNames(Base)) {
+    if (/Error$/.test(k) && !(k in LiveAnthropic)) LiveAnthropic[k] = Base[k];
+  }
+  return Object.assign(LiveAnthropic, { Anthropic: LiveAnthropic, default: LiveAnthropic });
+}
+
+// Claude Sonnet 5 list prices per million tokens: input $2, output $10; a cache read is 0.1× input, a
+// 5-minute cache write 1.25× input.
+const CLAUDE_PRICE = { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 };
+
+function percentile(sorted, p) {
+  if (!sorted.length) return null;
+  const idx = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
+  return sorted[Math.max(0, idx)];
+}
+
+/** Latency and cost of the live Claude calls, from what the API returned. */
+function liveClaudeStats(calls) {
+  const done = calls.filter((c) => c.provider === 'anthropic' && typeof c.ms === 'number');
+  const ok = done.filter((c) => c.ok && c.usage);
+  const ms = ok.map((c) => c.ms).sort((a, b) => a - b);
+  const sum = (k) => ok.reduce((n, c) => n + (Number(c.usage[k]) || 0), 0);
+  const tokens = { input: sum('input_tokens'), output: sum('output_tokens'), cacheRead: sum('cache_read_input_tokens'), cacheWrite: sum('cache_creation_input_tokens') };
+  const cost = (tokens.input * CLAUDE_PRICE.input + tokens.output * CLAUDE_PRICE.output
+    + tokens.cacheRead * CLAUDE_PRICE.cacheRead + tokens.cacheWrite * CLAUDE_PRICE.cacheWrite) / 1e6;
+  return {
+    calls: done.length,
+    failed: done.length - ok.length,
+    p50: percentile(ms, 50),
+    p90: percentile(ms, 90),
+    max: ms.length ? ms[ms.length - 1] : null,
+    tokens,
+    costTotal: cost,
+    costPerCall: ok.length ? cost / ok.length : null,
+    stops: ok.reduce((m, c) => ({ ...m, [c.stop]: (m[c.stop] || 0) + 1 }), {}),
+  };
+}
+
 async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   if (args.help) {
-    console.log('node scripts/eval-shift.js [--scenario 1,5] [--live] [--out docs/bot/eval] [--verbose]');
+    console.log('node scripts/eval-shift.js [--scenario 1,5] [--live] [--provider gemini|anthropic] [--out docs/bot/eval] [--verbose]');
     return 0;
   }
-  if (args.live && (process.env.EVAL_LIVE !== '1' || !process.env.GEMINI_API_KEY)) {
-    console.error('eval-shift: --live needs EVAL_LIVE=1 and GEMINI_API_KEY (it calls the real Gemini API).');
+  if (!['gemini', 'anthropic'].includes(args.provider)) {
+    console.error(`eval-shift: --provider must be gemini or anthropic (got "${args.provider}")`);
     return 2;
   }
-  installHooks({ live: args.live });
+  const liveKey = args.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY';
+  if (args.live && (process.env.EVAL_LIVE !== '1' || !process.env[liveKey])) {
+    console.error(`eval-shift: --live needs EVAL_LIVE=1 and ${liveKey} (it calls the real ${args.provider} API).`);
+    return 2;
+  }
+  installHooks({ live: args.live, provider: args.provider });
   const mode = args.live ? 'live' : 'replay';
   const list = args.scenario ? scenarios.ALL.filter((s) => args.scenario.includes(String(s.id))) : scenarios.ALL;
   if (!list.length) {
@@ -796,14 +909,16 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   const results = [];
+  const liveCalls = [];
   for (const s of list) {
     const r = await runScenario(s, { mode });
     results.push(r);
+    liveCalls.push(...state.modelCalls);
     const gatesFailed = [...new Set(r.gateFailures.map((f) => f.gate))];
     console.log(`${r.pass ? 'PASS' : 'FAIL'}  ${s.id}. ${s.title}${gatesFailed.length ? `  gates: ${gatesFailed.join(',')}` : ''}${r.stateFailures.length ? `  state: ${r.stateFailures.length}` : ''}`);
     if (args.verbose || !r.pass) printTranscript(r, { full: args.verbose });
     if (state.live404) {
-      console.error('eval-shift: the model returned 404 — check GEMINI_MODEL.');
+      console.error(`eval-shift: the model returned 404 — check ${args.provider === 'anthropic' ? 'ANTHROPIC_MODEL' : 'GEMINI_MODEL'}.`);
       return 3;
     }
   }
@@ -813,10 +928,18 @@ async function main(argv = process.argv.slice(2)) {
   if (!args.out) fs.mkdirSync(scratch, { recursive: true });
   const outDir = args.out ? path.resolve(process.cwd(), args.out) : fs.mkdtempSync(path.join(scratch, 'karam-eval-'));
   fs.mkdirSync(outDir, { recursive: true });
-  const base = path.join(outDir, `${date}-${mode}`);
+  const base = path.join(outDir, `${date}-${mode}${args.provider === 'anthropic' ? '-anthropic' : ''}`);
   fs.writeFileSync(`${base}.json`, JSON.stringify(transcriptJson(results), null, 2));
   fs.writeFileSync(`${base}.md`, summaryMarkdown(results, mode, date));
   console.log(`\nreport: ${base}.md`);
+  console.log(`provider=${args.provider} pass=${results.filter((r) => r.pass).length}/${results.length}`);
+  if (args.live && args.provider === 'anthropic') {
+    const st = liveClaudeStats(liveCalls);
+    fs.writeFileSync(`${base}-claude-stats.json`, JSON.stringify(st, null, 2));
+    const f = (v) => (v === null ? '-' : `${(v / 1000).toFixed(2)}s`);
+    console.log(`claude calls=${st.calls} failed=${st.failed} p50=${f(st.p50)} p90=${f(st.p90)} max=${f(st.max)} stops=${JSON.stringify(st.stops)}`);
+    console.log(`claude tokens in=${st.tokens.input} out=${st.tokens.output} cache_read=${st.tokens.cacheRead} cache_write=${st.tokens.cacheWrite} cost=$${st.costTotal.toFixed(4)} per_call=$${st.costPerCall === null ? '-' : st.costPerCall.toFixed(5)}`);
+  }
 
   const hardFail = results.some((r) => r.gateFailures.length > 0);
   const stateFail = results.some((r) => r.stateFailures.length > 0);
@@ -829,6 +952,7 @@ module.exports = {
   fakes,
   state,
   parseArgs,
+  liveClaudeStats,
   summaryMarkdown,
   transcriptJson,
   matches,

@@ -302,7 +302,7 @@ async function legacyCall(systemPrompt, userMessage, history, callOpts) {
     const kind = classifyProviderError(err, provider);
     if (FATAL_KINDS.includes(kind)) {
       markDown(provider);
-      reportProviderIssue(provider, kind, other, err, callOpts);
+      reportProviderIssue(provider, kind, isDown(other) ? null : other, err, callOpts);
     }
     if (![...SWITCH_KINDS, 'transient', 'timeout'].includes(kind)) throw err;
     console.warn(`[AI] failover ${provider} → ${other} (${kind})`);
@@ -622,7 +622,9 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
         const next = alternative();
         if (FATAL_KINDS.includes(kind)) {
           markDown(provider);
-          reportProviderIssue(provider, kind, next, err, opts);
+          // A fallback that is itself cooling down after a hard failure is still tried (it may have been
+          // topped up), but the owner is not told the bot is running on it.
+          reportProviderIssue(provider, kind, next && !isDown(next) ? next : null, err, opts);
         }
         if (!next) break;
         switchTo(next, kind);
