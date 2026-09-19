@@ -21,6 +21,7 @@ const { processRestaurantMessage } = require('../workflows/restaurant');
 const { processClinicMessage } = require('../workflows/clinic');
 const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
+const newMessageAlert = require('./newMessageAlert');
 const jsonb = require('../db/jsonb');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
@@ -771,6 +772,10 @@ async function processInboundMessage(entry, { persisted } = {}) {
     // Legacy callers (scripts, tests) did not persist first.
     const { business, items } = persisted || await persistInbound(entry);
     if (!business || business.status !== 'active') return;
+
+    // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path
+    // below neither waits for it nor fails with it.
+    newMessageAlert.notifyNewMessages(business, items);
 
     if (business.ai_config?.reply_mode === 'external') {
       await forwardExternal(business, value, items);
