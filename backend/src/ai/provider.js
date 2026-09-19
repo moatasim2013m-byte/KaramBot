@@ -1,6 +1,8 @@
 /**
  * AI Provider Adapter
- * Supports Gemini and OpenAI. Switch via AI_PROVIDER env var.
+ * Supports Gemini, Claude (Anthropic) and OpenAI. Switch via AI_PROVIDER env var; AI_FALLBACK_PROVIDER names a
+ * second provider the SAME turn moves to when the first fails in a way retrying it will not fix (credits
+ * exhausted, key rejected, model not found, a 400, persistent overload, or a timeout with deadline left).
  *
  * Two call paths share this file:
  *  - legacy (restaurant / clinic): no opts — one concatenated prompt, 15 s timeout, one
@@ -8,6 +10,9 @@
  *  - SHIFT: opts turn on JSON mode, systemInstruction, an absolute deadline split across two
  *    attempts, per-workflow actions and stage/next_step enums.
  */
+
+const { callAnthropic, DEFAULT_ANTHROPIC_MODEL } = require('./anthropic');
+const { classifyProviderError, FATAL_KINDS, SWITCH_KINDS } = require('./errors');
 
 const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
 const LEGACY_TIMEOUT_MS = 15000;
@@ -168,23 +173,140 @@ async function callOpenAI(systemPrompt, userMessage, history = []) {
   return response.choices[0].message.content;
 }
 
+// ─── providers, health and failover ──────────────────────────────────────────
+
+const PROVIDERS = ['gemini', 'anthropic', 'openai'];
+const PROVIDER_KEYS = { gemini: 'GEMINI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY' };
+const PROVIDER_LABELS = { gemini: 'Gemini', anthropic: 'Claude', openai: 'OpenAI' };
+
+function primaryProvider() {
+  return process.env.AI_PROVIDER || 'gemini';
+}
+
+/** The configured fallback, if it is a different known provider with a key; else null. */
+function fallbackProvider() {
+  const fb = (process.env.AI_FALLBACK_PROVIDER || '').trim().toLowerCase();
+  if (!fb || fb === 'none' || !PROVIDERS.includes(fb) || fb === primaryProvider()) return null;
+  return process.env[PROVIDER_KEYS[fb]] ? fb : null;
+}
+
+function modelOf(provider) {
+  if (provider === 'anthropic') return process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
+  if (provider === 'openai') return 'gpt-4o-mini';
+  return resolveModel();
+}
+
+// A provider that failed with billing / auth / model-not-found is skipped by later turns for a while, so
+// every turn does not first pay a doomed call. It is tried again after the cooldown (credits topped up).
+const envMs = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+};
+const downUntil = new Map();
+const lastIssueAlertAt = new Map();
+
+function markDown(provider) {
+  downUntil.set(provider, Date.now() + envMs('AI_PROVIDER_COOLDOWN_MS', 5 * 60 * 1000));
+}
+
+function isDown(provider) {
+  return (downUntil.get(provider) || 0) > Date.now();
+}
+
+function issueSummary(provider, kind, next) {
+  const name = PROVIDER_LABELS[provider] || provider;
+  let what;
+  if (kind === 'billing') what = `رصيد ${name} خلص`;
+  else if (kind === 'auth') what = `مفتاح ${name} مرفوض`;
+  else what = `موديل ${name} غير متاح (${modelOf(provider)})`;
+  const then = next
+    ? `البوت شغّال على ${PROVIDER_LABELS[next] || next}`
+    : 'ما في مزوّد بديل شغّال — البوت عم يبعت رسالة الاعتذار';
+  return `${what} — ${then}`;
+}
+
 /**
- * Main AI call — routes to correct provider
+ * A billing / auth / model failure the owner must hear about before the other provider runs out too:
+ * logged every time, and handed to opts.onProviderIssue (the SHIFT workflow turns it into an ai_failure
+ * staff alert) at most once per hour per provider.
+ */
+function reportProviderIssue(provider, kind, next, err, opts) {
+  const summary = issueSummary(provider, kind, next);
+  console.error(`[ai] provider_issue ${JSON.stringify({ provider, kind, next: next || null, status: (err && err.status) ?? null, conv: opts.conversationId || null })}`);
+  const now = Date.now();
+  const last = lastIssueAlertAt.get(provider);
+  if (last !== undefined && now - last < envMs('AI_PROVIDER_ALERT_MS', 60 * 60 * 1000)) return;
+  if (typeof opts.onProviderIssue !== 'function') return;
+  lastIssueAlertAt.set(provider, now);
+  try {
+    const out = opts.onProviderIssue({ provider, kind, next: next || null, summary });
+    if (out && typeof out.catch === 'function') out.catch((cbErr) => console.warn('[ai] onProviderIssue failed:', cbErr && cbErr.message));
+  } catch (cbErr) {
+    console.warn('[ai] onProviderIssue failed:', cbErr.message);
+  }
+}
+
+/** Where a turn starts: the primary, unless it is cooling down after a hard failure and the fallback is not. */
+function startProvider() {
+  const primary = primaryProvider();
+  const fb = fallbackProvider();
+  return fb && isDown(primary) && !isDown(fb) ? fb : primary;
+}
+
+function otherProvider(provider) {
+  const primary = primaryProvider();
+  const fb = fallbackProvider();
+  if (!fb) return null;
+  return provider === primary ? fb : primary;
+}
+
+function _resetProviderState() {
+  downUntil.clear();
+  lastIssueAlertAt.clear();
+  require('./anthropic')._resetAnthropicState();
+}
+
+/**
+ * Main AI call — routes to correct provider (opts.provider overrides AI_PROVIDER for one call).
  */
 async function generateAIReply(systemPrompt, userMessage, history = [], opts = {}) {
-  const provider = process.env.AI_PROVIDER || 'gemini';
+  opts = opts || {};
+  const provider = opts.provider || primaryProvider();
   try {
     if (provider === 'openai') return await callOpenAI(systemPrompt, userMessage, history);
-    return await callGemini(systemPrompt, userMessage, opts || {});
+    if (provider === 'anthropic') return await callAnthropic(systemPrompt, userMessage, opts);
+    return await callGemini(systemPrompt, userMessage, opts);
   } catch (err) {
-    const blocked = err.blocked || blockReasonOfError(err);
+    const blocked = err.blocked || (provider === 'anthropic' ? null : blockReasonOfError(err));
     if (blocked) {
       err.blocked = blocked;
-      console.warn(`[ai] blocked ${JSON.stringify({ reason: blocked, conv: opts.conversationId || null, attempt: opts.attempt || 1 })}`);
+      console.warn(`[ai] blocked ${JSON.stringify({ provider, reason: blocked, conv: opts.conversationId || null, attempt: opts.attempt || 1 })}`);
       throw err;
     }
     console.error(`[AI][${provider}] Call failed:`, err.message);
     throw err;
+  }
+}
+
+/**
+ * Legacy path (restaurant / clinic): one call, and — only when AI_FALLBACK_PROVIDER is set — the same call
+ * once on the fallback when the first provider failed in a way retrying it would not fix.
+ */
+async function legacyCall(systemPrompt, userMessage, history, callOpts) {
+  const provider = startProvider();
+  try {
+    return await generateAIReply(systemPrompt, userMessage, history, { ...callOpts, provider });
+  } catch (err) {
+    const other = otherProvider(provider);
+    if (err.blocked || !other) throw err;
+    const kind = classifyProviderError(err, provider);
+    if (FATAL_KINDS.includes(kind)) {
+      markDown(provider);
+      reportProviderIssue(provider, kind, other, err, callOpts);
+    }
+    if (![...SWITCH_KINDS, 'transient', 'timeout'].includes(kind)) throw err;
+    console.warn(`[AI] failover ${provider} → ${other} (${kind})`);
+    return generateAIReply(systemPrompt, userMessage, history, { ...callOpts, provider: other });
   }
 }
 
@@ -318,6 +440,8 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
     responseSchema: opts.responseSchema,
     systemInstruction: opts.systemInstruction,
     conversationId: opts.conversationId,
+    cacheSystem: opts.cacheSystem,
+    onProviderIssue: opts.onProviderIssue,
   };
   for (const key of Object.keys(callOpts)) if (callOpts[key] === undefined) delete callOpts[key];
 
@@ -328,7 +452,7 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
   // First attempt
   let raw;
   try {
-    raw = await generateAIReply(systemPrompt, userMessage, history, { ...callOpts, attempt: 1 });
+    raw = await legacyCall(systemPrompt, userMessage, history, { ...callOpts, attempt: 1 });
   } catch (err) {
     if (reportBlocked(err, opts)) return null;
     console.error('AI first call failed:', err.message);
@@ -345,7 +469,7 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
   // Second attempt with correction
   try {
     const correctionMessage = `${userMessage}\n\n${correctionPrompt}`;
-    raw = await generateAIReply(systemPrompt, correctionMessage, history, { ...callOpts, attempt: 2 });
+    raw = await legacyCall(systemPrompt, correctionMessage, history, { ...callOpts, attempt: 2 });
     parsed = parseModelJSON(raw, opts.jsonMode);
     validation = validateAIResult(parsed, validActions, enums);
     if (validation.valid) return parsed;
@@ -376,10 +500,6 @@ async function generateValidatedAIReply(systemPrompt, userMessage, history = [],
  * So: a transient upstream failure (5xx / 429 / socket) is not an attempt — it is retried at once,
  * as often as the deadline allows, and the fallback is only reached when no retry fits any more.
  */
-// A transient failure is free to retry: it cost milliseconds and the next call usually succeeds.
-const TRANSIENT_RE = /\b(408|409|429|500|502|503|504)\b|service unavailable|unavailable|overloaded|high demand|try again|internal error|rate.?limit|quota|econnreset|etimedout|enotfound|eai_again|socket hang up|network|fetch failed/i;
-// Our own abort (SDK timeout or the JS race): the model never answered inside the cap.
-const TIMEOUT_RE = /aborted|abort|timeout|timed out|deadline/i;
 const TRANSIENT_BACKOFF_MS = 250;
 const envInt = (name, fallback) => {
   const n = Number(process.env[name]);
@@ -393,12 +513,10 @@ const BASE_ATTEMPTS = 2;
 // Never below BASE_ATTEMPTS: a timeout must not be able to REDUCE what the reply is allowed.
 const MAX_ATTEMPTS = Math.max(BASE_ATTEMPTS, envInt('GEMINI_MAX_ATTEMPTS', 3));
 
-function classifyError(err) {
-  const message = (err && err.message) || '';
-  if (TIMEOUT_RE.test(message)) return 'timeout';
-  if (TRANSIENT_RE.test(message)) return 'transient';
-  return 'error';
-}
+// Failover: a turn moves to the fallback provider after this many transient failures in a row on one
+// provider (a persistent 5xx / 529), and after a timeout only if at least this much deadline is left.
+const FAILOVER_AFTER_TRANSIENT = Math.max(1, envInt('AI_FAILOVER_AFTER_TRANSIENT', 2));
+const FAILOVER_MIN_MS = envInt('AI_FAILOVER_MIN_MS', 4000);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -419,6 +537,22 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
   let sawTokenLimit = false;
   const onFinish = (reason) => { if (reason === 'MAX_TOKENS') sawTokenLimit = true; };
   const maxAttempts = () => (sawTimeout ? MAX_ATTEMPTS : BASE_ATTEMPTS);
+
+  // Failover state for this turn. A provider that failed with billing / auth / not_found / a 400 is out for
+  // the rest of the turn (retrying it cannot help); a timeout or persistent overload moves the turn over
+  // but leaves the provider usable if the other one then fails hard.
+  let provider = startProvider();
+  const outForTurn = new Set();
+  let providerTransient = 0;
+  const alternative = () => {
+    const other = otherProvider(provider);
+    return other && !outForTurn.has(other) ? other : null;
+  };
+  const switchTo = (next, why) => {
+    console.warn(`[AI] failover ${provider} → ${next} (${why})${tag}`);
+    provider = next;
+    providerTransient = 0;
+  };
 
   while (attempts < maxAttempts()) {
     if (attempts > 0 || transientRetries > 0) {
@@ -456,11 +590,11 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
     // After a MAX_TOKENS finish, thinking off and double the room: the same call with the same budget
     // would run out the same way.
     const budgetOpts = sawTokenLimit
-      ? { thinkingOff: true, maxOutputTokens: (Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 2048) * 2 }
+      ? { thinkingOff: true, tokenLimitHit: true, maxOutputTokens: (Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 2048) * 2 }
       : {};
     try {
       const raw = await generateAIReply(system, message, history, {
-        ...callOpts, ...budgetOpts, onFinish, attemptMs, attempt: attempts,
+        ...callOpts, ...budgetOpts, onFinish, attemptMs, attempt: attempts, provider,
       });
       const parsed = parseModelJSON(raw, opts.jsonMode);
       const validation = validateAIResult(parsed, validActions, enums);
@@ -478,18 +612,38 @@ async function deadlineReply(systemPrompt, userMessage, history, opts, { validAc
     } catch (err) {
       // A refusal is not a slow answer: a correction prompt will not change it.
       if (reportBlocked(err, opts)) return null;
-      const kind = classifyError(err);
-      console.error(`[AI] attempt ${attempts} ${kind}${tag}:`, err.message);
-      if (kind === 'timeout') {
+      const kind = classifyProviderError(err, provider);
+      console.error(`[AI] attempt ${attempts} ${provider} ${kind}${tag}:`, err.message);
+      if (SWITCH_KINDS.includes(kind)) {
+        // Retrying the same provider cannot fix it. It cost milliseconds, not an answer: not an attempt.
+        attempts -= 1;
+        lastFailure = kind;
+        outForTurn.add(provider);
+        const next = alternative();
+        if (FATAL_KINDS.includes(kind)) {
+          markDown(provider);
+          reportProviderIssue(provider, kind, next, err, opts);
+        }
+        if (!next) break;
+        switchTo(next, kind);
+      } else if (kind === 'timeout') {
         lastFailure = 'timeout';
         sawTimeout = true;
+        const next = alternative();
+        if (next && remaining() >= FAILOVER_MIN_MS) switchTo(next, 'timeout');
       } else if (kind === 'transient' && transientRetries < MAX_TRANSIENT_RETRIES) {
         // Not an attempt: it failed upstream in milliseconds and the deadline is untouched.
         transientRetries += 1;
+        providerTransient += 1;
         attempts -= 1;
         lastFailure = kind;
+        // Persistent overload on this provider: the next try goes to the other one.
+        const next = providerTransient >= FAILOVER_AFTER_TRANSIENT ? alternative() : null;
+        if (next) switchTo(next, 'transient');
       } else {
         lastFailure = kind;
+        const next = kind === 'transient' ? alternative() : null;
+        if (next) switchTo(next, 'transient');
       }
     }
   }
@@ -504,7 +658,11 @@ module.exports = {
   extractJSON,
   validateAIResult,
   resolveModel,
+  primaryProvider,
+  fallbackProvider,
   DEFAULT_GEMINI_MODEL,
+  DEFAULT_ANTHROPIC_MODEL,
+  _resetProviderState,
   VALID_ACTIONS,
   CORRECTION_PROMPT,
 };

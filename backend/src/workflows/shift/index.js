@@ -457,6 +457,24 @@ function promptFor(ctx, history, hint) {
   };
 }
 
+/**
+ * A provider out of credits / with a rejected key / a missing model: the owner hears it from an ai_failure
+ * staff alert (provider.js throttles it to once an hour per provider) while the turn itself moves to the
+ * fallback provider. Required lazily and never awaited: an alert must not hold up or break the reply.
+ */
+function providerIssueAlert(ctx) {
+  return ({ summary }) => {
+    try {
+      const alerts = require('../../services/alerts');
+      Promise.resolve(alerts.sendStaffAlert({
+        reason: 'ai_failure', business: ctx.business, conversation: ctx.conversation, summary, now: new Date(),
+      })).catch((err) => console.error(`[shift] provider alert failed: ${err && err.message}`));
+    } catch (err) {
+      console.error(`[shift] provider alert failed: ${err && err.message}`);
+    }
+  };
+}
+
 async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, firstAttemptMs }) {
   const set = actionSetFor();
   const prompt = promptFor(ctx, history, hint);
@@ -471,7 +489,10 @@ async function callModel(ctx, history, { deadlineAt, onRetry, onBlocked, hint, f
     stages: set.stages,
     nextSteps: NEXT_STEPS,
     conversationId: ctx.conversation.id,
+    onProviderIssue: providerIssueAlert(ctx),
   };
+  // Prompt v1 puts the date and the history in the system prompt: nothing there is reusable, so no cache write.
+  if (ctx.v1) opts.cacheSystem = false;
   if (onBlocked) opts.onBlocked = onBlocked;
   if (prompt.retrySystem) opts.retrySystemPrompt = prompt.retrySystem;
   if (prompt.retryUser && prompt.retryUser !== prompt.user) opts.retryUserMessage = prompt.retryUser;

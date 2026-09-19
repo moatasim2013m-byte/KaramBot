@@ -13,6 +13,7 @@ const REQUIRED_IN_PRODUCTION = [
 const AI_KEYS = {
   gemini: 'GEMINI_API_KEY',
   openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
 };
 
 function validateEnv() {
@@ -51,7 +52,27 @@ function validateEnv() {
       }
     }
   } else {
-    warnings.push(`Unknown AI_PROVIDER="${provider}". Supported: gemini, openai`);
+    warnings.push(`Unknown AI_PROVIDER="${provider}". Supported: ${Object.keys(AI_KEYS).join(', ')}`);
+  }
+
+  // The fallback provider is optional: a missing key or a bad name only warns (the bot still runs on the
+  // primary, it just has nowhere to go when the primary runs out of credit).
+  const fallback = (process.env.AI_FALLBACK_PROVIDER || '').trim().toLowerCase();
+  if (fallback && fallback !== 'none') {
+    const fbKey = AI_KEYS[fallback];
+    if (!fbKey) {
+      warnings.push(`Unknown AI_FALLBACK_PROVIDER="${fallback}". Supported: ${Object.keys(AI_KEYS).join(', ')} — no failover`);
+    } else if (fallback === provider) {
+      warnings.push(`AI_FALLBACK_PROVIDER equals AI_PROVIDER ("${provider}") — no failover`);
+    } else if (!process.env[fbKey]) {
+      warnings.push(`${fbKey} is not set — AI_FALLBACK_PROVIDER=${fallback} is disabled, no failover`);
+    }
+  }
+  if (process.env.ANTHROPIC_THINKING && !['off', 'adaptive'].includes(process.env.ANTHROPIC_THINKING)) {
+    warnings.push(`ANTHROPIC_THINKING="${process.env.ANTHROPIC_THINKING}" is not off|adaptive — using off`);
+  }
+  if (process.env.ANTHROPIC_EFFORT && !['low', 'medium', 'high', 'xhigh', 'max'].includes(process.env.ANTHROPIC_EFFORT)) {
+    warnings.push(`ANTHROPIC_EFFORT="${process.env.ANTHROPIC_EFFORT}" is not low|medium|high|xhigh|max — using low`);
   }
 
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
