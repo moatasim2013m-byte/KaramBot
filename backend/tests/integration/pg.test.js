@@ -185,6 +185,28 @@ describePg('PR1 on real Postgres behind PgBouncer (transaction mode)', () => {
       });
     });
 
+    test('casBusinessConfig: the Calendly cursor is a compare-and-set on one ai_config key, siblings kept', async () => {
+      const b = await prisma.business.update({
+        where: { id: biz.id }, data: { ai_config: { calendly_url: 'https://calendly.com/shift-ai/30min', test_numbers: ['962790000001'] } },
+      });
+      const read = async () => (await prisma.business.findUnique({ where: { id: b.id } })).ai_config;
+      // Missing key = expected null.
+      expect(await jsonb.casBusinessConfig(b.id, 'calendly_sync', null, { cursor: 'c1' })).toBe(true);
+      expect(await jsonb.casBusinessConfig(b.id, 'calendly_sync', null, { cursor: 'c2' })).toBe(false);
+      // Key order does not matter (jsonb equality).
+      await jsonb.casBusinessConfig(b.id, 'calendly_sync', { cursor: 'c1' }, { unmatched: ['e1'], cursor: 'c3' });
+      expect(await jsonb.casBusinessConfig(b.id, 'calendly_sync', { cursor: 'c3', unmatched: ['e1'] }, { cursor: 'c4', unmatched: ['e1'] })).toBe(true);
+      expect(await read()).toEqual({
+        calendly_url: 'https://calendly.com/shift-ai/30min', test_numbers: ['962790000001'], calendly_sync: { cursor: 'c4', unmatched: ['e1'] },
+      });
+      // Two racing writers from the same expected value: exactly one wins.
+      const results = await Promise.all([
+        jsonb.casBusinessConfig(b.id, 'calendly_sync', { cursor: 'c4', unmatched: ['e1'] }, { cursor: 'A' }),
+        jsonb.casBusinessConfig(b.id, 'calendly_sync', { cursor: 'c4', unmatched: ['e1'] }, { cursor: 'B' }),
+      ]);
+      expect(results.filter(Boolean)).toHaveLength(1);
+    });
+
     test('patchJson merges top-level keys, keeps siblings, removes keys, guards ifVersion', async () => {
       expect(await jsonb.patchJson('conversations', conv.id, 'workflow_data', { bot_turns: 4, disclosed_at: 'x' }))
         .toEqual({ ok: true, count: 1 });

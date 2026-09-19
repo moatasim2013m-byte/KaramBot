@@ -52,7 +52,12 @@ const OBJECTION_LABELS = {
   small: 'صغار', later: 'لاحقًا', references: 'أسماء عملاء', other: 'غير ذلك',
 };
 const SOURCE_LABELS = { site: 'الموقع', ctwa: 'إعلان واتساب', ad: 'إعلان', referral: 'إحالة' };
-const STAFF_TASK_LABELS = { call: 'اتصال', followup_consent: 'متابعة بعد يومين', window_closed: 'النافذة مسكّرة — اتصل' };
+const STAFF_TASK_LABELS = {
+  call: 'اتصال', followup_consent: 'متابعة بعد يومين', window_closed: 'النافذة مسكّرة — اتصل',
+  // Calendly booking: the old call must be cancelled by hand (no link, or two bookings on file).
+  cancel_old_booking: 'ألغِ الموعد القديم', cancel_calendly: 'ألغِ الحجز من Calendly', change_calendly: 'غيّر الحجز من Calendly',
+  calendly_duplicate: 'حجزين قائمين',
+};
 const ESTIMATE_UNITS = { msgs_per_day: 'رسالة/يوم', jod_per_month: 'دينار/شهر' };
 // Same threshold as the batcher's hot_lead alert (replyBatcher HOT_LEAD_SCORE).
 const HOT_LEAD_SCORE = 6;
@@ -221,7 +226,7 @@ function ConvItem({ conv, active, onClick, isShift }) {
         <div className="flex flex-wrap gap-1 mt-1">
           {booked && (
             <span className="text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5">
-              مكالمة محجوزة: {bookingTime(booked.start)}
+              مكالمة محجوزة: {bookingTime(booked.start)}{booked.source === 'calendly' ? ' (Calendly)' : ''}
             </span>
           )}
           {reminderBlocked && (
@@ -398,6 +403,7 @@ function LeadDetails({ conversation }) {
   const tasks = (Array.isArray(wd.staff_tasks) ? wd.staff_tasks : []).filter((t) => t && !t.done_at);
   const rows = [];
   const call = wd.booking && typeof wd.booking === 'object' && wd.booking.start ? wd.booking : null;
+  const link = wd.booking_link && typeof wd.booking_link === 'object' && wd.booking_link.sent_at ? wd.booking_link : null;
 
   if (call) {
     const past = new Date(call.end).getTime() <= Date.now() && call.status !== 'cancelled';
@@ -405,6 +411,7 @@ function LeadDetails({ conversation }) {
       <div className="space-y-0.5">
         <div className={call.status === 'cancelled' ? 'text-gray-400 line-through' : 'text-emerald-700'}>
           {bookingTime(call.start)} · {past ? 'صار وقتها' : (BOOKING_STATUS_LABELS[call.status] || call.status)}
+          {call.source === 'calendly' ? ' · Calendly' : ''}
         </div>
         {call.status !== 'cancelled' && (
           <div className="text-gray-500">
@@ -416,6 +423,10 @@ function LeadDetails({ conversation }) {
         {call.details_pending && call.status !== 'cancelled' && <div className="text-gray-400">الاسم أو اسم المحل ناقص بالتقويم</div>}
       </div>
     )]);
+  }
+  // Calendly mode: the link went out but no booking is on file (sending the link is not a booking).
+  if (link && !activeBooking(conversation)) {
+    rows.push(['رابط الحجز', <span className="text-gray-500">انبعت {bookingTime(link.sent_at)} — لسه ما حجز</span>]);
   }
 
   if (needs.length) {

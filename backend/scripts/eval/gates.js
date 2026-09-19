@@ -432,7 +432,9 @@ const GATES = {
     const fails = [];
     transcript.turns.forEach((t, i) => {
       for (const p of botParts(t)) {
-        const all = [...partTexts(p), p.url || ''].join('\n');
+        // The server's Calendly CTA (booking mode 'calendly') is the one link outside the site a part may carry.
+        const serverCta = p.type === 'cta_url' && /^https:\/\/calendly\.com\//i.test(p.url || '');
+        const all = [...partTexts(p), serverCta ? '' : (p.url || '')].join('\n');
         for (const url of badLinks(all)) fails.push({ gate: 'G10', turn: i, detail: `forbidden link ${url}` });
         if (MARKDOWN_RE.test(p.text || '')) fails.push({ gate: 'G10', turn: i, detail: `Markdown in «${p.text}»` });
         for (const b of p.buttons || []) if (cp(b.title) > 20 || cp(b.title) < 1) fails.push({ gate: 'G10', turn: i, detail: `button title «${b.title}» is ${cp(b.title)} cp` });

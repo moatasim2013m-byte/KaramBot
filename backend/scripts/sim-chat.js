@@ -13,7 +13,8 @@
  * Everything at the edges is faked and nothing leaves the machine except the two model calls:
  *   • prisma / jsonb  → tests/helpers/fakeDb
  *   • axios           → records Graph sends (WhatsApp) and staff-alert posts instead of sending them
- *   • googleCalendar  → an in-memory calendar (free/busy from a fixture; insert/patch/delete recorded)
+ *   • googleCalendar  → an in-memory calendar (free/busy from a fixture; insert/patch/delete/list recorded;
+ *                       SIM_CALENDLY_URL switches the business to Calendly mode)
  *
  * The customer is another model, through OpenRouter. It is given a persona and answers with JSON:
  *   {"messages": ["…", "…"], "tap": "<exact button title>|null", "voice_note": false, "done": false}
@@ -174,7 +175,7 @@ function makeCalendarStub(fixtureBusy) {
         }
         return { ok: true, event: existing, existed: true };
       }
-      const stored = { ...event, id: id || `sim_ev_${events.size + 1}`, status: 'confirmed', calendarId };
+      const stored = { ...event, id: id || `sim_ev_${events.size + 1}`, status: 'confirmed', calendarId, updated: new Date().toISOString() };
       events.set(stored.id, stored);
       record('insertEvent', { eventId: stored.id, summary: stored.summary, start: stored.start, end: stored.end });
       return { ok: true, event: stored, existed: false };
@@ -183,15 +184,30 @@ function makeCalendarStub(fixtureBusy) {
       const ev = events.get(eventId);
       record('patchEvent', { eventId, patch, found: !!ev });
       if (!ev) return { ok: false, error: { kind: 'notFound', status: 404, reason: 'notFound', message: 'no such event' } };
-      const next = { ...ev, ...patch };
+      const next = { ...ev, ...patch, updated: new Date().toISOString() };
       events.set(eventId, next);
       return { ok: true, event: next };
     },
     async deleteEvent(calendarId, eventId) {
       const had = events.has(eventId);
-      if (had) events.set(eventId, { ...events.get(eventId), status: 'cancelled' });
+      if (had) events.set(eventId, { ...events.get(eventId), status: 'cancelled', updated: new Date().toISOString() });
       record('deleteEvent', { eventId, alreadyGone: !had });
       return { ok: true, alreadyGone: !had };
+    },
+    // Calendly detection (the sweep's calendly step): every event changed at or after updatedMin, tombstones
+    // included, one page. A sim run can add what Calendly would write with __addCalendly.
+    async listEvents(calendarId, { updatedMin } = {}) {
+      const min = updatedMin ? new Date(updatedMin).getTime() : 0;
+      const list = [...events.values()].filter((e) => !e.updated || Date.parse(e.updated) >= min);
+      record('listEvents', { updatedMin: updatedMin ? new Date(updatedMin).toISOString() : null, count: list.length });
+      return { ok: true, events: list.map((e) => JSON.parse(JSON.stringify(e))), nextPageToken: null };
+    },
+    __addCalendly(event) {
+      const now = new Date().toISOString();
+      events.set(event.id, { status: 'confirmed', created: now, ...event, updated: now });
+    },
+    __cancelCalendly(eventId) {
+      events.set(eventId, { id: eventId, status: 'cancelled', updated: new Date().toISOString() });
     },
     __events: events,
   };
@@ -541,7 +557,8 @@ async function run({ customerModel, persona, maxTurns, budgetMs, outDir }) {
       status: 'active',
       wa_phone_number_id: PNID,
       wa_access_token: tokenCrypto.encrypt('sim_token'),
-      ai_config: {},
+      // SIM_CALENDLY_URL=https://calendly.com/… runs the sim in Calendly mode (the bot sends the link).
+      ai_config: process.env.SIM_CALENDLY_URL ? { calendly_url: process.env.SIM_CALENDLY_URL } : {},
     }],
     users: [{ id: STAFF_ID, name: 'رامي', email: 'staff@sim.test', role: 'staff', business_id: BUSINESS_ID }],
   });

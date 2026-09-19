@@ -26,6 +26,7 @@ const prefillParser = require('./prefill');
 const assets = require('./assets');
 const context = require('./context');
 const booking = require('./booking');
+const calendly = require('./calendly');
 const objectives = require('./objectives');
 const promptAr = require('./prompt.ar');
 const { mergeLead } = require('./lead');
@@ -114,7 +115,9 @@ function buildCtx(business, conversation, batchMessages, now) {
   // §14 #10: the newest message decides, so a switch to English mid-conversation is honoured.
   const lang = validators.expectedLanguage(batchTexts, lead);
   const teamHours = hours.resolveTeamHours(business.ai_config);
-  const offers = buttons.slotOffers(teamHours, now, lang);
+  // Calendly mode (owner decision 2026-09-19): no times in the chat at all — the only "offer" is the link.
+  const bookingLink = calendly.linkFor(business, conversation, lang);
+  const offers = bookingLink ? [] : buttons.slotOffers(teamHours, now, lang);
   const newest = batchMessages[batchMessages.length - 1] || null;
   return {
     business,
@@ -124,6 +127,7 @@ function buildCtx(business, conversation, batchMessages, now) {
     lang,
     teamHours,
     offers,
+    bookingLink,
     newest,
     joinedText,
     batchTexts,
@@ -250,7 +254,9 @@ function buildVctx(r, ctx, { attempt, history, ai }) {
     lang: ctx.lang,
     stage,
     action: r.action,
-    bookingEnabled: booking.bookingConfig(ctx.business).enabled,
+    // Calendly mode: only the server's link books, so any day and time the model names is invented.
+    bookingEnabled: booking.bookingConfig(ctx.business).enabled || !!ctx.bookingLink,
+    bookingLink: ctx.bookingLink || null,
     // Whether we had ALREADY introduced ourselves before this turn — results sets disclosed_at on the
     // very turn the intro goes out, so `disclosed` alone would strip the first introduction (#8).
     disclosedBefore: (() => {
@@ -415,7 +421,9 @@ function promptFor(ctx, history, hint) {
   const { business, conversation, batchMessages, now, lang, offers } = ctx;
   const wd = conversation.workflow_data || {};
   if (ctx.v1) {
-    const promptOpts = { now, offers, stage: conversation.current_state, stageLocked: isStageLocked(conversation), lang };
+    const promptOpts = {
+      now, offers, stage: conversation.current_state, stageLocked: isStageLocked(conversation), lang, bookingLinkMode: !!ctx.bookingLink,
+    };
     const userMessage = batchMessages.map((m) => batchLine(m, lang)).join('\n');
     return {
       system: buildSystemPrompt(business, formatHistory(history), promptOpts),
@@ -433,13 +441,14 @@ function promptFor(ctx, history, hint) {
     now,
     lang,
     offers,
+    bookingLinkMode: !!ctx.bookingLink,
     prefill: ctx.prefill || null,
     hint: hint || undefined,
     // A re-run of the first reply to a site message is still the first reply the customer receives.
     firstReply: ctx.prefillRerun ? true : undefined,
   };
   return {
-    system: promptAr.buildStaticPrompt({ sector: (wd.lead && wd.lead.sector) || undefined }),
+    system: promptAr.buildStaticPrompt({ sector: (wd.lead && wd.lead.sector) || undefined, bookingMode: ctx.bookingLink ? 'calendly' : 'inchat' }),
     retrySystem: undefined,
     user: context.buildUserTurn(turnOpts),
     // Only used when an attempt timed out: the same turn on half the history, because prompt size is
@@ -682,7 +691,8 @@ function calendarUnlocked(ctx) {
 function shouldOfferCalendar(ctx) {
   const conv = ctx.conversation;
   const wd = conv.workflow_data || {};
-  if (!booking.bookingConfig(ctx.business).enabled) return false;
+  // Calendly mode needs no calendar to send the link (detection needs it, in the sweep).
+  if (!ctx.bookingLink && !booking.bookingConfig(ctx.business).enabled) return false;
   if (roleplay.isActive(wd) || ROLEPLAY_STAGES.includes(conv.current_state)) return false;
   if (isStageLocked(conv) && !calendarUnlocked(ctx)) return false;
   if (conv.current_state === 'closed') return false;
@@ -734,7 +744,9 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
       // A call request with no event yet is answered here too (2026-09-17), but never from `handoff` or
       // `closed`: those stages belong to the team and to the opt-out.
       const requestOpen = !['handoff', 'closed'].includes(ctx.conversation.current_state);
-      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now, { requestOpen });
+      // Calendly mode: «متى موعدنا؟» with nothing booked is answered from the record too (and gets the link).
+      const linkOpen = !!ctx.bookingLink && requestOpen && !ROLEPLAY_STAGES.includes(ctx.conversation.current_state);
+      const intent = booking.textIntent(ctx.batchTexts, ctx.conversation.workflow_data || {}, now, { requestOpen, linkOpen });
       if (intent === 'cancel') return booking.cancelAskResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
       if (intent === 'change') return await booking.changeTextResult({ ...ctx, messageId: ctx.newest && ctx.newest.id });
       // «شو عن موعدنا؟» is a lookup, not small talk (round-2 review #12): it is answered from the record,
@@ -743,7 +755,10 @@ async function processShiftBatch(business, conversation, batchMessages, { now = 
     }
     // PR3: when a call can be booked, the offers are the calendar's free slots (`book:<iso>`). Unconfigured,
     // SHIFT_BOOKING=0 or a calendar error keeps PR2's window offers and their "request" semantics.
-    if (shouldOfferCalendar(ctx)) {
+    if (ctx.bookingLink) {
+      // The link is the one pseudo offer: every site that rendered slot buttons renders the CTA instead.
+      ctx.offers = shouldOfferCalendar(ctx) ? [calendly.linkOffer(ctx.lang)] : [];
+    } else if (shouldOfferCalendar(ctx)) {
       const cal = await booking.offersWithin(OFFERS_BUDGET_MS, { business, now, lang: ctx.lang, teamHours: ctx.teamHours });
       if (cal.ok) ctx.offers = cal.offers;
     }

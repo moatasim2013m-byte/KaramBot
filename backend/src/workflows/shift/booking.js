@@ -24,6 +24,7 @@ const calendar = require('../../services/googleCalendar');
 const hours = require('./hours');
 const acks = require('./acks');
 const validators = require('./validators');
+const calendly = require('./calendly');
 
 const DEFAULT_SLOT_MINUTES = 30;
 const DEFAULT_MIN_LEAD_MINUTES = 120;
@@ -533,6 +534,8 @@ function tapContext(ctx = {}) {
   return {
     ...ctx, business, conversation, now, wd, lead, lang, teamHours,
     at: now.toISOString(), config: ctx.config || bookingConfig(business), locked: locked(conversation),
+    // Calendly mode: the personalised booking link (null in in-chat mode).
+    link: ctx.link !== undefined ? ctx.link : calendly.linkFor(business, conversation, lang),
   };
 }
 
@@ -689,6 +692,9 @@ async function slotTakenResult(c, start, end) {
 }
 
 async function bookTap(id, c) {
+  // An old slot button tapped over a Calendly booking: that booking is changed in Calendly, never here.
+  const onFile = activeBooking(c.wd, c.now);
+  if (isCalendlyBooking(onFile)) return calendlyChange(c, onFile);
   const start = parseBookId(id);
   const cfg = c.config;
   const end = new Date(start.getTime() + cfg.slotMinutes * 60000);
@@ -782,8 +788,102 @@ function relayChange(c, current, { start, end, why }) {
   });
 }
 
+// ─── Calendly (owner decision 2026-09-19) ───────────────────────────────────
+
+const STAFF_TASKS_CAP = 20;
+
+function isCalendlyBooking(b) {
+  return !!(b && b.source === 'calendly');
+}
+
+function withStaffTask(c, kind, summary) {
+  const list = Array.isArray(c.wd.staff_tasks) ? c.wd.staff_tasks : [];
+  return list.concat([{ kind, summary: String(summary).slice(0, 200), due_at: c.at, at: c.at, done_at: null }]).slice(-STAFF_TASKS_CAP);
+}
+
+function linkResult(c, { kind = 'book', line = '', body, action = 'BOOKING_LINK', url, fields = {} } = {}) {
+  const part = calendly.linkPart({ url: url || (c.link && c.link.url), lang: c.lang, kind, line, body });
+  return baseResult({ action, messages: [part], ...fields, workflowDataPatch: { slot_offers: [], ...(fields.workflowDataPatch || {}) } });
+}
+
+/**
+ * «بدي أغيّر الموعد» / [غيّر الموعد] with Calendly: a Calendly booking gets its own reschedule link. Without that
+ * link (or for a booking the bot made in the calendar itself) the main link goes out and the team gets a task
+ * to cancel the old one. Nothing is said to have changed: only the sweep, seeing the new event, confirms.
+ */
+function calendlyChange(c, current) {
+  if (isCalendlyBooking(current) && current.reschedule_url) {
+    return linkResult(c, { kind: 'reschedule', url: current.reschedule_url, action: 'BOOKING_CHANGE' });
+  }
+  // In-chat mode never moves a Calendly booking in the calendar itself: the main link still applies.
+  const link = c.link || (isCalendlyBooking(current) ? calendly.linkFor(c.business, c.conversation, c.lang, { force: true }) : null);
+  if (!link) {
+    if (!isCalendlyBooking(current)) return null;
+    const whenAr = acks.windowText({ start: current.start, end: current.end }, c.now, current.tz || c.teamHours.tz, 'ar');
+    const summary = `العميل بدو يغيّر موعد مكالمة Calendly (${whenAr}) — ما في رابط: غيّروه من Calendly`;
+    return baseResult({
+      action: 'BOOKING_CHANGE',
+      messages: [text(calendly.statusLine('changeRelay', c.lang))],
+      stateUpdate: { status: 'pending' },
+      workflowDataPatch: {
+        booking: { ...current, change_requested: { start: null, at: c.at, why: 'calendly_no_link' } },
+        staff_tasks: withStaffTask(c, 'change_calendly', summary),
+      },
+      alert: { reason: 'booking_change_request', summary: summary.slice(0, 200) },
+    });
+  }
+  if (!current) return linkResult(c, { kind: 'book', line: line('changeLead', c.lang) });
+  const whenAr = acks.windowText({ start: current.start, end: current.end }, c.now, current.tz || c.teamHours.tz, 'ar');
+  const summary = `العميل بدو يغيّر موعد المكالمة (${whenAr}) — انبعتله رابط Calendly؛ ألغوا الموعد القديم لما يحجز الجديد`;
+  return linkResult(c, {
+    url: link.url,
+    kind: 'book',
+    body: calendly.statusLine('changeNoUrl', c.lang),
+    action: 'BOOKING_CHANGE',
+    fields: {
+      workflowDataPatch: {
+        booking: { ...current, change_requested: { start: null, at: c.at, why: 'calendly_link' } },
+        staff_tasks: withStaffTask(c, 'cancel_old_booking', summary),
+      },
+      alert: { reason: 'booking_change_request', summary: summary.slice(0, 200) },
+    },
+  });
+}
+
+/** Cancel with Calendly: the booking's own cancel link; without one, the team cancels it (never «لغيت»). */
+function calendlyCancel(c, current) {
+  if (current.cancel_url) return linkResult(c, { kind: 'cancel', url: current.cancel_url, action: 'BOOKING_CANCEL_LINK' });
+  const whenAr = acks.windowText({ start: current.start, end: current.end }, c.now, current.tz || c.teamHours.tz, 'ar');
+  const summary = `طلب إلغاء مكالمة Calendly (${whenAr}) — ما في رابط إلغاء بالحدث: ألغوها من Calendly`;
+  const { needs, entry, needsTeamMerge } = meetingNeeds(c, summary);
+  return baseResult({
+    action: 'CANCEL_CALL',
+    messages: [text(calendly.statusLine('cancelNoUrl', c.lang))],
+    stateUpdate: { status: 'pending' },
+    workflowDataPatch: {
+      booking: { ...current, cancel_requested_at: c.at },
+      staff_tasks: withStaffTask(c, 'cancel_calendly', summary),
+      ...(needs && { needs_team: needs }),
+    },
+    needsTeam: needs,
+    needsTeamCandidate: entry,
+    needsTeamMerge,
+    alert: { reason: 'booking_change_request', summary: summary.slice(0, 200) },
+  });
+}
+
+/** Only the link has gone out (Calendly mode): nothing is booked. */
+function linkPending(wd, now) {
+  const l = wd && wd.booking_link;
+  return !!(l && l.sent_at) && !activeBooking(wd, now);
+}
+
 async function changeTap(c) {
   const current = activeBooking(c.wd, c.now);
+  if (c.link || isCalendlyBooking(current)) {
+    const r = calendlyChange(c, current);
+    if (r) return r;
+  }
   const fresh = await bookingOffers({ business: c.business, now: c.now, lang: c.lang, teamHours: c.teamHours, config: c.config });
   if (fresh.ok) {
     return baseResult({
@@ -811,6 +911,8 @@ async function changeTap(c) {
 async function cancelTap(c) {
   const current = activeBooking(c.wd, c.now);
   if (!current) return baseResult({ messages: [text(line('noBooking', c.lang))] });
+  // A Calendly booking is cancelled in Calendly (deleting its calendar event would leave Calendly's booking on).
+  if (isCalendlyBooking(current)) return calendlyCancel(c, current);
   const del = await calendar.deleteEvent(current.calendar_id, current.event_id, { now: c.now });
   const whenAr = acks.windowText({ start: current.start, end: current.end }, c.now, c.teamHours.tz, 'ar');
   if (!del.ok) {
@@ -914,10 +1016,19 @@ function negatedAt(s, index) {
  * yet — exists. Short messages only: a long message that happens to contain «ألغي» goes to the model,
  * which answers as a concierge. `requestOpen: false` (handoff, closed) keeps a request out of this path.
  */
-function textIntent(texts, wd, now = new Date(), { requestOpen = true } = {}) {
-  if (!activeBooking(wd, now) && !(requestOpen && callRequestOpen(wd))) return null;
+function textIntent(texts, wd, now = new Date(), { requestOpen = true, linkOpen = false } = {}) {
+  const onFile = !!activeBooking(wd, now) || (requestOpen && callRequestOpen(wd));
+  // Calendly mode: a status question is answered from the record even with nothing on file (the link goes
+  // out again), and a change after the link was sent gets the link again — never the model's own times.
+  if (!onFile && !linkOpen) return null;
   const s = (Array.isArray(texts) ? texts : [texts]).filter((t) => typeof t === 'string').join('\n').trim();
   if (!s || s.split(/\s+/).length > INTENT_MAX_WORDS) return null;
+  if (!onFile) {
+    if (STATUS_RE.test(s)) return 'status';
+    const change = CHANGE_RE.exec(s);
+    if (linkPending(wd, now) && change && !negatedAt(s, change.index)) return 'change';
+    return null;
+  }
   const cancel = CANCEL_RE.exec(s);
   if (cancel && !negatedAt(s, cancel.index)) return 'cancel';
   const change = CHANGE_RE.exec(s);
@@ -948,6 +1059,7 @@ const STATUS_TEXTS = {
 function statusResult(ctx) {
   const c = tapContext(ctx);
   const current = activeBooking(c.wd, c.now);
+  if (!current && c.link) return withLastBot({ ...calendlyStatus(c), kind: 'reply' }, { conversation: c.conversation, now: c.now });
   if (current) {
     const when = whenParts(current.start, c.now, current.tz || c.teamHours.tz, c.lang);
     return withLastBot(baseResult({
@@ -973,6 +1085,25 @@ function statusResult(ctx) {
     action: 'BOOKING_STATUS',
     messages: [{ type: 'text', text: isEn(c.lang) ? STATUS_TEXTS.none.en : STATUS_TEXTS.none.ar }],
   }), { conversation: c.conversation, now: c.now });
+}
+
+/**
+ * Nothing booked, Calendly mode: say what is on file — a request, a link already sent, or nothing — and send
+ * the link (again). The link is never described as a booking.
+ */
+function calendlyStatus(c) {
+  let lead;
+  if (callRequestOpen(c.wd)) {
+    const pt = c.lead.preferred_time;
+    const start = pt && typeof pt === 'object' ? pt.start : null;
+    const w = start ? whenParts(start, c.now, c.teamHours.tz, c.lang) : null;
+    lead = calendly.statusLine('request', c.lang, w ? (isEn(c.lang) ? `${w.day} at ${w.time}` : `${w.day} الساعة ${w.time}`) : '');
+  } else if (linkPending(c.wd, c.now)) {
+    lead = calendly.statusLine('linkOnly', c.lang);
+  } else {
+    lead = calendly.statusLine('none', c.lang);
+  }
+  return linkResult(c, { kind: 'book', line: lead, action: 'BOOKING_STATUS' });
 }
 
 /**
@@ -1013,6 +1144,10 @@ function cancelAskResult(ctx) {
   const current = activeBooking(c.wd, c.now);
   if (!current && callRequestOpen(c.wd)) {
     return withLastBot(cancelRequestResult(c), { conversation: c.conversation, now: c.now });
+  }
+  if (current && isCalendlyBooking(current)) {
+    const cr = calendlyCancel(c, current);
+    return withLastBot({ ...cr, kind: 'reply', workflowDataPatch: { ...cr.workflowDataPatch, nudge: null } }, { conversation: c.conversation, now: c.now });
   }
   const r = current
     ? baseResult({
@@ -1106,11 +1241,17 @@ function templatePart(kind, b, now, lang) {
 // ─── the model's view ────────────────────────────────────────────────────────
 
 /** One system line for the user turn while a booking exists (design §7). */
-function contextLine(wd, now = new Date()) {
+function contextLine(wd, now = new Date(), { linkMode = false } = {}) {
   const b = wd && wd.booking && typeof wd.booking === 'object' ? wd.booking : null;
+  if (linkMode && linkPending(wd, now) && !(b && b.start && activeBooking(wd, now))) {
+    return 'الحجز: انبعتله رابط الحجز بس لسه ما حجز — ما في موعد. لا تقل إنه محجوز ولا تذكر أوقاتًا؛ إذا طلب مكالمة قل «ببعتلك رابط الحجز» والنظام يبعته.';
+  }
   if (!b || !b.start) return null;
   const when = whenParts(b.start, now, b.tz, 'ar');
   const state = activeBooking(wd, now) ? b.status : (b.status === 'cancelled' ? 'cancelled' : 'past');
+  if (linkMode || isCalendlyBooking(b)) {
+    return `الحجز: مكالمة ${when.day} الساعة ${when.time} (${state}). الحجز والتغيير والإلغاء بيصيروا برابط الحجز اللي يبعته النظام فقط — لا تؤكد ولا تغيّر ولا تلغي موعدًا بنفسك ولا تقل «ثبّتنا» أو «موعدك مؤكد»؛ إذا طلب تغيير أو إلغاء قل إنه بيقدر يضغط «غيّر الموعد» أو «ألغِ المكالمة».`;
+  }
   return `الحجز: مكالمة ${when.day} الساعة ${when.time} (${state}). الحجز والتغيير والإلغاء يعملها النظام بالأزرار فقط — لا تؤكد ولا تغيّر ولا تلغي موعدًا بنفسك ولا تقل «ثبّتنا» أو «موعدك مؤكد»؛ إذا طلب تغيير أو إلغاء قل إنه يقدر يضغط «غيّر الموعد» أو «ألغِ المكالمة».`;
 }
 
@@ -1131,6 +1272,8 @@ function staticButtons() {
  */
 async function syncEventDetails({ business, conversation, lead, now = new Date(), patchBooking }) {
   const b = activeBooking(conversation && conversation.workflow_data, now);
+  // Calendly owns its event's summary and description (with the invitee's cancel / reschedule links).
+  if (b && isCalendlyBooking(b)) return { ok: false, reason: 'not_needed' };
   const missing = b && Array.isArray(b.details_missing) ? b.details_missing : ['name', 'business_name'];
   // Only a field the event did not have yet is worth a calendar write.
   const gained = missing.filter((field) => lead && str(lead[field]));
@@ -1192,5 +1335,7 @@ module.exports = {
   staticButtons,
   confirmButtons,
   syncEventDetails,
+  linkPending,
+  isCalendlyBooking,
   TEXTS,
 };

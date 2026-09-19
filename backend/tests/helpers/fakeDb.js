@@ -742,6 +742,22 @@ function createFakeDb() {
       return { dueAt: new Date(due), delayMs: Math.max(0, due - now) };
     },
 
+    async casBusinessConfig(businessId, key, expected, value) {
+      checkPath([key]);
+      checkFailure('jsonb.casBusinessConfig');
+      const row = store.businesses.find((b) => b.id === businessId);
+      if (!row) return false;
+      const cfg = isPlainObject(row.ai_config) ? row.ai_config : {};
+      const current = Object.prototype.hasOwnProperty.call(cfg, key) ? cfg[key] : null;
+      const want = expected === undefined ? null : expected;
+      // jsonb IS NOT DISTINCT FROM: structural equality (key order does not matter in jsonb).
+      const canon = (v) => JSON.stringify(v, (k, x) => (isPlainObject(x) ? Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x));
+      if (canon(current === undefined ? null : current) !== canon(JSON.parse(JSON.stringify(want)))) return false;
+      row.ai_config = { ...clone(cfg), [key]: JSON.parse(JSON.stringify(value)) };
+      row.updated_at = clock.now();
+      return true;
+    },
+
     async resolveNeedsTeam(conversationId, { match, resolvedAt }) {
       if (!isPlainObject(match) || !Object.keys(match).length) throw new Error('jsonb: resolveNeedsTeam needs a match');
       checkFailure('jsonb.resolveNeedsTeam');

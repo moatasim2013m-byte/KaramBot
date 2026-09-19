@@ -30,6 +30,43 @@ const SLOT_TOMORROW = 'slot:2026-09-15T10:00+03:00/12:00';
 const CAL_ID = 'sales-eval@group.calendar.google.invalid';
 const TOMORROW_10 = '2026-09-15T07:00:00.000Z';
 
+// Calendly scenarios (18–21): the owner's event type; the harness's fake calendar lists what Calendly wrote.
+const CALENDLY_URL = 'https://calendly.com/shift-ai/30min';
+
+/** A Google event as Calendly writes it into the connected calendar (30 min, the invitee's answer). */
+function calendlyEvent(id, startLocal, answer) {
+  const start = new Date(startLocal);
+  const end = new Date(start.getTime() + 30 * 60 * 1000);
+  return {
+    id,
+    summary: 'معتصم and SHIFT: 30 Minute Meeting',
+    start: { dateTime: start.toISOString(), timeZone: 'Asia/Amman' },
+    end: { dateTime: end.toISOString(), timeZone: 'Asia/Amman' },
+    attendees: [{ email: 'team@shift.invalid', organizer: true, self: true }, { email: 'invitee@example.invalid', displayName: 'معتصم' }],
+    description: [
+      'Event Name: 30 Minute Meeting',
+      answer,
+      '',
+      'Need to make changes to this event?',
+      `Cancel: https://calendly.com/cancellations/${id}`,
+      `Reschedule: https://calendly.com/reschedulings/${id}`,
+      '',
+      'Powered by Calendly.com',
+    ].join('\n'),
+  };
+}
+
+/** A Calendly booking already on record (tomorrow 10:00 Amman). */
+function calendlyBooking(id) {
+  return {
+    event_id: id, calendar_id: CAL_ID, start: TOMORROW_10, end: '2026-09-15T07:30:00.000Z', tz: 'Asia/Amman',
+    status: 'booked', booked_at: '2026-09-14T07:00:00.000Z', seq: 1, offer_id: null, lang: 'ar', reminders: {},
+    details_pending: false, details_missing: [], source: 'calendly',
+    cancel_url: `https://calendly.com/cancellations/${id}`, reschedule_url: `https://calendly.com/reschedulings/${id}`,
+    history: [{ status: 'booked', start: TOMORROW_10, at: '2026-09-14T07:00:00.000Z', source: 'calendly', event_id: id }],
+  };
+}
+
 /** A scripted model reply in the PR2 response schema. */
 function M(reply, { action = 'NONE', stage = 'discovery', next = 'question', args = {}, buttons = [], lead = {} } = {}) {
   return { reply, action, stage, next_step: next, action_args: args, buttons, lead };
@@ -824,6 +861,151 @@ const ALL = [
         'conversation.current_state': 'captured',
       },
     },
+  },
+  // ── Calendly booking (owner decision 2026-09-19): the link in the chat, the booking seen by the sweep ──
+  {
+    id: 18,
+    title: 'Calendly: link sent → the sweep sees the booking → confirmation → «متى موعدنا؟»',
+    clock: MONDAY_11,
+    env: { SHIFT_SALES_CALENDAR_ID: CAL_ID },
+    business: { ai_config: { calendly_url: CALENDLY_URL } },
+    stage: 'close',
+    lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 3 },
+    workflow_data: { bot_turns: 5, disclosed_at: '2026-09-14T07:00:00.000Z' },
+    turns: [
+      {
+        inbound: 'متى نحكي؟',
+        model: M('أكيد، ببعتلك رابط الحجز.', { stage: 'close', next: 'buttons', buttons: [{ id: 'book_link', title: 'احجز موعدك' }] }),
+        note: 'ONE cta_url with the personalised link — no times in the chat, nothing booked yet',
+        expect: {
+          outbound: 1,
+          types: ['cta_url'],
+          ctaLabels: ['احجز موعدك'],
+          ctaUrls: { contains: 'a1=%2B962790000777' },
+          text: { contains: 'اختار الوقت اللي بناسبك من هون' },
+          buttons: [],
+          'wd.booking_link.sent_at': { present: true },
+          'wd.booking': { absent: true },
+          textExcludes: ['ثبّتنا', 'محجوز'],
+        },
+      },
+      {
+        at: '+10m',
+        sweep: true,
+        calendly: [{ add: calendlyEvent('cal_eval_18', '2026-09-15T12:00:00+03:00', 'WhatsApp: +962 79 000 0777') }],
+        note: 'Calendly wrote the booking into the sales calendar; the sweep stores it and confirms (window open)',
+        expect: {
+          outbound: 1,
+          text: { contains: 'ثبّتنا مكالمتك مع فريق شِفت: الثلاثاء 15/9 الساعة 12:00 الظهر بتوقيت عمّان' },
+          buttons: { includes: ['book_ok', 'book_change', 'book_cancel'] },
+          'wd.booking.source': 'calendly',
+          'wd.booking.status': 'booked',
+        },
+      },
+      {
+        inbound: 'متى موعدنا؟',
+        model: [],
+        note: 'the status lookup reads the same record (its day word is relative to now, as for in-chat bookings)',
+        expect: { aiCalls: 0, outbound: 1, text: { contains: 'محجوزة: بكرا الساعة 12:00 الظهر بتوقيت عمّان' } },
+      },
+      { at: '+2m', sweep: true, note: 'the same event listed again: nothing more', expect: { outbound: 0 } },
+    ],
+    expect: {
+      state: {
+        'workflow_data.booking.event_id': 'cal_eval_18',
+        'workflow_data.booking.cancel_url': 'https://calendly.com/cancellations/cal_eval_18',
+        'conversation.current_state': 'captured',
+        alerts: { includes: ['booking_booked'] },
+      },
+    },
+  },
+  {
+    id: 19,
+    title: 'Calendly: «بدي أغيّر الموعد» → its reschedule link → Calendly cancels + creates → one reschedule',
+    clock: MONDAY_11,
+    env: { SHIFT_SALES_CALENDAR_ID: CAL_ID },
+    business: { ai_config: { calendly_url: CALENDLY_URL } },
+    stage: 'captured',
+    conversation: { status: 'pending' },
+    lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 4 },
+    workflow_data: { bot_turns: 6, booking: calendlyBooking('cal_eval_19a') },
+    turns: [
+      {
+        inbound: 'بدي أغيّر الموعد',
+        model: [],
+        note: 'the stored reschedule URL as «غيّر الموعد»; nothing is said to have changed',
+        expect: {
+          aiCalls: 0, outbound: 1, types: ['cta_url'], ctaLabels: ['غيّر الموعد'],
+          ctaUrls: ['https://calendly.com/reschedulings/cal_eval_19a'], 'wd.booking.event_id': 'cal_eval_19a',
+          textExcludes: ['غيّرنا', 'صار'],
+        },
+      },
+      {
+        at: '+5m',
+        sweep: true,
+        calendly: [{ cancel: 'cal_eval_19a' }, { add: calendlyEvent('cal_eval_19b', '2026-09-16T10:00:00+03:00', 'WhatsApp: 0790000777') }],
+        note: 'a cancel and a create for the same phone in one sweep = ONE reschedule message',
+        expect: {
+          outbound: 1,
+          text: { contains: 'وصلنا تغيير الموعد: صارت مكالمتك مع فريق شِفت الأربعاء 16/9 الساعة 10:00 الصبح' },
+          'wd.booking.event_id': 'cal_eval_19b',
+          'wd.booking.status': 'rescheduled',
+        },
+      },
+    ],
+    expect: {
+      state: {
+        'workflow_data.booking.previous_event_id': 'cal_eval_19a',
+        alerts: { includes: ['booking_rescheduled'], excludes: ['booking_cancelled'] },
+      },
+    },
+  },
+  {
+    id: 20,
+    title: 'Calendly: the customer cancels in Calendly → the sweep marks it cancelled and tells them',
+    clock: MONDAY_11,
+    env: { SHIFT_SALES_CALENDAR_ID: CAL_ID },
+    business: { ai_config: { calendly_url: CALENDLY_URL } },
+    stage: 'captured',
+    conversation: { status: 'pending', last_inbound_at: '2026-09-14T10:30:00+03:00' },
+    lead: { name: 'معتصم', business_name: 'بيكابو', sector: 'restaurant', version: 4 },
+    workflow_data: { bot_turns: 6, booking: calendlyBooking('cal_eval_20') },
+    turns: [
+      {
+        at: '+5m',
+        sweep: true,
+        calendly: [{ cancel: 'cal_eval_20' }],
+        expect: {
+          outbound: 1,
+          text: { contains: 'وصلنا إلغاء مكالمتك (الثلاثاء 15/9 الساعة 10:00 الصبح)' },
+          'wd.booking.status': 'cancelled',
+        },
+      },
+      { at: '+1m', sweep: true, note: 'idempotent', expect: { outbound: 0 } },
+    ],
+    expect: {
+      state: {
+        'workflow_data.booking.cancelled_by': 'calendly',
+        alerts: { includes: ['booking_cancelled'] },
+      },
+    },
+  },
+  {
+    id: 21,
+    title: 'Calendly: a booking from the website with no WhatsApp conversation → a staff alert only',
+    clock: MONDAY_11,
+    env: { SHIFT_SALES_CALENDAR_ID: CAL_ID },
+    business: { ai_config: { calendly_url: CALENDLY_URL } },
+    turns: [
+      {
+        at: '+1m',
+        sweep: true,
+        calendly: [{ add: calendlyEvent('cal_eval_21', '2026-09-15T13:00:00+03:00', 'WhatsApp: +962 78 555 1234') }],
+        expect: { outbound: 0 },
+      },
+      { at: '+1m', sweep: true, expect: { outbound: 0 } },
+    ],
+    expect: { state: { alerts: ['calendly_unmatched'], botOutbound: 0 } },
   },
 ];
 

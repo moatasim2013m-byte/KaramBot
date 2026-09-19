@@ -184,12 +184,44 @@ SELECT ai_config -> 'samples_vetted' FROM businesses WHERE id = 'shiftc6f194e723
 ### Offline eval (no network, no production)
 
 ```bash
-cd backend && node scripts/eval-shift.js            # all 15 scenarios, replay mode, report in a temp dir
+cd backend && node scripts/eval-shift.js            # every scenario (1–21), replay mode, report in a temp dir
 cd backend && node scripts/eval-shift.js --scenario 1,5 --out ../docs/bot/eval
 ```
 
 Exit code 1 means a hard gate failed. `--live` (real Gemini, prisma and Graph still faked) needs `EVAL_LIVE=1` and
 `GEMINI_API_KEY`, exits 3 on a model 404, and never runs in `npm test`.
+
+## 7b. Calendly booking (booking_mode)
+
+Owner decision 2026-09-19: the bot books sales calls only through Calendly. Everywhere it used to offer slot buttons
+it sends ONE WhatsApp `cta_url` message («احجز موعدك» / "Book a time") with a personalised link:
+`calendly_url?name=<lead name>&a1=%2B962…&utm_source=whatsapp&utm_campaign=karam`. Sending the link books nothing.
+The sweep (`calendly` step) lists the sales calendar (`SHIFT_SALES_CALENDAR_ID`, which Calendly writes into), and
+only then stores the booking (source `calendly`), confirms on WhatsApp inside the 24 h window, and alerts staff.
+
+Turn it on (key-preserving):
+
+```sql
+UPDATE businesses SET ai_config = ai_config || '{"calendly_url": "https://calendly.com/shift-ai/30min", "booking_mode": "calendly"}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
+```
+
+Back to in-chat slot buttons (no deploy; Calendly bookings already on file keep their own change/cancel links):
+
+```sql
+UPDATE businesses SET ai_config = jsonb_set(ai_config, '{booking_mode}', '"inchat"', true) WHERE id = 'shiftc6f194e723be82b9b363';
+```
+
+Calendly event type must: be connected to the SAME Google calendar as `SHIFT_SALES_CALENDAR_ID`; have as its FIRST
+invitee question a one-line text question «رقم الواتساب / WhatsApp number» (required) — `a1` pre-fills it; keep
+Calendly's default event description (it carries the invitee's answers and the Cancel / Reschedule links).
+
+- The detection cursor is `ai_config.calendly_sync` (written by the sweep with a compare-and-set; do not edit it by
+  hand — deleting it makes the next sweep re-read the last 24 h, which is safe). `CALENDLY_SYNC=0` stops detection.
+- Every Calendly event seen is logged as `[calendly] event shape {…}` (booleans and counts only). After the first
+  real booking check that `phone`, `cancel_url` and `reschedule_url` are `true`.
+- Staff alerts: `booking_booked` / `booking_rescheduled` / `booking_cancelled` (Calendly), `calendly_unmatched` (a
+  booking with no WhatsApp conversation, e.g. from the website), `calendly_check` (name-only match — confirm by hand).
+- `GET /api/internal/shift-status` shows `booking_mode`, `calendly_sync_enabled` and `calendly_sync_cursor`.
 
 ## 8. Rollback order
 

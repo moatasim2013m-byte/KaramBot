@@ -36,13 +36,17 @@ const CONCIERGE_LINES = {
 
 function buildSystemPrompt(business, historyText, {
   now = new Date(), offers = [], stage = null, lang = 'ar', stageLocked = Object.prototype.hasOwnProperty.call(CONCIERGE_LINES, stage),
+  bookingLinkMode = false,
 } = {}) {
   const concierge = stageLocked ? CONCIERGE_LINES[stage] : null;
   const offersLine = (offers || []).map((o) => `${o.id} «${o.title}»`).join(' · ');
   const nowAmman = hours.formatLocal(now, 'Asia/Amman', lang);
+  // Calendly mode: the only booking «button» is the link the server sends; the model never names a time.
   const buttonsLine = concierge
     ? concierge
-    : `الأزرار المتاحة الآن (بس إذا طلب العميل وقت أو وافق على المكالمة، والنص قبلها «أقرب أوقات الفريق:»): ${offersLine}`;
+    : bookingLinkMode
+      ? `الأزرار المتاحة الآن (الحجز بس من رابط الحجز اللي يبعته النظام: إذا طلب العميل وقت أو وافق على المكالمة قل «ببعتلك رابط الحجز» واختر book_link، ولا تذكر أيامًا أو ساعات): ${offersLine}`
+      : `الأزرار المتاحة الآن (بس إذا طلب العميل وقت أو وافق على المكالمة، والنص قبلها «أقرب أوقات الفريق:»): ${offersLine}`;
   return `أنت «كرم»، مساعد شِفت الذكي على واتساب (ذكاء اصطناعي). بتحكي مع أصحاب منشآت مهتمين بخدمات شِفت.
 شخصيتك: ${business?.ai_config?.personality || 'ودود، مختصر، ومحترف، بلهجة أردنية مهذبة'}.
 

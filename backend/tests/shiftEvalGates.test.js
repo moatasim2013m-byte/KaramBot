@@ -226,9 +226,9 @@ describe('eval replay — all scenarios through the real pipeline (no network)',
   });
   afterAll(() => logSpy.forEach((s) => s.mockRestore()));
 
-  test('the scenario list covers eval conversations 1–15, plus the two booking paths (16, 17)', () => {
+  test('the scenario list covers eval conversations 1–15, the two booking paths (16, 17) and Calendly (18–21)', () => {
     const groups = new Set(scenarios.ALL.map((s) => String(s.id).replace(/[a-z]$/, '')));
-    expect([...groups].sort((a, b) => a - b)).toEqual(Array.from({ length: 17 }, (_, i) => String(i + 1)));
+    expect([...groups].sort((a, b) => a - b)).toEqual(Array.from({ length: 21 }, (_, i) => String(i + 1)));
   });
 
   test('scenario 12 references the reliability suites that already cover the rest', () => {
@@ -246,7 +246,10 @@ describe('eval replay — all scenarios through the real pipeline (no network)',
     expect(report).toEqual([]);
     // The replay really ran: every turn is in the transcript and the bot answered through Graph (faked).
     expect(r.transcript.turns.length).toBe(scenario.turns.length);
-    expect(r.transcript.final.botOutbound).toBeGreaterThan(0);
+    // A scenario may pin a silent bot (21: a website Calendly booking is a staff alert only).
+    if (!(scenario.expect && scenario.expect.state && scenario.expect.state.botOutbound === 0)) {
+      expect(r.transcript.final.botOutbound).toBeGreaterThan(0);
+    }
     expect(evalShift.state.graphSends.length).toBe(r.transcript.final.botOutbound);
   });
 

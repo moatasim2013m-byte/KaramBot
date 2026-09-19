@@ -920,7 +920,10 @@ describe('runSweep', () => {
       // PR2 (contract §11.1): the idle role-play and nudge steps report their own counters.
       roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
       // PR3: booking reminders and passed calls.
-      reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0, errors: [],
+      reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
+      // Calendly bookings seen on the sales calendar.
+      calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
+      errors: [],
     });
   });
 
@@ -983,6 +986,9 @@ describe('getShiftStatus', () => {
       // PR3: no SHIFT_SALES_CALENDAR_ID in tests → booking off, request-only slots.
       calendar_configured: false,
       booking_enabled: false,
+      booking_mode: 'inchat',
+      calendly_sync_enabled: false,
+      calendly_sync_cursor: null,
       bookings_upcoming: 0,
       reminders: { d1_sent: 0, h1_sent: 0, template_sent: 0, skipped: 0, template_blocked: 0, failed: 0 },
       sweep: lastSweep(),

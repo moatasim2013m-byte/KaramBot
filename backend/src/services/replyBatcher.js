@@ -35,6 +35,7 @@ const { mergeNeedsTeam, needsTeamEntry, renderCaptureAck, NEEDS_TEAM_PRIORITY } 
 const lead = require('../workflows/shift/lead');
 const { isShiftButtonId, handleButton } = require('../workflows/shift/buttons');
 const booking = require('../workflows/shift/booking');
+const calendly = require('../workflows/shift/calendly');
 const { isOptOutCommand, optOutResult } = require('../workflows/shift/optout');
 const { pickLanguage } = require('../workflows/shift/acks');
 const roleplay = require('../workflows/shift/roleplay');
@@ -768,7 +769,7 @@ async function answerTaps({ id, token, business, clock, batch, conv }) {
       }
     } else {
       // «مكالمة» offers the calendar's free slots when booking is on (PR2's windows otherwise).
-      const offers = buttonId === 'lead_call' ? await calendarOffers(business, now, lang) : undefined;
+      const offers = buttonId === 'lead_call' && !calendly.isLinkMode(business) ? await calendarOffers(business, now, lang) : undefined;
       result = handleButton(buttonId, {
         business, conversation: view, now, lang, messageId: message.id,
         roleplayOn: roleplay.roleplayEnabled(), vetted: vettedSectors(business), offers,
@@ -1538,6 +1539,14 @@ async function deliver({
     result = { ...result, workflowDataPatch: { ...result.workflowDataPatch, roleplay: stored } };
   }
   const guardHumans = humanGuard === undefined ? COVERING_KINDS.includes(result && result.kind) : !!humanGuard;
+  // Calendly mode: a leftover pseudo-offer button becomes the CTA, and a sent link is recorded
+  // (workflow_data.booking_link) with the rest of the result's state — never as a booking.
+  if (result && Array.isArray(result.messages)) {
+    const wdNow = (conv.workflow_data && typeof conv.workflow_data === 'object') ? conv.workflow_data : {};
+    const lead = wdNow.lead || {};
+    const link = calendly.linkFor(business, conv, lead.language === 'en' ? 'en' : 'ar');
+    result = calendly.stampLink(calendly.normalizeLinkParts(result, link), wdNow, now);
+  }
 
   if (leaseToken && !(await jsonb.renewLease(id, leaseToken, LEASE_TTL_MS))) {
     console.warn(`[batcher] lease lost before send conversation=${id} — another run owns it`);
