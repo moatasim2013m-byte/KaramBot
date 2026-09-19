@@ -367,6 +367,9 @@ describe('after the call and status', () => {
     expect(status).toMatchObject({
       calendar_configured: true,
       booking_enabled: true,
+      booking_mode: 'inchat',
+      calendly_sync_enabled: false,
+      calendly_sync_cursor: null,
       bookings_upcoming: 1,
       reminders: { d1_sent: 1, h1_sent: 0, template_sent: 1, skipped: 1, template_blocked: 1, failed: 0 },
     });

@@ -2167,6 +2167,32 @@ describe('PR2 parts through the intent protocol (§10.2)', () => {
     expect(whatsapp.sendStructured.mock.calls.map((c) => c[3].type)).toEqual(['list', 'image', 'image']);
   });
 
+  test('Calendly: the booking link goes out as cta_url, is recorded as booking_link (never a booking), and a refused CTA falls back to text + URL', async () => {
+    const calendly = require('../src/workflows/shift/calendly');
+    const { conv } = seedShift({ business: { ai_config: { calendly_url: 'https://calendly.com/shift-ai/30min' } } });
+    const a = seedInbound(conv, 'متى نحكي؟');
+    const url = calendly.personalUrl('https://calendly.com/shift-ai/30min', { phone: CUSTOMER });
+    const link = calendly.linkPart({ url, lang: 'ar' });
+    shift.processShiftBatch.mockImplementation(async () => partsResult([link]));
+    whatsapp.sendStructured.mockReset()
+      .mockImplementationOnce(async () => ({ ...failSend('rejected'), code: 131009, httpStatus: 400 }));
+    whatsapp.sendText.mockImplementation(async () => okSend());
+
+    const r = await batcher.runBatch(conv.id);
+
+    expect(r).toEqual({ outcome: 'sent', sent: 1 });
+    const [cta] = whatsapp.sendStructured.mock.calls.map((c) => c[3]);
+    expect(cta).toMatchObject({ type: 'cta_url', displayText: 'احجز موعدك', url });
+    const [first, second] = botOutbound(conv);
+    expect(first.raw_payload).toMatchObject({ part_type: 'cta_url', reason: 'rejected' });
+    expect(second.raw_payload).toMatchObject({ fallback_of: first.id });
+    expect(second.text_body).toBe(`${link.text}\n${url}`);
+    const wd = convRow(conv.id).workflow_data;
+    expect(wd.booking_link).toMatchObject({ count: 1, kind: 'book' });
+    expect(wd.booking).toBeUndefined();
+    expect(row(a.id).status).toBe('answered');
+  });
+
   test('an image header Graph rejects (400) → a `:fb` intent row and one send of the same buttons without the header', async () => {
     const { conv } = seedShift();
     const a = seedInbound(conv, 'أي');

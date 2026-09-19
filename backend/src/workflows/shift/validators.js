@@ -13,6 +13,7 @@
 const { SITE_HOST } = require('../../config/site');
 const acks = require('./acks');
 const roleplay = require('./roleplay');
+const calendly = require('./calendly');
 const hours = require('./hours');
 const { extractCustomerNumbers, normalize } = require('./lead');
 
@@ -1007,6 +1008,16 @@ function sanitizeButtons(part, vctx = {}) {
 }
 
 function injectOffers(part, vctx, { appendBody }) {
+  // Calendly mode: the one "offer" is the booking link — the CTA replaces the slot buttons and their lead-in.
+  if (vctx.bookingLink && vctx.bookingLink.url && calendly.isLinkOffers(offerButtons(vctx))) {
+    const line = String(part.text || '').replace(/\s*[:：]\s*$/, '.').trim();
+    const body = calendly.bodyText('book', vctx.lang);
+    const out = calendly.linkPart({ url: vctx.bookingLink.url, lang: vctx.lang, body: line ? `${line}\n\n${body}` : body });
+    delete out.ack;
+    for (const k of ['modelLine', 'delayMs']) if (part[k] !== undefined) out[k] = part[k];
+    if (part.modelLine !== undefined) out.ack = body;
+    return out;
+  }
   let text = part.text || '';
   if (appendBody && !/[:：]\s*$/.test(text)) text = `${text}\n${acks.slotsBody(vctx.lang)}`.trim();
   const out = { ...part, type: 'interactive', text, buttons: offerButtons(vctx) };
@@ -1203,7 +1214,7 @@ function stageFallback(stage, lang, { disclosed = true, sector } = {}) {
   return en ? 'So I can help properly: who answers your WhatsApp messages today?' : 'عشان أفيدك صح: مين بيرد على رسائل واتساب عندكم حاليًا؟';
 }
 
-function hintFor(code, lang) {
+function hintFor(code, lang, vctx = {}) {
   switch (code) {
     case 'digits':
       // Review r2 #6: the marker is how a customer's own number is named, never a way to confirm it.
@@ -1224,6 +1235,8 @@ function hintFor(code, lang) {
     case 'link':
       return `لا تكتب أي رابط غير ${SITE_HOST} وصفحاته المسموحة.`;
     case 'appointment_time':
+      // Calendly mode: the customer picks the time from the link the server sends, never from the chat.
+      if (vctx && vctx.bookingLink) return 'لا تذكر يوم أو ساعة لموعد أو مكالمة. الحجز بس من رابط الحجز اللي يبعته النظام — قل «ببعتلك رابط الحجز» واختر book_link.';
       return 'لا تذكر يوم أو ساعة لموعد أو مكالمة. النظام بيعرض الأوقات المتاحة بأزرار — اكتفِ بعرض المكالمة.';
     case 'repeat_intro':
       return 'عرّفت بنفسك قبل هيك: لا تعيد التعريف.';
@@ -1582,7 +1595,7 @@ function validateResult(result, vctx = {}) {
   const blocks = events.map(({ code, detail }) => ({ code, detail }));
   const hint = verdict === 'ok'
     ? null
-    : Array.from(new Set(regenCodes.map((c) => hintFor(c, ctx.lang)).filter(Boolean))).join('\n') || null;
+    : Array.from(new Set(regenCodes.map((c) => hintFor(c, ctx.lang, ctx)).filter(Boolean))).join('\n') || null;
   logBlocks(ctx, blocks, attempt);
   return { result: out, verdict, blocks, hint };
 }

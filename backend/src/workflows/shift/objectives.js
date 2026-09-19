@@ -224,7 +224,16 @@ function asksPrice(texts) {
   return (Array.isArray(texts) ? texts : []).some((t) => typeof t === 'string' && PRICE_Q_RE.test(t));
 }
 
+// Calendly mode: the call is booked through the link the server sends, never through times in the chat.
+const SLOT_WORDING = '«أقرب أوقات الفريق:» وأزرار الوقت';
+const LINK_WORDING = '«ببعتلك رابط الحجز» مع زر book_link (بلا أيام ولا ساعات)';
+
 function objectiveFor(ctx = {}) {
+  const text = objectiveText(ctx);
+  return ctx && ctx.bookingLinkMode ? text.split(SLOT_WORDING).join(LINK_WORDING) : text;
+}
+
+function objectiveText(ctx = {}) {
   const c = ctx || {};
   const wd = c.wd || (c.conversation && c.conversation.workflow_data) || {};
   const lead = c.lead || wd.lead || {};

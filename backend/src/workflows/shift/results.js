@@ -19,6 +19,7 @@ const roleplay = require('./roleplay');
 const validators = require('./validators');
 const context = require('./context');
 const booking = require('./booking');
+const calendly = require('./calendly');
 const prefillParser = require('./prefill');
 const { mergeLead, extractCustomerNumbers, normalize } = require('./lead');
 const { actionSetFor, normalizeActionArgs, FLAG_REASONS } = require('./actions');
@@ -152,6 +153,22 @@ function withMeta(part, line, ack, reply) {
 
 function textMessage(modelLine, ack, reply) {
   return withMeta({ type: 'text', text: compose(modelLine, ack, TEXT_LIMIT) }, modelLine, ack, reply);
+}
+
+/** Calendly mode, and the link may be offered here (it is the one pseudo offer in c.offers). */
+function linkOffered(c, offers) {
+  return !!(c && c.bookingLink && calendly.isLinkOffers(offers === undefined ? c.offers : offers));
+}
+
+/**
+ * The Calendly CTA in place of slot buttons: the model's line (if any) above the link's body. Sending it books
+ * nothing — the batcher records booking_link.sent_at, and only the sweep, seeing the event, stores a booking.
+ */
+function linkMessage(c, line, reply) {
+  const body = calendly.bodyText('book', c.lang);
+  const part = calendly.linkPart({ url: c.bookingLink.url, lang: c.lang, body: compose(line, body, INTERACTIVE_LIMIT) });
+  delete part.ack;
+  return withMeta(part, line, body, reply);
 }
 
 function isPlainObject(v) {
@@ -457,7 +474,10 @@ function renderCaptureAck(capture, storedLead) {
   // Round-2 review #15: the free-text time is captured honestly as «طلب مش موعد مؤكد» — and then the
   // real slots go out in the same turn, so the request can become a booking instead of waiting.
   const offers = Array.isArray(capture.offers) ? capture.offers.slice(0, 3) : [];
-  const slotPart = offers.length
+  // Calendly mode: the captured time stays an honest request, and the link lets the customer book it.
+  const slotPart = capture.link && capture.link.url
+    ? [calendly.linkPart({ url: capture.link.url, lang: capture.lang })]
+    : offers.length
     ? [{
       type: 'interactive',
       text: acks.slotsBody(capture.lang),
@@ -518,6 +538,7 @@ function captureResult(ctx, { preferredTime, timeText, modelLine, modelReply, le
     ? []
     : (c.offers || []).filter((o) => o && typeof o.id === 'string' && o.id.startsWith('book:')).slice(0, 3);
   if (realSlots.length) capture.offers = realSlots.map((o) => ({ id: o.id, title: o.title }));
+  if (!offersBlocked && linkOffered(c)) capture.link = { url: c.bookingLink.url, lang: c.lang };
   const preview = renderCaptureAck(capture, lead);
 
   return emptyResult({
@@ -552,8 +573,9 @@ function aiFailureResult(c) {
   const timeChosen = Boolean(c.wd.lead?.preferred_time || c.wd.capture_pending);
   // No slot buttons inside the sandbox either: a call offer mid-example reads as part of the example.
   const inRoleplay = roleplay.isActive(c.wd) || ROLEPLAY_STAGES.includes(c.conversation.current_state);
+  // Calendly mode: no buttons here (the link is sent where the customer asks for a call, not on a failure).
   const withButtons = !isStageLocked(c.conversation) && c.conversation.current_state !== 'closed' && !inRoleplay
-    && c.offers.length > 0 && (c.wd.bot_turns || 0) > 0 && !timeChosen;
+    && c.offers.length > 0 && (c.wd.bot_turns || 0) > 0 && !timeChosen && !linkOffered(c);
   const candidate = needsTeamEntry('ai_failure', c.joinedText.slice(0, 200), at);
   const needs = mergeNeedsTeam(c.wd.needs_team, candidate);
   const workflowDataPatch = { bot_turns: (c.wd.bot_turns || 0) + 1 };
@@ -1013,6 +1035,11 @@ function repeatedAskGuard(r, c, wdp, action) {
     || (isStageLocked(c.conversation) && !calendarOpen(c))
     || !!(c.wd.capture_pending && c.wd.capture_pending.slot_id === 'other');
   const offers = offersBlocked ? [] : (c.offers || []).slice(0, 3);
+  if (offers.length && linkOffered(c, offers)) {
+    // Calendly mode: the booking link instead of the same question again.
+    wdp.last_ask = null;
+    return { ...r, messages: [...head, linkMessage(c, line, last.modelLine || null)] };
+  }
   if (offers.length) {
     // The deterministic next step: real times to tap instead of the same question again.
     wdp.slot_offers = offers.map((o) => ({ id: o.id, title: o.title, issued_at: at }));
@@ -1063,6 +1090,11 @@ function callTimeAskResult(c, { shown, reply, locked, leadPatch }) {
   // A `captured` conversation holding only a call request is not locked against the calendar (2026-09-17).
   const offersBlocked = (locked && !calendarOpen(c)) || inSandbox(c) || askedOther;
   const offers = offersBlocked ? [] : (c.offers || []).slice(0, 3);
+  if (offers.length && linkOffered(c, offers)) {
+    // Calendly mode: ONE cta_url with the personalised link; nothing is stored, nothing is booked.
+    const line = withoutTimeAsk(shown);
+    return emptyResult({ action: 'NONE', messages: [linkMessage(c, line, withoutTimeAsk(reply))], stateUpdate, leadPatch });
+  }
   if (offers.length) {
     const body = acks.slotsBody(c.lang);
     const line = withoutTimeAsk(shown);
@@ -1399,6 +1431,10 @@ function toWorkflowResult(aiResult, ctx) {
         const body = compose(shown, '', INTERACTIVE_LIMIT);
         const list = acks.sectorListPart(c.lang, { text: body, disclosed: !!wd.disclosed_at });
         return finish(emptyResult({ action: 'NONE', messages: [withMeta(list, body, '', reply)], stateUpdate, workflowDataPatch }));
+      }
+      if (kept.length && linkOffered(c, kept)) {
+        // The model chose the booking «button»: the Calendly CTA, under its own line without a time question.
+        return finish(emptyResult({ action: 'NONE', messages: [linkMessage(c, withoutTimeAsk(shown), withoutTimeAsk(reply))], stateUpdate, workflowDataPatch }));
       }
       if (kept.length) {
         const body = compose(shown || acks.slotsBody(c.lang), '', INTERACTIVE_LIMIT);

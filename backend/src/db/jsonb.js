@@ -324,7 +324,25 @@ WHERE "id" = ${conversationId} AND "metadata" ->> 'lease_token' = ${String(token
   return count === 1;
 }
 
+/**
+ * Compare-and-set of ONE top-level key of businesses.ai_config (the Calendly sync cursor): the key becomes
+ * `value` only while it still holds `expected` (null = missing). Everything else in ai_config is untouched,
+ * so the owner's own `ai_config || '{…}'` edits and this write never clobber each other. Two sweeps racing
+ * to advance the same cursor: exactly one wins. Returns true when the row was updated.
+ */
+async function casBusinessConfig(businessId, key, expected, value) {
+  checkPath([key]);
+  const exp = expected === null || expected === undefined ? null : JSON.stringify(expected);
+  const count = await prisma.$executeRaw(Prisma.sql`UPDATE "businesses"
+SET "ai_config" = COALESCE("ai_config", '{}'::jsonb) || jsonb_build_object(${key}::text, ${JSON.stringify(value)}::jsonb),
+    ${UPDATED_AT}
+WHERE "id" = ${businessId}
+  AND (COALESCE("ai_config", '{}'::jsonb) -> ${key}::text) IS NOT DISTINCT FROM ${exp}::jsonb`);
+  return count === 1;
+}
+
 module.exports = {
+  casBusinessConfig,
   patchJson,
   mergeObjectKey,
   claimFlag,

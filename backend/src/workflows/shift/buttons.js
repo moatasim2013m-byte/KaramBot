@@ -18,6 +18,7 @@ const roleplay = require('./roleplay');
 const validators = require('./validators');
 // PR3: `book:<iso>` and the booking controls are routable ids, answered by booking.js (async, calendar).
 const booking = require('./booking');
+const calendly = require('./calendly');
 
 const SLOT_OFFER_TTL_MS = 12 * 60 * 60 * 1000;
 const SLOT_ID_RE = /^slot:(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})([+-]\d{2}:\d{2})\/(\d{2}:\d{2})$/;
@@ -314,6 +315,15 @@ function quoteWrittenResult(c) {
 
 function leadCallResult(c) {
   const { lang, at, now, teamHours } = c;
+  // Calendly mode: «مكالمة» gets the booking link, never times.
+  const link = c.bookingLink !== undefined ? c.bookingLink : calendly.linkFor(c.business, c.conversation, lang);
+  if (link) {
+    return buttonResult({
+      messages: [calendly.linkPart({ url: link.url, lang, line: acks.callChoiceLead(lang) })],
+      stateUpdate: { current_state: 'close' },
+      workflowDataPatch: { slot_offers: [] },
+    });
+  }
   // PR3: the batcher passes the calendar's free slots when booking is on; otherwise PR2's windows.
   const offers = (Array.isArray(c.offers) && c.offers.length ? c.offers : slotOffers(teamHours, now, lang)).slice(0, 3);
   return buttonResult({
@@ -631,6 +641,10 @@ function assertButtons() {
   for (const b of booking.staticButtons()) {
     checkTitle(b.title, MAX_TITLE, 'booking');
     checkId(b.id, 'booking');
+  }
+  // Calendly CTA labels (display text ≤ 20 like any CTA).
+  for (const kind of Object.keys(calendly.DISPLAY)) {
+    for (const lang of ['ar', 'en']) checkTitle(calendly.displayText(kind, lang), MAX_TITLE, 'calendly cta');
   }
 
   const followups = loadFollowups();

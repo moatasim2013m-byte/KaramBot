@@ -145,17 +145,46 @@ function knowledgeFor(sector) {
 
 const cache = new Map();
 
-/** The static prompt for a sector; identical strings per sector so the provider can cache it. */
-function buildStaticPrompt({ sector } = {}) {
-  const key = KNOWLEDGE_SECTORS.includes(sector) ? sector : '*';
+/**
+ * Calendly mode (owner decision 2026-09-19): the three places that tell the model to put slot buttons under
+ * «أقرب أوقات الفريق:» tell it instead that the server sends the booking link. Exact replacements, checked at
+ * load: a template edit that drops one of these sentences fails loudly instead of silently keeping slots.
+ */
+const CALENDLY_EDITS = [
+  ['والحجز وتغييره وإلغاؤه بيصيروا بالأزرار فقط.',
+    'والحجز وتغييره وإلغاؤه بيصيروا فقط برابط الحجز اللي يبعته النظام، وإرسال الرابط مش حجز: لا تقل إنه محجوز قبل ما يأكده النظام. لا تذكر أيامًا أو ساعات للمكالمة أبدًا — مسموح تقول «ببعتلك رابط الحجز».'],
+  ['سأل «متى نحكي؟» أو كتب إنه حابب يحكي قريب → «أقرب أوقات الفريق:» وأزرار الوقت فورًا، والاكتشاف بعدها.',
+    'سأل «متى نحكي؟» أو كتب إنه حابب يحكي قريب → «ببعتلك رابط الحجز» مع زر book_link فورًا (النظام يبعت الرابط)، والاكتشاف بعدها.'],
+  ['إذا طلب وقتًا أو وافق على المكالمة: «أقرب أوقات الفريق:» + أزرار الوقت من «الأزرار المتاحة». بعد اختيار الوقت اطلب الناقص من الاسم واسم المنشأة (مع السبب)، وأرسل CAPTURE_TIME فقط إذا الاسم أو اسم المنشأة معروف والعميل نفسه كتب يومًا أو ساعة (time_text بكلماته، مش عنوان زر ما ضغطه) — النظام يكتب التأكيد، فلا تطلب منه يختار وقتًا بنفس الرد. موافقة بلا وقت («طيب يلا») = NONE + أزرار الوقت.',
+    'إذا طلب وقتًا أو وافق على المكالمة: «ببعتلك رابط الحجز» + زر book_link من «الأزرار المتاحة» — العميل بيختار الوقت من الرابط، وإنت لا تقترح ولا تكتب أي يوم أو ساعة. إذا كتب هو يومًا أو ساعة: CAPTURE_TIME (time_text بكلماته) والنظام يسجّله كطلب ويبعت الرابط. موافقة بلا وقت («طيب يلا») = NONE + book_link.'],
+];
+
+for (const [from] of CALENDLY_EDITS) {
+  if (!SHIFT_SYSTEM_PROMPT_TEMPLATE.includes(from)) throw new Error(`prompt.ar: Calendly edit target missing: ${from.slice(0, 40)}…`);
+}
+
+function calendlyTemplate() {
+  return CALENDLY_EDITS.reduce((t, [from, to]) => t.split(from).join(to), SHIFT_SYSTEM_PROMPT_TEMPLATE);
+}
+
+/**
+ * The static prompt for a sector (and booking mode); identical strings per key so the provider can cache it.
+ * `bookingMode: 'calendly'` swaps the slot-button instructions for the booking link.
+ */
+function buildStaticPrompt({ sector, bookingMode } = {}) {
+  const sectorKey = KNOWLEDGE_SECTORS.includes(sector) ? sector : '*';
+  const linkMode = bookingMode === 'calendly';
+  const key = linkMode ? `${sectorKey}|calendly` : sectorKey;
   if (!cache.has(key)) {
-    cache.set(key, SHIFT_SYSTEM_PROMPT_TEMPLATE.replace('{{SHIFT_KNOWLEDGE}}', () => knowledgeFor(key === '*' ? null : key)));
+    const template = linkMode ? calendlyTemplate() : SHIFT_SYSTEM_PROMPT_TEMPLATE;
+    cache.set(key, template.replace('{{SHIFT_KNOWLEDGE}}', () => knowledgeFor(sectorKey === '*' ? null : sectorKey)));
   }
   return cache.get(key);
 }
 
 module.exports = {
   SHIFT_SYSTEM_PROMPT_TEMPLATE,
+  CALENDLY_EDITS,
   KNOWLEDGE_SECTIONS,
   OPERATIONAL_FAQ,
   knowledgeFor,

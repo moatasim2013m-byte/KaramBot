@@ -20,7 +20,9 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
   // PR3: sales-call bookings in Google Calendar and their reminders.
   'booking_booked', 'booking_rescheduled', 'booking_cancelled', 'booking_failed', 'booking_change_request', 'reminder_blocked',
   // A call REQUEST (no calendar event) the customer stopped.
-  'call_request_cancelled'];
+  'call_request_cancelled',
+  // Calendly bookings the sweep could not tie to a conversation by phone.
+  'calendly_check', 'calendly_unmatched'];
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -46,6 +48,8 @@ const ALERT_LABELS = {
   booking_change_request: 'طلب تغيير/إلغاء مكالمة ما انعمل بالتقويم',
   reminder_blocked: 'تذكير المكالمة ما انبعت (القالب أو طريقة الدفع)',
   call_request_cancelled: 'العميل أوقف طلب المكالمة',
+  calendly_check: 'حجز Calendly بحاجة تأكيد — مطابقة بالاسم فقط',
+  calendly_unmatched: 'حجز Calendly بدون محادثة واتساب',
 };
 
 const WEBHOOK_TIMEOUT_MS = 5000;

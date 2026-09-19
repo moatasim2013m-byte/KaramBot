@@ -32,6 +32,8 @@ const { staffTask } = require('../workflows/shift/buttons');
 const { expectedLanguage } = require('../workflows/shift/validators');
 // PR3: sales-call booking reminders (d1 / h1) and the call-time-passed bookkeeping.
 const booking = require('../workflows/shift/booking');
+// Calendly bookings seen on the sales calendar (owner decision 2026-09-19).
+const calendlySync = require('./calendlySync');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -81,7 +83,8 @@ function emptyReport() {
     stuck_inbound: null, unconfirmed_requeued: 0, unconfirmed_escalated: 0, ambiguous_alerts: 0,
     pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0,
     roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
-    reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0, errors: [],
+    reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
+    calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0, errors: [],
   };
 }
 
@@ -976,6 +979,22 @@ async function sweepBookings(business, teamHours, now, report) {
   });
 }
 
+// ─── 10. Calendly bookings (calendlySync) ─────────────────────────────────────
+
+/**
+ * Before the booking step, so a Calendly booking seen now gets its reminders in the same sweep. syncBusiness
+ * never throws; its failures are counted, never propagated.
+ */
+async function sweepCalendly(business, teamHours, now, report) {
+  if (!calendlySync.enabledFor(business)) return;
+  const c = await calendlySync.syncBusiness(business, { now });
+  report.calendly_booked += c.booked || 0;
+  report.calendly_rescheduled += c.rescheduled || 0;
+  report.calendly_cancelled += c.cancelled || 0;
+  report.calendly_unmatched += (c.unmatched || 0) + (c.low_confidence || 0);
+  report.calendly_errors += c.errors || 0;
+}
+
 // ─── run ─────────────────────────────────────────────────────────────────────
 
 // Order matters: settled or un-paused rows are back to `received` before the orphan step schedules
@@ -991,6 +1010,8 @@ const STEPS = [
   // PR2: idle role-plays end before the nudge step, so a just-ended example can get its resume nudge.
   ['roleplay_idle', sweepRoleplayIdle],
   ['nudges', sweepNudges],
+  // Calendly bookings first, so one seen now is reminded in this same sweep.
+  ['calendly', sweepCalendly],
   // PR3: booking reminders and passed calls.
   ['bookings', sweepBookings],
 ];
@@ -1069,9 +1090,15 @@ async function bookingStatus(business, now) {
       }
     }
   }
+  const link = require('../workflows/shift/calendly').settings(business);
+  const sync = business.ai_config && business.ai_config[calendlySync.STATE_KEY];
   return {
     calendar_configured: cfg.configured,
     booking_enabled: cfg.enabled,
+    // Calendly mode (the link) vs in-chat slots, and where the Calendly detection has read up to.
+    booking_mode: link.mode,
+    calendly_sync_enabled: calendlySync.enabledFor(business),
+    calendly_sync_cursor: sync && typeof sync === 'object' ? sync.cursor || null : null,
     bookings_upcoming: upcoming,
     reminders,
   };

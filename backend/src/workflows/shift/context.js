@@ -249,6 +249,8 @@ function clockLine(business, now) {
   return `الوقت الآن بتوقيت عمّان: ${time} (${hours.WEEKDAYS_AR[p.weekday]}) · دوام الفريق: ${hours.hoursLabel(th, 'ar')}`;
 }
 
+const CALENDLY_LINE = 'الحجز بالرابط: المكالمة بتنحجز فقط من رابط الحجز اللي يبعته النظام (زر book_link «احجز موعدك»). لا تعرض أيامًا أو ساعات ولا تقترح وقتًا ولا تقل «ثبّتنا» — قل «ببعتلك رابط الحجز» واختر book_link، والنظام يبعت الرابط. إرسال الرابط مش حجز: الموعد بيتأكد بس لما يحجز العميل.';
+
 /**
  * ctx = { business, conversation, batchMessages (or batch), history (oldest first), now, lang, offers,
  *         prefill?, hint?, locked?, stage?, gapHours?, firstReply?, historyTurns? }
@@ -288,6 +290,7 @@ function buildUserTurn(ctx = {}) {
     locked,
     gapHours,
     firstReply: c.firstReply,
+    bookingLinkMode: !!c.bookingLinkMode,
   });
   const disclosed = !!wd.disclosed_at && !(gapHours !== null && gapHours >= 24);
   const buttons = allowedButtons({ stage, locked, roleplayActive, offers: c.offers, lead, wd, lang });
@@ -306,7 +309,9 @@ function buildUserTurn(ctx = {}) {
     `أُرسل سابقًا: ${samples} · أسئلة الاكتشاف المطروحة: ${questionsAsked}/2 · ردودك حتى الآن: ${Number(wd.bot_turns) || 0}`,
     `حالة الفريق: ${teamStatusLine(wd)}`,
     // PR3: only when a booking exists, so turns without one are unchanged.
-    ...[booking.contextLine(wd, now)].filter(Boolean),
+    ...[booking.contextLine(wd, now, { linkMode: !!c.bookingLinkMode })].filter(Boolean),
+    // Calendly mode: booking happens only through the link the server sends.
+    ...(c.bookingLinkMode ? [CALENDLY_LINE] : []),
     `الأزرار المتاحة الآن: ${buttonsLine}`,
     clockLine(c.business, now),
   ].join('\n'));

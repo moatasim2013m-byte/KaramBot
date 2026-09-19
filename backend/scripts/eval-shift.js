@@ -117,30 +117,51 @@ const fakeGemini = {
  * cancel flow and "a captured free-text time becomes a real slot" were never replayed). Every free slot
  * is free and every write succeeds; the ops are recorded so a scenario can assert on them.
  */
+const nowIso = () => new Date(state.nowMs).toISOString();
+
 const fakeCalendar = {
   freeBusy: async () => ({ ok: true, busy: [] }),
   getEvent: async (calendarId, eventId) => {
     const known = state.calendarEvents.get(eventId);
-    return known ? { ok: true, event: known } : { ok: false, error: { kind: 'not_found' } };
+    return known && known.status !== 'cancelled' ? { ok: true, event: known } : { ok: false, error: { kind: 'not_found' } };
   },
   insertEvent: async (calendarId, event) => {
     state.calendarOps.push({ op: 'insert', id: event && event.id });
-    const stored = { ...event, id: (event && event.id) || `ev_${state.calendarOps.length}` };
+    const stored = { ...event, id: (event && event.id) || `ev_${state.calendarOps.length}`, status: 'confirmed', updated: nowIso() };
     state.calendarEvents.set(stored.id, stored);
     return { ok: true, event: stored };
   },
   patchEvent: async (calendarId, eventId, patch) => {
     state.calendarOps.push({ op: 'patch', id: eventId });
-    const stored = { ...(state.calendarEvents.get(eventId) || { id: eventId }), ...patch };
+    const stored = { ...(state.calendarEvents.get(eventId) || { id: eventId }), ...patch, updated: nowIso() };
     state.calendarEvents.set(eventId, stored);
     return { ok: true, event: stored };
   },
   deleteEvent: async (calendarId, eventId) => {
     state.calendarOps.push({ op: 'delete', id: eventId });
-    state.calendarEvents.delete(eventId);
+    // Google keeps a deleted event as a `cancelled` tombstone that an incremental list returns.
+    if (state.calendarEvents.has(eventId)) state.calendarEvents.set(eventId, { id: eventId, status: 'cancelled', updated: nowIso() });
     return { ok: true };
   },
+  // Calendly detection: every event (tombstones included) changed at or after updatedMin, one page.
+  listEvents: async (calendarId, { updatedMin } = {}) => {
+    state.calendarOps.push({ op: 'list' });
+    const min = updatedMin ? new Date(updatedMin).getTime() : 0;
+    const events = [...state.calendarEvents.values()].filter((e) => !e.updated || Date.parse(e.updated) >= min).map(clone);
+    return { ok: true, events, nextPageToken: null };
+  },
 };
+
+/**
+ * A scenario turn's `calendly: [{add: event} | {cancel: id}]`: what Calendly writes into the sales calendar
+ * (a booking = a new event, a cancel = a cancelled tombstone, a reschedule = both), stamped at the turn's clock.
+ */
+function applyCalendly(changes) {
+  for (const change of [].concat(changes || [])) {
+    if (change.add) state.calendarEvents.set(change.add.id, { status: 'confirmed', created: nowIso(), ...clone(change.add), updated: nowIso() });
+    if (change.cancel) state.calendarEvents.set(change.cancel, { id: change.cancel, status: 'cancelled', updated: nowIso() });
+  }
+}
 
 const fakes = { axios: fakeAxios, gemini: fakeGemini, calendar: fakeCalendar };
 
@@ -340,6 +361,8 @@ function turnSubject(t) {
     text,
     modelLine: (t.modelLines || []).join('\n'),
     buttons: t.outbound.flatMap((p) => (p.buttons || []).map((b) => b.id)),
+    ctaUrls: t.outbound.filter((p) => p.type === 'cta_url').map((p) => p.url),
+    ctaLabels: t.outbound.filter((p) => p.type === 'cta_url').map((p) => p.displayText),
     rows: t.outbound.flatMap((p) => (p.rows || []).map((r) => r.id)),
     types: t.outbound.filter((p) => !p.staff).map((p) => p.type),
     kinds: t.outbound.filter((p) => !p.staff).map((p) => p.kind),
@@ -418,6 +441,7 @@ async function runScenario(scenario, { mode = 'replay', quiet = true } = {}) {
       const turn = scenario.turns[i];
       const kind = turn.sweep ? 'sweep' : turn.staff ? 'staff' : turn.inbound !== undefined ? 'inbound' : 'clock';
       state.nowMs = turn.at !== undefined ? resolveAt(turn.at, state.nowMs) : state.nowMs + (kind === 'inbound' ? DEFAULT_GAP_MS : 0);
+      if (turn.calendly) applyCalendly(turn.calendly);
       const convBefore = conversationId(db);
       const before = snapshot(db, convBefore);
       const sendsStart = state.graphSends.length;

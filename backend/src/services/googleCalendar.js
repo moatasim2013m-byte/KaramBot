@@ -220,6 +220,24 @@ async function deleteEvent(calendarId, eventId, { now } = {}) {
   return result;
 }
 
+/**
+ * One page of events changed since `updatedMin` (Calendly detection, see services/calendlySync.js).
+ * `showDeleted` returns cancelled events too — often with only id, status and updated. Resolves to
+ * {ok, events, nextPageToken} or {ok:false, error}; a 410 (updatedMin too long ago) is classified notFound.
+ */
+async function listEvents(calendarId, {
+  updatedMin, showDeleted = true, singleEvents = true, pageToken = null, maxResults = 250, now,
+} = {}) {
+  return authorised('listEvents', now, async (headers) => {
+    const params = { showDeleted, singleEvents, maxResults };
+    if (updatedMin) params.updatedMin = new Date(updatedMin).toISOString();
+    if (pageToken) params.pageToken = pageToken;
+    const res = await axios.get(`${calendarPath(calendarId)}/events`, { headers, timeout: CALENDAR_TIMEOUT_MS, params });
+    const data = (res && res.data) || {};
+    return { ok: true, events: Array.isArray(data.items) ? data.items : [], nextPageToken: data.nextPageToken || null };
+  });
+}
+
 module.exports = {
   METADATA_TOKEN_URL,
   IAM_BASE,
@@ -236,4 +254,5 @@ module.exports = {
   insertEvent,
   patchEvent,
   deleteEvent,
+  listEvents,
 };
