@@ -997,6 +997,22 @@ const CHANGE_RE = new RegExp([
  * Round-2 review #12: «شً عل موعدنا» was answered with «العفو أستاذ معتصم، وأهلاً وسهلاً بك بأي وقت 👋».
  * A question about the appointment is a lookup, not small talk: it is answered from the record.
  */
+/**
+ * «بدي احجز» / «وين الرابط» while something is already on file. 2026-09-20, live: a customer with a booked
+ * call asked to book again; shouldOfferCalendar withholds book_link once a booking exists, so the model was
+ * asked to offer a link it had no button for and answered «رابط الحجز بيوصلك من الفريق مباشرة» — a process
+ * that does not exist. The record answers this, not the model: booked → the booking and its buttons, link
+ * sent but not used → the link again.
+ */
+const BOOK_RE = new RegExp([
+  `(?<![${AR}])(?:بدي|بدنا|بحب|حاب|ممكن|بقدر)\\s*(?:أحجز|احجز|نحجز|أحجزلي|احجزلي)(?![${AR}])`,
+  `(?<![${AR}])(?:أحجز|احجز|حجز)(?:لي|لنا|لك)?\\s*(?:موعد|مكالمة|وقت)(?![${AR}])`,
+  `(?<![${AR}])(?:وين|فين|أين|ابعتلي|ابعثلي|بعتلي|أرسل|ارسل|عطيني|أعطيني)\\s*(?:لي)?\\s*(?:ال)?رابط(?![${AR}])`,
+  `(?<![${AR}])(?:ال)?رابط\\s*(?:ال)?(?:حجز|موعد)(?![${AR}])`,
+  '\\b(?:book|booking)\\b',
+  "\\b(?:where(?:'s| is)?|send me|give me) (?:the )?link\\b",
+].join('|'), 'i');
+
 const STATUS_RE = new RegExp([
   `(?<![${AR}])(?:شو|إيش|ايش|وين|كيف|متى|إمتى|امتى|شً)\\s*(?:صار|وصل|عن|على|عل|مع|أخبار|اخبار|في)?\\s*(?:ال|ب|بال|ل|لل|عن|في)?\\s*(?:موعد|موعدنا|موعدي|مكالمة|المكالمة|مكالمتنا|مكالمتي|الحجز|حجزي)(?![${AR}])`,
   `(?<![${AR}])(?:ال)?(?:موعد|موعدنا|موعدي|مكالمة|المكالمة|مكالمتنا|مكالمتي|الحجز|حجزي)\\s*(?:هو|كان|صار)?\\s*(?:متى|إمتى|امتى|امته|كم|وين)(?![${AR}])`,
@@ -1027,6 +1043,8 @@ function textIntent(texts, wd, now = new Date(), { requestOpen = true, linkOpen 
     if (STATUS_RE.test(s)) return 'status';
     const change = CHANGE_RE.exec(s);
     if (linkPending(wd, now) && change && !negatedAt(s, change.index)) return 'change';
+    // The link went out and was not used yet: asking for it again gets the same link, never a new promise.
+    if (linkPending(wd, now) && BOOK_RE.test(s)) return 'change';
     return null;
   }
   const cancel = CANCEL_RE.exec(s);
@@ -1034,6 +1052,10 @@ function textIntent(texts, wd, now = new Date(), { requestOpen = true, linkOpen 
   const change = CHANGE_RE.exec(s);
   if (change && !negatedAt(s, change.index)) return 'change';
   if (STATUS_RE.test(s)) return 'status';
+  // Booking again what is already booked: the record says what they have, with change and cancel beside it.
+  // Only a booking with an event on the calendar — a call REQUEST with no event yet is still booked the
+  // normal way (slots in-chat, the link in Calendly mode), so it stays with the model.
+  if (activeBooking(wd, now) && BOOK_RE.test(s)) return 'status';
   return null;
 }
 

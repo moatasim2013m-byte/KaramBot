@@ -457,12 +457,28 @@ describe('text intents while a booking exists', () => {
     ['بدي أغيّر الموعد', 'change'],
     ['Can we reschedule?', 'change'],
     ["I can't make it tomorrow", 'change'],
+    // Asking to book (or for the link) what is already booked is answered from the record: live on
+    // 2026-09-20 it reached the model with no book_link button — book_link is withheld once a booking
+    // exists — and the reply invented «رابط الحجز بيوصلك من الفريق مباشرة».
+    ['بدي احجز', 'status'],
+    ['احجزلي موعد', 'status'],
+    ['تمام وين الرابط', 'status'],
+    ['ابعتلي رابط الحجز', 'status'],
+    ['I want to book', 'status'],
+    ['where is the link', 'status'],
     ['ما بدي ألغي', null],
     ['تمام شكرًا', null],
     ['غير هيك كل شي تمام', null],
     ['شو بتعملوا للمطاعم؟', null],
   ])('%s → %s', (text, expected) => {
     expect(booking.textIntent([text], wd, MON_10)).toBe(expected);
+  });
+
+  test('a call request with no event yet is still booked the normal way, not answered from the record', () => {
+    // callRequestOpen without an event: «بدي احجز» must keep reaching the slots / the link, not 'status'.
+    const request = { lead: { preferred_time: { text: 'بكرا الساعة 10', start: null } } };
+    expect(booking.textIntent(['بدي احجز'], request, MON_10)).toBeNull();
+    expect(booking.textIntent(['book me in'], request, MON_10)).toBeNull();
   });
 
   test('no booking (or a cancelled one) → never an intent', () => {
