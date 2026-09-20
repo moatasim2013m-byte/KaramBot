@@ -151,22 +151,26 @@ describe('A. request shape', () => {
     expect(anthropicConfig().thinking).toBe('off');
   });
 
-  test('A3. the response schema fits structured outputs: additionalProperties:false everywhere, no maxItems / nullable / format', () => {
+  test('A3. the response schema fits structured outputs: additionalProperties:false and every property required, no maxItems / nullable / format / union', () => {
     for (const schema of [RESPONSE_SCHEMA, RESPONSE_SCHEMA_V1]) {
       const out = toClaudeSchema(schema);
       walk(out, (node, path) => {
         expect({ path, nullable: node.nullable }).toEqual({ path, nullable: undefined });
         expect({ path, format: node.format }).toEqual({ path, format: undefined });
         expect({ path, maxItems: node.maxItems }).toEqual({ path, maxItems: undefined });
-        if (node.type === 'object') expect({ path, ap: node.additionalProperties }).toEqual({ path, ap: false });
+        expect({ path, anyOf: node.anyOf }).toEqual({ path, anyOf: undefined });
+        if (node.type === 'object') {
+          expect({ path, ap: node.additionalProperties }).toEqual({ path, ap: false });
+          // A union-typed parameter is what the API counts, and an optional property is one: every
+          // property is required so the schema stays inside the cap (see toClaudeSchema).
+          expect({ path, required: node.required }).toEqual({ path, required: Object.keys(node.properties) });
+        }
       });
-      expect(out.required).toEqual(schema.required);
     }
     const out = toClaudeSchema(RESPONSE_SCHEMA);
     expect(out.properties.action).toEqual({ type: 'string', enum: RESPONSE_SCHEMA.properties.action.enum });
-    expect(out.properties.lead.anyOf[1]).toEqual({ type: 'null' });
-    expect(out.properties.lead.anyOf[0].properties.city).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] });
-    expect(out.properties.buttons.anyOf[0].items.required).toEqual(['id', 'title']);
+    expect(out.properties.lead.properties.city).toEqual({ type: 'string' });
+    expect(out.properties.buttons.items.required).toEqual(['id', 'title']);
     // Deterministic: the same object every call, so the request bytes (and the schema cache) never vary.
     expect(toClaudeSchema(RESPONSE_SCHEMA)).toBe(out);
   });

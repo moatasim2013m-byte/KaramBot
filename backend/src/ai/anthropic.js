@@ -43,8 +43,15 @@ function anthropicConfig(env = process.env) {
 // ─── structured outputs: Gemini responseSchema → JSON schema ─────────────────
 //
 // Structured outputs need additionalProperties:false on every object and reject maxItems (beyond 0/1),
-// string length and numeric bounds; Gemini's `nullable` becomes anyOf [T, null] (the prompt tells the model
-// to write null for unknown lead fields), `format: 'enum'` is Gemini-only.
+// string length and numeric bounds; `format: 'enum'` is Gemini-only.
+//
+// Every property is listed in `required`, and Gemini's `nullable` is dropped rather than turned into
+// anyOf [T, null]. Structured outputs cap how many parameters may be union-typed, and on this API an
+// optional property counts as one union just as `anyOf` does: the SHIFT schema's 24 fields 400 as
+// "too many parameters with union types (21)" when nullable, and as "Schema is too complex" when merely
+// optional. Required-everything is the only shape it accepts, and it costs nothing downstream — the model
+// writes "" for what it does not know, which lead.js (isEmpty/pickObject) and normalizeActionArgs already
+// treat exactly as a missing field.
 
 const converted = new WeakMap();
 
@@ -63,7 +70,8 @@ function convertNode(node) {
     const properties = {};
     for (const key of Object.keys(node.properties || {})) properties[key] = convertNode(node.properties[key]);
     out = { type: 'object', properties, additionalProperties: false };
-    if (Array.isArray(node.required) && node.required.length) out.required = [...node.required];
+    const keys = Object.keys(properties);
+    if (keys.length) out.required = keys;
   } else if (type === 'array') {
     out = { type: 'array', items: node.items ? convertNode(node.items) : {} };
   } else {
@@ -71,7 +79,7 @@ function convertNode(node) {
     if (Array.isArray(node.enum)) out.enum = [...node.enum];
   }
   if (node.description) out.description = node.description;
-  return node.nullable ? { anyOf: [out, { type: 'null' }] } : out;
+  return out;
 }
 
 // Once the API has rejected the schema, stop sending it (this process): a schema that 400s would 400 on
