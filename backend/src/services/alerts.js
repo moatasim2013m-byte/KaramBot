@@ -65,11 +65,21 @@ function escapeForWebhook(value) {
 }
 
 // Plain text only: Slack, Discord and WhatsApp all render it the same.
+//
+// The conversation id is NOT in the text: staff read these on their own phones, and a line like
+// «conversation=cmu0x7xgd0001oy9dkumedui8» is noise to everyone who is not debugging (owner, 2026-09-21).
+// The customer's name and number identify the chat — that is what staff search WhatsApp by — and every
+// alert still carries the id in the server log beside it (`[alerts] reason=… conversation=…`).
 function formatAlertText({ reason, business, conversation, summary }, { forWebhook = false } = {}) {
   const conv = conversation || {};
   const label = ALERT_LABELS[reason] || reason;
   const safe = (v) => (forWebhook ? escapeForWebhook(v) : v);
-  return `🔔 SHIFT bot — ${label}\nالعميل: ${safe(conv.profile_name || '-')} (+${conv.customer_wa_id})\n${safe(summary || '')}\nconversation=${conv.id}`;
+  const lines = [
+    `🔔 SHIFT bot — ${label}`,
+    `العميل: ${safe(conv.profile_name || '-')} (+${conv.customer_wa_id})`,
+    safe(summary || ''),
+  ];
+  return lines.filter((l) => String(l).trim()).join('\n');
 }
 
 function alertNumbers(business) {

@@ -43,7 +43,7 @@ afterEach(() => {
 describe('formatAlertText', () => {
   test('plain text with label, customer, summary and conversation id', () => {
     expect(formatAlertText({ reason: 'quote', business: business(), conversation, summary: 'عيادة أسنان، بدها عرض سعر' }))
-      .toBe('🔔 SHIFT bot — طلب عرض سعر\nالعميل: محمد (+962791111111)\nعيادة أسنان، بدها عرض سعر\nconversation=conv_1');
+      .toBe('🔔 SHIFT bot — طلب عرض سعر\nالعميل: محمد (+962791111111)\nعيادة أسنان، بدها عرض سعر');
     expect(formatAlertText({ reason: 'handoff', conversation: { ...conversation, profile_name: null }, summary: '' }))
       .toContain('العميل: - (+962791111111)');
   });
