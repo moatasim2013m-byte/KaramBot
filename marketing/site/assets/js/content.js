@@ -195,7 +195,7 @@ window.SHIFT_CONTENT = {
     "top": {
       "eyebrow": { "ar": "وكيل واتساب ذكي للمنشآت · إربد، الأردن", "en": "A WhatsApp AI agent for local businesses · Irbid, Jordan" },
       "title": { "ar": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.", "en": "A customer messages you at 11 pm. Karam replies, books, and tells you in the morning." },
-      "intro": { "ar": "يردّ من أسعارك ومواعيدك، ويحوّل الحالات الصعبة إلى موظف — وأنت تتحكّم بكل شيء.", "en": "It answers from your prices and schedule, hands the hard cases to a person — and you stay in control of everything." }
+      "intro": { "ar": "شِفت شركة أردنية من إربد بتركّب وكيل ذكاء اصطناعي على رقم واتساب منشأتك: بيردّ على الزباين، بيحجز المواعيد، وبيسجّل الطلبات — وإنت متحكّم بكل شي.", "en": "SHIFT is a Jordanian company from Irbid. We put an AI agent on your business's WhatsApp number: it answers customers, books appointments and logs orders — and you stay in control of everything." }
     },
     "karam": {
       "eyebrow": { "ar": "كرم بوت · المنتج الرئيسي", "en": "Karam Bot · the flagship" },
