@@ -49,7 +49,7 @@ const SETTLED_STATUSES = ['failed', 'ambiguous_unreconciled', 'cancelled'];
 
 const BUSINESS_SELECT = {
   id: true, name: true, business_type: true, status: true,
-  currency: true, wa_phone_number_id: true, wa_access_token: true,
+  currency: true, wa_phone_number_id: true, wa_access_token: true, wa_business_account_id: true,
   ai_config: true, policies: true,
 };
 
@@ -256,12 +256,24 @@ async function persistInbound(entry) {
   if (!value || !messages.length) return { business: null, items: [] };
 
   const phoneNumberId = value.metadata?.phone_number_id;
+  // entry.id is the WABA the event came from. Since Embedded Signup, one callback URL
+  // serves every customer's WABA, so the number alone is no longer proof of ownership:
+  // a number is only this business's when its WABA matches too. A mismatch is dropped,
+  // never delivered to the business that merely shares the number id.
+  const wabaId = entry?.id ? String(entry.id) : null;
   const business = await prisma.business.findFirst({
     where: { wa_phone_number_id: phoneNumberId },
     select: BUSINESS_SELECT,
   });
   if (!business) {
     console.warn(`No business found for phone_number_id: ${phoneNumberId}`);
+    return { business: null, items: [] };
+  }
+  if (wabaId && business.wa_business_account_id && business.wa_business_account_id !== wabaId) {
+    console.error(
+      `[webhook] WABA mismatch — dropping: phone_number_id=${phoneNumberId} arrived on WABA ${wabaId} ` +
+      `but business ${business.id} is registered to ${business.wa_business_account_id}`,
+    );
     return { business: null, items: [] };
   }
   if (business.status !== 'active') return { business, items: [] };

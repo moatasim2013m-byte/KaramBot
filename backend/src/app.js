@@ -7,8 +7,27 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 
-// Security headers
-app.use(helmet());
+// Security headers.
+//
+// The dashboard is served from here, so this CSP governs the page that runs Embedded
+// Signup. Helmet's defaults allow scripts from 'self' only, which blocks the Facebook
+// JS SDK and the facebook.com frames it opens, so those origins — and only those — are
+// added on top of the defaults rather than replacing them.
+const FB_SCRIPT = 'https://connect.facebook.net';
+const FB_FRAMES = ['https://www.facebook.com', 'https://web.facebook.com', 'https://staticxx.facebook.com'];
+const cspDefaults = helmet.contentSecurityPolicy.getDefaultDirectives();
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...cspDefaults,
+      'script-src': ["'self'", FB_SCRIPT],
+      'frame-src': ["'self'", ...FB_FRAMES],
+      'connect-src': ["'self'", 'https://graph.facebook.com', ...FB_FRAMES],
+      'img-src': ["'self'", 'data:', 'https://*.facebook.com'],
+    },
+  },
+}));
 
 // CORS
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173').split(',');
@@ -39,6 +58,8 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
+// Mounted before the webhook router so the more specific path wins.
+app.use('/api/whatsapp/embedded-signup', apiLimiter, require('./routes/embeddedSignup'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 // Bearer-protected and called every minute by Cloud Scheduler: never behind apiLimiter.
 app.use('/api/internal', require('./routes/internal'));

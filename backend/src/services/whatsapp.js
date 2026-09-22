@@ -1,6 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
+const { allAppSecrets } = require('../utils/metaSecrets');
 
 // Read on every call (not a module constant) so a version bump is an env change, not a
 // deploy. v19.0 is expired and v20.0 expires 2026-09-24 (decision D10).
@@ -28,22 +29,29 @@ function withCallbackData(payload, callbackData) {
 }
 
 /**
- * Validate Meta webhook signature
+ * Validate Meta webhook signature.
+ *
+ * Since Embedded Signup, one callback URL receives traffic from two Meta apps: the
+ * legacy Karambot app and the Tech Provider app that customer WABAs are subscribed
+ * through. Each signs with its own secret and the payload does not name the app, so
+ * a body is valid when it matches any configured secret. Every comparison is
+ * constant-time, and a failure says nothing about which secret was tried.
  */
 function validateSignature(rawBody, signature) {
-  const appSecret = process.env.META_APP_SECRET;
-  if (!appSecret) return true; // skip in dev if not set
+  const secrets = allAppSecrets();
+  if (!secrets.length) return true; // skip in dev if none is set
 
-  const expected = 'sha256=' + crypto
-    .createHmac('sha256', appSecret)
-    .update(rawBody)
-    .digest('hex');
-
-  try {
-    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
+  return secrets.some((secret) => {
+    const expected = 'sha256=' + crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  });
 }
 
 // ─── Interactive limits ──────────────────────────────────────────────────────

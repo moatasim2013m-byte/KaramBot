@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Save, Smartphone } from 'lucide-react';
+import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
 
 function Section({ title, children }) {
   return (
@@ -262,6 +263,14 @@ export default function SettingsPage() {
       {/* Tab content */}
       {tab === 'general' && (
         <>
+          {/* Embedded Signup, admin-only until one real WABA has been onboarded end to end.
+              The backend enforces the same role, so hiding it here is convenience, not the gate. */}
+          {user?.role === 'platform_admin' && (
+            <div className="mb-5" dir="ltr">
+              <ConnectWhatsApp businessId={biz.id} />
+            </div>
+          )}
+
           <Section title="معلومات المطعم">
             <Field label="اسم المطعم">
               <input value={biz.name || ''} onChange={e => set('name', e.target.value)} className={inputClass} />

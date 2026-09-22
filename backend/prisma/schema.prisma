@@ -27,6 +27,7 @@ model Business {
   wa_phone_number_id     String   @unique
   wa_business_account_id String?
   wa_access_token        String?  // stored encrypted; never expose raw
+  wa_app_id              String?  // Meta app that owns this number's webhooks; selects the signing secret
   opening_hours          Json     @default("[]")
   status                 String   @default("active")
   ai_config              Json     @default("{}")
@@ -41,6 +42,7 @@ model Business {
   categories    Category[]
   menuItems     MenuItem[]
   modifierGroups ModifierGroup[]
+  whatsappOnboarding WhatsappOnboarding?
 
   @@index([slug])
   @@index([wa_phone_number_id])
@@ -351,4 +353,36 @@ model Appointment {
 
   @@index([business_id])
   @@map("appointments")
+}
+
+// ─── WhatsappOnboarding ───────────────────────────────────────────────────────
+// One row per Embedded Signup (v4) run. Kept beside Business rather than inside it
+// because a signup starts before a Business exists and must survive a failed step:
+// `step` is the resume point, so a retry continues instead of asking the customer
+// to run Embedded Signup again.
+model WhatsappOnboarding {
+  id                 String    @id @default(cuid())
+  business_id        String?   @unique
+  app_id             String    // the Meta app that onboarded this WABA; picks the secret for signature checks
+  meta_business_id   String
+  waba_id            String
+  phone_number_id    String    @unique
+  access_token_enc   String?   // AES-256-GCM (tokenCrypto). Never logged, never sent to the browser.
+  pin_enc            String?   // the 6-digit 2FA PIN, same protection as the token
+  step               String    @default("code_received") // → token_exchanged → subscribed → registered → done
+  token_exchanged_at DateTime?
+  subscribed_at      DateTime?
+  registered_at      DateTime?
+  payment_method_ok  Boolean   @default(false) // customer-side; only they can add it in WhatsApp Manager
+  session_id         String?   // Meta's session id, for support escalations
+  last_error         String?
+  last_error_at      DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  business Business? @relation(fields: [business_id], references: [id])
+
+  @@index([waba_id])
+  @@index([step])
+  @@map("whatsapp_onboardings")
 }

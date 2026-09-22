@@ -41,6 +41,13 @@ function validateEnv() {
     }
   }
 
+  // Embedded Signup is optional: without the app secret the Connect button fails loudly at
+  // the exchange, but the bot keeps serving every number that is already connected. A missing
+  // secret must not stop the service from booting.
+  if (!process.env.SHIFT_ES_APP_SECRET) {
+    warnings.push('SHIFT_ES_APP_SECRET (WhatsApp Embedded Signup is disabled without it)');
+  }
+
   const provider = process.env.AI_PROVIDER || 'gemini';
   const aiKey = AI_KEYS[provider];
   if (aiKey) {

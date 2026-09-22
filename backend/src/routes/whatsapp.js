@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { validateSignature, parseInboundMessage } = require('../services/whatsapp');
 const { persistInbound, processInboundMessage } = require('../services/messageProcessor');
+const { handleAccountUpdate } = require('../services/accountUpdate');
 
 // GET - Meta webhook verification
 router.get('/webhook', (req, res) => {
@@ -50,6 +51,18 @@ router.post('/webhook', async (req, res) => {
   // 500 and Meta retries; the unique meta_message_id makes the retry harmless. Meta expects an
   // answer within a few seconds, hence the budget.
   const entries = body.entry || [];
+
+  // account_update carries no messages; it is answered on its own so a Graph hiccup on an
+  // onboarding row can never delay the 200 that inbound messages depend on.
+  for (const entry of entries) {
+    for (const change of entry.changes || []) {
+      if (change.field === 'account_update') {
+        handleAccountUpdate(entry, change).catch((err) =>
+          console.error('[account_update] failed:', err.message));
+      }
+    }
+  }
+
   const budget = parseInt(process.env.WEBHOOK_PERSIST_BUDGET_MS, 10) || 4000;
   const persists = entries.map((e) => persistInbound(e));
   let persisted;
