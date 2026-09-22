@@ -3,8 +3,9 @@
 How a business customer connects its own WhatsApp Business Account from the SHIFT
 dashboard, and what SHIFT does automatically once they do.
 
-Status as of 2026-09-22: **code complete, not yet run against a real WABA.** Two
-owner actions block the first live test — see [Before the first live test](#before-the-first-live-test).
+Status as of 2026-09-22: **code complete, not yet run against a real WABA.** One owner
+action blocks the first live test — the app secret. See
+[Before the first live test](#before-the-first-live-test).
 
 Commit: `528c37b1`.
 
@@ -174,14 +175,14 @@ gcloud run services update karambot --region=europe-west1 \
   --update-secrets=SHIFT_ES_APP_SECRET=SHIFT_ES_APP_SECRET:latest
 ```
 
-**2. Add the real dashboard domain to the Meta app.** The listed domains are
-`app.shifts-ai.store` and `karambots.com`, but the dashboard runs on
-**`app.shifts-ai.com`** (the `.store` host 301-redirects there, and a redirect does not
-carry the SDK origin). With Strict Mode on, `FB.login` is blocked until this is added.
+**2. Domain — nothing to do.** Run the flow on **https://karambots.com**, which is already
+in both Allowed Domains for the JavaScript SDK and Valid OAuth Redirect URIs.
 
-App Dashboard → Facebook Login for Business → Settings:
-- **Valid OAuth Redirect URIs**: add `https://app.shifts-ai.com/`
-- **Allowed Domains for the JavaScript SDK**: add `https://app.shifts-ai.com/`
+It serves the identical dashboard bundle from the same Cloud Run service and, unlike
+`app.shifts-ai.store`, it answers 200 rather than redirecting — and a redirect does not
+carry the SDK origin. `app.shifts-ai.com` is the everyday dashboard domain but is *not*
+listed at Meta, so `FB.login` is blocked there until someone adds it. Either add it, or
+use `karambots.com` for signups.
 
 **3. Confirm two things I cannot read without that app's secret:**
 - WhatsApp → Configuration → Webhook: callback URL points at the Cloud Run service's
