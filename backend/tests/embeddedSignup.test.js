@@ -138,3 +138,26 @@ describe('resume', () => {
     expect(regBody.pin).toBe('042042');
   });
 });
+
+describe('a number that already has two-step verification', () => {
+  test('a supplied PIN overrides the stored one, so a retry is not stuck with ours', async () => {
+    const { encrypt } = require('../src/utils/tokenCrypto');
+    prisma.whatsappOnboarding.findUnique.mockResolvedValue(
+      row({ step: 'subscribed', access_token_enc: encrypt(TOKEN), pin_enc: encrypt('111111') }));
+    axios.post.mockResolvedValue({ data: {} });
+
+    await runOnboarding('onb_1', { pin: '987654' });
+
+    const [, regBody] = axios.post.mock.calls[0];
+    expect(regBody.pin).toBe('987654');
+  });
+
+  test('a PIN that is not 6 digits is refused before Meta is called', async () => {
+    const { encrypt } = require('../src/utils/tokenCrypto');
+    prisma.whatsappOnboarding.findUnique.mockResolvedValue(
+      row({ step: 'subscribed', access_token_enc: encrypt(TOKEN) }));
+
+    await expect(runOnboarding('onb_1', { pin: '12ab' })).rejects.toThrow(/6 digits/);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+});

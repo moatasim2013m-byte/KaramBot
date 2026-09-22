@@ -61,10 +61,15 @@ router.post('/exchange', async (req, res) => {
   }
 });
 
-/** Continue a signup that failed at step 2 or 3. No new Embedded Signup run needed. */
+/**
+ * Continue a signup that failed at step 2 or 3. No new Embedded Signup run needed.
+ *
+ * An optional 6-digit `pin` is for a number that already had two-step verification set
+ * elsewhere: Meta rejects any PIN but the existing one, so the customer supplies theirs.
+ */
 router.post('/:id/retry', async (req, res) => {
   try {
-    const done = await runOnboarding(req.params.id, {});
+    const done = await runOnboarding(req.params.id, { pin: req.body?.pin });
     return res.json({ status: 'connected', onboarding: publicStatus(done) });
   } catch (err) {
     const row = await prisma.whatsappOnboarding.findUnique({ where: { id: req.params.id } }).catch(() => null);

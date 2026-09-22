@@ -140,7 +140,7 @@ async function recordFailure(id, step, err) {
  * a failed step 2 or 3 does not send the customer back through Embedded Signup.
  * Returns the row as the dashboard should show it.
  */
-async function runOnboarding(onboardingId, { code } = {}) {
+async function runOnboarding(onboardingId, { code, pin: suppliedPin } = {}) {
   let row = await prisma.whatsappOnboarding.findUnique({ where: { id: onboardingId } });
   if (!row) throw new Error(`onboarding ${onboardingId} not found`);
   if (row.step === 'done') return row; // already finished — nothing to repeat
@@ -188,7 +188,15 @@ async function runOnboarding(onboardingId, { code } = {}) {
   if (stepIndex(row.step) < stepIndex('registered')) {
     // A retry after a failed register reuses the stored PIN: Meta remembers the PIN it
     // accepted, so a fresh one on every attempt would lock the customer out of 2FA.
-    const pin = decrypt(row.pin_enc) || generatePin();
+    //
+    // `suppliedPin` is the way out of the one case the stored PIN cannot solve: a number
+    // that already had two-step verification set somewhere else. Meta then rejects any PIN
+    // but the existing one, and retrying with ours would fail forever — so the customer's
+    // own PIN can be passed in and takes precedence.
+    if (suppliedPin !== undefined && !/^\d{6}$/.test(String(suppliedPin))) {
+      throw new Error('pin must be exactly 6 digits');
+    }
+    const pin = suppliedPin ? String(suppliedPin) : (decrypt(row.pin_enc) || generatePin());
     try {
       await registerPhoneNumber(row.phone_number_id, token, pin);
     } catch (err) {
