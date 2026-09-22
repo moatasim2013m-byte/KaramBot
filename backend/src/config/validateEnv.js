@@ -47,6 +47,11 @@ function validateEnv() {
   if (!process.env.SHIFT_ES_APP_SECRET) {
     warnings.push('SHIFT_ES_APP_SECRET (WhatsApp Embedded Signup is disabled without it)');
   }
+  // Without it the SHIFT webhook cannot complete Meta's handshake, but the legacy app's
+  // numbers keep working, so this warns rather than stopping the service.
+  if (!process.env.SHIFT_WEBHOOK_VERIFY_TOKEN) {
+    warnings.push('SHIFT_WEBHOOK_VERIFY_TOKEN (the SHIFT webhook cannot be verified without it)');
+  }
 
   const provider = process.env.AI_PROVIDER || 'gemini';
   const aiKey = AI_KEYS[provider];

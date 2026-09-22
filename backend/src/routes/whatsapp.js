@@ -1,21 +1,46 @@
 const express = require('express');
-const router = express.Router();
 const { validateSignature, parseInboundMessage } = require('../services/whatsapp');
 const { persistInbound, processInboundMessage } = require('../services/messageProcessor');
 const { handleAccountUpdate } = require('../services/accountUpdate');
 
-// GET - Meta webhook verification
-router.get('/webhook', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+/**
+ * One webhook implementation, mounted once per Meta app.
+ *
+ * SHIFT runs two apps against this backend — the legacy Karambot app for the numbers
+ * wired by hand, and the Tech Provider app that Embedded Signup onboards customers
+ * through. They are kept apart at the edge: each has its own URL, its own verify
+ * token and its own app secret, so a body signed by one app is rejected by the
+ * other's endpoint rather than accepted because it matched "some" configured secret.
+ *
+ * Everything past the signature check is deliberately shared: the same pipeline, the
+ * same tenant-isolation rule (the WABA and the phone number must both belong to the
+ * business), so a customer onboarded through either app behaves identically.
+ *
+ * `verifyToken` and `appSecret` are read per request, not captured at mount time,
+ * because Cloud Run injects them from Secret Manager and a rotation must not need a
+ * code change.
+ */
+function createWebhookRouter({ label, verifyToken, appSecret }) {
+  const router = express.Router();
 
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
-    console.log('✅ WhatsApp webhook verified');
-    return res.status(200).send(challenge);
-  }
-  return res.status(403).json({ error: 'Verification failed' });
-});
+  // GET - Meta webhook verification
+  router.get('/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    const expected = verifyToken();
+
+    // Meta re-verifies on its own schedule; a cached challenge would answer a later
+    // handshake with an older value.
+    res.set('Cache-Control', 'no-store');
+
+    if (mode === 'subscribe' && expected && token === expected) {
+      console.log(`✅ [${label}] webhook verified`);
+      return res.status(200).send(challenge);
+    }
+    console.warn(`⚠️ [${label}] webhook verification failed`);
+    return res.status(403).json({ error: 'Verification failed' });
+  });
 
 // Rejects with Error('persist timeout') after `ms`; the timer is cleared as soon as the promise settles.
 function withTimeout(promise, ms) {
@@ -26,14 +51,14 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// POST - Inbound messages
-router.post('/webhook', async (req, res) => {
+  // POST - Inbound messages
+  router.post('/webhook', async (req, res) => {
   // Validate signature
   const signature = req.headers['x-hub-signature-256'] || '';
   const rawBody = req.body; // raw buffer (middleware set before json)
 
-  if (!validateSignature(rawBody, signature)) {
-    console.warn('⚠️ Invalid webhook signature');
+  if (!validateSignature(rawBody, signature, appSecret())) {
+    console.warn(`⚠️ [${label}] invalid webhook signature`);
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
@@ -95,4 +120,7 @@ router.post('/webhook', async (req, res) => {
   });
 });
 
-module.exports = router;
+  return router;
+}
+
+module.exports = { createWebhookRouter };

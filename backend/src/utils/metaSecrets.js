@@ -33,16 +33,6 @@ function appSecretFor(appId) {
   return value;
 }
 
-/** Every configured app secret, for a webhook whose app id we cannot tell in advance. */
-function allAppSecrets() {
-  const secrets = [];
-  for (const envName of new Set(Object.values(APP_SECRET_ENV))) {
-    if (process.env[envName]) secrets.push(process.env[envName]);
-  }
-  if (process.env.META_APP_SECRET) secrets.push(process.env.META_APP_SECRET);
-  return secrets;
-}
-
 /** The Embedded Signup app id and secret, for the code→token exchange. */
 function embeddedSignupApp() {
   const appId = process.env.META_ES_APP_ID || '1065272896256103';
@@ -59,4 +49,4 @@ function embeddedSignupApp() {
 
 function _resetCache() { cache.clear(); }
 
-module.exports = { appSecretFor, allAppSecrets, embeddedSignupApp, _resetCache };
+module.exports = { appSecretFor, embeddedSignupApp, _resetCache };

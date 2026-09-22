@@ -44,6 +44,7 @@ if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
 // Raw body for webhook signature validation (must be before json parser)
 app.use('/api/whatsapp/webhook', express.raw({ type: 'application/json' }));
+app.use('/api/shift/whatsapp/webhook', express.raw({ type: 'application/json' }));
 
 // JSON body
 app.use(express.json({ limit: '5mb' }));
@@ -60,7 +61,9 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 // Mounted before the webhook router so the more specific path wins.
 app.use('/api/whatsapp/embedded-signup', apiLimiter, require('./routes/embeddedSignup'));
-app.use('/api/whatsapp', require('./routes/whatsapp'));
+app.use('/api/whatsapp', require('./routes/legacyWhatsapp'));
+// The SHIFT Tech Provider app delivers here: its own URL, verify token and app secret.
+app.use('/api/shift/whatsapp', require('./routes/shiftWhatsapp'));
 // Bearer-protected and called every minute by Cloud Scheduler: never behind apiLimiter.
 app.use('/api/internal', require('./routes/internal'));
 app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
