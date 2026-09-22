@@ -1,11 +1,11 @@
 {
   "/": {
-    "hash": "c85004def23c49fb83d3118f4f6f76e0d160730facc3792183420406952249b3",
-    "lastmod": "2026-09-16"
+    "hash": "50f176f44e71e2a46ef2af0b64a159d0303386b307042ef064e849c8749a86c7",
+    "lastmod": "2026-09-22"
   },
   "/en": {
-    "hash": "b83d54576e478a96f38c52afa10ead1aa88b459df25aea64dedefff682334541",
-    "lastmod": "2026-09-14"
+    "hash": "1b09f0a9bdcd7dac423cb1fa607b056eedb839f1743fcc9e81ed088d5f0ed351",
+    "lastmod": "2026-09-22"
   },
   "/clinics": {
     "hash": "8f6647719d1be9d2e58323089bfc10d0e123e992e816f8684c07f30ffd4d5d94",
@@ -17,7 +17,7 @@
   },
   "/restaurants": {
     "hash": "804c17d4ab303e8f498572bc52398c722856a55a345b6eac95d30b9c8bfbbe12",
-    "lastmod": "2026-09-16"
+    "lastmod": "2026-09-22"
   },
   "/en/restaurants": {
     "hash": "fb63bfa5d8e45965396580aa5321e5d43290472feba1a428543984042ef3d7fe",
@@ -29,7 +29,7 @@
   },
   "/en/online-stores": {
     "hash": "06da54983b81732e0760cf0f48a03875283c592f3ab263a164d1776674d8395b",
-    "lastmod": "2026-09-14"
+    "lastmod": "2026-09-22"
   },
   "/privacy": {
     "hash": "46c8cf1687b2d462c94b45120b2cee96cd668d9979542cf0074751f494ee3b6c",

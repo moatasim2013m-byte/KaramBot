@@ -193,9 +193,9 @@ window.SHIFT_CONTENT = {
 
   "sections": {
     "top": {
-      "eyebrow": { "ar": "وكيل واتساب ذكي للمنشآت · إربد، الأردن", "en": "A WhatsApp AI agent for local businesses · Irbid, Jordan" },
+      "eyebrow": { "ar": "وكيل واتساب ذكي وحلول أتمتة للمنشآت", "en": "WhatsApp AI agents and custom automation for growing businesses" },
       "title": { "ar": "عميل يراسلك الساعة 11 ليلًا. كرم يردّ، يحجز، ويبلّغك الصباح.", "en": "A customer messages you at 11 pm. Karam replies, books, and tells you in the morning." },
-      "intro": { "ar": "شِفت شركة أردنية من إربد بتركّب وكيل ذكاء اصطناعي على رقم واتساب منشأتك: بيردّ على الزباين، بيحجز المواعيد، وبيسجّل الطلبات — وإنت متحكّم بكل شي.", "en": "SHIFT is a Jordanian company from Irbid. We put an AI agent on your business's WhatsApp number: it answers customers, books appointments and logs orders — and you stay in control of everything." }
+      "intro": { "ar": "شِفت شركة أردنية ومزوّد تقني معتمد من Meta لواتساب الأعمال. منركّب وكيل ذكاء اصطناعي على رقم واتساب منشأتك — بيردّ على الزباين، بيحجز المواعيد، وبيسجّل الطلبات — ومنبني حلول أتمتة مفصّلة على قياس شغلك، مهما كان نوعه. إيماننا إنّ المشروع الصغير بيستاهل يخدم زباينه زي الشركات الكبيرة، ومنكبر معه خطوة بخطوة.", "en": "SHIFT is a Jordanian company and a verified Meta Tech Provider for the WhatsApp Business Platform. We put an AI agent on your business's WhatsApp number — it answers customers, books appointments and logs orders — and we build automation shaped around how your business actually works. We believe a small business deserves to serve its customers as well as a large one, and we grow with it, step by step." }
     },
     "karam": {
       "eyebrow": { "ar": "كرم بوت · المنتج الرئيسي", "en": "Karam Bot · the flagship" },
