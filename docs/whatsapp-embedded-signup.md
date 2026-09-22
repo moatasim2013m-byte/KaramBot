@@ -3,9 +3,10 @@
 How a business customer connects its own WhatsApp Business Account from the SHIFT
 dashboard, and what SHIFT does automatically once they do.
 
-Status as of 2026-09-22: **code complete, not yet run against a real WABA.** One owner
-action blocks the first live test — the app secret. See
-[Before the first live test](#before-the-first-live-test).
+Status as of 2026-09-22: **deployed and configured; not yet run against a real WABA.**
+The app secret is in Secret Manager, the webhook subscription is live with
+`account_update`, and the migration is applied. What remains is one signup through the
+browser — see [The live test](#the-live-test).
 
 Commit: `528c37b1`.
 
@@ -162,37 +163,33 @@ img-src     'self' data: https://*.facebook.com
 
 ---
 
-## Before the first live test
+## The live test
 
-**1. Add the ES app secret to Secret Manager.** It is not there. The existing
-`META_APP_SECRET` belongs to a different app — app 1065272896256103 rejects it with
-`OAuthException code 190`. Do not overwrite it.
+Everything server-side is in place:
 
-```bash
-gcloud secrets create SHIFT_ES_APP_SECRET --project=karam-bot --replication-policy=automatic
-# add the app secret for 1065272896256103 as a version, then map it into Cloud Run:
-gcloud run services update karambot --region=europe-west1 \
-  --update-secrets=SHIFT_ES_APP_SECRET=SHIFT_ES_APP_SECRET:latest
-```
+| Item | State |
+|---|---|
+| App secret (`SHIFT_ES_APP_SECRET`) | in Secret Manager, verified against app 1065272896256103, mapped into Cloud Run |
+| Deployed revision | `karambot-00083-zxs`, image `18cc4e6e` |
+| Webhook subscription | active on `https://karambots.com/api/whatsapp/webhook`, fields `account_update`, `messages`, `message_template_status_update`, `phone_number_quality_update` |
+| Migration | `20260922090000_whatsapp_embedded_signup` applied; schema up to date |
 
-**2. Domain — nothing to do.** Run the flow on **https://karambots.com**, which is already
-in both Allowed Domains for the JavaScript SDK and Valid OAuth Redirect URIs.
+To run it:
 
-It serves the identical dashboard bundle from the same Cloud Run service and, unlike
-`app.shifts-ai.store`, it answers 200 rather than redirecting — and a redirect does not
-carry the SDK origin. `app.shifts-ai.com` is the everyday dashboard domain but is *not*
-listed at Meta, so `FB.login` is blocked there until someone adds it. Either add it, or
-use `karambots.com` for signups.
+1. Open **https://karambots.com/login** — it must be this domain, not `app.shifts-ai.com`,
+   which Meta does not list.
+2. Sign in as a `platform_admin`.
+3. **Settings** → the WhatsApp Business card → **Connect WhatsApp**.
+4. Complete Meta's flow with a real WABA.
 
-**3. Confirm two things I cannot read without that app's secret:**
-- WhatsApp → Configuration → Webhook: callback URL points at the Cloud Run service's
-  `/api/whatsapp/webhook`
-- **`account_update`** is subscribed under webhook fields (Meta requires it for Embedded Signup)
+Then check the onboarding row: `step` should read `done`, and the checklist should show the
+payment-method item until the customer adds one.
 
-**4. Apply the migration** — `npx prisma migrate deploy` runs on deploy.
+### Applying a migration
 
-Then: sign in as a `platform_admin`, open Settings, and run the flow with your own Meta
-credentials before any customer sees the button.
+Nothing in the pipeline runs migrations. Use `backend/scripts/migrate-prod.sh`, which reads
+the connection string from Secret Manager at run time and writes it nowhere. Check first
+with `npx prisma migrate status`.
 
 ---
 
