@@ -61,6 +61,13 @@ function canSendAutoReply(business, conversation, label) {
   return false;
 }
 
+/**
+ * Returns the conversation, and sets `created` on it when this delivery is the one that
+ * opened it. The conversation row is unique on (business_id, customer_wa_id), so a
+ * successful insert is the only moment a number is new to this business — which is what
+ * the new_customer alert hangs on, and why it cannot fire twice for the same customer.
+ * The flag is attached to the returned object only; it is never written to the database.
+ */
 async function getOrCreateConversation(businessId, customerWaId, profileName) {
   let conv = await prisma.conversation.findFirst({
     where: { business_id: businessId, customer_wa_id: customerWaId },
@@ -76,6 +83,7 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
           ai_enabled: true,
         },
       });
+      if (conv) conv.created = true;
     } catch (err) {
       // Two deliveries for a new customer can race on the (business_id, customer_wa_id) unique key.
       if (!err || err.code !== 'P2002') throw err;
@@ -293,6 +301,19 @@ async function persistInbound(entry) {
       const contact = withoutNul(contacts.find(c => c.wa_id === original.from) || {});
       const customerWaId = normalizePhone(waMsg.from);
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
+
+      // A number writing for the first time: tell the team, once. Best effort and never
+      // awaited — the webhook has seconds to answer Meta, and an alert must not delay the
+      // customer's reply or fail the delivery.
+      if (found?.created) {
+        const firstText = waMsg?.text?.body || waMsg?.[waMsg?.type]?.caption || `(${waMsg?.type || 'message'})`;
+        Promise.resolve(alerts.sendStaffAlert({
+          reason: 'new_customer',
+          business,
+          conversation: found,
+          summary: String(firstText).slice(0, 200),
+        })).catch((err) => console.error('[alerts] new_customer failed:', err.message));
+      }
       const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
         { captions: shiftQueue });
       items.push({

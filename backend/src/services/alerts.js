@@ -15,7 +15,7 @@ const { sendText } = require('./whatsapp');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
 
-const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure', 'reply_failures', 'billing', 'sla_breached',
+const ALERT_REASONS = ['new_customer', 'handoff', 'quote', 'needs_team', 'meeting', 'ai_failure', 'reply_failures', 'billing', 'sla_breached',
   'awaiting_staff', 'ambiguous_send', 'inbound_without_outbound', 'window_closing', 'hot_lead', 'unsent_reply',
   // PR3: sales-call bookings in Google Calendar and their reminders.
   'booking_booked', 'booking_rescheduled', 'booking_cancelled', 'booking_failed', 'booking_change_request', 'reminder_blocked',
@@ -25,6 +25,8 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
   'calendly_check', 'calendly_unmatched'];
 
 const ALERT_LABELS = {
+  // Fires once, the first time a number ever writes to this business.
+  new_customer: 'عميل جديد بلّش محادثة',
   handoff: 'طلب شخص من الفريق',
   quote: 'طلب عرض سعر',
   needs_team: 'يحتاج الفريق',
