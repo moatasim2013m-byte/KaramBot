@@ -176,14 +176,26 @@ Everything server-side is in place:
 
 To run it:
 
-1. Open **https://karambots.com/login** — it must be this domain, not `app.shifts-ai.com`,
-   which Meta does not list.
+1. Open **https://karambots.com/login** or **https://app.shifts-ai.com/login** — both are in
+   the app's Allowed Domains as of 2026-09-22.
 2. Sign in as a `platform_admin`.
 3. **Settings** → the WhatsApp Business card → **Connect WhatsApp**.
 4. Complete Meta's flow with a real WABA.
 
 Then check the onboarding row: `step` should read `done`, and the checklist should show the
 payment-method item until the customer adds one.
+
+### A number that already has two-step verification
+
+Registering fails if the number already has a PIN set elsewhere: Meta accepts only the PIN it
+holds. Retrying reuses our stored PIN, which never becomes the right one, so the customer's own
+PIN is passed instead:
+
+```
+POST /api/whatsapp/embedded-signup/<id>/retry   { "pin": "123456" }
+```
+
+A fresh number that is not on the Cloud API anywhere avoids the situation.
 
 ### Applying a migration
 
