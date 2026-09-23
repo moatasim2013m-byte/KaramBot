@@ -178,7 +178,7 @@ export default function ConnectWhatsApp({ businessId }) {
           sending, so it sits in the open rather than in a footnote. */}
       {status?.next_action?.code === 'add_payment_method' && (
         <div className="mt-3 rounded bg-amber-50 p-3 text-sm text-amber-900">
-          <p className="font-medium">One step left — add a payment method</p>
+          <p className="font-medium">Add a payment method before 30 September</p>
           <p className="mt-1">{status.next_action.en}</p>
           <a
             href={status.next_action.url}

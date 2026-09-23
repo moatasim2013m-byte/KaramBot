@@ -171,7 +171,7 @@ Everything server-side is in place:
 |---|---|
 | App secret (`SHIFT_ES_APP_SECRET`) | in Secret Manager, verified against app 1065272896256103, mapped into Cloud Run |
 | Deployed revision | `karambot-00083-zxs`, image `18cc4e6e` |
-| Webhook subscription | active on `https://karambots.com/api/whatsapp/webhook`, fields `account_update`, `messages`, `message_template_status_update`, `phone_number_quality_update` |
+| Webhook subscription | active on `https://app.shifts-ai.com/api/shift/whatsapp/webhook` (the SHIFT app's own endpoint, verified 2026-09-23), fields `account_update`, `messages`, `message_template_status_update`, `phone_number_quality_update`. The legacy Karambot app keeps `https://karambots.com/api/whatsapp/webhook`, signed with a different secret. |
 | Migration | `20260922090000_whatsapp_embedded_signup` applied; schema up to date |
 
 To run it:

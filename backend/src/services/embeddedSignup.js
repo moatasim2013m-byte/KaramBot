@@ -245,11 +245,17 @@ function publicStatus(row) {
     connected: row.step === 'done',
     payment_method_added: row.payment_method_ok,
     // The one thing left that only they can do; shown as a checklist item, not a footnote.
+    // From 1 October 2026 Meta charges service messages per message — the bot's REPLY to a
+    // customer who wrote first, not only business-initiated sends — and stops delivering them
+    // for any account without a payment method on file by 30 September 2026. So this is no
+    // longer "outbound campaigns won't go out"; without a card the bot goes silent.
     next_action: row.payment_method_ok ? null : {
       code: 'add_payment_method',
       url: 'https://business.facebook.com/wa/manage/home/',
-      ar: 'أضف طريقة دفع في WhatsApp Manager — بدونها لن تُرسل الرسائل التي تبدأ من عندك.',
-      en: 'Add a payment method in WhatsApp Manager — without it, messages you start will not send.',
+      deadline: '2026-09-30',
+      severity: 'critical',
+      ar: 'أضف طريقة دفع في WhatsApp Manager قبل 30 أيلول — بدونها سيتوقف الوكيل عن الرد على العملاء اعتبارًا من 1 تشرين الأول.',
+      en: 'Add a payment method in WhatsApp Manager before 30 September — without it the agent stops replying to customers from 1 October.',
     },
     last_error: row.last_error,
     updated_at: row.updated_at,

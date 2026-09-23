@@ -34,8 +34,9 @@ function connectionState(business, onboarding) {
   }
   if (!business.wa_access_token) return { state: 'down', label: 'بدون رمز وصول' };
   if (onboarding && !onboarding.payment_method_ok) {
-    // Meta will accept inbound but refuse business-initiated sends without this.
-    return { state: 'degraded', label: 'بانتظار طريقة الدفع' };
+    // Meta stops delivering service messages — the agent's replies — without a payment method
+    // on file from 1 October 2026, so this is a countdown, not a cosmetic gap.
+    return { state: 'degraded', label: 'بدون طريقة دفع — مهلة 30 أيلول' };
   }
   return { state: 'ok', label: 'متصل' };
 }
@@ -187,7 +188,9 @@ router.get('/overview', async (req, res) => {
         push('warning', 'onboarding_incomplete', `التوصيل لم يكتمل — ${onboarding.step}`, onboarding.updated_at);
       }
       if (onboarding && onboarding.step === 'done' && !onboarding.payment_method_ok) {
-        push('warning', 'payment_method', 'بانتظار إضافة طريقة دفع — الرسائل الصادرة متوقفة', onboarding.updated_at);
+        // Not a warning any more: without a card, Meta stops delivering service messages —
+        // the bot's own replies — from 1 October 2026.
+        push('critical', 'payment_method', 'لا توجد طريقة دفع — الوكيل سيتوقف عن الرد من 1 تشرين الأول', onboarding.updated_at);
       }
       if (bucket === 'active' && lastActivity && minutesSince(lastActivity) > QUIET_HOURS * 60) {
         push('info', 'quiet', `لا نشاط منذ ${Math.round(minutesSince(lastActivity) / 60 / 24)} يوم`, lastActivity);
