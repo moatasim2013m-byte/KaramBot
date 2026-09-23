@@ -38,7 +38,9 @@ function TestMessage({ accountId }) {
   return (
     <div className="p-4 space-y-3">
       <p className="text-xs text-gray-500">
-        يجرّب ردّ الوكيل بإعدادات هذا الحساب. لا تُرسَل أي رسالة على واتساب ولا تُحفَظ في المحادثات.
+        يتحقق فقط من الوصول إلى النموذج بإعدادات هذا الحساب — <strong>لا يشغّل مسار العمل</strong>،
+        فالحساب بلا مسار عمل قد يجيب هنا بشكل سليم بينما يرد على العملاء بترحيب ثابت. لا تُرسَل أي رسالة
+        على واتساب ولا تُحفَظ في المحادثات.
       </p>
       <div className="flex gap-2">
         <input
@@ -63,10 +65,15 @@ function TestMessage({ accountId }) {
       {result && (
         <div className="border border-gray-200 rounded-md">
           <div className="flex items-center justify-between px-3 h-8 border-b border-gray-100 bg-gray-50">
-            <span className="text-[11px] text-gray-500">ردّ الوكيل — لم يُرسَل</span>
+            <span className="text-[11px] text-gray-500">ردّ النموذج — لم يُرسَل، وبدون مسار عمل</span>
             <span className="text-[11px] text-gray-400"><Ltr>{result.latency_ms}</Ltr> ms</span>
           </div>
           <p className="px-3 py-2.5 text-[13px] text-gray-800 whitespace-pre-wrap leading-relaxed">{result.reply}</p>
+          {result.has_workflow === false && (
+            <p className="px-3 pb-2 text-[11px] text-red-700">
+              هذا الحساب بلا مسار عمل — العملاء يصلهم ترحيب ثابت، وليس هذا الرد.
+            </p>
+          )}
           {result.ai_enabled === false && (
             <p className="px-3 pb-2 text-[11px] text-amber-700">
               الذكاء الاصطناعي موقوف لهذا الحساب — العملاء لن يصلهم هذا الرد.
@@ -177,7 +184,7 @@ export default function AccountHealthTab({ accountId }) {
         </div>
       </Panel>
 
-      <Panel title="تجربة الوكيل">
+      <Panel title="فحص الاتصال بالنموذج">
         <TestMessage accountId={accountId} />
       </Panel>
     </div>

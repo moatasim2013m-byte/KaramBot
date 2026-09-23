@@ -40,8 +40,15 @@ function connectionState(business, onboarding) {
   return { state: 'ok', label: 'متصل' };
 }
 
+const WORKFLOW_TYPES = ['restaurant', 'clinic', 'shift'];
+
 function agentState(business, lastInbound, lastOutbound) {
   if (business.ai_config?.enabled === false) return { state: 'idle', label: 'موقوف يدويًا' };
+  // No workflow means production answers a fixed greeting and never calls a model. That is not
+  // a working agent, however recently something was sent.
+  if (!WORKFLOW_TYPES.includes(business.business_type)) {
+    return { state: 'down', label: 'بدون مسار عمل', sub: business.business_type || 'غير محدد' };
+  }
   if (!lastInbound) return { state: 'unknown', label: 'لا توجد رسائل بعد' };
   const waiting = minutesSince(lastInbound);
   const answered = lastOutbound && new Date(lastOutbound) >= new Date(lastInbound);
@@ -92,12 +99,24 @@ router.get('/overview', async (req, res) => {
     // last_message_at moves on ANY message, including the customer's own, so it cannot tell
     // "the agent replied" from "the customer wrote". The only honest signal for a reply is the
     // newest OUTBOUND message, asked for separately.
+    // Only the AGENT's replies count. A human answering by hand also writes outbound rows, so
+    // counting those reports "agent: ok" for a bot that has been dead for a week while the owner
+    // covers for it — the exact failure this screen exists to catch.
     const outboundAgg = await prisma.message.groupBy({
       by: ['business_id'],
-      where: { direction: 'outbound' },
+      where: { direction: 'outbound', is_ai_generated: true },
       _max: { created_at: true },
     });
     const outboundByBusiness = new Map(outboundAgg.map((m) => [m.business_id, m._max.created_at]));
+
+    // A per-business maximum hides a single neglected thread behind a busy one, so unanswered
+    // conversations are counted individually.
+    const stale = await prisma.conversation.findMany({
+      where: { last_inbound_at: { lt: new Date(Date.now() - UNANSWERED_MINUTES * 60000) }, status: { not: 'closed' } },
+      select: { business_id: true, last_inbound_at: true },
+    });
+    const staleByBusiness = new Map();
+    for (const c of stale) staleByBusiness.set(c.business_id, (staleByBusiness.get(c.business_id) || 0) + 1);
 
     const openAgg = await prisma.conversation.groupBy({
       by: ['business_id'],
@@ -132,6 +151,7 @@ router.get('/overview', async (req, res) => {
         connection,
         agent,
         conversations: conv?._count?._all || 0,
+        unanswered_conversations: staleByBusiness.get(b.id) || 0,
         open_conversations: openByBusiness.get(b.id) || 0,
         unread: conv?._sum?.unread_count || 0,
         last_inbound_at: lastInbound,
@@ -150,8 +170,15 @@ router.get('/overview', async (req, res) => {
       if (onboarding?.last_error) {
         push('critical', 'onboarding_error', `تعثّر التوصيل: ${onboarding.last_error}`.slice(0, 160), onboarding.last_error_at);
       }
-      if (agent.state === 'down') {
+      if (agent.state === 'down' && agent.label === 'بدون مسار عمل') {
+        push('critical', 'no_workflow', 'الحساب بلا مسار عمل — يرد بترحيب ثابت فقط', b.created_at);
+      } else if (agent.state === 'down') {
         push('critical', 'unanswered', `رسالة بدون رد منذ ${agent.sub}`, lastInbound);
+      }
+      const staleCount = staleByBusiness.get(b.id) || 0;
+      if (staleCount > 0 && agent.state !== 'down') {
+        // One busy conversation can hide a neglected one behind a per-account maximum.
+        push('warning', 'stale_threads', `${staleCount} محادثة بانتظار رد`, lastInbound);
       }
       if (connection.state === 'down') {
         push('critical', 'connection', 'الحساب بدون رمز وصول — لن تصل الرسائل', b.updated_at);
@@ -262,11 +289,13 @@ router.get('/accounts/:id', async (req, res) => {
 });
 
 /**
- * Ask this account's agent a question, and send nothing.
+ * Ask the MODEL a question with this account's persona, and send nothing.
  *
- * The point is to answer "is the bot still sane" without borrowing a real customer's thread
- * — so this runs the model with the business's own configuration and returns the text. No
- * WhatsApp message leaves the system, and nothing is written to the conversation history.
+ * Deliberately narrow, and named accordingly: this does NOT run the account's workflow. A
+ * `generic` account answers production traffic with a fixed greeting and never calls a model,
+ * yet this endpoint would return a fluent reply for it — so treating a green result here as
+ * proof the account is ready would certify a dead bot. It answers one question only: can we
+ * reach the model with this account's configuration.
  */
 router.post('/accounts/:id/test-message', async (req, res) => {
   const text = String(req.body?.message || '').trim();
@@ -294,11 +323,16 @@ router.post('/accounts/:id/test-message', async (req, res) => {
     const reply = await generateAIReply(systemPrompt, text, []);
     const ms = Date.now() - started;
 
+    // Stated in the payload so the UI cannot quietly present this as a readiness check.
+    const WORKFLOW_TYPES = ['restaurant', 'clinic', 'shift'];
     res.json({
-      sent: false, // stated explicitly so nobody reads this as a delivered message
+      sent: false,
+      scope: 'model_only',
+      runs_workflow: false,
       reply: typeof reply === 'string' ? reply : (reply?.text || JSON.stringify(reply)),
       latency_ms: ms,
       ai_enabled: business.ai_config?.enabled !== false,
+      has_workflow: WORKFLOW_TYPES.includes(business.business_type),
     });
   } catch (err) {
     console.error('[admin/test-message] failed:', err.message);

@@ -10,7 +10,7 @@ require('./setup');
 jest.mock('../src/config/prisma', () => ({
   business: { findMany: jest.fn() },
   whatsappOnboarding: { findMany: jest.fn() },
-  conversation: { groupBy: jest.fn() },
+  conversation: { groupBy: jest.fn(), findMany: jest.fn() },
   message: { groupBy: jest.fn() },
   user: { findUnique: jest.fn() },
 }));
@@ -32,10 +32,11 @@ const biz = (over = {}) => ({
 
 const minsAgo = (m) => new Date(Date.now() - m * 60000);
 
-function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [] }) {
+function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [], stale = [] }) {
   prisma.business.findMany.mockResolvedValue(businesses);
   prisma.whatsappOnboarding.findMany.mockResolvedValue(onboardings);
   prisma.message.groupBy.mockResolvedValue(outbound);
+  prisma.conversation.findMany.mockResolvedValue(stale);
   prisma.conversation.groupBy
     .mockResolvedValueOnce(conv)   // totals aggregate
     .mockResolvedValueOnce(open);  // open conversations
@@ -151,4 +152,45 @@ test('a customer message is not mistaken for a reply', async () => {
   const res = await get();
   expect(res.body.accounts[0].agent.state).toBe('down');
   expect(res.body.accounts[0].last_outbound_at).toBeNull();
+});
+
+describe('an account cannot look healthy when it is not', () => {
+  test('a human answering by hand is not the agent working', async () => {
+    // Manual replies write outbound rows too; only the agent's own replies may count.
+    mockDb({
+      businesses: [biz()],
+      onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
+      conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(30), last_message_at: minsAgo(28) }, _count: { _all: 4 }, _sum: { unread_count: 0 } }],
+      outbound: [],   // groupBy filters is_ai_generated: true, so a hand-typed reply is absent
+    });
+    const res = await get();
+    expect(res.body.accounts[0].agent.state).toBe('down');
+  });
+
+  test('an account with no workflow is down, whatever it last sent', async () => {
+    // `generic` answers production with a fixed greeting and never calls a model.
+    mockDb({
+      businesses: [biz({ business_type: 'generic' })],
+      onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
+      conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(5), last_message_at: minsAgo(4) }, _count: { _all: 2 }, _sum: { unread_count: 0 } }],
+      outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(4) } }],
+    });
+    const res = await get();
+    expect(res.body.accounts[0].agent.state).toBe('down');
+    expect(res.body.attention.some((a) => a.category === 'no_workflow')).toBe(true);
+  });
+
+  test('a neglected thread is not hidden behind a busy one', async () => {
+    mockDb({
+      businesses: [biz()],
+      onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
+      conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(2), last_message_at: minsAgo(1) }, _count: { _all: 9 }, _sum: { unread_count: 1 } }],
+      outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(1) } }],
+      stale: [{ business_id: 'b1', last_inbound_at: minsAgo(400) }, { business_id: 'b1', last_inbound_at: minsAgo(90) }],
+    });
+    const res = await get();
+    expect(res.body.accounts[0].agent.state).toBe('ok');           // the account overall is answering
+    expect(res.body.accounts[0].unanswered_conversations).toBe(2); // but two customers are waiting
+    expect(res.body.attention.some((a) => a.category === 'stale_threads')).toBe(true);
+  });
 });

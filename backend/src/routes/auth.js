@@ -80,6 +80,13 @@ router.post('/register', authenticate, async (req, res) => {
     const targetBusinessId = req.user.role === 'platform_admin' ? business_id : req.user.business_id;
     const targetRole = req.user.role === 'platform_admin' ? (role || 'staff') : 'staff';
 
+    // A tenant user with no business is the shape that used to slip past request scoping,
+    // and it is meaningless anyway: staff belong to a business. Only platform_admin may
+    // exist without one.
+    if (targetRole !== 'platform_admin' && !targetBusinessId) {
+      return res.status(400).json({ error: 'business_id required for a non-admin user' });
+    }
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ error: 'Email already in use' });
 
