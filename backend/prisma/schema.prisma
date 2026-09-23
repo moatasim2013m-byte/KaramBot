@@ -386,3 +386,22 @@ model WhatsappOnboarding {
   @@index([step])
   @@map("whatsapp_onboardings")
 }
+
+// ─── AdminAccessLog ───────────────────────────────────────────────────────────
+// SHIFT staff reading a customer's conversations is a deliberate exception, not a
+// routine right: a bot that answers wrongly can only be diagnosed by reading what it
+// said. Every such read is recorded here, so the exception stays accountable and the
+// alternative — support asking an owner for their password — never becomes tempting.
+model AdminAccessLog {
+  id              String   @id @default(cuid())
+  admin_user_id   String
+  admin_email     String
+  business_id     String
+  conversation_id String?
+  action          String   // workspace_list | workspace_thread
+  created_at      DateTime @default(now())
+
+  @@index([business_id, created_at])
+  @@index([admin_user_id, created_at])
+  @@map("admin_access_logs")
+}

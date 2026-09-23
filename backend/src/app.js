@@ -68,6 +68,7 @@ app.use('/api/shift/whatsapp', require('./routes/shiftWhatsapp'));
 app.use('/api/internal', require('./routes/internal'));
 app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
 app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
+app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));
 app.use('/api/orders', apiLimiter, require('./routes/orders'));

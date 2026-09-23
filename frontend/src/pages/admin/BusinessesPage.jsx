@@ -1,102 +1,151 @@
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Search, Building2 } from 'lucide-react';
 import api from '../../utils/api';
-import { Plus, Settings2 } from 'lucide-react';
+import {
+  Panel, StateCell, Timestamp, Num, Freshness, SkeletonRows, EmptyState,
+} from '../../components/shared/Primitives';
 
-const TYPE_LABEL = { restaurant: 'مطعم', clinic: 'عيادة', generic: 'عام' };
-const STATUS_BADGE = {
-  active:    'bg-green-100 text-green-700',
-  inactive:  'bg-gray-100 text-gray-500',
-  suspended: 'bg-red-100 text-red-600',
+/**
+ * Customer accounts.
+ *
+ * Built from the same /admin/overview payload as the platform overview, so the two screens
+ * can never disagree about whether an account is healthy. Columns are the questions actually
+ * asked of an account — its stage, whether it can receive, whether it answers — not the
+ * database's field list. `slug` and raw Meta identifiers moved into the account's own page.
+ */
+
+const LIFECYCLE_LABEL = {
+  onboarding: 'قيد التوصيل', active: 'نشط', inactive: 'غير نشط', suspended: 'موقوف',
 };
 
-function maskPhone(phone) {
-  if (!phone) return '—';
-  return phone.length > 4 ? '•'.repeat(phone.length - 4) + phone.slice(-4) : phone;
-}
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' });
-}
+const TYPE_LABEL = { restaurant: 'مطعم', clinic: 'عيادة', store: 'متجر', shift: 'شِفت' };
 
 export default function BusinessesPage() {
-  const [businesses, setBusinesses] = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState('');
   const navigate = useNavigate();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState('all');
 
-  useEffect(() => {
-    api.get('/businesses')
-      .then(r => setBusinesses(r.data.businesses || []))
-      .catch(e => setError(e.response?.data?.error || 'حدث خطأ في تحميل البيانات'))
+  const load = useCallback(() => {
+    setLoading(true);
+    api.get('/admin/overview')
+      .then((res) => { setData(res.data); setError(null); })
+      .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل الحسابات'))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => { load(); }, [load]);
+
+  const all = data?.accounts || [];
+  const needsAttention = new Set((data?.attention || []).map((a) => a.business_id));
+
+  // Search and filter exist from the start: "show everything" is fine at ten accounts and
+  // becomes unusable without warning at forty.
+  const accounts = all.filter((a) => {
+    if (filter === 'attention' && !needsAttention.has(a.id)) return false;
+    if (filter !== 'all' && filter !== 'attention' && a.lifecycle !== filter) return false;
+    if (!q.trim()) return true;
+    return a.name.toLowerCase().includes(q.trim().toLowerCase());
+  });
+
+  const FILTERS = [
+    ['all', `الكل (${all.length})`],
+    ['attention', `يحتاج انتباهًا (${needsAttention.size})`],
+    ['onboarding', LIFECYCLE_LABEL.onboarding],
+    ['active', LIFECYCLE_LABEL.active],
+    ['inactive', LIFECYCLE_LABEL.inactive],
+  ];
+
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-gray-800">إدارة الأعمال</h1>
-        <button
-          onClick={() => navigate('/admin/businesses/new')}
-          className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-600"
-        >
-          <Plus size={16} />
-          إضافة عمل
-        </button>
+    <div className="space-y-4 max-w-[1400px]">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900">حسابات الشركات</h1>
+          <p className="text-xs text-gray-500 mt-0.5">الشركات التي تشترك في شِفت</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Freshness at={data?.generated_at} onRefresh={load} loading={loading} />
+          <button
+            onClick={() => navigate('/admin/accounts/new')}
+            className="flex items-center gap-1.5 bg-gray-900 text-white px-3 h-8 rounded-md text-[13px] hover:bg-gray-800 transition-colors"
+          >
+            <Plus size={15} />
+            إضافة حساب شركة
+          </button>
+        </div>
       </div>
 
-      {loading && <div className="text-center py-16 text-gray-400">جاري التحميل...</div>}
-      {error   && <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg mb-4">{error}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-      {!loading && !error && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          {businesses.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 text-sm">
-              لا توجد أعمال مسجّلة بعد.{' '}
-              <Link to="/admin/businesses/new" className="text-green-600 hover:underline">إضافة أول عمل</Link>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    {['الاسم', 'Slug', 'النوع', 'الحالة', 'رقم واتساب', 'تاريخ الإنشاء', ''].map(h => (
-                      <th key={h} className="text-right text-xs font-semibold text-gray-500 px-4 py-3">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {businesses.map(biz => (
-                    <tr key={biz.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-800">{biz.name}</td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">{biz.slug}</td>
-                      <td className="px-4 py-3 text-gray-600">{TYPE_LABEL[biz.business_type] || biz.business_type}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[biz.status] || 'bg-gray-100 text-gray-500'}`}>
-                          {biz.status === 'active' ? 'نشط' : biz.status === 'inactive' ? 'غير نشط' : biz.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs ltr" dir="ltr">{maskPhone(biz.wa_phone_number_id)}</td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(biz.created_at)}</td>
-                      <td className="px-4 py-3">
-                        <Link
-                          to={`/admin/businesses/${biz.id}`}
-                          className="inline-flex items-center gap-1 text-green-600 hover:text-green-700 text-xs font-medium"
-                        >
-                          <Settings2 size={13} />
-                          إدارة
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative">
+          <Search size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="ابحث باسم الشركة"
+            className="h-8 w-56 pr-8 pl-3 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
+          />
         </div>
-      )}
+        {FILTERS.map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setFilter(key)}
+            className={`h-8 px-3 rounded-md text-[12px] transition-colors ${
+              filter === key ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <Panel>
+        {loading && !data ? (
+          <SkeletonRows rows={6} cols={6} />
+        ) : accounts.length === 0 ? (
+          <EmptyState
+            icon={Building2}
+            tone="neutral"
+            title={all.length === 0 ? 'لا توجد حسابات بعد' : 'لا نتائج مطابقة'}
+            hint={all.length === 0 ? 'أضف أول حساب شركة للبدء' : 'جرّب بحثًا أو تصفية أخرى'}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-gray-500 text-[11px] border-b border-gray-100">
+                  {['الشركة', 'النوع', 'المرحلة', 'اتصال واتساب', 'الوكيل', 'محادثات', 'آخر وارد'].map((h) => (
+                    <th key={h} className="text-right font-medium px-4 h-9 whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {accounts.map((a) => (
+                  <tr key={a.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 h-9 whitespace-nowrap">
+                      <Link to={`/admin/accounts/${a.id}`} className="font-medium text-gray-900 hover:underline">{a.name}</Link>
+                    </td>
+                    <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{TYPE_LABEL[a.business_type] || a.business_type}</td>
+                    <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{LIFECYCLE_LABEL[a.lifecycle] || a.lifecycle}</td>
+                    <td className="px-4 h-9 whitespace-nowrap min-w-[150px]">
+                      <StateCell state={a.connection?.state} label={a.connection?.label} sub={a.connection?.sub} />
+                    </td>
+                    <td className="px-4 h-9 whitespace-nowrap min-w-[150px]">
+                      <StateCell state={a.agent?.state} label={a.agent?.label} sub={a.agent?.sub} />
+                    </td>
+                    <td className="px-4 h-9"><Num className="text-gray-700">{a.conversations}</Num></td>
+                    <td className="px-4 h-9 text-gray-500 whitespace-nowrap"><Timestamp value={a.last_inbound_at} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }

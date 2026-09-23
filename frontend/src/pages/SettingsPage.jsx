@@ -211,7 +211,7 @@ export default function SettingsPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
         <p className="text-gray-600 text-sm">تحتاج إلى اختيار عمل من لوحة الإدارة</p>
-        <Link to="/admin/businesses" className="text-green-600 hover:underline text-sm">
+        <Link to="/admin/accounts" className="text-green-600 hover:underline text-sm">
           الذهاب إلى إدارة الشركات
         </Link>
       </div>
