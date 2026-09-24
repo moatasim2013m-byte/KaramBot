@@ -60,6 +60,9 @@ model User {
   business_id String?
   active      Boolean   @default(true)
   last_login  DateTime?
+  // Tokens minted before this moment are refused. Set when a password changes, so a stolen
+  // session cannot outlive the password that created it.
+  sessions_valid_from DateTime?
   created_at  DateTime  @default(now())
   updated_at  DateTime  @updatedAt
 

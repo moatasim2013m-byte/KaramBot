@@ -15,11 +15,20 @@ async function authenticate(req, res, next) {
       where: { id: decoded.id },
       select: {
         id: true, name: true, email: true, role: true,
-        business_id: true, active: true,
+        business_id: true, active: true, sessions_valid_from: true,
       },
     });
     if (!user || !user.active) {
       return res.status(401).json({ error: 'User not found or inactive' });
+    }
+
+    // A password change ends every session that predates it. Without this, someone who used a
+    // stolen activation link keeps their session even after the real owner recovers the
+    // account — the recovery would look successful and change nothing.
+    if (user.sessions_valid_from && decoded.iat) {
+      if (decoded.iat * 1000 < new Date(user.sessions_valid_from).getTime()) {
+        return res.status(401).json({ error: 'Session expired' });
+      }
     }
 
     let business_type = null;

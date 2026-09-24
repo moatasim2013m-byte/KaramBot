@@ -22,22 +22,41 @@ const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 async function issue(userId, createdBy, { ttlHours = TTL_HOURS } = {}) {
   const token = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
 
-  // An older invitation is a second live key to the same account; retire it.
-  await prisma.userActivation.updateMany({
-    where: { user_id: userId, used_at: null },
-    data: { used_at: new Date() },
-  });
-
-  await prisma.userActivation.create({
-    data: {
-      user_id: userId,
-      token_hash: hash(token),
-      expires_at: new Date(Date.now() + ttlHours * 3600 * 1000),
-      created_by: createdBy,
-    },
+  // Retire the old invitation and create the new one together. The database also carries a
+  // partial unique index on (user_id) where used_at is null, because two concurrent issues
+  // both see "nothing live" under READ COMMITTED and both insert — a transaction alone has
+  // no row to lock, so the constraint is what actually prevents two live keys.
+  await prisma.$transaction(async (tx) => {
+    await tx.userActivation.updateMany({
+      where: { user_id: userId, used_at: null },
+      data: { used_at: new Date() },
+    });
+    await tx.userActivation.create({
+      data: {
+        user_id: userId,
+        token_hash: hash(token),
+        expires_at: new Date(Date.now() + ttlHours * 3600 * 1000),
+        created_by: createdBy,
+      },
+    });
   });
 
   return { token, expires_in_hours: ttlHours };
+}
+
+/**
+ * Kill every outstanding link for a user.
+ *
+ * Disabling an account has to take the invitation with it: otherwise whoever holds a link
+ * redeems it later and `consume()` sets active back to true, which would make deactivation —
+ * the only lockout control there is — reversible by the person being locked out.
+ */
+async function revoke(userId, client = prisma) {
+  const { count } = await client.userActivation.updateMany({
+    where: { user_id: userId, used_at: null },
+    data: { used_at: new Date() },
+  });
+  return count;
 }
 
 /**
@@ -80,11 +99,19 @@ async function consume(token, plainPassword, bcrypt) {
 
     await tx.user.update({
       where: { id: row.user_id },
-      data: { password: hashed, active: true },
+      data: {
+        password: hashed,
+        active: true,
+        // Redeeming the link signs them in, so record it — the handover checklist reads
+        // last_login to decide whether the customer ever actually got in.
+        last_login: new Date(),
+        // Any session minted before this password existed is now refused.
+        sessions_valid_from: new Date(),
+      },
     });
   });
 
   return row.user;
 }
 
-module.exports = { issue, lookup, consume, TTL_HOURS };
+module.exports = { issue, revoke, lookup, consume, TTL_HOURS };

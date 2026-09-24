@@ -517,12 +517,13 @@ router.post('/accounts/:id/users', async (req, res) => {
       select: { id: true, name: true, email: true, role: true },
     });
 
+    await recordAccess(req, business.id, 'user_created', null);
     const { token, expires_in_hours } = await activation.issue(user.id, req.user.id);
 
     res.status(201).json({
       user,
       business: { id: business.id, name: business.name },
-      activation_path: `/activate/${token}`,
+      activation_path: `/activate#${token}`,
       expires_in_hours,
     });
   } catch (err) {
@@ -536,13 +537,24 @@ router.post('/accounts/:id/users/:userId/invite', async (req, res) => {
   try {
     const user = await prisma.user.findFirst({
       where: { id: req.params.userId, business_id: req.params.id },
-      select: { id: true, name: true, email: true, role: true },
+      // Scoped to the account in the URL, so a user id from another tenant is simply not found.
+      select: { id: true, name: true, email: true, role: true, active: true, last_login: true },
     });
-    // Scoped to the account in the URL, so a user id from another tenant is simply not found.
     if (!user) return res.status(404).json({ error: 'لا يوجد مستخدم بهذا المعرّف في هذا الحساب' });
 
+    // A re-invite is for a login that was never used. Once the customer holds the account, a
+    // fresh link would let SHIFT staff set their password and sign in as them — the exact thing
+    // this whole flow exists to make impossible. A genuinely locked-out owner is recovered
+    // deliberately: deactivate the login first, which revokes and records, then invite again.
+    if (user.active && user.last_login) {
+      return res.status(409).json({
+        error: 'هذا الحساب مُفعَّل ويستخدمه العميل. لإعادة ضبطه: عطّل الحساب أولًا ثم أرسل دعوة جديدة.',
+      });
+    }
+
+    await recordAccess(req, req.params.id, 'user_invite', null);
     const { token, expires_in_hours } = await activation.issue(user.id, req.user.id);
-    res.json({ user, activation_path: `/activate/${token}`, expires_in_hours });
+    res.json({ user, activation_path: `/activate#${token}`, expires_in_hours });
   } catch (err) {
     console.error('[admin/reinvite] failed:', err.message);
     res.status(500).json({ error: err.message });

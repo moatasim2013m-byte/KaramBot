@@ -129,8 +129,12 @@ router.get('/me', authenticate, (req, res) => {
  */
 const activation = require('../services/activation');
 
-router.get('/activate/:token', async (req, res) => {
-  const row = await activation.lookup(req.params.token);
+// POST, with the token in the body, because a token in a URL path is written to the access
+// log by morgan AND by Cloud Run's own request log — which would undo the whole point of
+// storing only its hash. The link itself carries the token in the fragment, which browsers
+// never transmit, so it reaches this endpoint only as a body field.
+router.post('/activate/lookup', async (req, res) => {
+  const row = await activation.lookup((req.body || {}).token);
   if (!row) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
   res.json({ name: row.user.name, email: row.user.email, expires_at: row.expires_at });
 });

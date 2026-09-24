@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +13,9 @@ import { useAuth } from '../context/AuthContext';
  * immediately be asked for it.
  */
 export default function ActivatePage() {
-  const { token } = useParams();
+  // The token arrives in the fragment (…/activate#token). Browsers never transmit a fragment,
+  // so it appears in no access log — read it once, before anything can rewrite the URL.
+  const [token] = useState(() => window.location.hash.replace(/^#/, ''));
   const navigate = useNavigate();
   const { setSession } = useAuth();
 
@@ -25,7 +27,8 @@ export default function ActivatePage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.get(`/auth/activate/${token}`)
+    if (!token) { setError('الرابط غير مكتمل. اطلب رابطًا جديدًا من شِفت.'); setChecking(false); return; }
+    api.post('/auth/activate/lookup', { token })
       .then((res) => setInvite(res.data))
       .catch(() => setError('الرابط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من شِفت.'))
       .finally(() => setChecking(false));
@@ -39,6 +42,9 @@ export default function ActivatePage() {
     setBusy(true); setError(null);
     try {
       const res = await api.post('/auth/activate', { token, password });
+      // Clear the fragment before navigating, so the token does not sit in the address bar or
+      // the browser's history for the next person at that screen.
+      window.history.replaceState(null, '', '/activate');
       setSession?.(res.data.token, res.data.user);
       navigate('/overview', { replace: true });
     } catch (err) {
