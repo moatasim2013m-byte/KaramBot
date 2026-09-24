@@ -9,7 +9,7 @@ jest.mock('../src/config/prisma', () => ({
   conversation: { findMany: jest.fn(), findFirst: jest.fn() },
   message: { findMany: jest.fn() },
   adminAccessLog: { create: jest.fn() },
-  user: { findUnique: jest.fn() },
+  user: { findUnique: jest.fn(), findFirst: jest.fn() },
 }));
 
 const jwt = require('jsonwebtoken');

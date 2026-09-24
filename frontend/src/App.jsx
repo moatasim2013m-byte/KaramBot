@@ -20,6 +20,7 @@ import PlatformSettingsPage from './pages/admin/PlatformSettingsPage';
 import AccountWorkspacePage from './pages/admin/AccountWorkspacePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import DataDeletionPage from './pages/DataDeletionPage';
+import ActivatePage from './pages/ActivatePage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -57,6 +58,8 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/data-deletion" element={<DataDeletionPage />} />
+          {/* Public: a new customer has no account until they redeem this. */}
+          <Route path="/activate/:token" element={<ActivatePage />} />
           <Route path="/" element={
             <ProtectedRoute>
               <DashboardLayout />

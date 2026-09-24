@@ -118,4 +118,48 @@ router.get('/me', authenticate, (req, res) => {
   });
 });
 
+/**
+ * Redeeming an activation link. Public by necessity — the customer has no account yet — so it
+ * is deliberately quiet: every failure answers the same way, whether the link never existed,
+ * already got used, or expired. A link that leaked cannot be used to discover which customers
+ * exist, and a valid one reveals only the name and email it was issued for.
+ *
+ * These two routes sit behind the same rate limiter as login (app.js mounts authLimiter on
+ * /api/auth), so the token cannot be brute-forced by volume.
+ */
+const activation = require('../services/activation');
+
+router.get('/activate/:token', async (req, res) => {
+  const row = await activation.lookup(req.params.token);
+  if (!row) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
+  res.json({ name: row.user.name, email: row.user.email, expires_at: row.expires_at });
+});
+
+router.post('/activate', async (req, res) => {
+  const { token, password } = req.body || {};
+  // 10 is the floor a customer picks for themselves; the token is what carries the entropy.
+  if (!password || String(password).length < 10) {
+    return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 10 أحرف على الأقل' });
+  }
+
+  try {
+    const user = await activation.consume(token, String(password), bcrypt);
+    if (!user) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
+
+    // Signed straight in: a customer who has just chosen a password should not be asked for it.
+    const jwtToken = signToken(user.id);
+    res.json({
+      token: jwtToken,
+      user: { id: user.id, name: user.name, email: user.email, business_id: user.business_id },
+    });
+  } catch (err) {
+    // The race guard in consume() throws when two tabs redeem the same link at once.
+    if (String(err.message).includes('already used')) {
+      return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
+    }
+    console.error('[auth/activate] failed:', err.message);
+    res.status(500).json({ error: 'تعذّر تفعيل الحساب' });
+  }
+});
+
 module.exports = router;

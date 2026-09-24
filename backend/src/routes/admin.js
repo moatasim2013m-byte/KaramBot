@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const prisma = require('../config/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
@@ -236,6 +237,17 @@ router.get('/accounts/:id', async (req, res) => {
       orderBy: { created_at: 'desc' },
     });
 
+    // Whether anyone on the customer's side can actually get in — the step that decides
+    // whether what was sold has been handed over.
+    const signedInOwner = await prisma.user.findFirst({
+      where: { business_id: business.id, role: 'business_owner', last_login: { not: null } },
+      select: { id: true },
+    });
+    const anyOwner = await prisma.user.findFirst({
+      where: { business_id: business.id, role: 'business_owner' },
+      select: { id: true },
+    });
+
     const [inbound, outbound, conversations] = await Promise.all([
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true } }),
       prisma.message.aggregate({ where: { business_id: business.id, direction: 'outbound' }, _max: { created_at: true } }),
@@ -254,6 +266,8 @@ router.get('/accounts/:id', async (req, res) => {
       { step: 'registered', label: 'الرقم مُسجَّل لدى Meta', done: onboarding ? onboarding.step === 'done' : null },
       { step: 'payment', label: 'طريقة دفع مضافة', done: onboarding ? onboarding.payment_method_ok : null },
       { step: 'greeting', label: 'رسالة ترحيب مضبوطة', done: Boolean(business.ai_config?.greeting_message) },
+      { step: 'owner_login', label: 'حساب دخول لصاحب المنشأة', done: Boolean(anyOwner) },
+      { step: 'owner_signed_in', label: 'صاحب المنشأة دخل فعليًا', done: Boolean(signedInOwner) },
       { step: 'first_message', label: 'أول رسالة واردة', done: Boolean(lastInbound) },
       { step: 'first_reply', label: 'أول رد من الوكيل', done: Boolean(lastOutbound) },
     ];
@@ -423,6 +437,114 @@ router.get('/accounts/:id/conversations/:conversationId', async (req, res) => {
     res.json({ conversation, messages, read_only: true });
   } catch (err) {
     console.error('[admin/workspace-thread] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Handing over what was sold.
+ *
+ * Closing a deal used to end with a customer who had no way in: the API to create their owner
+ * existed, but nothing called it with a business, so the practical path was a shell script.
+ * These three routes are the missing handover — and the business is always taken from the URL,
+ * never from the request body, so an admin cannot attach a user to the wrong account by typo.
+ */
+const bcryptAdmin = require('bcryptjs');
+const activation = require('../services/activation');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// A customer's people only. platform_admin is never created from an account screen.
+const CUSTOMER_ROLES = ['business_owner', 'manager', 'staff'];
+
+router.get('/accounts/:id/users', async (req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { business_id: req.params.id },
+      select: { id: true, name: true, email: true, role: true, active: true, last_login: true, created_at: true },
+      orderBy: { created_at: 'asc' },
+    });
+
+    const pending = await prisma.userActivation.findMany({
+      where: { user_id: { in: users.map((u) => u.id) }, used_at: null, expires_at: { gt: new Date() } },
+      select: { user_id: true, expires_at: true },
+    });
+    const pendingByUser = new Map(pending.map((p) => [p.user_id, p.expires_at]));
+
+    res.json({
+      users: users.map((u) => ({
+        ...u,
+        // Never the token — only whether one is outstanding.
+        invitation_pending_until: pendingByUser.get(u.id) || null,
+        has_signed_in: Boolean(u.last_login),
+      })),
+    });
+  } catch (err) {
+    console.error('[admin/users] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Create a login for this account's owner and return a one-time link to send them. */
+router.post('/accounts/:id/users', async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const role = String(req.body?.role || 'business_owner');
+
+  if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'بريد إلكتروني غير صالح' });
+  if (!CUSTOMER_ROLES.includes(role)) return res.status(400).json({ error: 'صلاحية غير مسموحة' });
+
+  try {
+    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true } });
+    if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
+
+    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (existing) return res.status(409).json({ error: 'هذا البريد مستخدم مسبقًا' });
+
+    // A password is required by the schema, so one is set that nobody knows and nobody can use:
+    // the account is unusable until the activation link is redeemed.
+    const unusable = await bcryptAdmin.hash(crypto.randomBytes(32).toString('hex'), 12);
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: unusable,
+        role,
+        business_id: business.id, // from the URL, never the body
+        active: false,            // becomes active when they set a password
+      },
+      select: { id: true, name: true, email: true, role: true },
+    });
+
+    const { token, expires_in_hours } = await activation.issue(user.id, req.user.id);
+
+    res.status(201).json({
+      user,
+      business: { id: business.id, name: business.name },
+      activation_path: `/activate/${token}`,
+      expires_in_hours,
+    });
+  } catch (err) {
+    console.error('[admin/create-user] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Re-issue a link — for one that expired, or when the customer never received it. */
+router.post('/accounts/:id/users/:userId/invite', async (req, res) => {
+  try {
+    const user = await prisma.user.findFirst({
+      where: { id: req.params.userId, business_id: req.params.id },
+      select: { id: true, name: true, email: true, role: true },
+    });
+    // Scoped to the account in the URL, so a user id from another tenant is simply not found.
+    if (!user) return res.status(404).json({ error: 'لا يوجد مستخدم بهذا المعرّف في هذا الحساب' });
+
+    const { token, expires_in_hours } = await activation.issue(user.id, req.user.id);
+    res.json({ user, activation_path: `/activate/${token}`, expires_in_hours });
+  } catch (err) {
+    console.error('[admin/reinvite] failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

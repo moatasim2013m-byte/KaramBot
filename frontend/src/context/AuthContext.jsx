@@ -29,6 +29,16 @@ export function AuthProvider({ children }) {
     return res.data;
   };
 
+  /**
+   * Adopt a session minted somewhere other than the login form — today, activation, where the
+   * customer has just chosen a password and should not be asked for it again immediately.
+   */
+  const setSession = (token, nextUser) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(nextUser));
+    setUser(nextUser);
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -36,7 +46,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, setSession }}>
       {children}
     </AuthContext.Provider>
   );

@@ -64,6 +64,7 @@ model User {
   updated_at  DateTime  @updatedAt
 
   business            Business?      @relation(fields: [business_id], references: [id])
+  activations         UserActivation[]
   assignedConversations Conversation[] @relation("AssignedStaff")
   sentMessages        Message[]
   orderStatusChanges  OrderStatusHistory[]
@@ -404,4 +405,25 @@ model AdminAccessLog {
   @@index([business_id, created_at])
   @@index([admin_user_id, created_at])
   @@map("admin_access_logs")
+}
+
+// ─── UserActivation ───────────────────────────────────────────────────────────
+// A one-time link that lets a new customer owner set their own password.
+//
+// The alternative — SHIFT choosing a password and sending it over WhatsApp — means staff
+// knowing a customer's credentials and that password living in a chat thread forever. Only
+// the hash of the token is stored, so a database leak does not hand over live invitations.
+model UserActivation {
+  id         String    @id @default(cuid())
+  user_id    String
+  token_hash String    @unique
+  expires_at DateTime
+  used_at    DateTime?
+  created_by String    // the platform_admin who issued it
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("user_activations")
 }
