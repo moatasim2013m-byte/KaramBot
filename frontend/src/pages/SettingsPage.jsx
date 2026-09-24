@@ -5,6 +5,7 @@ import api from '../utils/api';
 import { Save, Smartphone } from 'lucide-react';
 import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
 import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
+import TryTheBot from '../components/whatsapp/TryTheBot';
 
 function Section({ title, children }) {
   return (
@@ -273,8 +274,9 @@ export default function SettingsPage() {
           ) : (
             // The customer's answer to «هل واتسابي موصول؟» — the first thing on their Settings,
             // because it was the first thing both walkthrough personas went looking for.
-            <div className="mb-5">
+            <div className="mb-5 space-y-4">
               <WhatsAppStatusCard />
+              <TryTheBot />
             </div>
           )}
 

@@ -20,6 +20,7 @@ router.use(authenticate, requireRole('platform_admin'));
 const {
   connectionState, agentState, lifecycle, minutesSince, QUIET_HOURS, UNANSWERED_MINUTES,
 } = require('../services/accountHealth');
+const { dryRun } = require('../services/dryRun');
 
 router.get('/overview', async (req, res) => {
   try {
@@ -296,51 +297,27 @@ router.get('/accounts/:id', async (req, res) => {
 });
 
 /**
- * Ask the MODEL a question with this account's persona, and send nothing.
+ * Ask this account's agent a question through its REAL workflow, and send nothing.
  *
- * Deliberately narrow, and named accordingly: this does NOT run the account's workflow. A
- * `generic` account answers production traffic with a fixed greeting and never calls a model,
- * yet this endpoint would return a fluent reply for it — so treating a green result here as
- * proof the account is ready would certify a dead bot. It answers one question only: can we
- * reach the model with this account's configuration.
+ * Formerly this built its own prompt and called the model directly, so a `generic` account —
+ * fixed greeting in production, no model call — came back fluent here. It now runs the same
+ * dispatch the webhook uses, with `has_workflow: false` said plainly when there is none.
  */
 router.post('/accounts/:id/test-message', async (req, res) => {
   const text = String(req.body?.message || '').trim();
   if (!text) return res.status(400).json({ error: 'اكتب رسالة للتجربة' });
   if (text.length > 500) return res.status(400).json({ error: 'الرسالة طويلة' });
+  const state = req.body?.state && typeof req.body.state === 'object' ? req.body.state : {};
 
   try {
     const business = await prisma.business.findUnique({
       where: { id: req.params.id },
-      select: { id: true, name: true, business_type: true, ai_config: true, currency: true, language_default: true },
+      select: { id: true, name: true, business_type: true, ai_config: true, policies: true, currency: true, language_default: true, opening_hours: true, timezone: true },
     });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
-    const { generateAIReply } = require('../ai/provider');
-    const personality = business.ai_config?.personality || '';
-    const greeting = business.ai_config?.greeting_message || '';
-    const systemPrompt = [
-      `أنت مساعد واتساب لمنشأة اسمها «${business.name}».`,
-      personality && `الشخصية: ${personality}`,
-      greeting && `رسالة الترحيب المعتمدة: ${greeting}`,
-      'أجب بالعربية، بإيجاز، كما تجيب العميل على واتساب.',
-    ].filter(Boolean).join('\n');
-
-    const started = Date.now();
-    const reply = await generateAIReply(systemPrompt, text, []);
-    const ms = Date.now() - started;
-
-    // Stated in the payload so the UI cannot quietly present this as a readiness check.
-    const WORKFLOW_TYPES = ['restaurant', 'clinic', 'shift'];
-    res.json({
-      sent: false,
-      scope: 'model_only',
-      runs_workflow: false,
-      reply: typeof reply === 'string' ? reply : (reply?.text || JSON.stringify(reply)),
-      latency_ms: ms,
-      ai_enabled: business.ai_config?.enabled !== false,
-      has_workflow: WORKFLOW_TYPES.includes(business.business_type),
-    });
+    const out = await dryRun(business, text, state);
+    res.json({ ...out, ai_enabled: business.ai_config?.enabled !== false });
   } catch (err) {
     console.error('[admin/test-message] failed:', err.message);
     res.status(502).json({ error: `تعذّر توليد الرد: ${err.message}` });
