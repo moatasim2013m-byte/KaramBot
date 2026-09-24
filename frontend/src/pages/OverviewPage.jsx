@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
+import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
+import { useAuth } from '../context/AuthContext';
 import { MessageSquare, ShoppingBag, Users, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 
 function StatCard({ icon: Icon, label, value, color = 'green', sub }) {
@@ -42,6 +44,7 @@ const STATUS_COLOR = {
 };
 
 export default function OverviewPage() {
+  const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [todayOrders, setTodayOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,9 +71,15 @@ export default function OverviewPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">لوحة التحكم</h1>
+        <h1 className="text-2xl font-bold text-gray-800">ملخص النشاط</h1>
         <p className="text-gray-500 text-sm mt-1">مرحباً! إليك ملخص اليوم.</p>
       </div>
+
+      {/* Four zeros cannot tell «not connected yet» from «a quiet day» from «cut off». One honest
+          line above them can, and both walkthrough personas asked for exactly that. */}
+      {user?.role !== 'platform_admin' && (
+        <div className="mb-4"><WhatsAppStatusCard compact /></div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

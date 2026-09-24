@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Save, Smartphone } from 'lucide-react';
 import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
+import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
 
 function Section({ title, children }) {
   return (
@@ -265,9 +266,15 @@ export default function SettingsPage() {
         <>
           {/* Embedded Signup, admin-only until one real WABA has been onboarded end to end.
               The backend enforces the same role, so hiding it here is convenience, not the gate. */}
-          {user?.role === 'platform_admin' && (
+          {user?.role === 'platform_admin' ? (
             <div className="mb-5" dir="ltr">
               <ConnectWhatsApp businessId={biz.id} />
+            </div>
+          ) : (
+            // The customer's answer to «هل واتسابي موصول؟» — the first thing on their Settings,
+            // because it was the first thing both walkthrough personas went looking for.
+            <div className="mb-5">
+              <WhatsAppStatusCard />
             </div>
           )}
 
