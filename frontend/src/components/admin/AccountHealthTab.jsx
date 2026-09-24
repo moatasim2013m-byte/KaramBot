@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, X, Minus, Play, ExternalLink, Eye } from 'lucide-react';
+import { Check, X, Minus, ExternalLink, Eye } from 'lucide-react';
 import api from '../../utils/api';
 import { Panel, StateCell, Timestamp, Ltr, SkeletonRows } from '../shared/Primitives';
+import TryTheBot from '../whatsapp/TryTheBot';
 
 /**
  * Whether this account can actually serve customers, and what is missing.
@@ -16,73 +17,6 @@ function Tick({ done }) {
   if (done === true) return <Check size={14} className="text-emerald-600" />;
   if (done === false) return <X size={14} className="text-red-500" />;
   return <Minus size={14} className="text-gray-300" />; // unknown — never a tick
-}
-
-/** Asks the agent a question and sends nothing. */
-function TestMessage({ accountId }) {
-  const [text, setText] = useState('مرحبا، شو أسعاركم؟');
-  const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-
-  const run = async () => {
-    setBusy(true); setError(null); setResult(null);
-    try {
-      const res = await api.post(`/admin/accounts/${accountId}/test-message`, { message: text });
-      setResult(res.data);
-    } catch (err) {
-      setError(err.response?.data?.error || 'تعذّر توليد الرد');
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="p-4 space-y-3">
-      <p className="text-xs text-gray-500">
-        يتحقق فقط من الوصول إلى النموذج بإعدادات هذا الحساب — <strong>لا يشغّل مسار العمل</strong>،
-        فالحساب بلا مسار عمل قد يجيب هنا بشكل سليم بينما يرد على العملاء بترحيب ثابت. لا تُرسَل أي رسالة
-        على واتساب ولا تُحفَظ في المحادثات.
-      </p>
-      <div className="flex gap-2">
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !busy && run()}
-          className="flex-1 h-8 px-3 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400"
-          placeholder="اكتب ما قد يكتبه العميل"
-        />
-        <button
-          onClick={run}
-          disabled={busy || !text.trim()}
-          className="flex items-center gap-1.5 bg-gray-900 text-white px-3 h-8 rounded-md text-[13px] hover:bg-gray-800 disabled:opacity-40 transition-colors"
-        >
-          <Play size={13} />
-          {busy ? 'جارٍ...' : 'جرّب'}
-        </button>
-      </div>
-
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-[13px] rounded-md px-3 py-2">{error}</div>}
-
-      {result && (
-        <div className="border border-gray-200 rounded-md">
-          <div className="flex items-center justify-between px-3 h-8 border-b border-gray-100 bg-gray-50">
-            <span className="text-[11px] text-gray-500">ردّ النموذج — لم يُرسَل، وبدون مسار عمل</span>
-            <span className="text-[11px] text-gray-400"><Ltr>{result.latency_ms}</Ltr> ms</span>
-          </div>
-          <p className="px-3 py-2.5 text-[13px] text-gray-800 whitespace-pre-wrap leading-relaxed">{result.reply}</p>
-          {result.has_workflow === false && (
-            <p className="px-3 pb-2 text-[11px] text-red-700">
-              هذا الحساب بلا مسار عمل — العملاء يصلهم ترحيب ثابت، وليس هذا الرد.
-            </p>
-          )}
-          {result.ai_enabled === false && (
-            <p className="px-3 pb-2 text-[11px] text-amber-700">
-              الذكاء الاصطناعي موقوف لهذا الحساب — العملاء لن يصلهم هذا الرد.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function AccountHealthTab({ accountId }) {
@@ -184,9 +118,8 @@ export default function AccountHealthTab({ accountId }) {
         </div>
       </Panel>
 
-      <Panel title="فحص الاتصال بالنموذج">
-        <TestMessage accountId={accountId} />
-      </Panel>
+      {/* Runs the account's real workflow now — the model-only check certified dead bots. */}
+      <TryTheBot endpoint={`/admin/accounts/${accountId}/test-message`} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../config/prisma');
 const { authenticate, attachBusinessId } = require('../middleware/auth');
 const { connectionState, agentState, lifecycle } = require('../services/accountHealth');
+const { dryRun } = require('../services/dryRun');
 
 /**
  * «هل واتسابي موصول؟» — for the customer.
@@ -84,6 +85,32 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('[whatsapp/status] failed:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * «جرّب البوت»: the customer types what a customer would, and sees what the bot would say —
+ * through the real workflow, with nothing sent and nothing saved. `state` from the previous
+ * reply is passed back to continue the same exchange.
+ */
+router.post('/test', async (req, res) => {
+  const text = String(req.body?.message || '').trim();
+  if (!text) return res.status(400).json({ error: 'اكتب رسالة للتجربة' });
+  if (text.length > 500) return res.status(400).json({ error: 'الرسالة طويلة' });
+  const state = req.body?.state && typeof req.body.state === 'object' ? req.body.state : {};
+
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: req.businessId },
+      select: { id: true, name: true, business_type: true, ai_config: true, policies: true, currency: true, language_default: true, opening_hours: true, timezone: true },
+    });
+    if (!business) return res.status(404).json({ error: 'لا يوجد حساب' });
+    if (business.business_type === 'shift') return res.status(400).json({ error: 'التجربة غير متاحة لهذا الحساب' });
+
+    res.json(await dryRun(business, text, state));
+  } catch (err) {
+    console.error('[whatsapp/status/test] failed:', err.message);
+    res.status(502).json({ error: `تعذّر توليد الرد: ${err.message}` });
   }
 });
 

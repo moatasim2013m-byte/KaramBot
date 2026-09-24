@@ -17,8 +17,7 @@ const prisma = require('../config/prisma');
 const { sendTextMessage, markAsRead, normalizePhone } = require('../services/whatsapp');
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
-const { processRestaurantMessage } = require('../workflows/restaurant');
-const { processClinicMessage } = require('../workflows/clinic');
+const { runWorkflow } = require('./dryRun');
 const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
@@ -685,18 +684,9 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
     }
   }
 
-  let workflowResult = null;
-  if (business.business_type === 'restaurant') {
-    workflowResult = await processRestaurantMessage(business, conversation, customerText);
-  } else if (business.business_type === 'clinic') {
-    workflowResult = await processClinicMessage(business, conversation, customerText);
-  } else {
-    workflowResult = {
-      reply: (business.ai_config?.greeting_message) || 'كيف أقدر أساعدك؟',
-      stateUpdate: {},
-      action: 'NONE',
-    };
-  }
+  // Shared with «جرّب البوت»: the dry run and production go through the same dispatch, so a
+  // test reply is the reply a customer would get.
+  const workflowResult = await runWorkflow(business, conversation, customerText);
 
   if (workflowResult.stateUpdate && Object.keys(workflowResult.stateUpdate).length > 0) {
     conversation = await prisma.conversation.update({
