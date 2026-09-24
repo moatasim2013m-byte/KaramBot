@@ -25,8 +25,14 @@ async function authenticate(req, res, next) {
     // A password change ends every session that predates it. Without this, someone who used a
     // stolen activation link keeps their session even after the real owner recovers the
     // account — the recovery would look successful and change nothing.
+    //
+    // `iat` is whole seconds, truncated; sessions_valid_from keeps milliseconds and is stamped in
+    // the same second, just before the new token is signed. Compared naively, the token a customer
+    // receives on activation reads as older than their own password change and every request
+    // after it answers 401 — so a token issued in the same second as the change is honoured.
     if (user.sessions_valid_from && decoded.iat) {
-      if (decoded.iat * 1000 < new Date(user.sessions_valid_from).getTime()) {
+      const issuedSecondEnd = decoded.iat * 1000 + 999;
+      if (issuedSecondEnd < new Date(user.sessions_valid_from).getTime()) {
         return res.status(401).json({ error: 'Session expired' });
       }
     }
