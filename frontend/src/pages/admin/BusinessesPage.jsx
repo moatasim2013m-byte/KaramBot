@@ -15,6 +15,21 @@ import {
  * database's field list. `slug` and raw Meta identifiers moved into the account's own page.
  */
 
+const SOLUTION_SHORT = { karam_bot: 'كرم بوت', automation: 'أتمتة', website: 'موقع', custom: 'مخصص' };
+const CONTRACT_STATE = { trial: 'idle', active: 'ok', past_due: 'down', paused: 'degraded' };
+
+function ContractCell({ contract }) {
+  if (!contract) return <span className="text-gray-400">بدون عقد</span>;
+  const overdue = contract.due_in_days !== null && contract.due_in_days < 0;
+  return (
+    <StateCell
+      state={overdue ? 'down' : (CONTRACT_STATE[contract.status] || 'unknown')}
+      label={`${SOLUTION_SHORT[contract.solution] || contract.solution} · ${contract.amount_jod} د.أ`}
+      sub={overdue ? `متأخر ${Math.abs(contract.due_in_days)} ي` : (contract.due_in_days !== null && contract.due_in_days <= 7 ? `خلال ${contract.due_in_days} ي` : undefined)}
+    />
+  );
+}
+
 const LIFECYCLE_LABEL = {
   onboarding: 'قيد التوصيل', active: 'نشط', inactive: 'غير نشط', suspended: 'موقوف',
 };
@@ -118,7 +133,7 @@ export default function BusinessesPage() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-gray-500 text-[11px] border-b border-gray-100">
-                  {['الشركة', 'النوع', 'المرحلة', 'اتصال واتساب', 'الوكيل', 'محادثات', 'آخر وارد'].map((h) => (
+                  {['الشركة', 'النوع', 'المرحلة', 'العقد', 'اتصال واتساب', 'الوكيل', 'محادثات', 'آخر وارد'].map((h) => (
                     <th key={h} className="text-right font-medium px-4 h-9 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -131,6 +146,7 @@ export default function BusinessesPage() {
                     </td>
                     <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{TYPE_LABEL[a.business_type] || a.business_type}</td>
                     <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{LIFECYCLE_LABEL[a.lifecycle] || a.lifecycle}</td>
+                    <td className="px-4 h-9 whitespace-nowrap min-w-[150px]"><ContractCell contract={a.contract} /></td>
                     <td className="px-4 h-9 whitespace-nowrap min-w-[150px]">
                       <StateCell state={a.connection?.state} label={a.connection?.label} sub={a.connection?.sub} />
                     </td>

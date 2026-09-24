@@ -10,6 +10,7 @@ jest.mock('../src/config/prisma', () => ({
   message: { findMany: jest.fn() },
   adminAccessLog: { create: jest.fn() },
   user: { findUnique: jest.fn(), findFirst: jest.fn() },
+  subscription: { findMany: jest.fn().mockResolvedValue([]) },
 }));
 
 const jwt = require('jsonwebtoken');
