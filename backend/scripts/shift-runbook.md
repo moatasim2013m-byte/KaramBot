@@ -107,9 +107,11 @@ UPDATE businesses SET ai_config = ai_config || '{"alert_wa_numbers": ["9627XXXXX
 UPDATE businesses SET ai_config = ai_config || '{"alert_template": {"name": "staff_alert", "language": "ar"}}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
 ```
 
-New-message alerts («رسالة جديدة من عميل»): on by default whenever `alert_wa_numbers` is set. A customer's first
-message alerts, then only a message after 30 min of silence from them (a burst is one alert); staff numbers never
-alert. Turn off or tune:
+New-message alerts («رسالة جديدة من عميل»): on by default whenever `alert_wa_numbers` is set. A customer's
+FIRST-EVER message alerts and nothing after it — the owner chose that over alerting on every returning
+conversation, since these land on his own phone. A burst is one alert; staff numbers never alert. Setting
+`alert_new_message_quiet_min` turns the repeat on: that many minutes of silence from a customer and their next
+message alerts again. Turn off, or opt into repeats:
 
 ```sql
 UPDATE businesses SET ai_config = ai_config || '{"alert_new_messages": false}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
