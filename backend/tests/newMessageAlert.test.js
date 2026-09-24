@@ -31,7 +31,11 @@ const PNID = 'pnid_alerts';
 const CUSTOMER = '962791111111';
 const OWNER = '962796381676';
 const BROTHER = '971557657948';
-const T0 = new Date('2026-09-19T08:00:00.000Z');
+// Anchored to the real clock rather than a fixed date. The code under test reads the REAL clock
+// for the 24-hour service window (canSendAutoReply → isWithinServiceWindow), while the fake db
+// stamps rows from this one — so a hardcoded date silently rots: these passed when written on
+// 2026-09-19 and started failing a day later, with nothing watching.
+const T0 = new Date();
 const MIN = 60 * 1000;
 
 let seq = 0;
@@ -42,6 +46,9 @@ function seedBusiness(aiConfig = {}, extra = {}) {
       id: 'biz_1',
       name: 'Test',
       business_type: 'generic',
+      // Without this the row is not active, so persistInbound returns no items and the whole
+      // inbound path stops before any reply or alert — which is why these tests never passed.
+      status: 'active',
       wa_phone_number_id: PNID,
       wa_access_token: encrypt('tok'),
       ai_config: { alert_wa_numbers: [OWNER, BROTHER], ...aiConfig },
@@ -315,15 +322,16 @@ describe('inbound path', () => {
 
     const toOwner = graphCalls(OWNER);
     expect(toOwner).toHaveLength(1);
-    const customerConv = db.store.conversations.find((c) => c.customer_wa_id === CUSTOMER);
+    // No raw conversation id: staff read these on their own phones, and the Inbox link is the
+    // useful destination (main, 2026-09-21).
     expect(toOwner[0][1].text.body).toBe([
       '🔔 SHIFT bot — رسالة جديدة من عميل',
       `العميل: محمد (+${CUSTOMER})`,
       '«مرحبا من الإعلان»',
       'من إعلان: عرض شِفت',
       'Inbox: https://app.shifts-ai.com/inbox',
-      `conversation=${customerConv.id}`,
     ].join('\n'));
+    expect(toOwner[0][1].text.body).not.toContain('conversation=');
 
     const toBrother = graphCalls(BROTHER);
     expect(toBrother).toHaveLength(1);
