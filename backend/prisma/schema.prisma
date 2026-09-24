@@ -43,6 +43,7 @@ model Business {
   menuItems     MenuItem[]
   modifierGroups ModifierGroup[]
   whatsappOnboarding WhatsappOnboarding?
+  subscriptions Subscription[]
 
   @@index([slug])
   @@index([wa_phone_number_id])
@@ -429,4 +430,54 @@ model UserActivation {
 
   @@index([user_id])
   @@map("user_activations")
+}
+
+// ─── Subscription ─────────────────────────────────────────────────────────────
+// What a customer bought and on what terms. Ten signed contracts need to be visible as ten
+// contracts — which solution, since when, for how much, and whether it is paid — not ten
+// rows that all say «active». Payments are recorded by hand: Stripe does not serve Jordan,
+// and at this size a bank transfer or CliQ reference typed in by staff is the honest record.
+model Subscription {
+  id            String    @id @default(cuid())
+  business_id   String
+  solution      String    // karam_bot | automation | website | custom
+  plan_name     String?   // free text: «الباقة الأساسية», «Custom — inventory sync»
+  status        String    @default("active") // trial | active | past_due | paused | cancelled
+  amount_jod    Decimal   @db.Decimal(10, 2)
+  billing_cycle String    @default("monthly") // monthly | quarterly | yearly | one_time
+  starts_at     DateTime
+  ends_at       DateTime?
+  next_due_at   DateTime?
+  cancelled_at  DateTime?
+  notes         String?
+  created_by    String
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  business Business  @relation(fields: [business_id], references: [id])
+  payments Payment[]
+
+  @@index([business_id, status])
+  @@index([next_due_at])
+  @@map("subscriptions")
+}
+
+// A payment against a subscription, as recorded by staff. `reference` is the transfer or
+// CliQ id — the thing you would search a bank statement by.
+model Payment {
+  id              String   @id @default(cuid())
+  subscription_id String
+  business_id     String
+  amount_jod      Decimal  @db.Decimal(10, 2)
+  paid_at         DateTime
+  method          String   // bank_transfer | cliq | cash | card | other
+  reference       String?
+  note            String?
+  recorded_by     String
+  created_at      DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, paid_at])
+  @@map("payments")
 }

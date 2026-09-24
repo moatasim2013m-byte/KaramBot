@@ -89,6 +89,17 @@ router.get('/overview', async (req, res) => {
 
     const onboardingByBusiness = new Map(onboardings.filter((o) => o.business_id).map((o) => [o.business_id, o]));
 
+    // The live contract per account: what they bought and whether it is paid. A cancelled one
+    // is not "the contract" any more, so the newest non-cancelled row wins.
+    const subs = await prisma.subscription.findMany({
+      where: { status: { not: 'cancelled' } },
+      orderBy: { created_at: 'desc' },
+      select: { business_id: true, solution: true, plan_name: true, status: true, amount_jod: true, billing_cycle: true, next_due_at: true, starts_at: true },
+    });
+    const contractByBusiness = new Map();
+    for (const sub of subs) if (!contractByBusiness.has(sub.business_id)) contractByBusiness.set(sub.business_id, sub);
+    const DUE_SOON_DAYS = 7;
+
     // One grouped query rather than a query per account: this screen is opened often.
     const convAgg = await prisma.conversation.groupBy({
       by: ['business_id'],
@@ -144,11 +155,23 @@ router.get('/overview', async (req, res) => {
       const connection = connectionState(b, onboarding);
       const agent = agentState(b, lastInbound, lastOutbound);
 
+      const contract = contractByBusiness.get(b.id) || null;
+      const dueInDays = contract?.next_due_at ? Math.ceil((new Date(contract.next_due_at) - Date.now()) / 86400000) : null;
+
       accounts.push({
         id: b.id,
         name: b.name,
         business_type: b.business_type,
         lifecycle: bucket,
+        contract: contract ? {
+          solution: contract.solution,
+          plan_name: contract.plan_name,
+          status: contract.status,
+          amount_jod: Number(contract.amount_jod),
+          billing_cycle: contract.billing_cycle,
+          next_due_at: contract.next_due_at,
+          due_in_days: dueInDays,
+        } : null,
         status: b.status,
         connection,
         agent,
@@ -193,6 +216,20 @@ router.get('/overview', async (req, res) => {
         // the bot's own replies — from 1 October 2026.
         push('critical', 'payment_method', 'لا توجد طريقة دفع — الوكيل سيتوقف عن الرد من 1 تشرين الأول', onboarding.updated_at);
       }
+      // ── Money ──────────────────────────────────────────────────────────────
+      if (contract?.status === 'past_due') {
+        push('critical', 'past_due', `دفعة متأخرة — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
+      } else if (contract && dueInDays !== null && dueInDays < 0) {
+        push('warning', 'overdue', `تجاوز موعد الدفع بـ ${Math.abs(dueInDays)} يوم — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
+      } else if (contract && dueInDays !== null && dueInDays <= DUE_SOON_DAYS) {
+        push('info', 'due_soon', `دفعة مستحقة خلال ${dueInDays} يوم — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
+      }
+      // An active, connected account with nothing sold against it is either a trial nobody
+      // recorded or revenue nobody is collecting; both are worth a look, neither is an alarm.
+      if (!contract && bucket === 'active' && b.business_type !== 'shift') {
+        push('info', 'no_contract', 'لا يوجد عقد مسجّل لهذا الحساب', b.created_at);
+      }
+
       if (bucket === 'active' && lastActivity && minutesSince(lastActivity) > QUIET_HOURS * 60) {
         push('info', 'quiet', `لا نشاط منذ ${Math.round(minutesSince(lastActivity) / 60 / 24)} يوم`, lastActivity);
       }
@@ -557,6 +594,185 @@ router.post('/accounts/:id/users/:userId/invite', async (req, res) => {
     res.json({ user, activation_path: `/activate#${token}`, expires_in_hours });
   } catch (err) {
     console.error('[admin/reinvite] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Contracts.
+ *
+ * A signed customer is a subscription row: which solution, on what terms, since when, and
+ * what has been paid against it. Payments are recorded by staff with the transfer or CliQ
+ * reference — the record you would reconcile a bank statement against. No gateway: Stripe
+ * does not serve Jordan, and ten contracts do not justify integrating one that does.
+ */
+const SOLUTIONS = ['karam_bot', 'automation', 'website', 'custom'];
+const SUB_STATUSES = ['trial', 'active', 'past_due', 'paused', 'cancelled'];
+const CYCLES = ['monthly', 'quarterly', 'yearly', 'one_time'];
+const METHODS = ['bank_transfer', 'cliq', 'cash', 'card', 'other'];
+
+const money = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+};
+const dateOrNull = (v) => (v ? new Date(v) : null);
+const validDate = (d) => d instanceof Date && !Number.isNaN(d.getTime());
+
+/** Advance a due date by one billing cycle. one_time has no next date. */
+function nextDue(from, cycle) {
+  if (!from || cycle === 'one_time') return null;
+  const d = new Date(from);
+  if (cycle === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (cycle === 'quarterly') d.setMonth(d.getMonth() + 3);
+  else if (cycle === 'yearly') d.setFullYear(d.getFullYear() + 1);
+  return d;
+}
+
+function publicSubscription(row) {
+  const paid = (row.payments || []).reduce((sum, p) => sum + Number(p.amount_jod), 0);
+  return {
+    id: row.id,
+    business_id: row.business_id,
+    solution: row.solution,
+    plan_name: row.plan_name,
+    status: row.status,
+    amount_jod: Number(row.amount_jod),
+    billing_cycle: row.billing_cycle,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    next_due_at: row.next_due_at,
+    cancelled_at: row.cancelled_at,
+    notes: row.notes,
+    total_paid_jod: Math.round(paid * 100) / 100,
+    payments: (row.payments || []).map((p) => ({
+      id: p.id, amount_jod: Number(p.amount_jod), paid_at: p.paid_at, method: p.method,
+      reference: p.reference, note: p.note, recorded_by: p.recorded_by,
+    })),
+    created_at: row.created_at,
+  };
+}
+
+router.get('/accounts/:id/subscriptions', async (req, res) => {
+  try {
+    const rows = await prisma.subscription.findMany({
+      where: { business_id: req.params.id },
+      include: { payments: { orderBy: { paid_at: 'desc' } } },
+      orderBy: { created_at: 'desc' },
+    });
+    res.json({ subscriptions: rows.map(publicSubscription) });
+  } catch (err) {
+    console.error('[admin/subscriptions] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/accounts/:id/subscriptions', async (req, res) => {
+  const b = req.body || {};
+  const solution = String(b.solution || '');
+  const cycle = String(b.billing_cycle || 'monthly');
+  const status = String(b.status || 'active');
+  const amount = money(b.amount_jod);
+  const startsAt = dateOrNull(b.starts_at) || new Date();
+
+  if (!SOLUTIONS.includes(solution)) return res.status(400).json({ error: 'الحل غير معروف' });
+  if (!CYCLES.includes(cycle)) return res.status(400).json({ error: 'دورة الفوترة غير صالحة' });
+  if (!SUB_STATUSES.includes(status)) return res.status(400).json({ error: 'الحالة غير صالحة' });
+  if (amount === null) return res.status(400).json({ error: 'المبلغ غير صالح' });
+  if (!validDate(startsAt)) return res.status(400).json({ error: 'تاريخ البداية غير صالح' });
+
+  try {
+    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
+
+    const row = await prisma.subscription.create({
+      data: {
+        business_id: business.id, // from the URL, never the body
+        solution,
+        plan_name: b.plan_name ? String(b.plan_name).slice(0, 120) : null,
+        status,
+        amount_jod: amount,
+        billing_cycle: cycle,
+        starts_at: startsAt,
+        ends_at: dateOrNull(b.ends_at),
+        next_due_at: b.next_due_at ? dateOrNull(b.next_due_at) : nextDue(startsAt, cycle),
+        notes: b.notes ? String(b.notes).slice(0, 2000) : null,
+        created_by: req.user.id,
+      },
+      include: { payments: true },
+    });
+    res.status(201).json({ subscription: publicSubscription(row) });
+  } catch (err) {
+    console.error('[admin/subscriptions/create] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/accounts/:id/subscriptions/:sid', async (req, res) => {
+  const b = req.body || {};
+  const data = {};
+  if (b.status !== undefined) {
+    if (!SUB_STATUSES.includes(b.status)) return res.status(400).json({ error: 'الحالة غير صالحة' });
+    data.status = b.status;
+    if (b.status === 'cancelled') data.cancelled_at = new Date();
+  }
+  if (b.plan_name !== undefined) data.plan_name = b.plan_name ? String(b.plan_name).slice(0, 120) : null;
+  if (b.amount_jod !== undefined) {
+    const amount = money(b.amount_jod);
+    if (amount === null) return res.status(400).json({ error: 'المبلغ غير صالح' });
+    data.amount_jod = amount;
+  }
+  if (b.next_due_at !== undefined) data.next_due_at = dateOrNull(b.next_due_at);
+  if (b.ends_at !== undefined) data.ends_at = dateOrNull(b.ends_at);
+  if (b.notes !== undefined) data.notes = b.notes ? String(b.notes).slice(0, 2000) : null;
+
+  try {
+    // Scoped to the account in the URL: a subscription id from another tenant is not found.
+    const existing = await prisma.subscription.findFirst({ where: { id: req.params.sid, business_id: req.params.id }, select: { id: true } });
+    if (!existing) return res.status(404).json({ error: 'لا يوجد اشتراك بهذا المعرّف في هذا الحساب' });
+
+    const row = await prisma.subscription.update({ where: { id: existing.id }, data, include: { payments: { orderBy: { paid_at: 'desc' } } } });
+    res.json({ subscription: publicSubscription(row) });
+  } catch (err) {
+    console.error('[admin/subscriptions/update] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Record a payment. A past_due subscription that gets paid returns to active and its due date advances. */
+router.post('/accounts/:id/subscriptions/:sid/payments', async (req, res) => {
+  const b = req.body || {};
+  const amount = money(b.amount_jod);
+  const method = String(b.method || '');
+  const paidAt = dateOrNull(b.paid_at) || new Date();
+  if (amount === null || amount === 0) return res.status(400).json({ error: 'المبلغ غير صالح' });
+  if (!METHODS.includes(method)) return res.status(400).json({ error: 'طريقة الدفع غير معروفة' });
+  if (!validDate(paidAt)) return res.status(400).json({ error: 'تاريخ الدفع غير صالح' });
+
+  try {
+    const sub = await prisma.subscription.findFirst({ where: { id: req.params.sid, business_id: req.params.id } });
+    if (!sub) return res.status(404).json({ error: 'لا يوجد اشتراك بهذا المعرّف في هذا الحساب' });
+
+    const row = await prisma.$transaction(async (tx) => {
+      await tx.payment.create({
+        data: {
+          subscription_id: sub.id,
+          business_id: sub.business_id,
+          amount_jod: amount,
+          paid_at: paidAt,
+          method,
+          reference: b.reference ? String(b.reference).slice(0, 120) : null,
+          note: b.note ? String(b.note).slice(0, 500) : null,
+          recorded_by: req.user.id,
+        },
+      });
+      const advance = {};
+      if (sub.status === 'past_due') advance.status = 'active';
+      if (sub.billing_cycle !== 'one_time') advance.next_due_at = nextDue(sub.next_due_at || paidAt, sub.billing_cycle);
+      return tx.subscription.update({ where: { id: sub.id }, data: advance, include: { payments: { orderBy: { paid_at: 'desc' } } } });
+    });
+    res.status(201).json({ subscription: publicSubscription(row) });
+  } catch (err) {
+    console.error('[admin/payments] failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

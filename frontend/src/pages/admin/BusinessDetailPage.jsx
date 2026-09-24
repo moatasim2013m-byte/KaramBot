@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import AccountHealthTab from '../../components/admin/AccountHealthTab';
 import AccountAccessTab from '../../components/admin/AccountAccessTab';
+import AccountContractsTab from '../../components/admin/AccountContractsTab';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../utils/api';
 import { Save, Smartphone, ArrowRight } from 'lucide-react';
@@ -180,6 +181,7 @@ export default function BusinessDetailPage() {
     // Health first: the reason to open an account is almost always "is it working".
     { key: 'health',   label: 'الحالة' },
     { key: 'access',   label: 'الدخول' },
+    { key: 'contracts', label: 'العقد' },
     { key: 'general',  label: 'عام' },
     { key: 'ai',       label: 'الذكاء الاصطناعي' },
     { key: 'policies', label: 'السياسات' },
@@ -348,6 +350,7 @@ export default function BusinessDetailPage() {
       {/* WhatsApp tab */}
       {tab === 'health' && <AccountHealthTab accountId={biz.id} />}
       {tab === 'access' && <AccountAccessTab accountId={biz.id} />}
+      {tab === 'contracts' && <AccountContractsTab accountId={biz.id} />}
       {tab === 'whatsapp' && <WhatsAppTab biz={biz} />}
     </div>
   );

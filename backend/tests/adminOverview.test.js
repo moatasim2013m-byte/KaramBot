@@ -12,6 +12,7 @@ jest.mock('../src/config/prisma', () => ({
   whatsappOnboarding: { findMany: jest.fn() },
   conversation: { groupBy: jest.fn(), findMany: jest.fn() },
   message: { groupBy: jest.fn() },
+  subscription: { findMany: jest.fn() },
   user: { findUnique: jest.fn() },
 }));
 
@@ -32,11 +33,12 @@ const biz = (over = {}) => ({
 
 const minsAgo = (m) => new Date(Date.now() - m * 60000);
 
-function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [], stale = [] }) {
+function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [], stale = [], subs = [] }) {
   prisma.business.findMany.mockResolvedValue(businesses);
   prisma.whatsappOnboarding.findMany.mockResolvedValue(onboardings);
   prisma.message.groupBy.mockResolvedValue(outbound);
   prisma.conversation.findMany.mockResolvedValue(stale);
+  prisma.subscription.findMany.mockResolvedValue(subs);
   prisma.conversation.groupBy
     .mockResolvedValueOnce(conv)   // totals aggregate
     .mockResolvedValueOnce(open);  // open conversations
@@ -62,6 +64,10 @@ test('a healthy account is active, connected and answering', async () => {
     conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(5), last_message_at: minsAgo(4) }, _count: { _all: 9 }, _sum: { unread_count: 0 } }],
     outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(4) } }],
     open: [{ business_id: 'b1', _count: { _all: 2 } }],
+    // A healthy account also has something sold against it; without a contract the
+    // fleet view rightly points that out, which is a different test.
+    subs: [{ business_id: 'b1', solution: 'karam_bot', status: 'active', amount_jod: 120, billing_cycle: 'monthly',
+      next_due_at: new Date(Date.now() + 20 * 86400000), starts_at: new Date('2026-09-01') }],
   });
 
   const res = await get();
@@ -192,5 +198,53 @@ describe('an account cannot look healthy when it is not', () => {
     expect(res.body.accounts[0].agent.state).toBe('ok');           // the account overall is answering
     expect(res.body.accounts[0].unanswered_conversations).toBe(2); // but two customers are waiting
     expect(res.body.attention.some((a) => a.category === 'stale_threads')).toBe(true);
+  });
+});
+
+describe('contracts on the fleet view', () => {
+  const daysFromNow = (d) => new Date(Date.now() + d * 86400000);
+  const ready = () => [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }];
+  const contract = (over = {}) => ({
+    business_id: 'b1', solution: 'karam_bot', plan_name: null, status: 'active',
+    amount_jod: 120, billing_cycle: 'monthly', next_due_at: daysFromNow(20), starts_at: new Date('2026-09-01'), ...over,
+  });
+
+  test('an account shows what it bought, with the amount', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready(), subs: [contract()] });
+    const res = await get();
+    expect(res.body.accounts[0].contract).toMatchObject({ solution: 'karam_bot', amount_jod: 120, status: 'active' });
+    expect(res.body.attention.some((a) => a.category === 'no_contract')).toBe(false);
+  });
+
+  test('an active account with nothing sold against it is pointed out', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready(), subs: [] });
+    const res = await get();
+    expect(res.body.accounts[0].contract).toBeNull();
+    expect(res.body.attention.some((a) => a.category === 'no_contract' && a.severity === 'info')).toBe(true);
+  });
+
+  test("SHIFT's own row is not asked for a contract", async () => {
+    mockDb({ businesses: [biz({ business_type: 'shift' })], onboardings: ready(), subs: [] });
+    const res = await get();
+    expect(res.body.attention.some((a) => a.category === 'no_contract')).toBe(false);
+  });
+
+  test('a payment due within a week is a heads-up; past its date it is a warning; past_due is critical', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready(), subs: [contract({ next_due_at: daysFromNow(3) })] });
+    expect((await get()).body.attention.find((a) => a.category === 'due_soon')?.severity).toBe('info');
+
+    mockDb({ businesses: [biz()], onboardings: ready(), subs: [contract({ next_due_at: daysFromNow(-4) })] });
+    expect((await get()).body.attention.find((a) => a.category === 'overdue')?.severity).toBe('warning');
+
+    mockDb({ businesses: [biz()], onboardings: ready(), subs: [contract({ status: 'past_due' })] });
+    expect((await get()).body.attention.find((a) => a.category === 'past_due')?.severity).toBe('critical');
+  });
+
+  test('a cancelled contract does not count as the contract', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready(), subs: [contract({ status: 'cancelled' })] });
+    // the route already excludes cancelled rows in its query; the mock returns what the query would
+    prisma.subscription.findMany.mockResolvedValue([]);
+    const res = await get();
+    expect(res.body.accounts[0].contract).toBeNull();
   });
 });
