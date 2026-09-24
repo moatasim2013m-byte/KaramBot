@@ -17,3 +17,4 @@ credentials.json
 
 # Local Cloud SQL proxy binary (31 MB) — never commit
 backend/cloud-sql-proxy
+backend/.sim/
