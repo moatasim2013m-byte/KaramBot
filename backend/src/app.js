@@ -61,6 +61,8 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 app.use('/api/auth', authLimiter, require('./routes/auth'));
 // Mounted before the webhook router so the more specific path wins.
 app.use('/api/whatsapp/embedded-signup', apiLimiter, require('./routes/embeddedSignup'));
+// The customer's own «is my WhatsApp connected» — read-only, scoped to their business.
+app.use('/api/whatsapp/status', apiLimiter, require('./routes/whatsappStatus'));
 app.use('/api/whatsapp', require('./routes/legacyWhatsapp'));
 // The SHIFT Tech Provider app delivers here: its own URL, verify token and app secret.
 app.use('/api/shift/whatsapp', require('./routes/shiftWhatsapp'));
