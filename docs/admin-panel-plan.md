@@ -94,6 +94,24 @@ tool, real platform settings.
 **Phase 4 — the hatch and the polish.** Audited read-only workspace view, the full attention queue
 once detection rules exist, skeletons and motion.
 
+## Contracts — decided 2026-09-24
+
+The owner's question: «assume 10 customers signed contracts for different solutions — what will
+I see? do we have SaaS subscription?» Answer: nothing, until today. Ten signed customers were
+ten rows that all said «active».
+
+**Built:** a `Subscription` per contract (solution, plan, status, amount in JOD, billing cycle,
+start, next due) and `Payment` rows recorded by staff with the transfer or CliQ reference — the
+record a bank statement is reconciled against. The fleet view shows a contract column and four
+money signals: `past_due` critical, a missed due date a warning, a payment due within a week a
+heads-up, and an active customer account with nothing sold against it pointed out.
+
+**Not built, on purpose:** a payment gateway. Stripe does not serve Jordanian businesses, so the
+open-source SaaS starters (OpenSaaS and the like, all Stripe/Polar) offer nothing here; PayTabs
+and HyperPay do serve Jordan, and can be integrated when volume justifies it without changing
+this data model. Cloning a boilerplate into a live Express/Prisma app would have meant a second
+framework, a second auth system and a second schema, for billing that could not take a payment.
+
 ## Not to be skipped
 
 - **Define the attention queue's detection rules before building its UI** — webhook silent > N
