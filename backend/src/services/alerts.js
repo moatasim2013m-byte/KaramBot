@@ -85,14 +85,25 @@ function escapeForWebhook(value) {
     .replace(/@(everyone|here|channel)/gi, '@\u200b$1');
 }
 
-// Plain text only: Slack, Discord and WhatsApp all render it the same. `link` (ours, never customer
-// text) adds an «Inbox: …» line.
+// Plain text only: Slack, Discord and WhatsApp all render it the same.
+//
+// The conversation id is NOT in the text: staff read these on their own phones, and a line like
+// «conversation=cmu0x7xgd0001oy9dkumedui8» is noise to everyone who is not debugging (owner, 2026-09-21).
+// The customer's name and number identify the chat — that is what staff search WhatsApp by — and every
+// alert still carries the id in the server log beside it (`[alerts] reason=… conversation=…`).
+//
+// `link` is ours, never customer text, and adds an «Inbox: …» line when a destination is known.
 function formatAlertText({ reason, business, conversation, summary, link }, { forWebhook = false } = {}) {
   const conv = conversation || {};
   const label = ALERT_LABELS[reason] || reason;
   const safe = (v) => (forWebhook ? escapeForWebhook(v) : v);
-  const linkLine = link ? `\nInbox: ${link}` : '';
-  return `🔔 SHIFT bot — ${label}\nالعميل: ${safe(conv.profile_name || '-')} (+${conv.customer_wa_id})\n${safe(summary || '')}${linkLine}\nconversation=${conv.id}`;
+  const lines = [
+    `🔔 SHIFT bot — ${label}`,
+    `العميل: ${safe(conv.profile_name || '-')} (+${conv.customer_wa_id})`,
+    safe(summary || ''),
+    link ? `Inbox: ${link}` : '',
+  ];
+  return lines.filter((l) => String(l).trim()).join('\n');
 }
 
 /**
@@ -134,8 +145,7 @@ function alertTemplate(business) {
 // The Inbox copy of a sent template: the approved wording with the parameters filled in.
 function renderAlertTemplate(template, params) {
   const body = ALERT_TEMPLATE_BODY.replace(/\{\{(\d+)\}\}/g, (m, i) => params[Number(i) - 1] ?? m);
-  return `[قالب ${template.name}] ${body}`;
-}
+  return `[قالب ${template.name}] ${body}`;}
 
 function alertNumbers(business) {
   const list = business?.ai_config?.alert_wa_numbers;

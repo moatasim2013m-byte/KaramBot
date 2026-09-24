@@ -419,6 +419,18 @@ function eventTime(value) {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
+/**
+ * Calendly cancels by RENAMING the event, not deleting it: verified against the live calendar on
+ * 2026-09-21 — a cancelled booking came back `status: "confirmed"` with the summary
+ * «Canceled: Test Karam and SHIFT AI & Automation». Reading Google's status alone left the booking on file,
+ * and the customer was reminded of a call they had cancelled the night before. The title says so; it is read.
+ */
+const CANCELLED_TITLE_RE = /^\s*(?:canceled|cancelled|ملغا?ة|ملغي)\s*:/i;
+
+function cancelledByTitle(event) {
+  return !!event && typeof event.summary === 'string' && CANCELLED_TITLE_RE.test(event.summary);
+}
+
 function isCalendlyEvent(event) {
   if (!event || typeof event !== 'object') return false;
   const hay = [event.description, event.location, event.iCalUID, event.source && event.source.url]
@@ -459,7 +471,7 @@ function parseEvent(event) {
   }
   return {
     id: typeof ev.id === 'string' ? ev.id : null,
-    status: ev.status === 'cancelled' ? 'cancelled' : (ev.status || 'confirmed'),
+    status: (ev.status === 'cancelled' || cancelledByTitle(ev)) ? 'cancelled' : (ev.status || 'confirmed'),
     updated: typeof ev.updated === 'string' ? ev.updated : null,
     created: typeof ev.created === 'string' ? ev.created : null,
     start: eventTime(ev.start),
@@ -625,6 +637,7 @@ module.exports = {
   parseEvent,
   shapeSummary,
   isCalendlyEvent,
+  cancelledByTitle,
   isOwnEvent,
   namesMatch,
   nameCandidates,

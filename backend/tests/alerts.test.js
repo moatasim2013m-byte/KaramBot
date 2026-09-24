@@ -46,7 +46,7 @@ afterEach(() => {
 describe('formatAlertText', () => {
   test('plain text with label, customer, summary and conversation id', () => {
     expect(formatAlertText({ reason: 'quote', business: business(), conversation, summary: 'عيادة أسنان، بدها عرض سعر' }))
-      .toBe('🔔 SHIFT bot — طلب عرض سعر\nالعميل: محمد (+962791111111)\nعيادة أسنان، بدها عرض سعر\nconversation=conv_1');
+      .toBe('🔔 SHIFT bot — طلب عرض سعر\nالعميل: محمد (+962791111111)\nعيادة أسنان، بدها عرض سعر');
     expect(formatAlertText({ reason: 'handoff', conversation: { ...conversation, profile_name: null }, summary: '' }))
       .toContain('العميل: - (+962791111111)');
   });
@@ -187,9 +187,12 @@ describe('alertChannelConfigured', () => {
 });
 
 describe('formatAlertText link line', () => {
-  test('an Inbox line before the conversation id when a link is given', () => {
-    expect(formatAlertText({ reason: 'new_message', conversation, summary: '«مرحبا»', link: 'https://app.test/inbox' }))
-      .toBe('🔔 SHIFT bot — رسالة جديدة من عميل\nالعميل: محمد (+962791111111)\n«مرحبا»\nInbox: https://app.test/inbox\nconversation=conv_1');
+  test('an Inbox line when a link is given, and still no raw conversation id', () => {
+    // The id was removed from alert text deliberately: staff read these on their own phones and
+    // «conversation=cmu0x…» is noise to everyone not debugging. The link replaces it usefully.
+    const text = formatAlertText({ reason: 'new_message', conversation, summary: '«مرحبا»', link: 'https://app.test/inbox' });
+    expect(text).toBe('🔔 SHIFT bot — رسالة جديدة من عميل\nالعميل: محمد (+962791111111)\n«مرحبا»\nInbox: https://app.test/inbox');
+    expect(text).not.toContain('conversation=');
   });
 });
 

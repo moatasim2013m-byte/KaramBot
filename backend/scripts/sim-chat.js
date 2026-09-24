@@ -6,6 +6,7 @@
  *
  *   OPENROUTER_API_KEY=… GEMINI_API_KEY=… \
  *   node scripts/sim-chat.js --customer moonshotai/kimi-k3 --persona restaurant --out docs/bot/sims
+ *   … --provider anthropic   (ANTHROPIC_API_KEY instead of GEMINI_API_KEY: the bot side runs on Claude)
  *
  * The SHIFT side is REAL: persistInbound → runBatch → processShiftBatch → the v2 prompt → the validators →
  * deliverResult, plus the real booking module and the real button path. Gemini is the real API.
@@ -217,7 +218,7 @@ function makeCalendarStub(fixtureBusy) {
 
 let calendarStub = null;
 
-function installHooks(fixtureBusy) {
+function installHooks(fixtureBusy, provider = 'gemini') {
   const defaults = {
     NODE_ENV: 'test',
     DATABASE_URL: 'postgresql://sim:sim@localhost:5432/sim',
@@ -232,10 +233,11 @@ function installHooks(fixtureBusy) {
     SHIFT_INBOX_URL: 'https://inbox.sim.test',
   };
   for (const [k, v] of Object.entries(defaults)) if (!process.env[k]) process.env[k] = v;
-  // Whatever the shell exported, the SHIFT side talks to Gemini only.
-  process.env.AI_PROVIDER = 'gemini';
+  // Whatever the shell exported, the SHIFT side talks to the chosen provider only (no failover in a sim).
+  process.env.AI_PROVIDER = provider;
+  delete process.env.AI_FALLBACK_PROVIDER;
   delete process.env.OPENAI_API_KEY;
-  delete process.env.ANTHROPIC_API_KEY;
+  if (provider !== 'anthropic') delete process.env.ANTHROPIC_API_KEY;
 
   calendarStub = makeCalendarStub(fixtureBusy);
 
@@ -245,9 +247,14 @@ function installHooks(fixtureBusy) {
   const calendarPath = path.join(ROOT, 'src/services/googleCalendar.js');
   const originalLoad = Module._load;
   let geminiModule = null;
+  let anthropicModule = null;
 
   Module._load = function simLoad(request, parent, isMain) {
     if (request === 'axios') return fakeAxios;
+    if (request === '@anthropic-ai/sdk') {
+      if (!anthropicModule) anthropicModule = wrapAnthropic(originalLoad.call(this, request, parent, isMain));
+      return anthropicModule;
+    }
     if (request === '@google/generative-ai') {
       if (!geminiModule) geminiModule = wrapGemini(originalLoad.call(this, request, parent, isMain));
       return geminiModule;
@@ -299,6 +306,46 @@ function wrapGemini(real) {
     }
   }
   return { ...real, GoogleGenerativeAI: SimGoogleGenerativeAI };
+}
+
+/**
+ * The real Anthropic SDK, recorded into the same list as Gemini calls (the report's «model calls»): the stop
+ * reason is mapped onto Gemini's finish names so the failure/blocked counts read the same.
+ */
+const CLAUDE_FINISH = { end_turn: 'STOP', max_tokens: 'MAX_TOKENS', refusal: 'REFUSAL', stop_sequence: 'STOP' };
+
+function wrapAnthropic(real) {
+  const Base = real.Anthropic || real.default || real;
+  class SimAnthropic extends Base {
+    constructor(...args) {
+      super(...args);
+      const create = this.messages.create.bind(this.messages);
+      this.messages.create = async (params, options) => {
+        const started = process.hrtime.bigint();
+        const entry = { model: params && params.model, provider: 'anthropic', at: new Date().toISOString() };
+        try {
+          const msg = await create(params, options);
+          entry.ms = Number(process.hrtime.bigint() - started) / 1e6;
+          entry.finish = CLAUDE_FINISH[msg && msg.stop_reason] || (msg && msg.stop_reason) || null;
+          entry.promptFeedback = msg && msg.stop_reason === 'refusal' ? 'REFUSAL' : null;
+          entry.usage = (msg && msg.usage) || null;
+          entry.ok = true;
+          state.geminiCalls.push(entry);
+          return msg;
+        } catch (err) {
+          entry.ms = Number(process.hrtime.bigint() - started) / 1e6;
+          entry.ok = false;
+          entry.error = String((err && err.message) || err).slice(0, 400);
+          state.geminiCalls.push(entry);
+          throw err;
+        }
+      };
+    }
+  }
+  for (const k of Object.getOwnPropertyNames(Base)) {
+    if (/Error$/.test(k) && !(k in SimAnthropic)) SimAnthropic[k] = Base[k];
+  }
+  return Object.assign(SimAnthropic, { Anthropic: SimAnthropic, default: SimAnthropic });
 }
 
 // ─── inbound payloads (the same shapes Meta posts) ──────────────────────────
@@ -523,14 +570,14 @@ function busyFixture(anchorMs) {
   ];
 }
 
-async function run({ customerModel, persona, maxTurns, budgetMs, outDir }) {
+async function run({ customerModel, persona, maxTurns, budgetMs, outDir, provider = 'gemini' }) {
   // 10:00 in the team's zone, today: inside SHIFT's hours, with a full day of slots ahead.
   const anchor = new Date();
   const ammanOffsetMs = 3 * 60 * 60 * 1000;
   const dayStart = Math.floor((anchor.getTime() + ammanOffsetMs) / 86400000) * 86400000 - ammanOffsetMs;
   const anchorMs = dayStart + 10 * 60 * 60 * 1000;
 
-  const db = installHooks(busyFixture(anchorMs));
+  const db = installHooks(busyFixture(anchorMs), provider);
   const restoreClock = installClock(anchorMs);
 
   const messageProcessor = require(path.join(ROOT, 'src/services/messageProcessor'));
@@ -567,7 +614,9 @@ async function run({ customerModel, persona, maxTurns, budgetMs, outDir }) {
     persona: persona.id,
     personaTitle: persona.title,
     customerModel,
-    geminiModel: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    geminiModel: process.env.AI_PROVIDER === 'anthropic'
+      ? (process.env.ANTHROPIC_MODEL || 'claude-sonnet-5')
+      : (process.env.GEMINI_MODEL || 'gemini-3.6-flash'),
     startedAt: new Date().toISOString(),
     clockAnchor: new Date(anchorMs).toISOString(),
     turns: [],
@@ -869,7 +918,7 @@ function writeReport(transcript, outDir) {
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const args = { customer: null, persona: null, out: 'docs/bot/sims', maxTurns: DEFAULT_MAX_TURNS, budgetMs: DEFAULT_BUDGET_MS };
+  const args = { customer: null, persona: null, out: 'docs/bot/sims', maxTurns: DEFAULT_MAX_TURNS, budgetMs: DEFAULT_BUDGET_MS, provider: 'gemini' };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--customer') args.customer = argv[++i];
@@ -877,6 +926,7 @@ function parseArgs(argv) {
     else if (a === '--out') args.out = argv[++i];
     else if (a === '--max-turns') args.maxTurns = Number(argv[++i]);
     else if (a === '--budget-ms') args.budgetMs = Number(argv[++i]);
+    else if (a === '--provider') args.provider = String(argv[++i] || '').trim();
     else if (a === '--help' || a === '-h') args.help = true;
   }
   return args;
@@ -885,7 +935,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.customer || !args.persona) {
-    console.log('node scripts/sim-chat.js --customer <openrouter model id> --persona restaurant|clinic|hostile [--out docs/bot/sims] [--max-turns 14] [--budget-ms 480000]');
+    console.log('node scripts/sim-chat.js --customer <openrouter model id> --persona restaurant|clinic|hostile [--out docs/bot/sims] [--max-turns 14] [--budget-ms 480000] [--provider gemini|anthropic]');
     return args.help ? 0 : 2;
   }
   const persona = PERSONAS[args.persona];
@@ -897,8 +947,13 @@ async function main() {
     console.error('sim-chat: OPENROUTER_API_KEY is required (the customer side).');
     return 2;
   }
-  if (!process.env.GEMINI_API_KEY) {
-    console.error('sim-chat: GEMINI_API_KEY is required (the bot side calls the real Gemini API).');
+  if (!['gemini', 'anthropic'].includes(args.provider)) {
+    console.error(`sim-chat: --provider must be gemini or anthropic (got "${args.provider}")`);
+    return 2;
+  }
+  const botKey = args.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY';
+  if (!process.env[botKey]) {
+    console.error(`sim-chat: ${botKey} is required (the bot side calls the real ${args.provider} API).`);
     return 2;
   }
   const outDir = path.resolve(process.cwd(), args.out);
@@ -908,6 +963,7 @@ async function main() {
     maxTurns: Number.isFinite(args.maxTurns) && args.maxTurns > 0 ? args.maxTurns : DEFAULT_MAX_TURNS,
     budgetMs: Number.isFinite(args.budgetMs) && args.budgetMs > 0 ? args.budgetMs : DEFAULT_BUDGET_MS,
     outDir,
+    provider: args.provider,
   });
   console.log(`turns=${t.turns.length} gemini=${t.final.geminiCalls} failures=${t.final.geminiFailures} booking=${t.final.booking ? 'yes' : 'no'} events=${t.final.calendarEvents.length}`);
   if (t.errors.length) for (const e of t.errors) console.log(`note: ${e}`);

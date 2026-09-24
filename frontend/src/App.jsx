@@ -11,11 +11,16 @@ import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
 import ClinicPage from './pages/ClinicPage';
 import ReportsPage from './pages/ReportsPage';
+import AdminLayout from './layouts/AdminLayout';
+import AdminOverviewPage from './pages/admin/AdminOverviewPage';
 import BusinessesPage from './pages/admin/BusinessesPage';
 import CreateBusinessPage from './pages/admin/CreateBusinessPage';
 import BusinessDetailPage from './pages/admin/BusinessDetailPage';
+import PlatformSettingsPage from './pages/admin/PlatformSettingsPage';
+import AccountWorkspacePage from './pages/admin/AccountWorkspacePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import DataDeletionPage from './pages/DataDeletionPage';
+import ActivatePage from './pages/ActivatePage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -33,6 +38,18 @@ function RoleRoute({ roles, children }) {
   return children;
 }
 
+/**
+ * Where a signed-in user belongs.
+ *
+ * SHIFT staff go to the platform, business users to their own dashboard — and a
+ * platform_admin who also happens to carry a business_id still goes to the platform.
+ * That field is a data accident and must not decide what someone sees.
+ */
+function HomeRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={user?.role === 'platform_admin' ? '/admin/overview' : '/overview'} replace />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -41,12 +58,15 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/data-deletion" element={<DataDeletionPage />} />
+          {/* Public: a new customer has no account until they redeem this. The token rides in
+              the URL fragment, which browsers never send, so it stays out of every server log. */}
+          <Route path="/activate" element={<ActivatePage />} />
           <Route path="/" element={
             <ProtectedRoute>
               <DashboardLayout />
             </ProtectedRoute>
           }>
-            <Route index element={<Navigate to="/overview" replace />} />
+            <Route index element={<HomeRedirect />} />
             <Route path="overview" element={<OverviewPage />} />
             <Route path="inbox" element={<InboxPage />} />
             <Route path="orders" element={<OrdersPage />} />
@@ -75,22 +95,25 @@ export default function App() {
                 <SettingsPage />
               </RoleRoute>
             } />
-            <Route path="admin/businesses" element={
-              <RoleRoute roles={['platform_admin']}>
-                <BusinessesPage />
-              </RoleRoute>
-            } />
-            <Route path="admin/businesses/new" element={
-              <RoleRoute roles={['platform_admin']}>
-                <CreateBusinessPage />
-              </RoleRoute>
-            } />
-            <Route path="admin/businesses/:id" element={
-              <RoleRoute roles={['platform_admin']}>
-                <BusinessDetailPage />
-              </RoleRoute>
-            } />
           </Route>
+          {/* SHIFT platform — its own tree, its own shell, never mixed with a business dashboard. */}
+          <Route path="/admin" element={
+            <ProtectedRoute>
+              <RoleRoute roles={['platform_admin']}>
+                <AdminLayout />
+              </RoleRoute>
+            </ProtectedRoute>
+          }>
+            <Route index element={<Navigate to="/admin/overview" replace />} />
+            <Route path="overview" element={<AdminOverviewPage />} />
+            <Route path="accounts" element={<BusinessesPage />} />
+            <Route path="accounts/new" element={<CreateBusinessPage />} />
+            <Route path="accounts/:id" element={<BusinessDetailPage />} />
+            {/* Read-only, audited: every visit is written to admin_access_logs. */}
+            <Route path="accounts/:id/conversations" element={<AccountWorkspacePage />} />
+            <Route path="settings" element={<PlatformSettingsPage />} />
+          </Route>
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

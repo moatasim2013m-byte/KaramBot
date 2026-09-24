@@ -139,6 +139,30 @@ function calendlyEvent(fields = {}) {
 }
 
 describe('parseEvent', () => {
+  // Live calendar, 2026-09-21: Calendly cancels by renaming the event. Google still reported
+  // `status: "confirmed"` with the summary «Canceled: Test Karam and SHIFT AI & Automation», so the booking
+  // stayed on file and the customer was reminded of a call they had cancelled.
+  test.each([
+    ['Canceled: Test Karam and SHIFT AI & Automation', 'cancelled'],
+    ['Cancelled: Sara and SHIFT AI & Automation', 'cancelled'],
+    ['ملغاة: Test Karam', 'cancelled'],
+    ['Test Karam and SHIFT AI & Automation', 'confirmed'],
+    ['Cancellation policy chat with SHIFT', 'confirmed'],
+  ])('summary %s → status %s', (summary, expected) => {
+    expect(calendly.parseEvent(calendlyEvent({ summary })).status).toBe(expected);
+  });
+
+  test("Google's own cancelled status still wins, and a renamed event keeps its phone and links", () => {
+    expect(calendly.parseEvent(calendlyEvent({ status: 'cancelled' })).status).toBe('cancelled');
+    const p = calendly.parseEvent(calendlyEvent({
+      summary: 'Canceled: Test Karam and SHIFT AI & Automation',
+      description: [`رقم الواتساب: +962 7 9638 1676`, `Cancel: ${CANCEL}`, `Reschedule: ${RESCHED}`].join('\n'),
+    }));
+    expect(p.status).toBe('cancelled');
+    expect(p.phone).toBe('962796381676');
+    expect(p.calendly).toBe(true);
+  });
+
   test('plain-text description: labelled answer, both URLs, attendee name and email', () => {
     const p = calendly.parseEvent(calendlyEvent({
       description: [

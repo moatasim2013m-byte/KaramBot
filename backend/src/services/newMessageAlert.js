@@ -5,7 +5,10 @@
  *
  * Config (businesses.ai_config):
  *   alert_new_messages           true/false — default: on when alert_wa_numbers has a number
- *   alert_new_message_quiet_min  minutes of silence from the customer before they alert again (default 30)
+ *   alert_new_message_quiet_min  minutes of silence before the SAME customer alerts again.
+ *                                Unset means never: only a customer's first-ever message alerts.
+ *                                The owner chose that on 2026-09-22, over alerting on every
+ *                                returning conversation, because this lands on his own phone.
  *
  * Noise control: a customer's first-ever message alerts; after that only a message that follows at least
  * `quiet_min` minutes without any message from them does, so a burst of ten messages is one alert.
@@ -49,9 +52,11 @@ function newMessageConfig(business) {
   const flag = cfg.alert_new_messages;
   const enabled = typeof flag === 'boolean' ? flag : staff.length > 0;
   const quiet = Number(cfg.alert_new_message_quiet_min);
-  const quietMin = cfg.alert_new_message_quiet_min !== undefined && cfg.alert_new_message_quiet_min !== null
-    && Number.isFinite(quiet) && quiet >= 0 ? quiet : DEFAULT_QUIET_MIN;
-  return { enabled, quietMs: Math.round(quietMin * 60 * 1000), staff: new Set(staff) };
+  const configured = cfg.alert_new_message_quiet_min !== undefined && cfg.alert_new_message_quiet_min !== null
+    && Number.isFinite(quiet) && quiet >= 0;
+  // Infinity means no gap is ever long enough to re-alert, so only a first-ever message does.
+  const quietMs = configured ? Math.round(quiet * 60 * 1000) : Infinity;
+  return { enabled, quietMs, staff: new Set(staff) };
 }
 
 function oneLine(value) {

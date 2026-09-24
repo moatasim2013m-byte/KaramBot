@@ -28,10 +28,14 @@ function withCallbackData(payload, callbackData) {
 }
 
 /**
- * Validate Meta webhook signature
+ * Validate a Meta webhook signature against the secret of the app that sent it.
+ *
+ * The secret is passed in rather than looked up here: each webhook endpoint serves
+ * exactly one Meta app and knows its own secret, so a body signed by one app is
+ * rejected at the other's URL. Accepting whatever matched "some" configured secret
+ * would have let either app's traffic in at either endpoint.
  */
-function validateSignature(rawBody, signature) {
-  const appSecret = process.env.META_APP_SECRET;
+function validateSignature(rawBody, signature, appSecret) {
   if (!appSecret) return true; // skip in dev if not set
 
   const expected = 'sha256=' + crypto

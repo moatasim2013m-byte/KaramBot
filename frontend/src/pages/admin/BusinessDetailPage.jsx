@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import AccountHealthTab from '../../components/admin/AccountHealthTab';
+import AccountAccessTab from '../../components/admin/AccountAccessTab';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../utils/api';
 import { Save, Smartphone, ArrowRight } from 'lucide-react';
@@ -136,7 +138,7 @@ export default function BusinessDetailPage() {
   const [biz, setBiz]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState('');
-  const [tab, setTab]       = useState('general');
+  const [tab, setTab]       = useState('health');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -175,6 +177,9 @@ export default function BusinessDetailPage() {
   };
 
   const TABS = [
+    // Health first: the reason to open an account is almost always "is it working".
+    { key: 'health',   label: 'الحالة' },
+    { key: 'access',   label: 'الدخول' },
     { key: 'general',  label: 'عام' },
     { key: 'ai',       label: 'الذكاء الاصطناعي' },
     { key: 'policies', label: 'السياسات' },
@@ -197,7 +202,7 @@ export default function BusinessDetailPage() {
     <div>
       {/* Header */}
       <div className="flex items-center gap-3 mb-2">
-        <Link to="/admin/businesses" className="text-gray-400 hover:text-gray-600">
+        <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600">
           <ArrowRight size={18} />
         </Link>
         <div>
@@ -341,6 +346,8 @@ export default function BusinessDetailPage() {
       )}
 
       {/* WhatsApp tab */}
+      {tab === 'health' && <AccountHealthTab accountId={biz.id} />}
+      {tab === 'access' && <AccountAccessTab accountId={biz.id} />}
       {tab === 'whatsapp' && <WhatsAppTab biz={biz} />}
     </div>
   );

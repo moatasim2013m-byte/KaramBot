@@ -41,18 +41,12 @@ export default function DashboardLayout() {
   const role = user?.role;
   const bizType = user?.business_type;
 
-  // Build nav items based on role and business_type
+  // Build nav items based on role and business_type.
+  //
+  // This is a BUSINESS's dashboard. SHIFT staff have their own shell under /admin and are
+  // redirected there on sign-in, so nothing platform-level belongs in this list — an admin
+  // arriving here by URL sees the business's own navigation, not a hybrid of both.
   const buildNavItems = () => {
-    if (role === 'platform_admin') {
-      return [
-        { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
-        // Inbox only when scoped to a business
-        ...(user?.business_id ? [{ to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount }] : []),
-        { to: '/settings', icon: Settings, label: 'الإعدادات' },
-        { to: '/admin/businesses', icon: Building2, label: 'الأعمال' },
-      ];
-    }
-
     if (role === 'staff') {
       return [
         { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount },
@@ -66,8 +60,8 @@ export default function DashboardLayout() {
     const showClinic = !bizType || bizType === 'clinic';
 
     const dataItems = [
-      { to: '/overview', icon: LayoutDashboard, label: 'الرئيسية' },
-      { to: '/inbox', icon: MessageSquare, label: 'صندوق الوارد', badge: unreadCount },
+      { to: '/overview', icon: LayoutDashboard, label: 'ملخص النشاط' },
+      { to: '/inbox', icon: MessageSquare, label: 'المحادثات', badge: unreadCount },
       { to: '/orders', icon: ShoppingBag, label: 'الطلبات' },
       ...(showMenu ? [{ to: '/menu', icon: UtensilsCrossed, label: 'القائمة' }] : []),
       ...(showClinic ? [{ to: '/clinic', icon: Stethoscope, label: 'العيادة' }] : []),

@@ -54,7 +54,7 @@ export default function CreateBusinessPage() {
         Object.entries(form).filter(([, v]) => v !== '')
       );
       const res = await api.post('/businesses', body);
-      navigate(`/admin/businesses/${res.data.business.id}`);
+      navigate(`/admin/accounts/${res.data.business.id}`);
     } catch (err) {
       setError(err.response?.data?.error || 'حدث خطأ أثناء الإنشاء');
     } finally {
@@ -66,7 +66,7 @@ export default function CreateBusinessPage() {
     <div className="max-w-2xl">
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
-        <Link to="/admin/businesses" className="text-gray-400 hover:text-gray-600">
+        <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600">
           <ArrowRight size={18} />
         </Link>
         <h1 className="text-xl font-bold text-gray-800">إضافة عمل جديد</h1>

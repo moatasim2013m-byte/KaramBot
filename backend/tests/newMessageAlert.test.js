@@ -93,15 +93,19 @@ afterEach(() => {
 // ─── pure pieces ─────────────────────────────────────────────────────────────
 
 describe('config', () => {
-  test('on by default when staff numbers are set; explicit flag wins; quiet default 30 min', () => {
-    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER] } })).toMatchObject({ enabled: true, quietMs: 30 * MIN });
+  test('on by default when staff numbers are set; explicit flag wins; no repeat unless asked for', () => {
+    // Unset means a customer's FIRST-EVER message alerts and nothing after it — what the owner
+    // chose on 2026-09-22, since these land on his own phone. Infinity: no gap is ever enough.
+    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER] } })).toMatchObject({ enabled: true, quietMs: Infinity });
     expect(newMessageConfig({ ai_config: {} }).enabled).toBe(false);
     expect(newMessageConfig({ ai_config: { alert_wa_numbers: [] } }).enabled).toBe(false);
     expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_messages: false } }).enabled).toBe(false);
     expect(newMessageConfig({ ai_config: { alert_new_messages: true } }).enabled).toBe(true);
     expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_message_quiet_min: 10 } }).quietMs).toBe(10 * MIN);
-    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_message_quiet_min: 'x' } }).quietMs).toBe(30 * MIN);
-    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_message_quiet_min: -5 } }).quietMs).toBe(30 * MIN);
+    // A nonsense value falls back to the safe default rather than inventing a cadence.
+    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_message_quiet_min: 'x' } }).quietMs).toBe(Infinity);
+    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_message_quiet_min: -5 } }).quietMs).toBe(Infinity);
+    expect(newMessageConfig({ ai_config: { alert_wa_numbers: [OWNER], alert_new_message_quiet_min: 0 } }).quietMs).toBe(0);
     expect(newMessageConfig({ ai_config: { alert_wa_numbers: ['+962 79-638-1676'] } }).staff.has(OWNER)).toBe(true);
     expect(newMessageConfig(null).enabled).toBe(false);
   });
@@ -184,7 +188,8 @@ describe('when it fires', () => {
   });
 
   test('29 min of silence → no alert; 30 min → alert again (gap measured from their last message)', async () => {
-    seedBusiness();
+    // The repeat is opt-in now, so this business asks for it explicitly.
+    seedBusiness({ alert_new_message_quiet_min: 30 });
     await deliver([text('أول')]);
     db.clock.advance(29 * MIN);
     expect(await deliver([text('بعد 29 دقيقة')])).toEqual(['burst']);
@@ -205,7 +210,7 @@ describe('when it fires', () => {
   });
 
   test('a reaction neither alerts nor breaks the silence', async () => {
-    seedBusiness();
+    seedBusiness({ alert_new_message_quiet_min: 30 });
     await deliver([text('أول')]);
     db.clock.advance(60 * MIN);
     expect(await deliver([{ type: 'reaction', reaction: { message_id: 'x', emoji: '👍' } }])).toEqual([]);
@@ -241,7 +246,7 @@ describe('when it fires', () => {
   });
 
   test('two racing deliveries of one burst that both look like «after the gap» → one alert (claim)', async () => {
-    seedBusiness();
+    seedBusiness({ alert_new_message_quiet_min: 30 });
     await deliver([text('أول')]);
     db.clock.advance(60 * MIN);
     // Both rows stored with the same timestamp before either checks: each sees only «أول» before it.

@@ -80,6 +80,13 @@ router.post('/register', authenticate, async (req, res) => {
     const targetBusinessId = req.user.role === 'platform_admin' ? business_id : req.user.business_id;
     const targetRole = req.user.role === 'platform_admin' ? (role || 'staff') : 'staff';
 
+    // A tenant user with no business is the shape that used to slip past request scoping,
+    // and it is meaningless anyway: staff belong to a business. Only platform_admin may
+    // exist without one.
+    if (targetRole !== 'platform_admin' && !targetBusinessId) {
+      return res.status(400).json({ error: 'business_id required for a non-admin user' });
+    }
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ error: 'Email already in use' });
 
@@ -109,6 +116,54 @@ router.get('/me', authenticate, (req, res) => {
     business_id: req.user.business_id,
     business_type: req.user.business_type,
   });
+});
+
+/**
+ * Redeeming an activation link. Public by necessity — the customer has no account yet — so it
+ * is deliberately quiet: every failure answers the same way, whether the link never existed,
+ * already got used, or expired. A link that leaked cannot be used to discover which customers
+ * exist, and a valid one reveals only the name and email it was issued for.
+ *
+ * These two routes sit behind the same rate limiter as login (app.js mounts authLimiter on
+ * /api/auth), so the token cannot be brute-forced by volume.
+ */
+const activation = require('../services/activation');
+
+// POST, with the token in the body, because a token in a URL path is written to the access
+// log by morgan AND by Cloud Run's own request log — which would undo the whole point of
+// storing only its hash. The link itself carries the token in the fragment, which browsers
+// never transmit, so it reaches this endpoint only as a body field.
+router.post('/activate/lookup', async (req, res) => {
+  const row = await activation.lookup((req.body || {}).token);
+  if (!row) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
+  res.json({ name: row.user.name, email: row.user.email, expires_at: row.expires_at });
+});
+
+router.post('/activate', async (req, res) => {
+  const { token, password } = req.body || {};
+  // 10 is the floor a customer picks for themselves; the token is what carries the entropy.
+  if (!password || String(password).length < 10) {
+    return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 10 أحرف على الأقل' });
+  }
+
+  try {
+    const user = await activation.consume(token, String(password), bcrypt);
+    if (!user) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
+
+    // Signed straight in: a customer who has just chosen a password should not be asked for it.
+    const jwtToken = signToken(user.id);
+    res.json({
+      token: jwtToken,
+      user: { id: user.id, name: user.name, email: user.email, business_id: user.business_id },
+    });
+  } catch (err) {
+    // The race guard in consume() throws when two tabs redeem the same link at once.
+    if (String(err.message).includes('already used')) {
+      return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
+    }
+    console.error('[auth/activate] failed:', err.message);
+    res.status(500).json({ error: 'تعذّر تفعيل الحساب' });
+  }
 });
 
 module.exports = router;

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Save, Smartphone } from 'lucide-react';
+import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
 
 function Section({ title, children }) {
   return (
@@ -210,7 +211,7 @@ export default function SettingsPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
         <p className="text-gray-600 text-sm">تحتاج إلى اختيار عمل من لوحة الإدارة</p>
-        <Link to="/admin/businesses" className="text-green-600 hover:underline text-sm">
+        <Link to="/admin/accounts" className="text-green-600 hover:underline text-sm">
           الذهاب إلى إدارة الشركات
         </Link>
       </div>
@@ -262,6 +263,14 @@ export default function SettingsPage() {
       {/* Tab content */}
       {tab === 'general' && (
         <>
+          {/* Embedded Signup, admin-only until one real WABA has been onboarded end to end.
+              The backend enforces the same role, so hiding it here is convenience, not the gate. */}
+          {user?.role === 'platform_admin' && (
+            <div className="mb-5" dir="ltr">
+              <ConnectWhatsApp businessId={biz.id} />
+            </div>
+          )}
+
           <Section title="معلومات المطعم">
             <Field label="اسم المطعم">
               <input value={biz.name || ''} onChange={e => set('name', e.target.value)} className={inputClass} />

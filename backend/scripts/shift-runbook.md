@@ -203,6 +203,73 @@ cd backend && node scripts/eval-shift.js --scenario 1,5 --out ../docs/bot/eval
 Exit code 1 means a hard gate failed. `--live` (real Gemini, prisma and Graph still faked) needs `EVAL_LIVE=1` and
 `GEMINI_API_KEY`, exits 3 on a model 404, and never runs in `npm test`.
 
+`--provider anthropic` runs the same scenarios on Claude (replay: a scripted Anthropic client; `--live`: the real API,
+needs `EVAL_LIVE=1` and `ANTHROPIC_API_KEY`, and prints p50/p90 latency, tokens incl. cache reads and cost per call):
+
+```bash
+cd backend && node scripts/eval-shift.js --provider anthropic
+cd backend && EVAL_LIVE=1 ANTHROPIC_API_KEY=… node scripts/eval-shift.js --provider anthropic --live
+cd backend && OPENROUTER_API_KEY=… ANTHROPIC_API_KEY=… node scripts/sim-chat.js --customer moonshotai/kimi-k3 --persona restaurant --provider anthropic
+```
+
+## 7c. AI provider: Claude and failover (`AI_PROVIDER`, `AI_FALLBACK_PROVIDER`)
+
+2026-09-19: Gemini answered `402 Payment Required — Your prepayment credits are depleted` on every call and the bot
+sent only its apology line. With a fallback provider set, the SAME turn is retried on the other provider inside the
+30 s deadline before any apology is sent, and staff get one `ai_failure` alert per provider per hour
+(«رصيد Gemini خلص — البوت شغّال على Claude», or the reverse).
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `AI_PROVIDER` | `gemini` | Primary: `gemini`, `anthropic` (Claude) or `openai` |
+| `AI_FALLBACK_PROVIDER` | unset (no failover) | Second provider: `gemini` / `anthropic` / `openai`. Missing key → warning, no failover |
+| `ANTHROPIC_API_KEY` | — | Required when `AI_PROVIDER=anthropic` (startup fails in production without it) |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5` | Claude model id |
+| `ANTHROPIC_THINKING` | `off` | `off` → `thinking: {type: "disabled"}` (latency) · `adaptive` → adaptive thinking |
+| `ANTHROPIC_EFFORT` | `low` | `output_config.effort`: `low` / `medium` / `high` / `xhigh` / `max` |
+| `ANTHROPIC_MAX_TOKENS` | `2048` (`4096` with adaptive) | Output cap per call; a `max_tokens` stop retries once with thinking off and twice the cap |
+| `ANTHROPIC_STRUCTURED` | on | `0` → no structured outputs (JSON by prompt + the parser). A schema the API rejects turns it off by itself |
+| `AI_PROVIDER_COOLDOWN_MS` | `300000` | After billing / auth / model-not-found, later turns skip that provider for this long |
+| `AI_PROVIDER_ALERT_MS` | `3600000` | Minimum gap between two provider alerts for the same provider |
+| `AI_FAILOVER_AFTER_TRANSIENT` | `2` | 429/5xx/529 in a row on one provider before the turn moves to the other |
+| `AI_FAILOVER_MIN_MS` | `4000` | A timed-out call moves to the other provider only if at least this much deadline is left |
+
+When the turn moves: billing (Claude: `400 credit balance is too low` / `402`; Gemini: `402` / prepayment credits
+depleted), auth `401`/`403` (Gemini: `API key not valid`), model `404`, any other `400` (never retried on the same
+provider), persistent overload after the transient retries, a timeout with ≥ 4 s left. A refusal / safety block does
+NOT move: it gets the calm blocked line, as before.
+
+Logs: every call writes `[ai] {"provider":"anthropic","model":…,"ms":…,"in":…,"out":…,"cache_read":…,"cache_write":…,
+"finish":…}`; a switch writes `[AI] failover anthropic → gemini (billing)`; a hard failure writes `[ai] provider_issue {…}`.
+`cache_read` should be several thousand tokens from the second SHIFT reply on (the static prompt is the cached prefix).
+
+**Switch the bot to Claude with Gemini as fallback** (the secret must exist first):
+
+```bash
+printf '%s' 'sk-ant-…' | gcloud secrets create ANTHROPIC_API_KEY --replication-policy=automatic --data-file=- --project karam-bot
+# (key rotation later: printf '%s' 'sk-ant-…' | gcloud secrets versions add ANTHROPIC_API_KEY --data-file=- --project karam-bot)
+gcloud run services update karambot --region europe-west1 --project karam-bot \
+  --update-secrets ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest \
+  --update-env-vars AI_PROVIDER=anthropic,AI_FALLBACK_PROVIDER=gemini
+```
+
+If the deploy fails with a Secret Manager permission error, grant the service's runtime service account
+`roles/secretmanager.secretAccessor` on the secret (`gcloud run services describe karambot --region europe-west1
+--project karam-bot --format='value(spec.template.spec.serviceAccountName)'` shows which account).
+
+Optional after the live check: `--update-env-vars ANTHROPIC_THINKING=adaptive` (quality) or `ANTHROPIC_EFFORT=medium`.
+
+**Revert to Gemini** (keeps Claude as the fallback while its key is there):
+
+```bash
+gcloud run services update karambot --region europe-west1 --project karam-bot \
+  --update-env-vars AI_PROVIDER=gemini,AI_FALLBACK_PROVIDER=anthropic
+```
+
+**No failover at all** (exactly the pre-change behaviour): `--remove-env-vars AI_FALLBACK_PROVIDER`.
+
+Both providers are prepaid: failover buys time, not credit. Top up the one the alert names.
+
 ## 7b. Calendly booking (booking_mode)
 
 Owner decision 2026-09-19: the bot books sales calls only through Calendly. Everywhere it used to offer slot buttons
@@ -239,6 +306,7 @@ Calendly's default event description (it carries the invitee's answers and the C
 
 Stop at the first step that fixes the problem:
 
+0. **AI provider:** `AI_PROVIDER=gemini` (section 7c) if Claude answers badly; the fallback stays as it is.
 1. **One PR2 feature:** `SHIFT_NUDGES=0`, `SHIFT_ROLEPLAY=0`, `SHIFT_MEDIA=0`, or un-vet a sample sector (section 7).
 2. **PR1 prompt:** `SHIFT_PROMPT_V1=1` (section 7).
 3. **Save-only:** `SHIFT_BOT_LIVE=0` (section 2). Messages are saved, only test numbers get replies.

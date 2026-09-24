@@ -50,7 +50,7 @@ const SETTLED_STATUSES = ['failed', 'ambiguous_unreconciled', 'cancelled'];
 
 const BUSINESS_SELECT = {
   id: true, name: true, business_type: true, status: true,
-  currency: true, wa_phone_number_id: true, wa_access_token: true,
+  currency: true, wa_phone_number_id: true, wa_access_token: true, wa_business_account_id: true,
   ai_config: true, policies: true,
 };
 
@@ -62,6 +62,12 @@ function canSendAutoReply(business, conversation, label) {
   return false;
 }
 
+/**
+ * Returns the conversation, and sets `created` on it when this delivery is the one that
+ * opened it. The conversation row is unique on (business_id, customer_wa_id), so a
+ * successful insert is the only moment a number is new to this business.
+ * The flag is attached to the returned object only; it is never written to the database.
+ */
 async function getOrCreateConversation(businessId, customerWaId, profileName) {
   let conv = await prisma.conversation.findFirst({
     where: { business_id: businessId, customer_wa_id: customerWaId },
@@ -77,6 +83,7 @@ async function getOrCreateConversation(businessId, customerWaId, profileName) {
           ai_enabled: true,
         },
       });
+      if (conv) conv.created = true;
     } catch (err) {
       // Two deliveries for a new customer can race on the (business_id, customer_wa_id) unique key.
       if (!err || err.code !== 'P2002') throw err;
@@ -257,12 +264,24 @@ async function persistInbound(entry) {
   if (!value || !messages.length) return { business: null, items: [] };
 
   const phoneNumberId = value.metadata?.phone_number_id;
+  // entry.id is the WABA the event came from. Since Embedded Signup, one callback URL
+  // serves every customer's WABA, so the number alone is no longer proof of ownership:
+  // a number is only this business's when its WABA matches too. A mismatch is dropped,
+  // never delivered to the business that merely shares the number id.
+  const wabaId = entry?.id ? String(entry.id) : null;
   const business = await prisma.business.findFirst({
     where: { wa_phone_number_id: phoneNumberId },
     select: BUSINESS_SELECT,
   });
   if (!business) {
     console.warn(`No business found for phone_number_id: ${phoneNumberId}`);
+    return { business: null, items: [] };
+  }
+  if (wabaId && business.wa_business_account_id && business.wa_business_account_id !== wabaId) {
+    console.error(
+      `[webhook] WABA mismatch — dropping: phone_number_id=${phoneNumberId} arrived on WABA ${wabaId} ` +
+      `but business ${business.id} is registered to ${business.wa_business_account_id}`,
+    );
     return { business: null, items: [] };
   }
   if (business.status !== 'active') return { business, items: [] };
@@ -282,6 +301,7 @@ async function persistInbound(entry) {
       const contact = withoutNul(contacts.find(c => c.wa_id === original.from) || {});
       const customerWaId = normalizePhone(waMsg.from);
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
+
       const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
         { captions: shiftQueue });
       items.push({
