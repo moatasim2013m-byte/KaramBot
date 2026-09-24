@@ -21,6 +21,7 @@ const { processRestaurantMessage } = require('../workflows/restaurant');
 const { processClinicMessage } = require('../workflows/clinic');
 const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
+const newMessageAlert = require('./newMessageAlert');
 const jsonb = require('../db/jsonb');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
@@ -64,8 +65,7 @@ function canSendAutoReply(business, conversation, label) {
 /**
  * Returns the conversation, and sets `created` on it when this delivery is the one that
  * opened it. The conversation row is unique on (business_id, customer_wa_id), so a
- * successful insert is the only moment a number is new to this business — which is what
- * the new_customer alert hangs on, and why it cannot fire twice for the same customer.
+ * successful insert is the only moment a number is new to this business.
  * The flag is attached to the returned object only; it is never written to the database.
  */
 async function getOrCreateConversation(businessId, customerWaId, profileName) {
@@ -302,18 +302,6 @@ async function persistInbound(entry) {
       const customerWaId = normalizePhone(waMsg.from);
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
 
-      // A number writing for the first time: tell the team, once. Best effort and never
-      // awaited — the webhook has seconds to answer Meta, and an alert must not delay the
-      // customer's reply or fail the delivery.
-      if (found?.created) {
-        const firstText = waMsg?.text?.body || waMsg?.[waMsg?.type]?.caption || `(${waMsg?.type || 'message'})`;
-        Promise.resolve(alerts.sendStaffAlert({
-          reason: 'new_customer',
-          business,
-          conversation: found,
-          summary: String(firstText).slice(0, 200),
-        })).catch((err) => console.error('[alerts] new_customer failed:', err.message));
-      }
       const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
         { captions: shiftQueue });
       items.push({
@@ -804,6 +792,10 @@ async function processInboundMessage(entry, { persisted } = {}) {
     // Legacy callers (scripts, tests) did not persist first.
     const { business, items } = persisted || await persistInbound(entry);
     if (!business || business.status !== 'active') return;
+
+    // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path
+    // below neither waits for it nor fails with it.
+    newMessageAlert.notifyNewMessages(business, items);
 
     if (business.ai_config?.reply_mode === 'external') {
       await forwardExternal(business, value, items);

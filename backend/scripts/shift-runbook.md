@@ -97,11 +97,23 @@ Contact shown in handoff acks (omit either key to hide it):
 UPDATE businesses SET ai_config = ai_config || '{"contact": {"phone": "<PHONE>", "email": "<EMAIL>"}}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
 ```
 
-Staff WhatsApp numbers for alerts (a number only receives alerts while it has messaged the SHIFT number in the last
-24 h):
+Staff WhatsApp numbers for alerts. Inside a number's 24 h window (it messaged the SHIFT number in the last 24 h)
+the alert is free-form text; outside it, or when the number never wrote, it is the approved utility template in
+`alert_template` (without one, or while Meta has not approved it, that alert is skipped and logged):
 
 ```sql
 UPDATE businesses SET ai_config = ai_config || '{"alert_wa_numbers": ["9627XXXXXXXX"]}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
+-- once `node scripts/create-alert-template.js --status` says APPROVED:
+UPDATE businesses SET ai_config = ai_config || '{"alert_template": {"name": "staff_alert", "language": "ar"}}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
+```
+
+New-message alerts («رسالة جديدة من عميل»): on by default whenever `alert_wa_numbers` is set. A customer's first
+message alerts, then only a message after 30 min of silence from them (a burst is one alert); staff numbers never
+alert. Turn off or tune:
+
+```sql
+UPDATE businesses SET ai_config = ai_config || '{"alert_new_messages": false}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
+UPDATE businesses SET ai_config = ai_config || '{"alert_new_message_quiet_min": 60}'::jsonb WHERE id = 'shiftc6f194e723be82b9b363';
 ```
 
 Check the result:

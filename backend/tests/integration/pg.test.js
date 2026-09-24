@@ -1092,5 +1092,40 @@ describePg('PR1 on real Postgres behind PgBouncer (transaction mode)', () => {
     const status = await sweeper.getShiftStatus();
     expect(status).toMatchObject({ workflow_active: true, pending: 0, awaiting_staff: 0, unconfirmed: 0 });
   });
+  test('new_message alerts: first message, burst suppressed, racing deliveries claim once, template fallback stored', async () => {
+    const newMessageAlert = require('../../src/services/newMessageAlert');
+    const OWNER = '962796381676';
+    const biz = await shiftBusiness({ alert_wa_numbers: [OWNER], alert_template: { name: 'staff_alert', language: 'ar' } });
+    const customer = '962791234567';
+    const persist = (text) => {
+      seq += 1;
+      return processor.persistInbound(inboundPayload({ from: customer, text, id: `wamid.pgnm${seq}` }));
+    };
+    const templateSends = () => axios.post.mock.calls.filter(([url, p]) => /\/messages$/.test(url) && p && p.type === 'template' && p.to === OWNER);
+
+    const first = await persist('مرحبا');
+    expect(await newMessageAlert.notifyNewMessages(first.business, first.items)).toEqual(['alerted']);
+    expect(templateSends()).toHaveLength(1);
+    // The owner had no thread: it is created and holds the template copy.
+    const ownerConv = await prisma.conversation.findFirst({ where: { business_id: biz.id, customer_wa_id: OWNER } });
+    const stored = await prisma.message.findMany({ where: { conversation_id: ownerConv.id } });
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ direction: 'outbound', message_type: 'template', status: 'sent' });
+
+    const burst = await persist('كم السعر؟');
+    expect(await newMessageAlert.notifyNewMessages(burst.business, burst.items)).toEqual(['burst']);
+
+    // Back-date everything 2 h: the next two deliveries both follow a long silence and race on the claim.
+    await prisma.$executeRawUnsafe(`UPDATE "messages" SET "created_at" = "created_at" - interval '2 hours' WHERE "sender_wa_id" = '${customer}'`);
+    const [a, b] = await Promise.all([persist('رجعت'), persist('سؤال')]);
+    const outcomes = await Promise.all([
+      newMessageAlert.notifyNewMessages(a.business, a.items),
+      newMessageAlert.notifyNewMessages(b.business, b.items),
+    ]);
+    expect(outcomes.flat().filter((o) => o === 'alerted')).toHaveLength(1);
+    expect(templateSends()).toHaveLength(2);
+    const conv = await prisma.conversation.findFirst({ where: { business_id: biz.id, customer_wa_id: customer } });
+    expect(conv.metadata.new_message_alert_after).toBeTruthy();
+  });
 });
 
