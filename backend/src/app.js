@@ -63,6 +63,8 @@ app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/whatsapp/embedded-signup', apiLimiter, require('./routes/embeddedSignup'));
 // The customer's own «is my WhatsApp connected» — read-only, scoped to their business.
 app.use('/api/whatsapp/status', apiLimiter, require('./routes/whatsappStatus'));
+// What the agent knows about a business whose knowledge is not a menu or a service list.
+app.use('/api/knowledge', apiLimiter, require('./routes/knowledge'));
 app.use('/api/whatsapp', require('./routes/legacyWhatsapp'));
 // The SHIFT Tech Provider app delivers here: its own URL, verify token and app secret.
 app.use('/api/shift/whatsapp', require('./routes/shiftWhatsapp'));

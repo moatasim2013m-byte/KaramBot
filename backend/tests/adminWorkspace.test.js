@@ -11,6 +11,7 @@ jest.mock('../src/config/prisma', () => ({
   adminAccessLog: { create: jest.fn() },
   user: { findUnique: jest.fn(), findFirst: jest.fn() },
   subscription: { findMany: jest.fn().mockResolvedValue([]) },
+  businessKnowledge: { groupBy: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
 }));
 
 const jwt = require('jsonwebtoken');

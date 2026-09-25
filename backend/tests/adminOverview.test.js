@@ -13,6 +13,7 @@ jest.mock('../src/config/prisma', () => ({
   conversation: { groupBy: jest.fn(), findMany: jest.fn() },
   message: { groupBy: jest.fn() },
   subscription: { findMany: jest.fn() },
+  businessKnowledge: { groupBy: jest.fn() },
   user: { findUnique: jest.fn() },
 }));
 
@@ -33,12 +34,13 @@ const biz = (over = {}) => ({
 
 const minsAgo = (m) => new Date(Date.now() - m * 60000);
 
-function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [], stale = [], subs = [] }) {
+function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [], stale = [], subs = [], knowledge = [] }) {
   prisma.business.findMany.mockResolvedValue(businesses);
   prisma.whatsappOnboarding.findMany.mockResolvedValue(onboardings);
   prisma.message.groupBy.mockResolvedValue(outbound);
   prisma.conversation.findMany.mockResolvedValue(stale);
   prisma.subscription.findMany.mockResolvedValue(subs);
+  prisma.businessKnowledge.groupBy.mockResolvedValue(knowledge);
   prisma.conversation.groupBy
     .mockResolvedValueOnce(conv)   // totals aggregate
     .mockResolvedValueOnce(open);  // open conversations
@@ -173,8 +175,8 @@ describe('an account cannot look healthy when it is not', () => {
     expect(res.body.accounts[0].agent.state).toBe('down');
   });
 
-  test('an account with no workflow is down, whatever it last sent', async () => {
-    // `generic` answers production with a fixed greeting and never calls a model.
+  test('a generic account with no knowledge entered is down, whatever it last sent', async () => {
+    // It answers with the greeting and stops: a working pipeline with nothing to say.
     mockDb({
       businesses: [biz({ business_type: 'generic' })],
       onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
@@ -183,7 +185,7 @@ describe('an account cannot look healthy when it is not', () => {
     });
     const res = await get();
     expect(res.body.accounts[0].agent.state).toBe('down');
-    expect(res.body.attention.some((a) => a.category === 'no_workflow')).toBe(true);
+    expect(res.body.attention.some((a) => a.category === 'no_knowledge')).toBe(true);
   });
 
   test('a neglected thread is not hidden behind a busy one', async () => {

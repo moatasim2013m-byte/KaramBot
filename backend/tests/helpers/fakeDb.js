@@ -28,6 +28,9 @@ const MODELS = {
   message: 'messages',
   user: 'users',
   order: 'orders',
+  // What the agent knows about a business with no sector workflow. Empty by default, which is
+  // what a freshly created account looks like.
+  businessKnowledge: 'businessKnowledge',
 };
 
 // Relations that routes ask for with `include`.
@@ -73,7 +76,7 @@ function rejectNul(data) {
 }
 
 function createFakeDb() {
-  const store = { businesses: [], conversations: [], messages: [], users: [], orders: [] };
+  const store = { businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [] };
   let fixedNow = null;
   let idSeq = 0;
   const failures = new Map();

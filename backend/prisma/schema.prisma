@@ -44,6 +44,7 @@ model Business {
   modifierGroups ModifierGroup[]
   whatsappOnboarding WhatsappOnboarding?
   subscriptions Subscription[]
+  knowledge     BusinessKnowledge[]
 
   @@index([slug])
   @@index([wa_phone_number_id])
@@ -480,4 +481,30 @@ model Payment {
 
   @@index([business_id, paid_at])
   @@map("payments")
+}
+
+// ─── BusinessKnowledge ────────────────────────────────────────────────────────
+// What the agent knows about a business that has no sector workflow.
+//
+// A restaurant's knowledge is its menu and a clinic's is its services, both already modelled.
+// Everything else — a pharmacy, a gym, a workshop, a shop — answered production with a fixed
+// greeting, so SHIFT could sell to two sectors and serve two. These rows are that missing
+// knowledge, entered by the owner and assembled into the agent's prompt the same way a menu is.
+//
+// `kind` keeps them ordered and labelled for the owner; the model sees them as plain facts.
+model BusinessKnowledge {
+  id          String   @id @default(cuid())
+  business_id String
+  kind        String   @default("fact") // fact | faq | service | hours | policy
+  question    String?  // for kind = faq
+  content     String
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, active, position])
+  @@map("business_knowledge")
 }

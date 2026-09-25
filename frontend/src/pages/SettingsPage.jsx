@@ -6,6 +6,7 @@ import { Save, Smartphone } from 'lucide-react';
 import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
 import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
 import TryTheBot from '../components/whatsapp/TryTheBot';
+import BusinessKnowledge from '../components/whatsapp/BusinessKnowledge';
 
 function Section({ title, children }) {
   return (
@@ -276,6 +277,8 @@ export default function SettingsPage() {
             // because it was the first thing both walkthrough personas went looking for.
             <div className="mb-5 space-y-4">
               <WhatsAppStatusCard />
+              {/* Only where the knowledge is not already a menu or a service list. */}
+              {!['restaurant', 'clinic'].includes(user?.business_type) && <BusinessKnowledge />}
               <TryTheBot />
             </div>
           )}

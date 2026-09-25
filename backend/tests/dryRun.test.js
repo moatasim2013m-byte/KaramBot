@@ -9,6 +9,7 @@ require('./setup');
 
 jest.mock('../src/workflows/restaurant', () => ({ processRestaurantMessage: jest.fn() }));
 jest.mock('../src/workflows/clinic', () => ({ processClinicMessage: jest.fn() }));
+jest.mock('../src/workflows/generic', () => ({ processGenericMessage: jest.fn() }));
 jest.mock('../src/config/prisma', () => ({
   user: { findUnique: jest.fn() },
   business: { findUnique: jest.fn() },
@@ -23,6 +24,7 @@ const request = require('supertest');
 const prisma = require('../src/config/prisma');
 const { processRestaurantMessage } = require('../src/workflows/restaurant');
 const { processClinicMessage } = require('../src/workflows/clinic');
+const { processGenericMessage } = require('../src/workflows/generic');
 const { dryRun } = require('../src/services/dryRun');
 const app = require('../src/app');
 
@@ -31,11 +33,12 @@ const restaurant = { id: 'b1', business_type: 'restaurant', ai_config: { greetin
 beforeEach(() => jest.clearAllMocks());
 
 describe('the dry run', () => {
-  test('a generic account gets the fixed greeting and says plainly it has no workflow', async () => {
+  test('a generic account runs the generic workflow, and reports when nothing is entered', async () => {
+    processGenericMessage.mockResolvedValue({ reply: 'كيف بنقدر نساعدك؟', stateUpdate: {}, action: 'NONE', knowledge_empty: true });
     const out = await dryRun({ id: 'b9', business_type: 'generic', ai_config: { greeting_message: 'كيف بنقدر نساعدك؟' } }, 'شو أسعاركم؟');
+    expect(processGenericMessage).toHaveBeenCalled();
     expect(out.reply).toBe('كيف بنقدر نساعدك؟');
-    expect(out.has_workflow).toBe(false);
-    expect(out.runs_workflow).toBe(true);
+    expect(out.knowledge_empty).toBe(true);   // the panel must not read this as a working bot
     expect(processRestaurantMessage).not.toHaveBeenCalled();
     expect(processClinicMessage).not.toHaveBeenCalled();
   });
@@ -114,12 +117,13 @@ describe('the admin tool', () => {
   const ADMIN = { id: 'a1', name: 'A', email: 'a@shifts-ai.com', role: 'platform_admin', business_id: null, active: true };
   const auth = () => ({ Authorization: `Bearer ${jwt.sign({ id: 'a1' }, process.env.JWT_SECRET)}` });
 
-  test('no longer certifies a dead bot: a generic account says so', async () => {
+  test('no longer certifies a dead bot: an account with nothing entered says so', async () => {
     prisma.user.findUnique.mockResolvedValue(ADMIN);
     prisma.business.findUnique.mockResolvedValue({ id: 'b9', business_type: 'generic', ai_config: { greeting_message: 'مرحبا' } });
+    processGenericMessage.mockResolvedValue({ reply: 'مرحبا', stateUpdate: {}, action: 'NONE', knowledge_empty: true });
     const res = await request(app).post('/api/admin/accounts/b9/test-message').set(auth()).send({ message: 'كم سعر التنظيف؟' });
     expect(res.status).toBe(200);
-    expect(res.body.has_workflow).toBe(false);
-    expect(res.body.reply).toBe('مرحبا');   // the fixed greeting, exactly as production would answer
+    expect(res.body.knowledge_empty).toBe(true);
+    expect(res.body.reply).toBe('مرحبا');   // exactly what production would answer
   });
 });

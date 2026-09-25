@@ -4,6 +4,7 @@ import { Check, X, Minus, ExternalLink, Eye } from 'lucide-react';
 import api from '../../utils/api';
 import { Panel, StateCell, Timestamp, Ltr, SkeletonRows } from '../shared/Primitives';
 import TryTheBot from '../whatsapp/TryTheBot';
+import BusinessKnowledge from '../whatsapp/BusinessKnowledge';
 
 /**
  * Whether this account can actually serve customers, and what is missing.
@@ -117,6 +118,11 @@ export default function AccountHealthTab({ accountId }) {
           </Link>
         </div>
       </Panel>
+
+      {/* Staff can fill this in during onboarding, before handing the account over. */}
+      {!['restaurant', 'clinic', 'shift'].includes(account.business_type) && (
+        <BusinessKnowledge businessId={accountId} />
+      )}
 
       {/* Runs the account's real workflow now — the model-only check certified dead bots. */}
       <TryTheBot endpoint={`/admin/accounts/${accountId}/test-message`} />

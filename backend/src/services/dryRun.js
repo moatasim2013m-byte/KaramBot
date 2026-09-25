@@ -15,8 +15,11 @@
 
 const { processRestaurantMessage } = require('../workflows/restaurant');
 const { processClinicMessage } = require('../workflows/clinic');
+const { processGenericMessage } = require('../workflows/generic');
 
-const WORKFLOW_TYPES = ['restaurant', 'clinic'];
+// Every type now has a workflow. The rest — a pharmacy, a gym, a workshop — answer from the
+// knowledge their owner entered, rather than from a fixed greeting.
+const WORKFLOW_TYPES = ['restaurant', 'clinic', 'generic', 'store', 'other'];
 
 /**
  * The one dispatch. The webhook path calls this too, so a dry run cannot drift from
@@ -29,12 +32,10 @@ async function runWorkflow(business, conversation, customerText) {
   if (business.business_type === 'clinic') {
     return processClinicMessage(business, conversation, customerText);
   }
-  // No workflow: production answers with a fixed greeting and never calls a model.
-  return {
-    reply: (business.ai_config?.greeting_message) || 'كيف أقدر أساعدك؟',
-    stateUpdate: {},
-    action: 'NONE',
-  };
+  // Everything else answers from the knowledge its owner entered. With none entered it falls
+  // back to the greeting — the same reply as before — and says so, so a panel cannot show a
+  // fluent answer for an account that would greet and stop.
+  return processGenericMessage(business, conversation, customerText);
 }
 
 /**
@@ -62,6 +63,10 @@ async function dryRun(business, text, state = {}) {
     sent: false,
     runs_workflow: true,
     has_workflow: WORKFLOW_TYPES.includes(business.business_type),
+    // A generic account with nothing entered answers with its greeting and stops. Said out
+    // loud, because a fluent-looking test reply for such an account is exactly the false
+    // green this tool was rebuilt to stop giving.
+    knowledge_empty: Boolean(result?.knowledge_empty),
     reply: result?.reply ?? '',
     action: result?.action || 'NONE',
     // What the webhook would have persisted; handed back so the next turn continues from here.

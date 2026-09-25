@@ -35,14 +35,19 @@ function connectionState(business, onboarding) {
   return { state: 'ok', label: 'متصل' };
 }
 
+// The types whose knowledge is modelled elsewhere: a menu, services, or SHIFT's own sales flow.
 const WORKFLOW_TYPES = ['restaurant', 'clinic', 'shift'];
 
-function agentState(business, lastInbound, lastOutbound) {
+/**
+ * @param knowledgeCount  rows of BusinessKnowledge, for a business whose type has no sector
+ *                        workflow. Undefined means "not checked" and is not held against it.
+ */
+function agentState(business, lastInbound, lastOutbound, knowledgeCount) {
   if (business.ai_config?.enabled === false) return { state: 'idle', label: 'موقوف يدويًا' };
-  // No workflow means production answers a fixed greeting and never calls a model. That is not
-  // a working agent, however recently something was sent.
-  if (!WORKFLOW_TYPES.includes(business.business_type)) {
-    return { state: 'down', label: 'بدون مسار عمل', sub: business.business_type || 'غير محدد' };
+  // Every type has a workflow now, but a generic one with nothing entered still answers with a
+  // greeting and stops — a working pipeline with nothing to say.
+  if (!WORKFLOW_TYPES.includes(business.business_type) && knowledgeCount === 0) {
+    return { state: 'down', label: 'بدون معلومات', sub: 'لم تُدخل معلومات المنشأة' };
   }
   if (!lastInbound) return { state: 'unknown', label: 'لا توجد رسائل بعد' };
   const waiting = minutesSince(lastInbound);
