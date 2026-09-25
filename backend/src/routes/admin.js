@@ -85,6 +85,12 @@ router.get('/overview', async (req, res) => {
     const staleByBusiness = new Map();
     for (const c of stale) staleByBusiness.set(c.business_id, (staleByBusiness.get(c.business_id) || 0) + 1);
 
+    // A generic account with no knowledge entered greets and stops; the fleet view should say so.
+    const knowledgeAgg = await prisma.businessKnowledge.groupBy({
+      by: ['business_id'], where: { active: true }, _count: { _all: true },
+    });
+    const knowledgeByBusiness = new Map(knowledgeAgg.map((k) => [k.business_id, k._count._all]));
+
     const openAgg = await prisma.conversation.groupBy({
       by: ['business_id'],
       where: { status: 'open' },
@@ -107,7 +113,7 @@ router.get('/overview', async (req, res) => {
       totals[bucket] += 1;
 
       const connection = connectionState(b, onboarding);
-      const agent = agentState(b, lastInbound, lastOutbound);
+      const agent = agentState(b, lastInbound, lastOutbound, knowledgeByBusiness.get(b.id) || 0);
 
       const contract = contractByBusiness.get(b.id) || null;
       const dueInDays = contract?.next_due_at ? Math.ceil((new Date(contract.next_due_at) - Date.now()) / 86400000) : null;
@@ -149,8 +155,8 @@ router.get('/overview', async (req, res) => {
       if (onboarding?.last_error) {
         push('critical', 'onboarding_error', `تعثّر التوصيل: ${onboarding.last_error}`.slice(0, 160), onboarding.last_error_at);
       }
-      if (agent.state === 'down' && agent.label === 'بدون مسار عمل') {
-        push('critical', 'no_workflow', 'الحساب بلا مسار عمل — يرد بترحيب ثابت فقط', b.created_at);
+      if (agent.state === 'down' && agent.label === 'بدون معلومات') {
+        push('critical', 'no_knowledge', 'لم تُدخل معلومات المنشأة — الوكيل يرد بالترحيب فقط', b.created_at);
       } else if (agent.state === 'down') {
         push('critical', 'unanswered', `رسالة بدون رد منذ ${agent.sub}`, lastInbound);
       }
@@ -247,6 +253,7 @@ router.get('/accounts/:id', async (req, res) => {
 
     const lastInbound = inbound._max.last_inbound_at;
     const lastOutbound = outbound._max.created_at;
+    const knowledgeCount = await prisma.businessKnowledge.count({ where: { business_id: business.id, active: true } });
 
     // The checklist is derived, never stored: a stored "done" drifts from reality the moment
     // someone changes a token by hand.
@@ -257,6 +264,10 @@ router.get('/accounts/:id', async (req, res) => {
       { step: 'registered', label: 'الرقم مُسجَّل لدى Meta', done: onboarding ? onboarding.step === 'done' : null },
       { step: 'payment', label: 'طريقة دفع مضافة', done: onboarding ? onboarding.payment_method_ok : null },
       { step: 'greeting', label: 'رسالة ترحيب مضبوطة', done: Boolean(business.ai_config?.greeting_message) },
+      // Only meaningful where the knowledge is not a menu or a service list.
+      ...(['restaurant', 'clinic', 'shift'].includes(business.business_type) ? [] : [
+        { step: 'knowledge', label: 'معلومات المنشأة مُدخلة', done: knowledgeCount > 0 },
+      ]),
       { step: 'owner_login', label: 'حساب دخول لصاحب المنشأة', done: Boolean(anyOwner) },
       { step: 'owner_signed_in', label: 'صاحب المنشأة دخل فعليًا', done: Boolean(signedInOwner) },
       { step: 'first_message', label: 'أول رسالة واردة', done: Boolean(lastInbound) },
@@ -270,7 +281,8 @@ router.get('/accounts/:id', async (req, res) => {
         wa_access_token: undefined,
         has_token: Boolean(business.wa_access_token),
         connection: connectionState(business, onboarding),
-        agent: agentState(business, lastInbound, lastOutbound),
+        agent: agentState(business, lastInbound, lastOutbound, knowledgeCount),
+        knowledge_count: knowledgeCount,
         lifecycle: lifecycle(business, onboarding),
         last_inbound_at: lastInbound,
         last_outbound_at: lastOutbound,
