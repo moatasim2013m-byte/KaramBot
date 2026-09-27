@@ -379,7 +379,21 @@ model WhatsappOnboarding {
   token_exchanged_at DateTime?
   subscribed_at      DateTime?
   registered_at      DateTime?
-  payment_method_ok  Boolean   @default(false) // customer-side; only they can add it in WhatsApp Manager
+  // Customer-side, and Meta does not let us read it: primary_funding_id needs the business that
+  // owns the app. So staff confirm it, and we record who said so and when — a flag nothing can
+  // set is worse than no flag, because the deadline it guards looks permanently unmet.
+  payment_method_ok       Boolean   @default(false)
+  payment_method_marked_by String?
+  payment_method_marked_at DateTime?
+
+  // What Meta reports about the number, as of the last check. Stored so the fleet view can show
+  // ten accounts without ten Graph calls, always with the timestamp beside it.
+  meta_quality_rating String?   // GREEN | YELLOW | RED | UNKNOWN
+  meta_throughput     String?   // STANDARD | HIGH …
+  meta_number_status  String?   // CONNECTED | FLAGGED | RESTRICTED …
+  meta_name_status    String?   // APPROVED | DECLINED | PENDING_REVIEW …
+  meta_review_status  String?   // the WABA's account_review_status
+  meta_checked_at     DateTime?
   session_id         String?   // Meta's session id, for support escalations
   last_error         String?
   last_error_at      DateTime?

@@ -21,6 +21,7 @@ const {
   connectionState, agentState, lifecycle, minutesSince, QUIET_HOURS, UNANSWERED_MINUTES,
 } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
+const { refresh: refreshMetaStatus, metaAttention } = require('../services/metaStatus');
 
 router.get('/overview', async (req, res) => {
   try {
@@ -37,6 +38,8 @@ router.get('/overview', async (req, res) => {
         select: {
           business_id: true, step: true, payment_method_ok: true,
           last_error: true, last_error_at: true, updated_at: true,
+          meta_quality_rating: true, meta_throughput: true, meta_number_status: true,
+          meta_name_status: true, meta_review_status: true, meta_checked_at: true,
         },
       }),
     ]);
@@ -142,6 +145,14 @@ router.get('/overview', async (req, res) => {
         last_inbound_at: lastInbound,
         last_outbound_at: lastOutbound,
         last_activity_at: lastActivity,
+        meta: onboarding ? {
+          quality_rating: onboarding.meta_quality_rating,
+          throughput: onboarding.meta_throughput,
+          number_status: onboarding.meta_number_status,
+          name_status: onboarding.meta_name_status,
+          review_status: onboarding.meta_review_status,
+          checked_at: onboarding.meta_checked_at,
+        } : null,
         config_changed_at: b.updated_at,
         created_at: b.created_at,
       });
@@ -177,6 +188,9 @@ router.get('/overview', async (req, res) => {
         push('critical', 'payment_method', 'لا توجد طريقة دفع — الوكيل سيتوقف عن الرد من 1 تشرين الأول', onboarding.updated_at);
       }
       // ── Money ──────────────────────────────────────────────────────────────
+      // Meta's own view of the account, from the last refresh.
+      for (const m of metaAttention(onboarding)) push(m.severity, m.category, m.message, onboarding.meta_checked_at);
+
       if (contract?.status === 'past_due') {
         push('critical', 'past_due', `دفعة متأخرة — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
       } else if (contract && dueInDays !== null && dueInDays < 0) {
@@ -203,8 +217,11 @@ router.get('/overview', async (req, res) => {
       totals,
       attention,
       accounts,
-      // Stated rather than implied: these need per-WABA Graph calls we do not make yet.
-      unavailable: ['meta_quality_rating', 'messaging_tier', 'config_change_actor'],
+      // Quality, throughput and name status are read per account with its own business token
+      // (metaStatus.refresh). What remains genuinely unknowable is the payment method — Meta
+      // refuses primary_funding_id to us — so staff confirm that one, and who they are is
+      // recorded. The one thing still missing is who changed a configuration.
+      unavailable: ['config_change_actor'],
     });
   } catch (err) {
     console.error('[admin/overview] failed:', err.message);
@@ -292,6 +309,16 @@ router.get('/accounts/:id', async (req, res) => {
         id: onboarding.id,
         step: onboarding.step,
         payment_method_ok: onboarding.payment_method_ok,
+        payment_method_marked_by: onboarding.payment_method_marked_by,
+        payment_method_marked_at: onboarding.payment_method_marked_at,
+        meta: {
+          quality_rating: onboarding.meta_quality_rating,
+          throughput: onboarding.meta_throughput,
+          number_status: onboarding.meta_number_status,
+          name_status: onboarding.meta_name_status,
+          review_status: onboarding.meta_review_status,
+          checked_at: onboarding.meta_checked_at,
+        },
         waba_id: onboarding.waba_id,
         phone_number_id: onboarding.phone_number_id,
         last_error: onboarding.last_error,
@@ -715,6 +742,52 @@ router.post('/accounts/:id/subscriptions/:sid/payments', async (req, res) => {
     res.status(201).json({ subscription: publicSubscription(row) });
   } catch (err) {
     console.error('[admin/payments] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Ask Meta what it currently says about this account's number. */
+router.post('/accounts/:id/meta/refresh', async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, wa_business_account_id: true, wa_phone_number_id: true, wa_access_token: true },
+    });
+    if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
+    res.json({ meta: await refreshMetaStatus(business) });
+  } catch (err) {
+    console.error('[admin/meta-refresh] failed:', err.message);
+    res.status(502).json({ error: err.message });
+  }
+});
+
+/**
+ * Confirm — or un-confirm — that the customer has a payment method on file.
+ *
+ * Meta will not tell us, and from 1 October 2026 an account without one stops having its
+ * service messages delivered: the bot goes silent. So this is a deliberate human statement,
+ * recorded with who made it, rather than a box that drifts quietly out of date.
+ */
+router.patch('/accounts/:id/payment-method', async (req, res) => {
+  const ok = Boolean(req.body?.payment_method_ok);
+  try {
+    const onboarding = await prisma.whatsappOnboarding.findFirst({
+      where: { business_id: req.params.id }, orderBy: { created_at: 'desc' }, select: { id: true },
+    });
+    if (!onboarding) return res.status(404).json({ error: 'لا يوجد سجل توصيل لهذا الحساب' });
+
+    const row = await prisma.whatsappOnboarding.update({
+      where: { id: onboarding.id },
+      data: {
+        payment_method_ok: ok,
+        payment_method_marked_by: ok ? req.user.email || req.user.id : null,
+        payment_method_marked_at: ok ? new Date() : null,
+      },
+      select: { payment_method_ok: true, payment_method_marked_by: true, payment_method_marked_at: true },
+    });
+    res.json(row);
+  } catch (err) {
+    console.error('[admin/payment-method] failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
