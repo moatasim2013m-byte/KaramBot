@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, X, Minus, ExternalLink, Eye } from 'lucide-react';
+import { Check, X, Minus, ExternalLink, Eye, RefreshCw } from 'lucide-react';
 import api from '../../utils/api';
 import { Panel, StateCell, Timestamp, Ltr, SkeletonRows } from '../shared/Primitives';
 import TryTheBot from '../whatsapp/TryTheBot';
@@ -20,15 +20,33 @@ function Tick({ done }) {
   return <Minus size={14} className="text-gray-300" />; // unknown — never a tick
 }
 
+const QUALITY = { GREEN: ['ok', 'أخضر'], YELLOW: ['degraded', 'أصفر'], RED: ['down', 'أحمر'] };
+const NAME_STATUS = { APPROVED: ['ok', 'مقبول'], DECLINED: ['down', 'مرفوض'], PENDING_REVIEW: ['degraded', 'قيد المراجعة'] };
+
 export default function AccountHealthTab({ accountId }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    api.get(`/admin/accounts/${accountId}`)
-      .then((res) => setData(res.data))
-      .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل حالة الحساب'));
-  }, [accountId]);
+  const load = () => api.get(`/admin/accounts/${accountId}`)
+    .then((res) => { setData(res.data); setError(null); })
+    .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل حالة الحساب'));
+
+  useEffect(() => { load(); }, [accountId]);
+
+  const refreshMeta = async () => {
+    setBusy(true); setError(null);
+    try { await api.post(`/admin/accounts/${accountId}/meta/refresh`); await load(); }
+    catch (err) { setError(err.response?.data?.error || 'تعذّر سؤال Meta'); }
+    finally { setBusy(false); }
+  };
+
+  const setPaymentMethod = async (ok) => {
+    setBusy(true); setError(null);
+    try { await api.patch(`/admin/accounts/${accountId}/payment-method`, { payment_method_ok: ok }); await load(); }
+    catch (err) { setError(err.response?.data?.error || 'تعذّر التعديل'); }
+    finally { setBusy(false); }
+  };
 
   if (error) return <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>;
   if (!data) return <Panel><SkeletonRows rows={6} cols={2} /></Panel>;
@@ -69,17 +87,33 @@ export default function AccountHealthTab({ accountId }) {
         </ul>
         {onboarding && !onboarding.payment_method_ok && (
           <div className="px-4 py-3 bg-amber-50 border-t border-amber-100">
-            <p className="text-[13px] text-amber-900 font-medium">بانتظار طريقة دفع</p>
+            <p className="text-[13px] text-amber-900 font-medium">لا توجد طريقة دفع — مهلة 30 أيلول</p>
             <p className="text-xs text-amber-800 mt-0.5">
-              الرسائل التي تبدأ من المنشأة لن تُرسَل حتى يضيف صاحب الحساب طريقة دفع.
+              من 1 تشرين الأول تتوقف Meta عن تسليم رسائل الخدمة لأي حساب بلا طريقة دفع: أي أن الوكيل
+              يتوقف عن الرد على الزبائن. Meta لا تُخبرنا بذلك، فأكّدها يدويًا بعد أن تراها مضافة.
             </p>
-            <a
-              href="https://business.facebook.com/wa/manage/home/"
-              target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 mt-1.5 text-xs font-medium text-amber-900 underline"
-            >
-              WhatsApp Manager <ExternalLink size={11} />
-            </a>
+            <div className="flex items-center gap-3 mt-2">
+              <a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium text-amber-900 underline">
+                WhatsApp Manager <ExternalLink size={11} />
+              </a>
+              <button onClick={() => setPaymentMethod(true)} disabled={busy}
+                className="text-xs font-medium bg-amber-900 text-white px-2.5 h-7 rounded disabled:opacity-40">
+                رأيتها مضافة — أكّد
+              </button>
+            </div>
+          </div>
+        )}
+        {onboarding?.payment_method_ok && (
+          <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between">
+            <p className="text-[12px] text-gray-600">
+              طريقة الدفع مؤكَّدة
+              {onboarding.payment_method_marked_by && <span className="text-gray-400"> — أكّدها {onboarding.payment_method_marked_by}</span>}
+              {onboarding.payment_method_marked_at && <> <Timestamp value={onboarding.payment_method_marked_at} /></>}
+            </p>
+            <button onClick={() => setPaymentMethod(false)} disabled={busy} className="text-[11px] text-gray-400 hover:text-red-600 underline">
+              تراجَع
+            </button>
           </div>
         )}
         {onboarding?.last_error && (
@@ -90,6 +124,49 @@ export default function AccountHealthTab({ accountId }) {
           </div>
         )}
       </Panel>
+
+      {onboarding?.meta && (
+        <Panel
+          title="ما تقوله Meta"
+          action={
+            <button onClick={refreshMeta} disabled={busy} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40">
+              <RefreshCw size={12} /> {busy ? 'جارٍ…' : 'اسأل Meta'}
+            </button>
+          }
+        >
+          {!onboarding.meta.checked_at ? (
+            <p className="px-4 py-3 text-[13px] text-gray-500">لم نسأل Meta بعد عن هذا الحساب.</p>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              <div className="flex items-center justify-between px-4 h-10">
+                <span className="text-[13px] text-gray-600">تقييم الجودة</span>
+                <StateCell state={(QUALITY[onboarding.meta.quality_rating] || ['unknown'])[0]}
+                  label={(QUALITY[onboarding.meta.quality_rating] || [null, onboarding.meta.quality_rating || 'غير معروف'])[1]} />
+              </div>
+              <div className="flex items-center justify-between px-4 h-10">
+                <span className="text-[13px] text-gray-600">حالة الرقم</span>
+                <StateCell state={onboarding.meta.number_status === 'CONNECTED' ? 'ok' : 'down'}
+                  label={onboarding.meta.number_status || 'غير معروف'} />
+              </div>
+              <div className="flex items-center justify-between px-4 h-10">
+                <span className="text-[13px] text-gray-600">الاسم الظاهر</span>
+                <StateCell state={(NAME_STATUS[onboarding.meta.name_status] || ['unknown'])[0]}
+                  label={(NAME_STATUS[onboarding.meta.name_status] || [null, onboarding.meta.name_status || 'غير معروف'])[1]} />
+              </div>
+              <div className="flex items-center justify-between px-4 h-10">
+                <span className="text-[13px] text-gray-600">سعة الإرسال · مراجعة الحساب</span>
+                <span className="text-[13px] text-gray-700">
+                  <Ltr>{onboarding.meta.throughput || '—'}</Ltr> · <Ltr>{onboarding.meta.review_status || '—'}</Ltr>
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-4 h-9">
+                <span className="text-[11px] text-gray-400">آخر سؤال لـ Meta</span>
+                <Timestamp value={onboarding.meta.checked_at} className="text-[11px] text-gray-400" />
+              </div>
+            </div>
+          )}
+        </Panel>
+      )}
 
       {onboarding && (
         <Panel title="معرّفات Meta">

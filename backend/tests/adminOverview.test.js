@@ -144,7 +144,27 @@ test('critical items sort above warnings', async () => {
 test('signals we do not collect are declared, not silently absent', async () => {
   mockDb({ businesses: [biz()] });
   const res = await get();
-  expect(res.body.unavailable).toContain('meta_quality_rating');
+  // Quality and throughput are read per account with its own business token now. What is still
+  // genuinely unknowable is who changed a configuration — and Meta's payment method, which is
+  // why that one is a recorded human confirmation rather than a field.
+  expect(res.body.unavailable).toContain('config_change_actor');
+  expect(res.body.unavailable).not.toContain('meta_quality_rating');
+});
+
+test("Meta's own view of an account travels with it, with the time it was read", async () => {
+  const checked = new Date('2026-09-27T09:00:00Z');
+  mockDb({
+    businesses: [biz()],
+    onboardings: [{
+      business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date(),
+      meta_quality_rating: 'GREEN', meta_throughput: 'STANDARD', meta_number_status: 'CONNECTED',
+      meta_name_status: 'DECLINED', meta_review_status: 'APPROVED', meta_checked_at: checked,
+    }],
+  });
+  const res = await get();
+  expect(res.body.accounts[0].meta).toMatchObject({ quality_rating: 'GREEN', number_status: 'CONNECTED', name_status: 'DECLINED' });
+  // A declined display name means customers see a bare number where a business name should be.
+  expect(res.body.attention.some((a) => a.category === 'meta_name' && a.severity === 'warning')).toBe(true);
 });
 
 test('a customer message is not mistaken for a reply', async () => {
