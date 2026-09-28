@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
 import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
+import SetupGuide from '../components/whatsapp/SetupGuide';
 import { useAuth } from '../context/AuthContext';
 import { MessageSquare, ShoppingBag, Users, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 
@@ -78,7 +79,11 @@ export default function OverviewPage() {
       {/* Four zeros cannot tell «not connected yet» from «a quiet day» from «cut off». One honest
           line above them can, and both walkthrough personas asked for exactly that. */}
       {user?.role !== 'platform_admin' && (
-        <div className="mb-4"><WhatsAppStatusCard compact /></div>
+        <div className="mb-4 space-y-4">
+          <WhatsAppStatusCard compact />
+          {/* Disappears on its own once every step is done. */}
+          <SetupGuide />
+        </div>
       )}
 
       {/* Stats */}

@@ -6,6 +6,67 @@ const { connectionState, agentState, lifecycle } = require('../services/accountH
 const { dryRun } = require('../services/dryRun');
 
 /**
+ * What is left before this account's bot is genuinely working, in the order it has to happen.
+ *
+ * Every step is derived from something we store — none is a box the customer ticks, because a
+ * ticked box drifts from reality and this list is the one place they look to answer «هل يعمل؟».
+ * `blocked_by` names whose move it is: ours, theirs, or nobody's (waiting on a customer to write).
+ */
+function buildSetup({ business, connection, paymentOk, knowledgeCount, lastInbound }) {
+  const isRestaurant = business.business_type === 'restaurant';
+  const isClinic = business.business_type === 'clinic';
+
+  const knowledgeStep = isRestaurant
+    ? { key: 'menu', label: 'أضف أصناف القائمة وأسعارها', where: '/menu', owner: 'you' }
+    : isClinic
+      ? { key: 'services', label: 'أضف خدمات العيادة والأطباء', where: '/clinic', owner: 'you' }
+      : { key: 'knowledge', label: 'عرّف البوت على منشأتك — الدوام وأهم الأسئلة', where: '/settings', owner: 'you' };
+
+  const steps = [
+    {
+      key: 'connected',
+      label: 'ربط رقم واتساب منشأتك',
+      done: connection.state === 'ok' || connection.state === 'degraded',
+      owner: 'shift',
+      hint: 'فريق شِفت يربط الرقم معك — لا شيء عليك هنا.',
+    },
+    {
+      key: 'payment',
+      label: 'أضف طريقة دفع في WhatsApp Manager',
+      done: paymentOk === true,
+      owner: 'you',
+      hint: 'من 1 تشرين الأول تتوقف Meta عن تسليم ردود البوت لأي حساب بلا طريقة دفع.',
+      url: 'https://business.facebook.com/wa/manage/home/',
+    },
+    {
+      ...knowledgeStep,
+      done: knowledgeCount > 0,
+      hint: 'بدونها يرد البوت بالترحيب فقط ولا يجيب عن أي سؤال.',
+    },
+    {
+      key: 'first_message',
+      label: 'أول رسالة من زبون',
+      done: Boolean(lastInbound),
+      owner: 'nobody',
+      hint: 'تظهر تلقائيًا عندما يراسلك أول زبون. جرّب أنت من رقم آخر.',
+    },
+  ];
+
+  const remaining = steps.filter((s) => !s.done);
+  // «next» is only ever something someone can actually do. When all that is left is a customer
+  // writing in, there is no next move — offering it as one would read like a task the owner is
+  // failing to complete, and the honest line is that their side is finished.
+  const next = remaining.find((s) => s.owner === 'you') || remaining.find((s) => s.owner === 'shift') || null;
+  return {
+    steps,
+    done: remaining.length === 0,
+    next,
+    waiting_for_first_message: remaining.length > 0 && !next,
+  };
+}
+
+
+/**
  * «هل واتسابي موصول؟» — for the customer.
  *
  * Two personas walked the real dashboard and both scored it 4/10 for one reason: nothing
@@ -52,6 +113,14 @@ router.get('/', async (req, res) => {
     });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب' });
 
+    // Whichever knowledge this business type actually uses: a menu, a service list, or the
+    // facts its owner entered. Counting the wrong one would tell a restaurant it is ready.
+    const knowledgeCount = business.business_type === 'restaurant'
+      ? await prisma.menuItem.count({ where: { business_id: business.id } })
+      : business.business_type === 'clinic'
+        ? await prisma.service.count({ where: { business_id: business.id } })
+        : await prisma.businessKnowledge.count({ where: { business_id: business.id, active: true } });
+
     const [onboarding, inbound, outbound, contract] = await Promise.all([
       prisma.whatsappOnboarding.findFirst({ where: { business_id: business.id }, orderBy: { created_at: 'desc' }, select: { step: true, payment_method_ok: true } }),
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true } }),
@@ -80,6 +149,13 @@ router.get('/', async (req, res) => {
         amount_jod: Number(contract.amount_jod), billing_cycle: contract.billing_cycle, next_due_at: contract.next_due_at,
       } : null,
       explain: explain(connection, agent, onboarding, contract),
+      setup: buildSetup({
+        business,
+        connection,
+        paymentOk: onboarding ? onboarding.payment_method_ok : null,
+        knowledgeCount,
+        lastInbound,
+      }),
       // Never the token, never the raw Meta identifiers: the customer needs the state, not the plumbing.
     });
   } catch (err) {
