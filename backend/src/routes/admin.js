@@ -217,11 +217,12 @@ router.get('/overview', async (req, res) => {
       totals,
       attention,
       accounts,
-      // Quality, throughput and name status are read per account with its own business token
-      // (metaStatus.refresh). What remains genuinely unknowable is the payment method — Meta
-      // refuses primary_funding_id to us — so staff confirm that one, and who they are is
-      // recorded. The one thing still missing is who changed a configuration.
-      unavailable: ['config_change_actor'],
+      // Quality, throughput, number status and display-name status are read per account with its
+      // own business token (metaStatus.refresh). Still not collected: the messaging tier — which
+      // is a limit on conversations, not the sending rate `throughput` reports, so one does not
+      // stand in for the other — and who changed a configuration. The payment method is knowable
+      // only by asking a human, which is why it is a recorded confirmation rather than a field.
+      unavailable: ['messaging_tier', 'config_change_actor'],
     });
   } catch (err) {
     console.error('[admin/overview] failed:', err.message);
@@ -769,7 +770,12 @@ router.post('/accounts/:id/meta/refresh', async (req, res) => {
  * recorded with who made it, rather than a box that drifts quietly out of date.
  */
 router.patch('/accounts/:id/payment-method', async (req, res) => {
-  const ok = Boolean(req.body?.payment_method_ok);
+  // Deliberately strict: `{}` would otherwise silently revoke a confirmation and erase who made
+  // it, and the string "false" would confirm one. This field is a person's statement about money.
+  if (typeof req.body?.payment_method_ok !== 'boolean') {
+    return res.status(400).json({ error: 'payment_method_ok يجب أن يكون true أو false' });
+  }
+  const ok = req.body.payment_method_ok;
   try {
     const onboarding = await prisma.whatsappOnboarding.findFirst({
       where: { business_id: req.params.id }, orderBy: { created_at: 'desc' }, select: { id: true },

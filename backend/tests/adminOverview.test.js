@@ -149,6 +149,9 @@ test('signals we do not collect are declared, not silently absent', async () => 
   // why that one is a recorded human confirmation rather than a field.
   expect(res.body.unavailable).toContain('config_change_actor');
   expect(res.body.unavailable).not.toContain('meta_quality_rating');
+  // throughput is a sending rate, not the messaging tier — one does not stand in for the other,
+  // so the tier stays declared as not collected.
+  expect(res.body.unavailable).toContain('messaging_tier');
 });
 
 test("Meta's own view of an account travels with it, with the time it was read", async () => {

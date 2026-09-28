@@ -35,27 +35,54 @@ async function refresh(business) {
   if (!token) throw new Error('لا يوجد رمز وصول محفوظ لهذا الحساب');
 
   const waba = business.wa_business_account_id;
+  const NUMBER_FIELDS = 'display_phone_number,quality_rating,throughput,status,name_status';
 
-  // Two calls: the account's review status, and the number's own health.
-  const [account, numbers] = await Promise.all([
+  /**
+   * Read the number we actually serve — by its id, which sidesteps pagination and, more
+   * importantly, cannot return a different number's health. Falling back to "the first number
+   * on the page" would let a restricted number show as healthy the moment the configured id
+   * was stale or on a later page, which is the failure this whole screen exists to prevent.
+   *
+   * With no id configured, an account holding exactly one number is unambiguous; anything else
+   * stays unknown rather than guessing which one is theirs.
+   */
+  async function readNumber() {
+    if (business.wa_phone_number_id) {
+      return get(`${graphBase()}/${business.wa_phone_number_id}?fields=${NUMBER_FIELDS}`, token);
+    }
+    const listed = await get(`${graphBase()}/${waba}/phone_numbers?fields=${NUMBER_FIELDS}`, token);
+    const rows = listed?.data || [];
+    return rows.length === 1 ? rows[0] : {};
+  }
+
+  // The two reads are independent, and the account-level answer has nothing to do with the
+  // number. A configured id that Meta no longer knows must not discard it: the old code stored
+  // another number's health, and failing the whole refresh instead would only trade a wrong
+  // answer for no answer at all.
+  const [account, numberResult] = await Promise.all([
     get(`${graphBase()}/${waba}?fields=account_review_status`, token),
-    get(`${graphBase()}/${waba}/phone_numbers?fields=display_phone_number,quality_rating,throughput,status,name_status`, token),
+    readNumber().then((n) => ({ ok: true, n }), (err) => ({ ok: false, err })),
   ]);
 
-  const rows = numbers?.data || [];
-  const mine = rows.find((n) => n.id === business.wa_phone_number_id) || rows[0] || {};
+  const mine = numberResult.ok ? numberResult.n : {};
+  const numberError = numberResult.ok ? null : String(numberResult.err?.message || 'unknown');
 
   const data = {
     meta_review_status: account?.account_review_status || null,
-    meta_quality_rating: mine.quality_rating || null,
-    meta_throughput: mine.throughput?.level || null,
-    meta_number_status: mine.status || null,
-    meta_name_status: mine.name_status || null,
+    meta_quality_rating: mine?.quality_rating || null,
+    meta_throughput: mine?.throughput?.level || null,
+    meta_number_status: mine?.status || null,
+    meta_name_status: mine?.name_status || null,
     meta_checked_at: new Date(),
   };
 
   await prisma.whatsappOnboarding.updateMany({ where: { business_id: business.id }, data });
-  return { ...data, display_phone_number: mine.display_phone_number || null };
+  return {
+    ...data,
+    display_phone_number: mine?.display_phone_number || null,
+    // Said plainly so staff see "Meta no longer knows this number" rather than a row of blanks.
+    number_error: numberError,
+  };
 }
 
 /**
