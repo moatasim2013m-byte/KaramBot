@@ -11,6 +11,9 @@ jest.mock('../src/config/prisma', () => ({
   conversation: { aggregate: jest.fn() },
   message: { aggregate: jest.fn() },
   subscription: { findFirst: jest.fn() },
+  menuItem: { count: jest.fn() },
+  service: { count: jest.fn() },
+  businessKnowledge: { count: jest.fn() },
 }));
 
 const jwt = require('jsonwebtoken');
@@ -27,13 +30,16 @@ const biz = (over = {}) => ({
   wa_phone_number_id: 'PN', wa_business_account_id: 'WABA', wa_access_token: 'enc', ai_config: {}, ...over,
 });
 
-function setup({ business = biz(), onboarding = { step: 'done', payment_method_ok: true }, inbound = null, outbound = null, contract = null } = {}) {
+function setup({ business = biz(), onboarding = { step: 'done', payment_method_ok: true }, inbound = null, outbound = null, contract = null, knowledge = 0 } = {}) {
   prisma.user.findUnique.mockResolvedValue(OWNER);
   prisma.business.findUnique.mockResolvedValue(business);
   prisma.whatsappOnboarding.findFirst.mockResolvedValue(onboarding);
   prisma.conversation.aggregate.mockResolvedValue({ _max: { last_inbound_at: inbound } });
   prisma.message.aggregate.mockResolvedValue({ _max: { created_at: outbound } });
   prisma.subscription.findFirst.mockResolvedValue(contract);
+  prisma.menuItem.count.mockResolvedValue(knowledge);
+  prisma.service.count.mockResolvedValue(knowledge);
+  prisma.businessKnowledge.count.mockResolvedValue(knowledge);
 }
 
 const get = () => request(app).get('/api/whatsapp/status').set(auth());
@@ -110,4 +116,64 @@ test('a user with no business is refused, not shown someone else', async () => {
   const res = await get();
   expect(res.status).toBe(403);
   expect(prisma.business.findUnique).not.toHaveBeenCalled();
+});
+
+describe('the setup guide the customer follows', () => {
+  test('a brand-new account: nothing done, and the next move is theirs', async () => {
+    setup({ business: biz({ business_type: 'generic', wa_access_token: null }), onboarding: null, knowledge: 0 });
+    const { setup: s } = (await get()).body;
+
+    expect(s.done).toBe(false);
+    expect(s.steps.map((x) => x.key)).toEqual(['connected', 'payment', 'knowledge', 'first_message']);
+    expect(s.steps.every((x) => !x.done)).toBe(true);
+    // Connection is ours to do; the first thing THEY can act on is the payment method.
+    expect(s.steps[0].owner).toBe('shift');
+    expect(s.next.key).toBe('payment');
+  });
+
+  test('a fully set-up account has no guide left to show', async () => {
+    setup({ inbound: minsAgo(5), outbound: minsAgo(4), knowledge: 3 });
+    const { setup: s } = (await get()).body;
+    expect(s.done).toBe(true);
+    expect(s.next).toBeNull();
+  });
+
+  test('a restaurant is asked for its menu, a clinic for its services', async () => {
+    setup({ business: biz({ business_type: 'restaurant' }), knowledge: 0 });
+    let { setup: s } = (await get()).body;
+    expect(s.steps[2].key).toBe('menu');
+    expect(s.steps[2].where).toBe('/menu');
+
+    setup({ business: biz({ business_type: 'clinic' }), knowledge: 0 });
+    ({ setup: s } = (await get()).body);
+    expect(s.steps[2].key).toBe('services');
+  });
+
+  test('a restaurant with a menu is not told to enter knowledge it does not use', async () => {
+    // Counting the wrong table would tell a restaurant with a full menu that it is not ready.
+    setup({ business: biz({ business_type: 'restaurant' }), knowledge: 12 });
+    const { setup: s } = (await get()).body;
+    expect(prisma.menuItem.count).toHaveBeenCalled();
+    expect(prisma.businessKnowledge.count).not.toHaveBeenCalled();
+    expect(s.steps[2].done).toBe(true);
+  });
+
+  test('waiting on a customer to write is nobody\'s task, and not presented as one', async () => {
+    setup({ onboarding: { step: 'done', payment_method_ok: true }, knowledge: 2 });
+    const { setup: s } = (await get()).body;
+    const first = s.steps.find((x) => x.key === 'first_message');
+    expect(first.done).toBe(false);
+    expect(first.owner).toBe('nobody');
+    // Nothing anyone can do about it, so there is no «next» at all — their side is finished.
+    expect(s.next).toBeNull();
+    expect(s.waiting_for_first_message).toBe(true);
+    expect(s.done).toBe(false);
+  });
+
+  test('an unconfirmed payment method is not treated as done', async () => {
+    setup({ onboarding: { step: 'done', payment_method_ok: false }, knowledge: 2, inbound: minsAgo(3) });
+    const { setup: s } = (await get()).body;
+    expect(s.steps.find((x) => x.key === 'payment').done).toBe(false);
+    expect(s.done).toBe(false);
+  });
 });
