@@ -145,7 +145,10 @@ export default function AccountHealthTab({ accountId }) {
               </div>
               <div className="flex items-center justify-between px-4 h-10">
                 <span className="text-[13px] text-gray-600">حالة الرقم</span>
-                <StateCell state={onboarding.meta.number_status === 'CONNECTED' ? 'ok' : 'down'}
+                {/* A missing reading is not an outage: an empty answer from Meta must render as
+                    unknown, or we invent a problem the account does not have. */}
+                <StateCell
+                  state={!onboarding.meta.number_status ? 'unknown' : (onboarding.meta.number_status === 'CONNECTED' ? 'ok' : 'down')}
                   label={onboarding.meta.number_status || 'غير معروف'} />
               </div>
               <div className="flex items-center justify-between px-4 h-10">

@@ -39,23 +39,47 @@ afterEach(() => { delete global.fetch; });
 const ok = (body) => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
 
 describe('reading Meta', () => {
-  test('stores the number\'s own health, keyed to the right number', async () => {
+  test('reads our number by its id, so another number\'s health can never be stored', async () => {
     global.fetch
       .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
-      .mockReturnValueOnce(ok({ data: [
-        { id: 'PN_OTHER', quality_rating: 'RED', status: 'FLAGGED', name_status: 'APPROVED' },
-        { id: 'PN1', display_phone_number: '+962 7 7678 8972', quality_rating: 'GREEN', throughput: { level: 'STANDARD' }, status: 'CONNECTED', name_status: 'DECLINED' },
-      ] }));
+      .mockReturnValueOnce(ok({ id: 'PN1', display_phone_number: '+962 7 7678 8972', quality_rating: 'GREEN', throughput: { level: 'STANDARD' }, status: 'CONNECTED', name_status: 'DECLINED' }));
 
     const out = await refresh(business());
 
-    // The account may hold more than one number; ours is the one that matters.
+    // Asked for by id — not a list we then pick from, which could return a different number.
+    const numberCall = global.fetch.mock.calls.map(([u]) => u).find((u) => u.includes('PN1'));
+    expect(numberCall).toContain('/PN1?fields=');
+    expect(global.fetch.mock.calls.some(([u]) => u.includes('/phone_numbers'))).toBe(false);
+
     expect(out.meta_quality_rating).toBe('GREEN');
     expect(out.meta_number_status).toBe('CONNECTED');
     expect(out.meta_name_status).toBe('DECLINED');
     expect(out.meta_throughput).toBe('STANDARD');
     expect(out.meta_review_status).toBe('APPROVED');
     expect(prisma.whatsappOnboarding.updateMany.mock.calls[0][0].where).toEqual({ business_id: 'b1' });
+  });
+
+  test('with no number configured, one number is unambiguous and several are not', async () => {
+    // Exactly one: that is theirs.
+    global.fetch
+      .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
+      .mockReturnValueOnce(ok({ data: [{ id: 'PN9', quality_rating: 'GREEN', status: 'CONNECTED' }] }));
+    let out = await refresh(business({ wa_phone_number_id: null }));
+    expect(out.meta_quality_rating).toBe('GREEN');
+
+    // Several, and we do not know which: unknown beats guessing the first one.
+    global.fetch.mockClear();
+    global.fetch
+      .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
+      .mockReturnValueOnce(ok({ data: [
+        { id: 'PN_A', quality_rating: 'RED', status: 'RESTRICTED' },
+        { id: 'PN_B', quality_rating: 'GREEN', status: 'CONNECTED' },
+      ] }));
+    out = await refresh(business({ wa_phone_number_id: null }));
+    expect(out.meta_quality_rating).toBeNull();
+    expect(out.meta_number_status).toBeNull();
+    // The account-level answer is still worth storing.
+    expect(out.meta_review_status).toBe('APPROVED');
   });
 
   test('a Graph error is reported in its own words, not as a stack', async () => {
@@ -122,5 +146,57 @@ describe('confirming the payment method', () => {
     prisma.user.findUnique.mockResolvedValue({ ...ADMIN, role: 'business_owner', business_id: 'b1' });
     const res = await request(app).patch('/api/admin/accounts/b1/payment-method').set(auth()).send({ payment_method_ok: true });
     expect(res.status).toBe(403);
+  });
+});
+
+describe('a payment decision must be stated, not inferred', () => {
+  beforeEach(() => prisma.whatsappOnboarding.findFirst.mockResolvedValue({ id: 'onb1' }));
+
+  test('an empty body does not silently revoke a confirmation', async () => {
+    const res = await request(app).patch('/api/admin/accounts/b1/payment-method').set(auth()).send({});
+    expect(res.status).toBe(400);
+    expect(prisma.whatsappOnboarding.update).not.toHaveBeenCalled();
+  });
+
+  test('the string "false" does not confirm one', async () => {
+    const res = await request(app).patch('/api/admin/accounts/b1/payment-method').set(auth())
+      .send({ payment_method_ok: 'false' });
+    expect(res.status).toBe(400);
+    expect(prisma.whatsappOnboarding.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('when Meta no longer knows the configured number', () => {
+  test('the account-level answer is still stored, and the problem is named', async () => {
+    // The by-id read fails; the WABA read succeeds. Losing both would trade a wrong answer for
+    // no answer, which is not an improvement.
+    global.fetch
+      .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
+      .mockReturnValueOnce(Promise.resolve({ ok: false, json: () => Promise.resolve({ error: { message: 'Unsupported get request. Object does not exist' } }) }));
+
+    const out = await refresh(business());
+
+    expect(out.meta_review_status).toBe('APPROVED');   // kept
+    expect(out.meta_quality_rating).toBeNull();        // genuinely unknown
+    expect(out.meta_number_status).toBeNull();
+    expect(out.number_error).toContain('does not exist');
+    expect(prisma.whatsappOnboarding.updateMany).toHaveBeenCalled();
+  });
+
+  test('an account holding no numbers at all stores nulls, not an error', async () => {
+    global.fetch
+      .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
+      .mockReturnValueOnce(ok({ data: [] }));
+
+    const out = await refresh(business({ wa_phone_number_id: null }));
+
+    expect(out.meta_review_status).toBe('APPROVED');
+    expect(out.meta_quality_rating).toBeNull();
+    expect(out.number_error).toBeNull();
+  });
+
+  test('a failure on the ACCOUNT read still fails the refresh — that one is not optional', async () => {
+    global.fetch.mockReturnValue(Promise.resolve({ ok: false, json: () => Promise.resolve({ error: { message: 'Invalid OAuth access token' } }) }));
+    await expect(refresh(business())).rejects.toThrow('Invalid OAuth access token');
   });
 });
