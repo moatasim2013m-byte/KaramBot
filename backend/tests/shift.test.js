@@ -348,9 +348,13 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(userMessage).toContain('العميل: "مرحبا"\nكرم: أهلين');
     expect(userMessage).toContain('["عندي كافيه","بإربد"]');
     expect(userMessage).not.toContain('العميل: "عندي كافيه"');
+    // Framed forms, not bare words: the static prompt legitimately contains ordinary vocabulary
+    // («أهلين» in a tone example, «بإربد» in the October offer), so a bare-word canary stopped
+    // discriminating. What must never appear is the transcript — a turn or the batch itself.
     expect(prompt).not.toContain('العميل: مرحبا');
-    expect(prompt).not.toContain('أهلين');
-    expect(prompt).not.toContain('بإربد');
+    expect(prompt).not.toContain('كرم: أهلين');
+    expect(prompt).not.toContain('العميل: "عندي كافيه"');
+    expect(prompt).not.toContain('["عندي كافيه","بإربد"]');
     expect(opts).toMatchObject({ jsonMode: true, systemInstruction: true, deadlineAt, onRetry, conversationId: 'c1' });
     expect(opts.validActions).toEqual(SHIFT_ACTIONS);
     expect(opts.responseSchema).toBe(RESPONSE_SCHEMA);
