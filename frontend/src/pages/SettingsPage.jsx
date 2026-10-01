@@ -170,6 +170,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [tab, setTab]       = useState('general');
+  // null while not being edited, so the field shows the saved numbers; a string while typing,
+  // so a comma survives long enough to type the number after it.
+  const [alertNumbersText, setAlertNumbersText] = useState(null);
 
   useEffect(() => {
     if (!user?.business_id) return;
@@ -193,13 +196,20 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Save without leaving the alert-numbers field must not lose what was typed: blur happening
+      // before click is browser behaviour, not a guarantee worth depending on.
+      const aiConfig = alertNumbersText === null ? biz.ai_config : {
+        ...biz.ai_config,
+        alert_wa_numbers: alertNumbersText.split(',').map(s => s.trim()).filter(Boolean),
+      };
       await api.patch(`/businesses/${biz.id}`, {
         name: biz.name,
         address: biz.address,
         currency: biz.currency,
-        ai_config: biz.ai_config,
+        ai_config: aiConfig,
         policies: biz.policies,
       });
+      setAlertNumbersText(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
@@ -319,6 +329,28 @@ export default function SettingsPage() {
                 onChange={e => set('ai_config.handoff_keywords', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                 className={inputClass}
               />
+            </Field>
+            {/* Without a number here the bot has no way to reach a person: a customer asking for
+                one, a technical fault, or WhatsApp refusing to deliver all pass unnoticed. */}
+            <Field label="أرقام واتساب للتنبيهات (مفصولة بفاصلة)">
+              {/* Held as raw text while editing: splitting on every keystroke swallowed the
+                  comma the moment it was typed, so a second number could not be entered. */}
+              <input
+                value={alertNumbersText ?? (biz.ai_config?.alert_wa_numbers || []).join(', ')}
+                onChange={e => setAlertNumbersText(e.target.value)}
+                onBlur={() => {
+                  if (alertNumbersText === null) return;
+                  set('ai_config.alert_wa_numbers', alertNumbersText.split(',').map(s => s.trim()).filter(Boolean));
+                  setAlertNumbersText(null);
+                }}
+                className={inputClass}
+                dir="ltr"
+                placeholder="0796381676"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                منرسل على هذي الأرقام لما زبون يطلب موظف، أو لما يصير خطأ بالبوت، أو لما واتساب يرفض يوصّل رسالة.
+                بدون رقم هنا، ما حد بيعرف.
+              </p>
             </Field>
           </Section>
 

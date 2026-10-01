@@ -17,8 +17,10 @@
 const { Prisma } = require('@prisma/client');
 const prisma = require('../config/prisma');
 
-const TABLES = ['conversations'];
-const COLUMNS = ['workflow_data', 'metadata'];
+const TABLES = ['conversations', 'businesses'];
+// businesses.ai_config is patched rather than assigned so a PATCH of one setting cannot drop the
+// others, and two concurrent saves cannot lose each other's change.
+const COLUMNS = ['workflow_data', 'metadata', 'ai_config'];
 const LEASE_TTL_MS = 60000;
 // "updated_at" is Prisma's `timestamp(3)` WITHOUT time zone, holding UTC. `now()` is timestamptz, and assigning
 // it converts with the session TimeZone: on a database/role whose TimeZone is not UTC, `= now()` stored local

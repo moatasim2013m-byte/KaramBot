@@ -18,6 +18,7 @@ const { sendTextMessage, markAsRead, normalizePhone } = require('../services/wha
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { runWorkflow } = require('./dryRun');
+const { notifyWorkflowAlert } = require('./workflowAlerts');
 const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
@@ -473,14 +474,17 @@ async function failIntent(intent, status, now) {
  */
 async function handleStatuses(phoneNumberId, statuses) {
   let business;
-  const shiftBusiness = async () => {
+  // Any business whose number this is. It used to return the row only when it was SHIFT's own,
+  // which meant a customer whose messages WhatsApp had started refusing — for want of a payment
+  // method on their WABA — was never told. That is the one delivery failure they must hear about.
+  const statusBusiness = async () => {
     if (business === undefined) {
       business = await prisma.business.findFirst({
         where: { wa_phone_number_id: phoneNumberId },
         select: BUSINESS_SELECT,
       }).catch(() => null);
     }
-    return business && business.business_type === 'shift' ? business : null;
+    return business || null;
   };
 
   for (const status of statuses) {
@@ -497,7 +501,11 @@ async function handleStatuses(phoneNumberId, statuses) {
 
       const billing = status.status === 'failed' && status.errors?.[0]?.code === BILLING_ERROR_CODE;
       if (!billing) continue;
-      const biz = await shiftBusiness();
+      // A staff alert that fails to deliver for the same billing reason must not raise another
+      // staff alert: that one would fail too, and the pair would feed each other for as long as
+      // the account stays unpaid. Alert rows are stamped `kind: 'staff_alert'` by alerts.js.
+      if (found?.raw_payload?.kind === 'staff_alert') continue;
+      const biz = await statusBusiness();
       if (!biz) continue;
       // The banner belongs to the conversation of the failed send; the recipient only locates a
       // conversation for a status whose row is unknown — it never marks any message.
@@ -723,6 +731,19 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   // test reply is the reply a customer would get.
   const workflowResult = await runWorkflow(business, conversation, customerText);
 
+  // The bot has stopped answering this conversation and a person has to take it. Alerting here
+  // rather than inside each workflow means restaurant, clinic and generic cannot drift apart.
+  // `alert_reason` lets a workflow say WHY it handed over — a technical failure reads differently
+  // to the owner than a customer asking for a human.
+  if (workflowResult.action === 'HANDOFF_TO_HUMAN') {
+    notifyWorkflowAlert({
+      reason: workflowResult.alert_reason || 'handoff',
+      business,
+      conversation,
+      summary: customerText,
+    });
+  }
+
   if (workflowResult.stateUpdate && Object.keys(workflowResult.stateUpdate).length > 0) {
     conversation = await prisma.conversation.update({
       where: { id: conversation.id },
@@ -739,6 +760,12 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
         orderErr,
       );
       workflowResult.reply = 'عذراً، حصل خطأ أثناء تسجيل طلبك. سيتواصل معك أحد موظفينا فوراً لإتمام الطلب.';
+      // The customer has just been promised a person. Until now nobody was told, so that promise
+      // was only kept if someone happened to be watching the inbox.
+      notifyWorkflowAlert({
+        reason: 'needs_team', business, conversation,
+        summary: `فشل تسجيل طلب — وُعد الزبون بتواصل فوري: ${orderErr && orderErr.message}`,
+      });
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
@@ -759,6 +786,10 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
         apptErr,
       );
       workflowResult.reply = 'عذراً، حصل خطأ أثناء تسجيل الموعد. سيتواصل معك أحد موظفينا فوراً.';
+      notifyWorkflowAlert({
+        reason: 'needs_team', business, conversation,
+        summary: `فشل تسجيل موعد — وُعد الزبون بتواصل فوري: ${apptErr && apptErr.message}`,
+      });
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
         data: {

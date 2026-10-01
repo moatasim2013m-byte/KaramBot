@@ -21,6 +21,9 @@
  */
 
 const hours = require('./hours');
+// Moved to utils/phone.js so the owner's alert numbers go through the same parser; still
+// re-exported below, because this module is where callers and tests expect to find them.
+const { westernDigits, normalizePhone } = require('../../utils/phone');
 
 const LINK_ID = 'book_link';
 const MODES = ['calendly', 'inchat'];
@@ -310,17 +313,6 @@ const NAME_LABEL_RE = /^\s*(?:invitee(?:\s*name)?|name|full\s*name|الاسم|ا
 const EMAIL_LABEL_RE = /^\s*(?:invitee\s*email|email|e-mail|البريد(?:\s*الإلكتروني)?|الايميل|الإيميل)\s*[:：]\s*(\S+@\S+)\s*$/i;
 const CANDIDATE_RE = /(?:\+|00)?\d[\d \t\-.()/]{5,22}\d/g;
 
-/** Arabic-Indic and Persian digits → ASCII; bidi marks and NBSP → plain. */
-function westernDigits(s) {
-  return String(s == null ? '' : s)
-    .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660))
-    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06F0))
-    .replace(/[‎‏‪-‮⁦-⁩]/g, '')
-    .replace(/[   ]/g, ' ')
-    .replace(/[‐-―−]/g, '-')
-    .replace(/＋/g, '+');
-}
-
 function decodeEntities(s) {
   return s
     .replace(/&nbsp;/gi, ' ')
@@ -353,30 +345,6 @@ function plainText(description) {
  * +962 / 00962 / 962 keep their country code (a stray trunk 0 after it is dropped); 07XXXXXXXX and
  * 7XXXXXXXX are Jordanian mobiles; other + / 00 numbers are kept as they are (8–15 digits).
  */
-function normalizePhone(raw) {
-  let s = westernDigits(raw).trim();
-  if (!s) return null;
-  let intl = false;
-  s = s.replace(/[\s\-.()/]/g, '');
-  if (s.startsWith('+')) {
-    intl = true;
-    s = s.slice(1);
-  } else if (s.startsWith('00')) {
-    intl = true;
-    s = s.slice(2);
-  }
-  if (!/^\d+$/.test(s)) return null;
-  let d = s;
-  if (d.startsWith('9620')) d = `962${d.slice(4)}`;
-  if (!intl && !d.startsWith('962')) {
-    if (/^07\d{8}$/.test(d)) d = `962${d.slice(1)}`;
-    else if (/^7\d{8}$/.test(d)) d = `962${d}`;
-    else return null;
-  }
-  if (d.length < 8 || d.length > 15) return null;
-  if (d.startsWith('962') && !/^962\d{8,9}$/.test(d)) return null;
-  return d;
-}
 
 function phonesIn(line) {
   const out = [];
