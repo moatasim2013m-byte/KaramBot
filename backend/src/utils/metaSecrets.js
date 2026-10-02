@@ -11,9 +11,16 @@
  * only to hand it to crypto or to Graph.
  */
 
+/**
+ * The Tech Provider app id. Read through this one function everywhere — the webhook endpoints
+ * decide which numbers they serve by comparing against it, and a second copy that drifted would
+ * silently open the isolation it is there to enforce.
+ */
+const embeddedSignupAppId = () => process.env.META_ES_APP_ID || '1065272896256103';
+
 const APP_SECRET_ENV = {
   // app id → env var holding the secret (Cloud Run maps these to Secret Manager versions)
-  [process.env.META_ES_APP_ID || '1065272896256103']: 'SHIFT_ES_APP_SECRET',
+  [embeddedSignupAppId()]: 'SHIFT_ES_APP_SECRET',
 };
 
 // Cached per process: these rotate rarely and a webhook must not wait on a network call.
@@ -35,7 +42,7 @@ function appSecretFor(appId) {
 
 /** The Embedded Signup app id and secret, for the code→token exchange. */
 function embeddedSignupApp() {
-  const appId = process.env.META_ES_APP_ID || '1065272896256103';
+  const appId = embeddedSignupAppId();
   const secret = appSecretFor(appId);
   if (!secret) {
     // Deliberately loud: without it the exchange cannot run, and we never invent a value.
@@ -49,4 +56,4 @@ function embeddedSignupApp() {
 
 function _resetCache() { cache.clear(); }
 
-module.exports = { appSecretFor, embeddedSignupApp, _resetCache };
+module.exports = { appSecretFor, embeddedSignupApp, embeddedSignupAppId, _resetCache };

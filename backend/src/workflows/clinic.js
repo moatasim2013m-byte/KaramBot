@@ -7,6 +7,7 @@
  */
 
 const { generateValidatedAIReply } = require('../ai/provider');
+const { providerIssueAlert } = require('../services/workflowAlerts');
 const prisma = require('../config/prisma');
 const { isConfirmation, isCancellation } = require('./restaurant');
 
@@ -181,13 +182,17 @@ async function processClinicMessage(business, conversation, customerMessage) {
     }
 
     const systemPrompt = buildClinicSystemPrompt(business, contextText);
-    const aiResult = await generateValidatedAIReply(systemPrompt, customerMessage);
+    const aiResult = await generateValidatedAIReply(systemPrompt, customerMessage, [], {
+      onProviderIssue: providerIssueAlert(business, conversation),
+    });
 
     if (!aiResult) {
       return {
         reply: business.ai_config?.fallback_message || 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
         stateUpdate: { ai_enabled: false, status: 'human_takeover' },
         action: 'HANDOFF_TO_HUMAN',
+        // The model failed, not a customer asking for a person: the owner reads it as a fault.
+        alert_reason: 'ai_failure',
       };
     }
 

@@ -103,6 +103,10 @@ describe('Webhook Security', () => {
 
     const flush = () => new Promise((resolve) => setImmediate(resolve));
 
+    // The route tells the processor which endpoint the delivery arrived on, so a number
+    // belonging to the other Meta app can be refused. This is /api/whatsapp/webhook.
+    const routedHere = { servesApp: expect.any(Function), endpoint: 'karambot' };
+
     beforeEach(() => {
       messageProcessor.persistInbound.mockReset();
       messageProcessor.processInboundMessage.mockReset();
@@ -147,7 +151,7 @@ describe('Webhook Security', () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
       // Meta's retry will find these rows already stored and skip them, so nobody else would process them.
       expect(messageProcessor.processInboundMessage).toHaveBeenCalledTimes(1);
-      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted });
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted, ...routedHere });
     });
 
     test('persist fails part-way → 500, and the items saved before the error are processed', async () => {
@@ -157,7 +161,7 @@ describe('Webhook Security', () => {
       expect(res.status).toBe(500);
       await flush();
       await flush();
-      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted: partial });
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted: partial, ...routedHere });
     });
 
     test('persist ok → 200, then processInboundMessage(entry, {persisted}) after the response', async () => {
@@ -174,9 +178,9 @@ describe('Webhook Security', () => {
       const res = await post({ object: 'whatsapp_business_account', entry: [entry] });
       expect(res.status).toBe(200);
       await flush();
-      expect(messageProcessor.persistInbound).toHaveBeenCalledWith(entry);
+      expect(messageProcessor.persistInbound).toHaveBeenCalledWith(entry, routedHere);
       expect(messageProcessor.processInboundMessage).toHaveBeenCalledTimes(1);
-      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted });
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(entry, { persisted, ...routedHere });
       expect(order).toEqual(['persist', 'process']);
     });
 
@@ -189,7 +193,7 @@ describe('Webhook Security', () => {
       const res = await post({ object: 'whatsapp_business_account', entry: [statusEntry] });
       expect(res.status).toBe(200);
       await flush();
-      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(statusEntry, { persisted: { business: null, items: [] } });
+      expect(messageProcessor.processInboundMessage).toHaveBeenCalledWith(statusEntry, { persisted: { business: null, items: [] }, ...routedHere });
     });
 
     test('a non-WhatsApp object → 200 without persisting', async () => {

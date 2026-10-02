@@ -12,12 +12,12 @@
  */
 
 const { createWebhookRouter } = require('./whatsapp');
-const { appSecretFor } = require('../utils/metaSecrets');
-
-const SHIFT_APP_ID = () => process.env.META_ES_APP_ID || '1065272896256103';
+const { appSecretFor, embeddedSignupAppId: SHIFT_APP_ID } = require('../utils/metaSecrets');
 
 module.exports = createWebhookRouter({
   label: 'shift',
   verifyToken: () => process.env.SHIFT_WEBHOOK_VERIFY_TOKEN,
   appSecret: () => appSecretFor(SHIFT_APP_ID()),
+  // Only numbers onboarded through this app. A hand-wired number must not be reachable here.
+  servesApp: (ownerAppId) => String(ownerAppId) === SHIFT_APP_ID(),
 });

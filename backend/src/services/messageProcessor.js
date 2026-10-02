@@ -18,6 +18,7 @@ const { sendTextMessage, markAsRead, normalizePhone } = require('../services/wha
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { runWorkflow } = require('./dryRun');
+const { notifyWorkflowAlert } = require('./workflowAlerts');
 const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
@@ -58,7 +59,7 @@ const SETTLED_STATUSES = ['failed', 'ambiguous_unreconciled', 'cancelled'];
 const BUSINESS_SELECT = {
   id: true, name: true, business_type: true, status: true,
   currency: true, wa_phone_number_id: true, wa_access_token: true, wa_business_account_id: true,
-  ai_config: true, policies: true,
+  wa_app_id: true, ai_config: true, policies: true,
 };
 
 function canSendAutoReply(business, conversation, label) {
@@ -265,16 +266,55 @@ async function createConfirmedAppointment(business, conversation, appointmentDat
  * those already stored and skips them. Idempotent under retries: each message commits in its own
  * transaction (insertInbound), and only the delivery that inserted a row processes it (`claimed`).
  */
-async function persistInbound(entry) {
+/**
+ * Whether this delivery may act on this business at all. Applied to inbound messages and to
+ * delivery receipts alike, because a receipt mutates that tenant's message rows too.
+ *
+ * Two independent rules, both of which only ever refuse on a positive mismatch:
+ *
+ *  - The WABA. Since Embedded Signup one callback URL serves every customer's WABA, so the
+ *    number id alone is no longer proof of ownership: a number is only this business's when
+ *    the WABA it arrived on matches too.
+ *  - The Meta app. Each endpoint trusts exactly one app secret, so a delivery that passed the
+ *    Tech Provider app's signature check may not act on a hand-wired number, nor the other way
+ *    round — one leaked app secret would otherwise reach every number in the database.
+ *
+ * Both fail open when the business has nothing recorded to compare against: numbers that
+ * predate these columns, and the window between a new customer's subscription and the write
+ * that links their business row (completeOnboarding), must keep working.
+ */
+function refusesDelivery(business, { wabaId, servesApp, endpoint, what }) {
+  if (wabaId && business.wa_business_account_id && business.wa_business_account_id !== wabaId) {
+    console.error(
+      `[webhook] WABA mismatch — dropping ${what}: phone_number_id=${business.wa_phone_number_id} ` +
+      `arrived on WABA ${wabaId} but business ${business.id} is registered to ${business.wa_business_account_id}`,
+    );
+    return true;
+  }
+  if (servesApp && business.wa_app_id && !servesApp(business.wa_app_id)) {
+    console.error(
+      `[webhook] app mismatch — dropping ${what}: phone_number_id=${business.wa_phone_number_id} ` +
+      `arrived on the ${endpoint || 'unknown'} endpoint but business ${business.id} belongs to ` +
+      `app ${business.wa_app_id}`,
+    );
+    return true;
+  }
+  return false;
+}
+
+async function persistInbound(entry, { servesApp, endpoint } = {}) {
   const value = entry?.changes?.[0]?.value;
   const messages = value?.messages || [];
   if (!value || !messages.length) return { business: null, items: [] };
 
   const phoneNumberId = value.metadata?.phone_number_id;
-  // entry.id is the WABA the event came from. Since Embedded Signup, one callback URL
-  // serves every customer's WABA, so the number alone is no longer proof of ownership:
-  // a number is only this business's when its WABA matches too. A mismatch is dropped,
-  // never delivered to the business that merely shares the number id.
+  // Prisma drops an undefined condition, so findFirst with no phone number id would return
+  // whichever business happens to come first and hand it someone else's messages. A delivery
+  // that names no number cannot be routed to anyone.
+  if (!phoneNumberId) {
+    console.warn('[webhook] delivery carries no phone_number_id — nothing to route it to');
+    return { business: null, items: [] };
+  }
   const wabaId = entry?.id ? String(entry.id) : null;
   const business = await prisma.business.findFirst({
     where: { wa_phone_number_id: phoneNumberId },
@@ -284,11 +324,7 @@ async function persistInbound(entry) {
     console.warn(`No business found for phone_number_id: ${phoneNumberId}`);
     return { business: null, items: [] };
   }
-  if (wabaId && business.wa_business_account_id && business.wa_business_account_id !== wabaId) {
-    console.error(
-      `[webhook] WABA mismatch — dropping: phone_number_id=${phoneNumberId} arrived on WABA ${wabaId} ` +
-      `but business ${business.id} is registered to ${business.wa_business_account_id}`,
-    );
+  if (refusesDelivery(business, { wabaId, servesApp, endpoint, what: 'message' })) {
     return { business: null, items: [] };
   }
   if (business.status !== 'active') return { business, items: [] };
@@ -446,14 +482,17 @@ async function failIntent(intent, status, now) {
  */
 async function handleStatuses(phoneNumberId, statuses) {
   let business;
-  const shiftBusiness = async () => {
+  // Any business whose number this is. It used to return the row only when it was SHIFT's own,
+  // which meant a customer whose messages WhatsApp had started refusing — for want of a payment
+  // method on their WABA — was never told. That is the one delivery failure they must hear about.
+  const statusBusiness = async () => {
     if (business === undefined) {
       business = await prisma.business.findFirst({
         where: { wa_phone_number_id: phoneNumberId },
         select: BUSINESS_SELECT,
       }).catch(() => null);
     }
-    return business && business.business_type === 'shift' ? business : null;
+    return business || null;
   };
 
   for (const status of statuses) {
@@ -470,13 +509,13 @@ async function handleStatuses(phoneNumberId, statuses) {
 
       const billing = status.status === 'failed' && status.errors?.[0]?.code === BILLING_ERROR_CODE;
       if (!billing) continue;
-      const biz = await shiftBusiness();
-      if (!biz) continue;
       // A billing alert is itself a WhatsApp message, so it fails for the very reason it is
       // reporting — and that failure used to raise another one. Owner's brother's phone,
       // 2026-10-02: 67 identical alerts in two minutes, 24 then 39 a minute and climbing, because
       // every alert spawned the next. Alert rows are stamped `kind: 'staff_alert'` by alerts.js.
       if (found?.raw_payload?.kind === 'staff_alert') continue;
+      const biz = await statusBusiness();
+      if (!biz) continue;
       // The banner belongs to the conversation of the failed send; the recipient only locates a
       // conversation for a status whose row is unknown — it never marks any message.
       const conv = found
@@ -710,6 +749,19 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   // test reply is the reply a customer would get.
   const workflowResult = await runWorkflow(business, conversation, customerText);
 
+  // The bot has stopped answering this conversation and a person has to take it. Alerting here
+  // rather than inside each workflow means restaurant, clinic and generic cannot drift apart.
+  // `alert_reason` lets a workflow say WHY it handed over — a technical failure reads differently
+  // to the owner than a customer asking for a human.
+  if (workflowResult.action === 'HANDOFF_TO_HUMAN') {
+    notifyWorkflowAlert({
+      reason: workflowResult.alert_reason || 'handoff',
+      business,
+      conversation,
+      summary: customerText,
+    });
+  }
+
   if (workflowResult.stateUpdate && Object.keys(workflowResult.stateUpdate).length > 0) {
     conversation = await prisma.conversation.update({
       where: { id: conversation.id },
@@ -726,6 +778,12 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
         orderErr,
       );
       workflowResult.reply = 'عذراً، حصل خطأ أثناء تسجيل طلبك. سيتواصل معك أحد موظفينا فوراً لإتمام الطلب.';
+      // The customer has just been promised a person. Until now nobody was told, so that promise
+      // was only kept if someone happened to be watching the inbox.
+      notifyWorkflowAlert({
+        reason: 'needs_team', business, conversation,
+        summary: `فشل تسجيل طلب — وُعد الزبون بتواصل فوري: ${orderErr && orderErr.message}`,
+      });
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
@@ -746,6 +804,10 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
         apptErr,
       );
       workflowResult.reply = 'عذراً، حصل خطأ أثناء تسجيل الموعد. سيتواصل معك أحد موظفينا فوراً.';
+      notifyWorkflowAlert({
+        reason: 'needs_team', business, conversation,
+        summary: `فشل تسجيل موعد — وُعد الزبون بتواصل فوري: ${apptErr && apptErr.message}`,
+      });
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
@@ -786,7 +848,7 @@ function decryptBusinessToken(business) {
   }
 }
 
-async function processInboundMessage(entry, { persisted } = {}) {
+async function processInboundMessage(entry, { persisted, servesApp, endpoint } = {}) {
   try {
     const changes = entry?.changes?.[0];
     const value = changes?.value;
@@ -796,13 +858,35 @@ async function processInboundMessage(entry, { persisted } = {}) {
     const messages = value.messages || [];
     const statuses = value.statuses || [];
 
-    // Handle status updates
-    if (statuses.length) await handleStatuses(phoneNumberId, statuses);
+    // Handle status updates. A receipt mutates the tenant's own message rows, so it is held to
+    // the same ownership rules as an inbound message — findStatusRow matches a wamid across the
+    // whole table, which on its own would let one endpoint settle another endpoint's sends.
+    // A number that matches no business is left exactly as before: refused only on a mismatch.
+    if (statuses.length) {
+      // Only an identified owner can be refused. Without a phone number id there is nothing to
+      // look up — and Prisma would drop the undefined condition and return an arbitrary business,
+      // whose WABA and app would then decide a receipt that has nothing to do with it. A failed
+      // lookup is logged rather than swallowed: it disables this check, so it must be visible.
+      let owner = null;
+      if (phoneNumberId) {
+        owner = await prisma.business.findFirst({
+          where: { wa_phone_number_id: phoneNumberId },
+          select: BUSINESS_SELECT,
+        }).catch((err) => {
+          console.error(`[webhook] owner lookup failed for statuses on ${phoneNumberId}:`, err.message);
+          return null;
+        });
+      }
+      const refused = !!owner && refusesDelivery(owner, {
+        wabaId: entry?.id ? String(entry.id) : null, servesApp, endpoint, what: 'status',
+      });
+      if (!refused) await handleStatuses(phoneNumberId, statuses);
+    }
 
     if (!messages.length) return;
 
     // Legacy callers (scripts, tests) did not persist first.
-    const { business, items } = persisted || await persistInbound(entry);
+    const { business, items } = persisted || await persistInbound(entry, { servesApp, endpoint });
     if (!business || business.status !== 'active') return;
 
     // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path

@@ -7,6 +7,7 @@
  */
 
 const { generateValidatedAIReply } = require('../ai/provider');
+const { providerIssueAlert } = require('../services/workflowAlerts');
 const prisma = require('../config/prisma');
 
 const STATES = {
@@ -278,7 +279,9 @@ async function processRestaurantMessage(business, conversation, customerMessage)
       ? `[حالة الطلب: ${cart.length} صنف في السلة]\nرسالة العميل: ${customerMessage}`
       : customerMessage;
 
-    const aiResult = await generateValidatedAIReply(systemPrompt, contextMsg);
+    const aiResult = await generateValidatedAIReply(systemPrompt, contextMsg, [], {
+      onProviderIssue: providerIssueAlert(business, conversation),
+    });
 
     if (!aiResult) {
       console.warn(`AI returned invalid output twice for business ${business.id} — triggering human handoff`);
@@ -286,6 +289,9 @@ async function processRestaurantMessage(business, conversation, customerMessage)
         reply: business.ai_config?.fallback_message || 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
         stateUpdate: { ai_enabled: false, status: 'human_takeover' },
         action: 'HANDOFF_TO_HUMAN',
+        // Not a customer asking for a person: the model failed twice. The owner needs to read
+        // this as a fault, not as a lead.
+        alert_reason: 'ai_failure',
       };
     }
 

@@ -1,5 +1,6 @@
 const prisma = require('../config/prisma');
 const { generateValidatedAIReply } = require('../ai/provider');
+const { providerIssueAlert } = require('../services/workflowAlerts');
 
 /**
  * The agent for a business with no sector workflow.
@@ -98,13 +99,17 @@ async function processGenericMessage(business, conversation, customerMessage) {
   }
 
   const systemPrompt = buildGenericSystemPrompt(business, knowledgeText);
-  const aiResult = await generateValidatedAIReply(systemPrompt, customerMessage);
+  const aiResult = await generateValidatedAIReply(systemPrompt, customerMessage, [], {
+    onProviderIssue: providerIssueAlert(business, conversation),
+  });
 
   if (!aiResult) {
     return {
       reply: business.ai_config?.fallback_message || 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      // The model failed, not a customer asking for a person: the owner reads it as a fault.
+      alert_reason: 'ai_failure',
     };
   }
 

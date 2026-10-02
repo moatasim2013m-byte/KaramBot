@@ -19,8 +19,18 @@ const { handleAccountUpdate } = require('../services/accountUpdate');
  * `verifyToken` and `appSecret` are read per request, not captured at mount time,
  * because Cloud Run injects them from Secret Manager and a rotation must not need a
  * code change.
+ *
+ * `servesApp` decides whether a number's owning Meta app belongs to this endpoint. It
+ * travels with the delivery so the pipeline can refuse a tenant that belongs to the other
+ * endpoint: holding one app's secret then buys access to that endpoint's numbers only,
+ * not to every number in the database.
+ *
+ * It is a predicate rather than an app id because the two sides are not symmetric. The
+ * Tech Provider endpoint serves exactly one app. The legacy endpoint serves whatever was
+ * wired by hand over the years — more than one app id already — so what matters there is
+ * that a Tech Provider customer's number is not among them.
  */
-function createWebhookRouter({ label, verifyToken, appSecret }) {
+function createWebhookRouter({ label, verifyToken, appSecret, servesApp }) {
   const router = express.Router();
 
   // GET - Meta webhook verification
@@ -89,7 +99,7 @@ function withTimeout(promise, ms) {
   }
 
   const budget = parseInt(process.env.WEBHOOK_PERSIST_BUDGET_MS, 10) || 4000;
-  const persists = entries.map((e) => persistInbound(e));
+  const persists = entries.map((e) => persistInbound(e, { servesApp, endpoint: label }));
   let persisted;
   try {
     persisted = await withTimeout(Promise.all(persists), budget);
@@ -104,7 +114,7 @@ function withTimeout(promise, ms) {
     entries.forEach((e, i) => {
       persists[i]
         .then((p) => p, (persistErr) => (persistErr && persistErr.persisted) || null)
-        .then((p) => (p && p.items.length ? processInboundMessage(e, { persisted: p }) : null))
+        .then((p) => (p && p.items.length ? processInboundMessage(e, { persisted: p, servesApp, endpoint: label }) : null))
         .catch(console.error);
     });
     return undefined;
@@ -115,7 +125,7 @@ function withTimeout(promise, ms) {
   // AI work, statuses, forwarding and sends happen after the response.
   entries.forEach((e, i) => {
     Promise.resolve()
-      .then(() => processInboundMessage(e, { persisted: persisted[i] }))
+      .then(() => processInboundMessage(e, { persisted: persisted[i], servesApp, endpoint: label }))
       .catch(console.error);
   });
 });
