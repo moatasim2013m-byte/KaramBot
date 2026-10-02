@@ -509,17 +509,13 @@ async function handleStatuses(phoneNumberId, statuses) {
 
       const billing = status.status === 'failed' && status.errors?.[0]?.code === BILLING_ERROR_CODE;
       if (!billing) continue;
-      // A staff alert that fails to deliver for the same billing reason must not raise another
-      // staff alert: that one would fail too, and the pair would feed each other for as long as
-      // the account stays unpaid. Alert rows are stamped `kind: 'staff_alert'` by alerts.js.
-      if (found?.raw_payload?.kind === 'staff_alert') continue;
-      const biz = await statusBusiness();
-      if (!biz) continue;
       // A billing alert is itself a WhatsApp message, so it fails for the very reason it is
       // reporting — and that failure used to raise another one. Owner's brother's phone,
       // 2026-10-02: 67 identical alerts in two minutes, 24 then 39 a minute and climbing, because
       // every alert spawned the next. Alert rows are stamped `kind: 'staff_alert'` by alerts.js.
       if (found?.raw_payload?.kind === 'staff_alert') continue;
+      const biz = await statusBusiness();
+      if (!biz) continue;
       // The banner belongs to the conversation of the failed send; the recipient only locates a
       // conversation for a status whose row is unknown — it never marks any message.
       const conv = found
