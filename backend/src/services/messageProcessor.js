@@ -34,6 +34,14 @@ const SHIFT_SKIP_TYPES = ['reaction', 'system', 'ephemeral'];
 const REFERRAL_KEYS = ['source_url', 'source_id', 'source_type', 'headline', 'body', 'ctwa_clid'];
 const BILLING_ERROR_CODE = 131042;
 
+/** The numbers staff alerts are sent TO. A conversation with one of them is a staff thread. */
+function isStaffNumber(business, waId) {
+  const list = business?.ai_config?.alert_wa_numbers;
+  if (!Array.isArray(list) || !waId) return false;
+  const want = String(waId).replace(/\D/g, '');
+  return list.some((n) => String(n ?? '').replace(/\D/g, '') === want);
+}
+
 // D24: a non-SHIFT row whose forward/workflow has not finished. `reprocessing` = the one re-run is underway.
 const PROCESSING = 'processing';
 const REPROCESSING = 'reprocessing';
@@ -507,13 +515,27 @@ async function handleStatuses(phoneNumberId, statuses) {
       if (found?.raw_payload?.kind === 'staff_alert') continue;
       const biz = await statusBusiness();
       if (!biz) continue;
+      // A billing alert is itself a WhatsApp message, so it fails for the very reason it is
+      // reporting — and that failure used to raise another one. Owner's brother's phone,
+      // 2026-10-02: 67 identical alerts in two minutes, 24 then 39 a minute and climbing, because
+      // every alert spawned the next. Alert rows are stamped `kind: 'staff_alert'` by alerts.js.
+      if (found?.raw_payload?.kind === 'staff_alert') continue;
       // The banner belongs to the conversation of the failed send; the recipient only locates a
       // conversation for a status whose row is unknown — it never marks any message.
       const conv = found
         ? await prisma.conversation.findUnique({ where: { id: found.conversation_id } })
         : await prisma.conversation.findFirst({ where: { business_id: biz.id, customer_wa_id: normalizePhone(status.recipient_id) } });
       if (!conv) continue;
-      await jsonb.patchJson('conversations', conv.id, 'metadata', { billing_blocked_at: now.toISOString() });
+      // A staff number has a conversation of its own — alerts.js opens one to store what it sent.
+      // It is not a customer, and «العميل: Osaid (+9715…)» about the person receiving the alert is
+      // both wrong and the other half of the loop above.
+      if (isStaffNumber(biz, conv.customer_wa_id)) continue;
+      // A missing payment method is a standing condition, not an event. claimFlag sets the flag
+      // only when it is still unset and says whether this call was the one that set it, so the
+      // first refused message alerts and the rest only carry the banner. Two webhook deliveries
+      // racing on the same conversation make exactly one winner.
+      const firstBlock = await jsonb.claimFlag('conversations', conv.id, 'metadata', ['billing_blocked_at']);
+      if (!firstBlock) continue;
       Promise.resolve(alerts.sendStaffAlert({
         reason: 'billing', business: biz, conversation: conv, summary: 'واتساب رفض رسالة — لازم تنضاف طريقة دفع',
       })).catch(() => {});
