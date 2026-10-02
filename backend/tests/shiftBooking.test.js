@@ -563,4 +563,33 @@ describe('model honesty', () => {
     expect(lineText).toContain('لا تؤكد ولا تغيّر ولا تلغي');
     expect(booking.contextLine({}, MON_10)).toBeNull();
   });
+
+  test('a booking whose time has passed is described as gone, in Arabic, with what to do instead', () => {
+    // Owner's phone, 2026-10-01: a call booked for 22/9 was still on file and the bot answered
+    // «طلبك موجود عند الفريق وراح يتواصلوا معك بالموعد المحدد» — a future promise about a time nine
+    // days gone. The line used to mark it with nothing but a bare English «(past)».
+    const later = new Date(SLOT_END);
+    later.setUTCDate(later.getUTCDate() + 9);
+
+    const lineText = booking.contextLine(activeWd(), later);
+
+    expect(lineText).toContain('فات');
+    expect(lineText).toContain('ممنوع تقول إن الفريق رح يتواصل معه «بالموعد المحدد»');
+    expect(lineText).toContain('اعتذر');
+    expect(lineText).not.toContain('(past)');
+    // It must not read as an upcoming call any more.
+    expect(lineText).not.toContain('الحجز: مكالمة بكرا');
+  });
+
+  test('a cancelled booking and an upcoming one keep their old wording', () => {
+    const upcoming = booking.contextLine(activeWd(), MON_10);
+    expect(upcoming).toContain('(booked)');
+    expect(upcoming).not.toContain('فات');
+
+    const cancelledWd = activeWd();
+    cancelledWd.booking.status = 'cancelled';
+    const cancelled = booking.contextLine(cancelledWd, MON_10);
+    expect(cancelled).toContain('(cancelled)');
+    expect(cancelled).not.toContain('فات');
+  });
 });

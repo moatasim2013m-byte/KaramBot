@@ -1271,6 +1271,17 @@ function contextLine(wd, now = new Date(), { linkMode = false } = {}) {
   if (!b || !b.start) return null;
   const when = whenParts(b.start, now, b.tz, 'ar');
   const state = activeBooking(wd, now) ? b.status : (b.status === 'cancelled' ? 'cancelled' : 'past');
+  // A slot whose time has gone needs more than a «(past)» token in an otherwise future-tense line.
+  // Owner's phone, 2026-10-01: a call booked for 22/9 was still on file, and the bot answered «طلبك
+  // موجود عند الفريق وراح يتواصلوا معك بالموعد المحدد» — promising contact at a time nine days gone.
+  // The state word alone is an English parenthetical the model reads straight past, so say it in
+  // Arabic and say what to do instead.
+  if (state === 'past') {
+    const rebook = linkMode || isCalendlyBooking(b)
+      ? 'واعرض عليه يحجز وقت جديد برابط الحجز اللي يبعته النظام'
+      : 'واعرض عليه يحجز وقت جديد بأزرار الوقت اللي يبعتها النظام';
+    return `الحجز: كان في مكالمة ${when.day} الساعة ${when.time} وهاد الوقت فات وما صارت. ممنوع تقول إن الفريق رح يتواصل معه «بالموعد المحدد» أو «بوقته» — الموعد انتهى. اعتذر بسطر واحد عن إنها ما صارت، ${rebook}. لا تؤكد ولا تثبّت موعدًا بنفسك.`;
+  }
   if (linkMode || isCalendlyBooking(b)) {
     return `الحجز: مكالمة ${when.day} الساعة ${when.time} (${state}). الحجز والتغيير والإلغاء بيصيروا برابط الحجز اللي يبعته النظام فقط — لا تؤكد ولا تغيّر ولا تلغي موعدًا بنفسك ولا تقل «ثبّتنا» أو «موعدك مؤكد»؛ إذا طلب تغيير أو إلغاء قل إنه بيقدر يضغط «غيّر الموعد» أو «ألغِ المكالمة».`;
   }
