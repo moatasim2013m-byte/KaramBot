@@ -19,6 +19,7 @@ const roleplay = require('./roleplay');
 const acks = require('./acks');
 const objectives = require('./objectives');
 const booking = require('./booking');
+const validators = require('./validators');
 
 const { stripHeaders, fenceValue, fencedJson } = objectives;
 
@@ -86,7 +87,11 @@ function shiftMediaOf(message) {
 /** PR1 batchLine, plus the transcript when SHIFT_MEDIA=1 read the file (§8.4). */
 function batchLine(message, lang = 'ar') {
   const placeholders = MEDIA_PLACEHOLDERS[lang === 'en' ? 'en' : 'ar'];
-  const text = message && typeof message.text_body === 'string' ? message.text_body : '';
+  const raw = message && typeof message.text_body === 'string' ? message.text_body : '';
+  // The ad's canned «Hello! Can I get more info on this?» reaches the model as what it means, so the
+  // reply opens on the October offer instead of answering an English sentence the customer never
+  // typed. Only the model's view changes: the stored message, and the Inbox, keep what WhatsApp sent.
+  const text = validators.isAdPrefill(raw) ? validators.AD_PREFILL_MEANING_AR : raw;
   const type = message && message.message_type;
   const sm = shiftMediaOf(message);
   // The placeholder goes in front, so a header inside the transcript would no longer start a line:
@@ -306,6 +311,9 @@ function buildUserTurn(ctx = {}) {
     `المرحلة الحالية: ${stage}`,
     `هدف هذه الرسالة تحديدًا: ${objective}`,
     `عرّفت بنفسك: ${disclosed ? 'نعم' : 'لا — عرّف بجملة واحدة'}`,
+    // The server decides this (validators.expectedLanguage) and checks the reply against it, so the
+    // model is told rather than left to guess from the batch.
+    `لغة الرد: ${lang === 'en' ? 'English' : 'عربي أردني'}`,
     `أُرسل سابقًا: ${samples} · أسئلة الاكتشاف المطروحة: ${questionsAsked}/2 · ردودك حتى الآن: ${Number(wd.bot_turns) || 0}`,
     `حالة الفريق: ${teamStatusLine(wd)}`,
     // PR3: only when a booking exists, so turns without one are unchanged.

@@ -107,13 +107,22 @@ function customerTexts(batchMessages) {
   return out;
 }
 
+/**
+ * The language this turn is answered in. §14 #10: the newest message decides, so a switch to English
+ * mid-conversation is honoured — but never on the first exchange, and never on the ad's canned text
+ * (owner's rule, 2026-10-04). buildCtx and the lead write below both read it, so they cannot disagree.
+ */
+function turnLanguage(conversation, batchMessages) {
+  const wd = (conversation && conversation.workflow_data) || {};
+  return validators.expectedLanguage(customerTexts(batchMessages), wd.lead || {}, { firstContact: objectives.isFirstReply({}, wd) });
+}
+
 function buildCtx(business, conversation, batchMessages, now) {
   const wd = conversation.workflow_data || {};
   const lead = wd.lead || {};
   const joinedText = batchMessages.map((m) => m.text_body || '').join('\n');
   const batchTexts = customerTexts(batchMessages);
-  // §14 #10: the newest message decides, so a switch to English mid-conversation is honoured.
-  const lang = validators.expectedLanguage(batchTexts, lead);
+  const lang = turnLanguage(conversation, batchMessages);
   const teamHours = hours.resolveTeamHours(business.ai_config);
   // Calendly mode (owner decision 2026-09-19): no times in the chat at all — the only "offer" is the link.
   const bookingLink = calendly.linkFor(business, conversation, lang);
@@ -720,7 +729,38 @@ function shouldOfferCalendar(ctx) {
   return !booking.activeBooking(wd, ctx.now) && !wantsPerson(ctx);
 }
 
-async function processShiftBatch(business, conversation, batchMessages, { now = new Date(), deadlineAt, onRetry } = {}) {
+/**
+ * Every answered turn records the language it was answered in, on the lead.
+ *
+ * That stored language is what every later short reply («ok», «تمام») and the next turn fall back on.
+ * Writing it only from the model's lead output missed every deterministic path that builds its own
+ * result — the time capture among them (results.js passes leadPatch: null) — so a customer who earned
+ * English stayed «ar» on file and could be flipped back to Arabic by their next «ok». Done once here,
+ * on the way out, instead of in each path.
+ */
+function withTurnLanguage(r, conversation, batchMessages, now = new Date()) {
+  if (!r || typeof r !== 'object' || !Array.isArray(r.messages) || !r.messages.length) return r;
+  const lang = turnLanguage(conversation, Array.isArray(batchMessages) ? batchMessages : []);
+  const stored = conversation && conversation.workflow_data && conversation.workflow_data.lead
+    ? conversation.workflow_data.lead.language : undefined;
+  if (lang === stored) return r;
+  // `trusted`: saveLead lets a model-sourced write replace a stored value only as a correction
+  // (lead.js mayWriteScalar), which is right for the model's guesses and wrong here — this is the
+  // server's own decision, already applied to the reply that just went out.
+  const meta = r.leadMeta || { source: 'model', msgId: null, at: now.toISOString(), inboundText: '' };
+  return {
+    ...r,
+    leadPatch: { ...(r.leadPatch || {}), language: lang },
+    leadMeta: { ...meta, trusted: [...new Set([...(Array.isArray(meta.trusted) ? meta.trusted : []), 'language'])] },
+  };
+}
+
+async function processShiftBatch(business, conversation, batchMessages, opts = {}) {
+  const r = await runShiftBatch(business, conversation, batchMessages, opts);
+  return withTurnLanguage(r, conversation, batchMessages, opts.now);
+}
+
+async function runShiftBatch(business, conversation, batchMessages, { now = new Date(), deadlineAt, onRetry } = {}) {
   let ctx = null;
   try {
     const batch = Array.isArray(batchMessages) ? batchMessages : [];

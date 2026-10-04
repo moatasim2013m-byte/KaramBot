@@ -344,16 +344,19 @@ const ALL = [
 
   {
     id: 7,
-    title: 'English Shopify store with uncertain integration, then a time',
+    // Owner's rule, 2026-10-04: the first reply is Arabic whatever the customer wrote; English starts
+    // on turn 2 because they keep writing it, and stays on file for the rest.
+    title: 'English Shopify store: Arabic first reply, then English as the customer keeps writing it',
     clock: MONDAY_11,
     lang: 'en',
     turns: [
       {
         inbound: 'I run a Shopify store, can you check stock and track Aramex deliveries?',
-        model: M("Hi, I'm Karam, SHIFT's AI assistant (shifts-ai.com) — the same Karam engine we set up on a store's number, running here on SHIFT's information. Live stock and tracking depend on a verified connection to your store and shipping provider — the team confirms that. What do customers ask you most on WhatsApp?", {
+        model: M('أهلًا، أنا كرم، مساعد شِفت الذكي (shifts-ai.com) — نفس محرّك كرم اللي بنركّبه على رقم متجرك، بس هون بمعلومات شِفت. المخزون والتتبّع المباشر بيعتمدوا على ربط موثّق مع متجرك وشركة الشحن — الفريق بيأكد هاد. شو أكثر شي بيسألوك عنه الزباين على واتساب؟', {
           lead: { sector: 'store', need: 'check stock on Shopify and track Aramex deliveries', products: ['karam'], language: 'en' },
         }),
-        expect: { outbound: 1, textExcludes: ['integrates with Shopify'] },
+        // The model guessed «en»; the first reply is Arabic and «ar» is what goes on file.
+        expect: { outbound: 1, textExcludes: ['integrates with Shopify'], 'lead.language': 'ar' },
       },
       {
         inbound: 'Can we speak tomorrow after 4?',

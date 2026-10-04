@@ -505,7 +505,10 @@ const GATES = {
         const shares = scriptShares(all);
         if (!shares.total) continue;
         if (arabizi && shares.arabicShare < 0.5) fails.push({ gate: 'G14', turn: i, detail: `Arabizi answered in Latin script: «${p.text}»` });
-        if ((lead.language === 'en' || transcript.lang === 'en') && !arabizi && shares.latinShare < 0.9) {
+        // Checked against the language the server decided for THIS turn (persisted on the lead whenever
+        // it changes), not a scenario-wide label: since the owner's 2026-10-04 rule an English-speaking
+        // customer's first reply is Arabic, and English starts once they keep writing it.
+        if (lead.language === 'en' && !arabizi && shares.latinShare < 0.9) {
           fails.push({ gate: 'G14', turn: i, detail: `en lead got Arabic script (${Math.round(shares.latinShare * 100)}% Latin): «${all}»` });
         }
       }

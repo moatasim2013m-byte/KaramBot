@@ -147,10 +147,12 @@ describe('session block', () => {
     expect(lines[1]).toBe('المرحلة الحالية: discovery');
     expect(lines[2].startsWith('هدف هذه الرسالة تحديدًا: ')).toBe(true);
     expect(lines[3]).toBe('عرّفت بنفسك: لا — عرّف بجملة واحدة');
-    expect(lines[4]).toBe('أُرسل سابقًا: clinic · أسئلة الاكتشاف المطروحة: 1/2 · ردودك حتى الآن: 2');
-    expect(lines[5]).toBe('حالة الفريق: لا شيء');
-    expect(lines[6]).toBe(`الأزرار المتاحة الآن: ${OFFERS.map((o) => `${o.id} «${o.title}»`).join(' · ')}`);
-    expect(lines[7]).toBe('الوقت الآن بتوقيت عمّان: 15/9 11:00 (الثلاثاء) · دوام الفريق: الأحد–الخميس 9–6');
+    // The server's language decision, stated rather than left for the model to guess (owner, 2026-10-04).
+    expect(lines[4]).toBe('لغة الرد: عربي أردني');
+    expect(lines[5]).toBe('أُرسل سابقًا: clinic · أسئلة الاكتشاف المطروحة: 1/2 · ردودك حتى الآن: 2');
+    expect(lines[6]).toBe('حالة الفريق: لا شيء');
+    expect(lines[7]).toBe(`الأزرار المتاحة الآن: ${OFFERS.map((o) => `${o.id} «${o.title}»`).join(' · ')}`);
+    expect(lines[8]).toBe('الوقت الآن بتوقيت عمّان: 15/9 11:00 (الثلاثاء) · دوام الفريق: الأحد–الخميس 9–6');
     const order = ['# سياق الجلسة', '<<<بيانات>>>', 'المحادثة حتى الآن (الأقدم أولًا، كل سطر بدوره):', 'رسائل العميل الآن (1):'];
     const idx = order.map((o) => text.indexOf(o));
     expect(idx).toEqual([...idx].sort((a, b) => a - b));

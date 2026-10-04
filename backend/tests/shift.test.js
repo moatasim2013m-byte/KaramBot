@@ -360,8 +360,10 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(opts.responseSchema).toBe(RESPONSE_SCHEMA);
     expect(opts.responseSchema.required).toEqual(['reply', 'action', 'stage', 'next_step']);
     expect(r.messages[0].text).toBe('حلو! شو اسم الكافيه؟');
-    expect(r.leadPatch).toEqual({ city: 'إربد' });
-    expect(r.leadMeta).toMatchObject({ source: 'model', msgId: 'm2', inboundText: 'عندي كافيه\nبإربد' });
+    // The first answered turn also records the language it was answered in (owner's rule, 2026-10-04):
+    // the server's decision, so it is the one field marked trusted.
+    expect(r.leadPatch).toEqual({ city: 'إربد', language: 'ar' });
+    expect(r.leadMeta).toMatchObject({ source: 'model', msgId: 'm2', inboundText: 'عندي كافيه\nبإربد', trusted: ['language'] });
   });
 
   test('SHIFT_PROMPT_V1=1 keeps the PR1 call: history in the system prompt, the batch as the user turn, PR1 actions', async () => {
@@ -530,11 +532,23 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(r.messages[0].buttons[0].title).toBe('Today 4–6 pm');
   });
 
-  test('AI failure on the first English message → English text fallback, no buttons', async () => {
+  test('AI failure on the first English message → the Arabic text fallback, no buttons', async () => {
+    // Owner's rule, 2026-10-04: a first message is answered in Arabic whatever its language.
     generateValidatedAIReply.mockResolvedValue(null);
     const r = await processShiftBatch(business, conv({ current_state: null }), [{ id: 'm1', message_type: 'text', text_body: 'Hello, what is Karam Bot?' }], { now: MON_11 });
     expect(r.kind).toBe('fallback');
-    expect(r.messages).toEqual([{ type: 'text', text: acks.aiFailure('en', { withButtons: false }) }]);
+    expect(r.messages).toEqual([{ type: 'text', text: acks.aiFailure('ar', { withButtons: false }) }]);
+  });
+
+  test('AI failure on English once the conversation is established → the English fallback', async () => {
+    // Past the first exchange the fallback also offers call times — unrelated to language; what this
+    // pins is that the English the customer earned is the English they get.
+    generateValidatedAIReply.mockResolvedValue(null);
+    const r = await processShiftBatch(business, conv({ current_state: null, workflow_data: { bot_turns: 1 } }),
+      [{ id: 'm1', message_type: 'text', text_body: 'Hello, what is Karam Bot?' }], { now: MON_11 });
+    expect(r.kind).toBe('fallback');
+    expect(r.messages[0].text).toBe(acks.aiFailure('en', { withButtons: true }));
+    expect(r.messages[0].text).not.toMatch(/[؀-ۿ]/);
   });
 });
 
@@ -747,11 +761,20 @@ describe('SHIFT workflow — PR1 review round 2', () => {
 
   // pickLanguage used to read «5pm» / «B2B» as Arabizi, so an English prospect got Arabic acks.
   test('a tier-1 handoff from an English speaker who names a time is answered in English', async () => {
+    // Established conversation: English is earned after the first exchange (owner's rule, 2026-10-04).
+    const batch = [{ id: 'm1', message_type: 'text', text_body: 'I want to speak to someone at 2pm' }];
+    const r = await processShiftBatch(business, conv({ current_state: null, workflow_data: { bot_turns: 1 } }), batch, { now: MON_11 });
+    expect(generateValidatedAIReply).not.toHaveBeenCalled();
+    expect(r.action).toBe('HANDOFF_TO_HUMAN');
+    expect(r.messages[0].text).not.toMatch(/[؀-ۿ]/);
+  });
+
+  test('the same handoff as a first message is answered in Arabic', async () => {
     const batch = [{ id: 'm1', message_type: 'text', text_body: 'I want to speak to someone at 2pm' }];
     const r = await processShiftBatch(business, conv({ current_state: null }), batch, { now: MON_11 });
     expect(generateValidatedAIReply).not.toHaveBeenCalled();
     expect(r.action).toBe('HANDOFF_TO_HUMAN');
-    expect(r.messages[0].text).not.toMatch(/[؀-ۿ]/);
+    expect(r.messages[0].text).toMatch(/[؀-ۿ]/);
   });
 
   describe('D13 — attachments get the text-only line, captioned or not', () => {
