@@ -691,3 +691,48 @@ describe('GET /api/inbox/stats', () => {
     expect(res.body).toEqual({ open: 1, human_takeover: 1, pending: 1, awaiting_staff: 2, today_orders: 0 });
   });
 });
+
+describe('GET /api/inbox/conversations/:id/messages — which page', () => {
+  // Production, 2026-10-04: the owner's thread had 331 messages and the Inbox showed the first 50.
+  // `created_at asc` + `take` returned the OLDEST page; the latest 281 were never on screen.
+  const T0 = Date.UTC(2026, 9, 1, 9, 0, 0);
+  const at = (i) => new Date(T0 + i * MINUTE);
+
+  beforeEach(() => {
+    seedWorld({
+      conversations: [{ id: 'c_long', customer_wa_id: '962700000099' }],
+      messages: Array.from({ length: 120 }, (_, i) => ({
+        business_id: 'biz_shift', conversation_id: 'c_long', direction: i % 2 ? 'outbound' : 'inbound',
+        status: 'sent', text_body: `m${i}`, created_at: at(i),
+      })),
+    });
+  });
+
+  test('a long thread opens on its newest messages, oldest first', async () => {
+    const res = await request(inboxApp).get('/api/inbox/conversations/c_long/messages').set('Authorization', tokenFor('u_sara'));
+
+    expect(res.status).toBe(200);
+    const texts = res.body.messages.map((m) => m.text_body);
+    expect(texts).toHaveLength(50);
+    expect(texts[texts.length - 1]).toBe('m119'); // the latest message is on screen
+    expect(texts[0]).toBe('m70');
+    // Chronological, so the UI renders it top-to-bottom unchanged.
+    expect([...texts].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))).toEqual(texts);
+  });
+
+  test('`before` returns the page just above it — what "load older" needs', async () => {
+    const res = await request(inboxApp)
+      .get(`/api/inbox/conversations/c_long/messages?before=${at(70).toISOString()}`)
+      .set('Authorization', tokenFor('u_sara'));
+
+    const texts = res.body.messages.map((m) => m.text_body);
+    expect(texts).toHaveLength(50);
+    expect(texts[0]).toBe('m20');
+    expect(texts[texts.length - 1]).toBe('m69');
+  });
+
+  test('another business\'s conversation is still not found', async () => {
+    const res = await request(inboxApp).get('/api/inbox/conversations/c_long/messages').set('Authorization', tokenFor('u_other'));
+    expect(res.status).toBe(404);
+  });
+});
