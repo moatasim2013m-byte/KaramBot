@@ -1095,7 +1095,11 @@ describePg('PR1 on real Postgres behind PgBouncer (transaction mode)', () => {
   test('new_message alerts: first message, burst suppressed, racing deliveries claim once, template fallback stored', async () => {
     const newMessageAlert = require('../../src/services/newMessageAlert');
     const OWNER = '962796381676';
-    const biz = await shiftBusiness({ alert_wa_numbers: [OWNER], alert_template: { name: 'staff_alert', language: 'ar' } });
+    // A finite quiet period: since 2026-09-22 the default is Infinity (only a customer's first-ever
+    // message alerts), and this test is about a return after a gap racing on the claim.
+    const biz = await shiftBusiness({
+      alert_wa_numbers: [OWNER], alert_template: { name: 'staff_alert', language: 'ar' }, alert_new_message_quiet_min: 30,
+    });
     const customer = '962791234567';
     const persist = (text) => {
       seq += 1;
