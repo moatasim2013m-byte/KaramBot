@@ -705,6 +705,10 @@ function cleanLeadPatch(lead, c) {
       out[k] = v;
     }
   }
+  // The model may report a language; it may not contradict the server's (ctx.lang). It labelled the
+  // ad's canned English text «en», and that guess outlived the turn. Persisting the language when it
+  // changes is index.js's withTurnLanguage, on the way out of every path.
+  if (out.language !== undefined && (c.lang === 'ar' || c.lang === 'en')) out.language = c.lang;
   if (out.preferred_time !== undefined) {
     // Only a time the customer wrote in this batch reaches the lead (owner phone test, 2026-09-15).
     const said = customerCallTime(c, [out.preferred_time]);

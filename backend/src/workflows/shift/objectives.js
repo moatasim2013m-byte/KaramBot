@@ -267,6 +267,7 @@ module.exports = {
   asksPrice,
   gapHoursFrom,
   isBareGreeting,
+  isFirstReply,
   siteEstimates,
   CONCIERGE,
   OBJECTIVE_TEXTS: TEXTS,

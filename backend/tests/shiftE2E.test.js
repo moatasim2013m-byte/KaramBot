@@ -1175,7 +1175,9 @@ describe('PR2 sales quality end to end', () => {
   });
 
   test('«are you a bot?» with a dodging model → the honest identity line', async () => {
-    seedShiftBusiness();
+    // An established English conversation: since 2026-10-04 a first message is answered in Arabic
+    // whatever its language, and English is earned after the first exchange (owner's rule).
+    seedConversation(seedShiftBusiness(), { workflow_data: { bot_turns: 1, lead: { language: 'en' } } });
     const dodge = { reply: "I'm here to help with anything you need about SHIFT. What kind of business do you run?", stage: 'opening' };
     script(dodge, dodge);
 
@@ -1206,7 +1208,9 @@ describe('PR2 sales quality end to end', () => {
 
   test('an English customer → English reply and the /en sector page on shifts-ai.com (role-play off, no vetted image)', async () => {
     process.env.SHIFT_ROLEPLAY = '0';
-    seedShiftBusiness();
+    // Established conversation: the customer is writing English after the first exchange, which is
+    // the one way English is earned under the owner's 2026-10-04 rule.
+    seedConversation(seedShiftBusiness(), { workflow_data: { bot_turns: 1 } });
     script({
       reply: "Hi, I'm Karam, SHIFT's AI assistant (shifts-ai.com). Here's our restaurants page with a full ordering simulation.",
       action: 'SEND_SAMPLE', action_args: { sector: 'restaurant' }, stage: 'sample', next_step: 'buttons',
@@ -1224,6 +1228,49 @@ describe('PR2 sales quality end to end', () => {
     expect(allText).not.toContain(['shifts-ai', 'store'].join('.'));
     expect(sendText(parts[0])).toContain("SHIFT's AI assistant");
     expect(conversationOf().workflow_data.samples_sent).toMatchObject({ page: 'restaurant' });
+  });
+
+  describe('owner language rule (2026-10-04): Arabic first, the ad text is not English', () => {
+    test('the Facebook ad\'s canned text → Arabic, read as interest in the offer', async () => {
+      // Owner, 2026-10-02: a lead who sent this got English, wrote «اكتب عربي», «انت شات جي بي تي»,
+      // «لا شكرا», and left.
+      seedShiftBusiness();
+      script({ reply: 'أهلين وسهلين! صحيح، أول ١٠ محلات بإربد الشهر الأول علينا ببلاش. شو اسمك الكريم؟', stage: 'opening' });
+
+      const parts = await say('Hello! Can I get more info on this?');
+
+      // The model reads what the canned text means, not the English sentence…
+      expect(userTurn(0)).toContain(validators.AD_PREFILL_MEANING_AR);
+      expect(userTurn(0)).not.toContain('Can I get more info on this');
+      expect(userTurn(0)).toContain('لغة الرد: عربي أردني');
+      // …and the reply goes out in Arabic.
+      expect(sendText(parts[0])).toMatch(ARABIC);
+      // The Inbox still shows what the customer actually sent.
+      expect(inboundRows()[0].text_body).toBe('Hello! Can I get more info on this?');
+    });
+
+    test('a genuine English first message is still answered in Arabic', async () => {
+      seedShiftBusiness();
+      script({ reply: 'أهلين فيك! أنا كرم، مساعد شِفت الذكي. شو نوع شغلك؟', stage: 'opening', lead: { language: 'en' } });
+
+      const parts = await say('Hi, how much does the bot cost?');
+
+      expect(userTurn(0)).toContain('لغة الرد: عربي أردني');
+      expect(sendText(parts[0])).toMatch(ARABIC);
+      // The model guessed «en»; the server's decision is the one stored, so later short replies and
+      // the closing nudge stay Arabic too.
+      expect(conversationOf().workflow_data.lead.language).toBe('ar');
+    });
+
+    test('asking for English outright is honoured even on the first message', async () => {
+      seedShiftBusiness();
+      script({ reply: "Sure! I'm Karam, SHIFT's AI assistant (shifts-ai.com). What kind of business do you run?", stage: 'opening' });
+
+      const parts = await say('Can you reply in English please?');
+
+      expect(userTurn(0)).toContain('لغة الرد: English');
+      expect(sendText(parts[0])).not.toMatch(ARABIC);
+    });
   });
 
   test('SHIFT_PROMPT_V1=1 → the PR1 prompt path: PR1 system prompt, PR1 schema, the batch as the user turn', async () => {

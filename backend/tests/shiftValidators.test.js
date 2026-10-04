@@ -411,18 +411,24 @@ describe('length split (§5.11)', () => {
 
 describe('next_step (§5.12)', () => {
   const at = new Date('2026-09-15T09:00:00Z');
+  // The last column is the language last_bot records from what was sent: the closing nudge continues
+  // in it. A one-letter text («x») has no language, and then none is recorded.
   test.each([
-    ['OPT_OUT', [{ type: 'text', text: 'تمام؟' }], 'terminal'],
-    ['NOT_NOW', [{ type: 'text', text: 'تمام' }], 'terminal'],
-    ['NONE', [{ type: 'interactive', text: 'x', buttons: [{ id: 'a', title: 'b' }] }], 'buttons'],
-    ['NONE', [{ type: 'list', text: 'x', sections: [{ rows: [{ id: 'a', title: 'b' }] }] }], 'buttons'],
-    ['NONE', [{ type: 'text', text: 'شو نوع شغلك؟' }], 'question'],
-    ['NONE', [{ type: 'text', text: 'كتبت «شو السعر؟»' }], 'confirmed'],
-    ['NONE', [{ type: 'text', text: 'تمام.' }], 'confirmed'],
-  ])('%s %j → %s', (action, messages, expected) => {
+    ['OPT_OUT', [{ type: 'text', text: 'تمام؟' }], 'terminal', 'ar'],
+    ['NOT_NOW', [{ type: 'text', text: 'تمام' }], 'terminal', 'ar'],
+    ['NONE', [{ type: 'interactive', text: 'x', buttons: [{ id: 'a', title: 'b' }] }], 'buttons', null],
+    ['NONE', [{ type: 'list', text: 'x', sections: [{ rows: [{ id: 'a', title: 'b' }] }] }], 'buttons', null],
+    ['NONE', [{ type: 'text', text: 'شو نوع شغلك؟' }], 'question', 'ar'],
+    ['NONE', [{ type: 'text', text: 'كتبت «شو السعر؟»' }], 'confirmed', 'ar'],
+    ['NONE', [{ type: 'text', text: 'تمام.' }], 'confirmed', 'ar'],
+    ['NONE', [{ type: 'text', text: 'What kind of business do you run?' }], 'question', 'en'],
+  ])('%s %j → %s', (action, messages, expected, lang) => {
     const r = v.repairNextStep({ action, messages, workflowDataPatch: { x: 1 } }, null, { stage: 'fit', now: at });
     expect(r.next_step).toBe(expected);
-    expect(r.result.workflowDataPatch).toEqual({ x: 1, last_bot: { stage: 'fit', next_step: expected, at: at.toISOString(), action } });
+    expect(r.result.workflowDataPatch).toEqual({
+      x: 1,
+      last_bot: { stage: 'fit', next_step: expected, at: at.toISOString(), action, ...(lang ? { lang } : {}) },
+    });
   });
 
   test('a disagreeing model value is logged as next_step, never a block', () => {
@@ -1103,5 +1109,39 @@ describe('integrating a system nobody at SHIFT has seen (16:42:04)', () => {
     const r = v.validateResult(reply([textPart('أكيد، بنقدر نربط نظام nexus مع الواتساب.')]), baseCtx(nexus));
     expect(r.verdict).toBe('regenerate');
     expect(r.blocks.map((b) => b.code)).toContain('overclaim');
+  });
+});
+
+describe('owner language rule (2026-10-04)', () => {
+  test('the ad\'s canned text is recognised, and nothing a customer would type themselves', () => {
+    for (const t of ['Hello! Can I get more info on this?', 'hello! can i get more info on this', 'Hi, can I get more information about this?',
+      'Can I get more info on this?', "I'm interested in this.", 'Is this still available?', '  Hello!  Can I get more info on this?  ']) {
+      expect(v.isAdPrefill(t)).toBe(true);
+    }
+    for (const t of ['Can I get more info?', 'Hello! Can I get more info on your prices?', 'I run a Shopify store',
+      'is this available for clinics?', 'مرحبا، شفت العرض', '', null]) {
+      expect(v.isAdPrefill(t)).toBe(false);
+    }
+  });
+
+  test('the ad text has no language of its own', () => {
+    expect(v.languageOf('Hello! Can I get more info on this?')).toBeNull();
+    expect(v.languageOf('Hello! Can I get more info on your prices?')).toBe('en');
+  });
+
+  test('Arabic on first contact whatever was written; English only when asked for', () => {
+    expect(v.expectedLanguage(['Hello! Can I get more info on this?'], {}, { firstContact: true })).toBe('ar');
+    expect(v.expectedLanguage(['Hi, how much is the bot?'], {}, { firstContact: true })).toBe('ar');
+    expect(v.expectedLanguage(['Can you reply in English please?'], {}, { firstContact: true })).toBe('en');
+    expect(v.expectedLanguage(['بالانجليزي لو سمحت'], {}, { firstContact: true })).toBe('en');
+    // «اكتب عربي» is a request for Arabic, never read as one for English.
+    expect(v.asksForEnglish('اكتب عربي')).toBe(false);
+  });
+
+  test('past the first exchange the customer\'s own English is honoured, the ad text never is', () => {
+    expect(v.expectedLanguage(['Can we speak tomorrow after 4?'], { language: 'ar' })).toBe('en');
+    expect(v.expectedLanguage(['Hello! Can I get more info on this?'], { language: 'ar' })).toBe('ar');
+    // Switching back to Arabic is honoured too.
+    expect(v.expectedLanguage(['تمام، بكرا الساعة 4'], { language: 'en' })).toBe('ar');
   });
 });

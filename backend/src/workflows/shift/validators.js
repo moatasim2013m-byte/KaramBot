@@ -1081,8 +1081,32 @@ function isArabizi(text) {
   return digitHits >= 1 || wordHits >= 2;
 }
 
+/**
+ * Meta's click-to-WhatsApp ads pre-fill the customer's first message. «Hello! Can I get more info on
+ * this?» is the ad's text, not the customer's — it says nothing about the language they speak.
+ * Owner, 2026-10-02: a lead who sent it got English, wrote «اكتب عربي», then «انت شات جي بي تي»,
+ * then «لا شكرا», and left. Matched narrowly, against the whole message, so a customer who types
+ * their own English is still heard.
+ */
+const AD_PREFILL_RE = /^(?:(?:hello|hi|hey)\s*[!,.]*\s*)?(?:can\s+i\s+get\s+more\s+info(?:rmation)?\s+(?:on|about)\s+this|i'?m\s+interested\s+in\s+this|is\s+this\s+(?:still\s+)?available)\s*[?.!]*$/i;
+
+/** What the ad's canned text means, said the way the customer would have said it. */
+const AD_PREFILL_MEANING_AR = 'مرحبا، شفت العرض وبدي أعرف أكثر';
+
+function isAdPrefill(text) {
+  return typeof text === 'string' && AD_PREFILL_RE.test(text.trim().replace(/\s+/g, ' '));
+}
+
+/** «in English please», «speak English», «بالانجليزي»… — the customer asking outright. */
+const ASKS_FOR_ENGLISH_RE = /\b(?:in\s+english|english\s+please|speak\s+english|(?:reply|write|answer|talk)\s+(?:to\s+me\s+)?in\s+english)\b|(?:بال?[اإ]نجليزي|بال?[اإ]نكليزي|[اإ]حكي\s+[اإ]نجليزي|[اإ]كتب\s+[اإ]نجليزي)/i;
+
+function asksForEnglish(text) {
+  return typeof text === 'string' && ASKS_FOR_ENGLISH_RE.test(text);
+}
+
 function languageOf(text) {
   if (typeof text !== 'string') return null;
+  if (isAdPrefill(text)) return null;
   const { arabic, latin, total } = letterCounts(text);
   if (total < 3) return null;
   if (isArabizi(text)) return 'ar';
@@ -1091,9 +1115,21 @@ function languageOf(text) {
   return null;
 }
 
-/** The newest batch message that has a language decides; a customer who switches to English gets English. */
-function expectedLanguage(batchTexts, lead) {
+/**
+ * The language the bot answers in. Owner's rule, 2026-10-04:
+ *
+ *   - Arabic by default — even when the customer's first message is English.
+ *   - The ad's canned text is not English at all (isAdPrefill), whenever it arrives.
+ *   - English only when the customer writes English themselves AFTER the first exchange, or asks.
+ *
+ * `firstContact` is true while the bot has never spoken in this conversation (objectives.isFirstReply).
+ * Once a later message earns English, the newest message with a language still decides, so a customer
+ * who switches back to Arabic gets Arabic.
+ */
+function expectedLanguage(batchTexts, lead, { firstContact = false } = {}) {
   const texts = Array.isArray(batchTexts) ? batchTexts : [];
+  if (texts.some(asksForEnglish)) return 'en';
+  if (firstContact) return 'ar';
   for (let i = texts.length - 1; i >= 0; i -= 1) {
     const lang = languageOf(texts[i]);
     if (lang) return lang;
@@ -1102,7 +1138,7 @@ function expectedLanguage(batchTexts, lead) {
   // Too short for languageOf («No», «Hi», «ok») and nothing stored: the script still tells (PR1's rule), so an
   // English [No] tap is not answered in Arabic (G14).
   for (let i = texts.length - 1; i >= 0; i -= 1) {
-    if (typeof texts[i] !== 'string') continue;
+    if (typeof texts[i] !== 'string' || isAdPrefill(texts[i])) continue;
     const { arabic, latin } = letterCounts(texts[i]);
     if (arabic) return 'ar';
     if (latin && !isArabizi(texts[i])) return 'en';
@@ -1163,7 +1199,14 @@ function repairNextStep(result, aiResult, { stage, now } = {}) {
   const proposed = aiResult && aiResult.next_step;
   if (proposed && proposed !== nextStep) events.push({ code: 'next_step', detail: `${proposed}->${nextStep}` });
   const at = (now instanceof Date ? now : new Date(now === undefined ? Date.now() : now)).toISOString();
-  const lastBot = { stage: stage ?? null, next_step: nextStep, at, action: (result && result.action) || 'NONE' };
+  // The language the bot actually wrote in, read off what it sent. The closing nudge continues in it:
+  // re-deriving from the customer's last message alone sent «Before this chat closes on our side…»
+  // in English to people whose only English was the ad's canned text (owner, 2026-10-04).
+  const sentLang = languageOf(messages.map((m) => (m && typeof m.text === 'string' ? m.text : '')).join(' '));
+  const lastBot = {
+    stage: stage ?? null, next_step: nextStep, at, action: (result && result.action) || 'NONE',
+    ...(sentLang ? { lang: sentLang } : {}),
+  };
   return {
     result: { ...result, workflowDataPatch: { ...((result && result.workflowDataPatch) || {}), last_bot: lastBot } },
     next_step: nextStep,
@@ -1605,6 +1648,9 @@ module.exports = {
   stageFallback,
   HONEST_IDENTITY,
   languageOf,
+  isAdPrefill,
+  asksForEnglish,
+  AD_PREFILL_MEANING_AR,
   isArabizi,
   expectedLanguage,
   stripMarkdown,

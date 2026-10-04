@@ -782,7 +782,11 @@ async function sweepNudges(business, teamHours, now, report) {
     // Send: claimed before the send, so two sweeps never both deliver; a failed send is not retried.
     const claimed = await jsonb.claimValue('conversations', conv.id, 'metadata', 'nudge_sent_for', nudge.for_inbound_id);
     if (!claimed) return;
-    const lang = expectedLanguage([lastInbound.text_body || ''], wd.lead || {});
+    // The nudge continues in the language the bot was already speaking, which already follows the
+    // owner's rule (Arabic first, the ad's canned text is not English). Re-deriving it from the
+    // customer's last message alone is only the fallback for conversations from before last_bot.lang.
+    const botLang = wd.last_bot && (wd.last_bot.lang === 'ar' || wd.last_bot.lang === 'en') ? wd.last_bot.lang : null;
+    const lang = botLang || expectedLanguage([lastInbound.text_body || ''], wd.lead || {});
     const part = followups.nudgePart(convWithNudge, nudge, lang);
     const sentAt = now.toISOString();
     const delivery = await replyBatcher.deliverResult({
