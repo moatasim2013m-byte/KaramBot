@@ -295,15 +295,38 @@ describe('objectiveFor — the 18 rows', () => {
     expect(obj({ stage: 'opening', wd: {}, lead: { sector: 'clinic' }, batchTexts: ['مرحبا'] })).toBe(T.opening);
   });
 
-  test('16. a price question anywhere carries the hold-the-line + one scoping question + a step shape', () => {
-    for (const text of ['قديش بتكلف؟', 'بكم الباقة؟', 'what is the price?', 'how much does it cost']) {
+  test('16. a price question anywhere is answered with the published price, first, and never refused', () => {
+    // Owner, 2026-10-05, after reading every conversation: «ما عندي سعر معتمد» lost the leads who asked.
+    for (const text of ['قديش بتكلف؟', 'بكم الباقة؟', 'what is the price?', 'how much does it cost', 'كم سعر']) {
       const objective = obj({ stage: 'discovery', wd: {}, batchTexts: [text] });
-      expect(objective).toContain('ما عندي سعر معتمد');
-      expect(objective).toContain('سؤال نطاق واحد');
-      expect(objective).toContain('الخطوة التالية');
+      expect(objective).toContain('19.99 دينار بالشهر');
+      expect(objective).toContain('بأول سطر');
+      expect(objective).toContain('لا تقل «ما عندي سعر»');
     }
-    // A concierge stage still belongs to the team: no price pattern there.
-    expect(obj({ stage: 'captured', locked: true, wd: {}, batchTexts: ['قديش بتكلف؟'] })).not.toContain('ما عندي سعر معتمد');
+    // A concierge stage still belongs to the team: no sales pattern there.
+    expect(obj({ stage: 'captured', locked: true, wd: {}, batchTexts: ['قديش بتكلف؟'] })).not.toContain('19.99');
+  });
+
+  test('16b. naming the free-month offer gets it confirmed, with the price after it', () => {
+    for (const text of ['مرحبا، شفت العرض تبع الشهر المجاني وبدي أعرف أكثر', 'شو هو المجاني', 'ببلاش؟']) {
+      const objective = obj({ stage: 'opening', wd: {}, batchTexts: [text] });
+      expect(objective).toContain('أكّد العرض');
+      expect(objective).toContain('19.99 دينار بالشهر');
+      expect(objective).not.toContain('مين بيرد على واتساب');
+    }
+  });
+
+  test('16c. the same discovery question is never asked twice in a row', () => {
+    // علا, 2026-10-05: «مين بيرد على رسائل واتساب عندكم؟» four times while she asked «شو المجاني».
+    const history = [
+      { direction: 'inbound', text_body: 'انا اللي برد' },
+      { direction: 'outbound', text_body: 'عشان أفيدك صح: مين بيرد على رسائل واتساب عندكم حاليًا؟' },
+    ];
+    const objective = obj({ stage: 'discovery', wd: {}, batchTexts: ['ما بعرف اقرا مليح'], history });
+    expect(objective).not.toContain('مين بيرد على واتساب');
+    expect(objective).toContain('لا تعيده');
+    // Without that history the ladder still starts with it.
+    expect(obj({ stage: 'discovery', wd: { bot_turns: 1 }, batchTexts: ['عندي مطعم بإربد'] })).toContain('مين بيرد على واتساب');
   });
 
 

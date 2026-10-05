@@ -296,6 +296,7 @@ function buildUserTurn(ctx = {}) {
     gapHours,
     firstReply: c.firstReply,
     bookingLinkMode: !!c.bookingLinkMode,
+    history,
   });
   const disclosed = !!wd.disclosed_at && !(gapHours !== null && gapHours >= 24);
   const buttons = allowedButtons({ stage, locked, roleplayActive, offers: c.offers, lead, wd, lang });
