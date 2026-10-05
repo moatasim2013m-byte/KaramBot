@@ -174,12 +174,16 @@ router.get('/conversations/:id/messages', async (req, res) => {
     const where = { conversation_id: conv.id };
     if (before) where.created_at = { lt: new Date(before) };
 
-    const messages = await prisma.message.findMany({
+    // The NEWEST page, returned oldest-first for display. This read `created_at asc` + `take`, which
+    // is the OLDEST page: in production on 2026-10-04 the owner's own thread had 331 messages and the
+    // Inbox showed its first 50 — the latest 281 were never on screen. With `before`, this is the page
+    // of older messages just above it, which is what "load older" needs.
+    const messages = (await prisma.message.findMany({
       where,
-      orderBy: { created_at: 'asc' },
+      orderBy: { created_at: 'desc' },
       take: parseInt(limit),
       include: { sent_by_user: { select: { name: true } } },
-    });
+    })).reverse();
 
     await prisma.conversation.update({
       where: { id: conv.id },
