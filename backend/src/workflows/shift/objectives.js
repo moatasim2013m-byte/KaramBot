@@ -74,12 +74,22 @@ const TEXTS = {
   prefillCall: 'رد التحية، التعريف القياسي، اعكس ما كتبه (القطاع، المنتجات، المدينة) بسطر، بلا أرقام الحاسبة. طلب يحكي: «أقرب أوقات الفريق:» وأزرار الوقت فورًا، بلا سؤال اكتشاف.',
   prefillQuote: 'رد التحية، التعريف القياسي، ثم نمط السعر: عرض مكتوب بدون مكالمة وسؤال نطاق واحد.',
   sectorList: 'تعريف بجملة ثم قائمة القطاع (sector_list).',
-  quotePending: 'عرض السعر عند الفريق — لا تذكر سعرًا ولا موعد إرساله.',
+  // Owner, 2026-10-05: the published price may always be said; only a custom quote's figure and date
+  // stay with the team.
+  quotePending: 'عرض سعر مخصّص عند الفريق — لا تذكر رقمه ولا موعد إرساله؛ السعر المنشور (19.99 دينار بالشهر) بتقدر تقوله.',
   // Round-2 review #16: the price answer ended discovery — «الأسعار بتعتمد على المنتجات المطلوبة وحجم
   // المنشأة» then «الفريق بيتواصل معك», with no scoping question and no next step.
-  priceAsk: 'سؤال سعر: «ما عندي سعر معتمد أقدر أعطيك إياه هون، وما بدي أخمّن.» ثم سؤال نطاق واحد فقط '
-    + '(مثلًا: «بدك الرد على الاستفسارات بس، ولا كمان استقبال الطلبات؟») واعرض الخطوة التالية: عيّنة أو '
-    + 'مكالمة قصيرة مع الفريق. ممنوع تنهي الرد بـ«الفريق بيتواصل معك» بدون سؤال النطاق والخطوة.',
+  // Owner, 2026-10-05, after reading every conversation: price is the first thing almost every lead
+  // asks, and «ما عندي سعر معتمد» lost them — one asked three times, then «خدمة تعبانه… شو استفدت» and left.
+  priceAsk: 'سؤال سعر: جاوب بالرقم فورًا بأول سطر: «الاشتراك الأساسي 19.99 دينار بالشهر» — كرم بيرد على كل '
+    + 'استفسارات زباينك وبيرتّب المواعيد، وبياخد طلبات المطعم وحجوزات العيادة. وإذا محلّه بإربد: أول ١٠ محلات الشهر '
+    + 'الأول ببلاش. بعدها سؤال واحد بس عن شغله. لا تقل «ما عندي سعر» ولا تحوّله للفريق عشان السعر.',
+  // The ad now pre-fills «شفت العرض تبع الشهر المجاني»; the bot ignored it and asked who answers WhatsApp.
+  offerAsk: 'العميل جاي من عرض الشهر المجاني: أكّد العرض بجملة («صحيح، أول ١٠ محلات بإربد الشهر الأول ببلاش، '
+    + 'وبعدها 19.99 دينار بالشهر»)، ثم سؤال واحد بس: شو اسم المحل ونوعه؟',
+  // علا, 2026-10-05: «مين بيرد على رسائل واتساب عندكم؟» four times in a row while she asked «شو المجاني».
+  noRepeat: 'سؤالك الأخير ما انجاوب — لا تعيده ولا تصيغه من جديد. جاوب على اللي كتبه هو، وإذا ما في سؤال '
+    + 'منه انتقل لخطوة ثانية (مثال أو تجربة).',
   discoveryQ1: 'مين بيرد على واتساب حاليًا؟',
   discoveryQ2: 'شو بيصير بالرسائل بعد الدوام أو وقت الضغط؟',
   sample: 'اعرض: اسألني عن كرم، أو صورة القطاع (SEND_SAMPLE)، أو تجربة على منشأته.',
@@ -224,6 +234,24 @@ function asksPrice(texts) {
   return (Array.isArray(texts) ? texts : []).some((t) => typeof t === 'string' && PRICE_Q_RE.test(t));
 }
 
+// «شفت العرض تبع الشهر المجاني», «شو هو المجاني», «ببلاش؟», «شفت البوست», «أول ١٠».
+const OFFER_Q_RE = /العرض|مجاني|المجاني|المجانا|ببلاش|بلاش|شهر مجاني|البوست|الإعلان|الاعلان|أول\s*(?:10|١٠|عشر)|\bfree\b|\boffer\b/i;
+
+function asksAboutOffer(texts) {
+  return (Array.isArray(texts) ? texts : []).some((t) => typeof t === 'string' && OFFER_Q_RE.test(t));
+}
+
+/** The discovery question the bot asked last, if the customer has not answered it since. */
+function lastUnansweredQuestion(history) {
+  const rows = Array.isArray(history) ? history : [];
+  const lastBot = [...rows].reverse().find((m) => m && m.direction === 'outbound' && typeof m.text_body === 'string');
+  if (!lastBot) return null;
+  return [TEXTS.discoveryQ1, TEXTS.discoveryQ2].find((q) => {
+    const core = q.replace(/[؟?]/g, '').trim().split(/\s+/).slice(0, 3).join(' ');
+    return lastBot.text_body.includes(core);
+  }) || null;
+}
+
 // Calendly mode: the call is booked through the link the server sends, never through times in the chat.
 const SLOT_WORDING = '«أقرب أوقات الفريق:» وأزرار الوقت';
 const LINK_WORDING = '«ببعتلك رابط الحجز» مع زر book_link (بلا أيام ولا ساعات)';
@@ -255,8 +283,13 @@ function objectiveText(ctx = {}) {
   }
 
   let base = baseRow({ ...c, stage }, wd, lead);
-  // A price question outranks the stage row: it is the one turn that most often ends the conversation.
-  if (!locked && asksPrice(c.batchTexts)) base = `${TEXTS.priceAsk} ${base}`;
+  // Asking the same discovery question twice in a row is replaced, not repeated.
+  const repeated = lastUnansweredQuestion(c.history);
+  if (repeated && base.includes(repeated)) base = TEXTS.noRepeat;
+  // The offer and the price outrank the stage row: they are what the leads came for, and the turns
+  // that most often ended the conversation.
+  if (!locked && asksAboutOffer(c.batchTexts)) base = asksPrice(c.batchTexts) ? `${TEXTS.priceAsk} ${base}` : `${TEXTS.offerAsk}`;
+  else if (!locked && asksPrice(c.batchTexts)) base = `${TEXTS.priceAsk} ${base}`;
   const gap = typeof c.gapHours === 'number' ? c.gapHours : gapHoursFrom(wd, c.history, c.now);
   if (gap !== null && gap >= 24 && wd.disclosed_at) return `${TEXTS.reintro} ${base}`;
   return base;
@@ -265,6 +298,8 @@ function objectiveText(ctx = {}) {
 module.exports = {
   objectiveFor,
   asksPrice,
+  asksAboutOffer,
+  lastUnansweredQuestion,
   gapHoursFrom,
   isBareGreeting,
   isFirstReply,

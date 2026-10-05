@@ -1230,6 +1230,18 @@ describe('PR2 sales quality end to end', () => {
     expect(conversationOf().workflow_data.samples_sent).toMatchObject({ page: 'restaurant' });
   });
 
+  test('a price question gets the published price, and it reaches the customer unblocked (owner, 2026-10-05)', async () => {
+    seedConversation(seedShiftBusiness(), { workflow_data: { bot_turns: 1, lead: { language: 'ar' } } });
+    script({ reply: 'الاشتراك الأساسي 19.99 دينار بالشهر — كرم بيرد على كل استفسارات زباينك وبيرتّب المواعيد. وأول ١٠ محلات بإربد الشهر الأول ببلاش. شو نوع شغلك؟', stage: 'discovery' });
+
+    const parts = await say('كم السعر؟');
+
+    expect(userTurn(0)).toContain('19.99 دينار بالشهر');
+    expect(sendText(parts[0])).toContain('19.99 دينار بالشهر');
+    expect(sendText(parts[0])).not.toContain('ما عندي سعر');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1); // nothing was blocked and regenerated
+  });
+
   describe('owner language rule (2026-10-04): Arabic first, the ad text is not English', () => {
     test('the Facebook ad\'s canned text → Arabic, read as interest in the offer', async () => {
       // Owner, 2026-10-02: a lead who sent this got English, wrote «اكتب عربي», «انت شات جي بي تي»,

@@ -1145,3 +1145,15 @@ describe('owner language rule (2026-10-04)', () => {
     expect(v.expectedLanguage(['تمام، بكرا الساعة 4'], { language: 'en' })).toBe('ar');
   });
 });
+
+describe('published figures (owner, 2026-10-05)', () => {
+  test('the published price and «أول ١٠ محلات» pass; anything else is still an invented number', () => {
+    expect(v.checkDigits('الاشتراك الأساسي 19.99 دينار بالشهر.', {})).toEqual([]);
+    expect(v.checkDigits('أول ١٠ محلات بإربد الشهر الأول علينا ببلاش.', {})).toEqual([]);
+    expect(v.checkDigits('The basic plan is 19.99 JD per month.', {})).toEqual([]);
+    // A published value outside the clause it was published in is still invented.
+    expect(v.checkDigits('السعر 10 دنانير بالشهر.', {}).map((b) => b.detail)).toEqual(['10']);
+    expect(v.checkDigits('الاشتراك 25 دينار.', {}).map((b) => b.detail)).toEqual(['25']);
+    expect(v.checkDigits('باقة 19 دينار.', {}).map((b) => b.detail)).toEqual(['19']);
+  });
+});

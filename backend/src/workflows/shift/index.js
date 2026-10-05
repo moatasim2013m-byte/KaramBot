@@ -718,6 +718,23 @@ function calendarUnlocked(ctx) {
   return booking.calendarOpenAt(ctx.business, ctx.conversation, ctx.now);
 }
 
+// The customer asking for a call, in their own words.
+const CALL_INTENT_RE = /مكالمة|مكالمه|اتصال|اتصل|تتصل|تتصلو|نحكي|نتواصل|احكي مع|أحكي مع|موعد|اجتماع|حجز مكالمة|متى نحكي|إيمتى نحكي|ايمتى نحكي|\bcall\b|\bmeeting\b|\bschedule\b|\bbook a\b/i;
+
+/**
+ * Calendly mode: whether the booking link goes on this reply at all.
+ *
+ * It was offered on every turn, so the model put it on nearly every reply — six times in one two-minute
+ * conversation (2026-10-05), including under the customer's complaint. Now: when the customer asks for
+ * a call in this message, or once when the conversation reaches the close and it has not been sent.
+ */
+function linkWanted(ctx) {
+  if ((ctx.batchTexts || []).some((t) => CALL_INTENT_RE.test(t))) return true;
+  const wd = (ctx.conversation && ctx.conversation.workflow_data) || {};
+  const sentBefore = !!(wd.booking_link && (wd.booking_link.sent_at || wd.booking_link.at));
+  return ctx.conversation && ctx.conversation.current_state === 'close' && !sentBefore;
+}
+
 function shouldOfferCalendar(ctx) {
   const conv = ctx.conversation;
   const wd = conv.workflow_data || {};
@@ -818,7 +835,7 @@ async function runShiftBatch(business, conversation, batchMessages, { now = new 
     // SHIFT_BOOKING=0 or a calendar error keeps PR2's window offers and their "request" semantics.
     if (ctx.bookingLink) {
       // The link is the one pseudo offer: every site that rendered slot buttons renders the CTA instead.
-      ctx.offers = shouldOfferCalendar(ctx) ? [calendly.linkOffer(ctx.lang)] : [];
+      ctx.offers = shouldOfferCalendar(ctx) && linkWanted(ctx) ? [calendly.linkOffer(ctx.lang)] : [];
     } else if (shouldOfferCalendar(ctx)) {
       const cal = await booking.offersWithin(OFFERS_BUDGET_MS, { business, now, lang: ctx.lang, teamHours: ctx.teamHours });
       if (cal.ok) ctx.offers = cal.offers;

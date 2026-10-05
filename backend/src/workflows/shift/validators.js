@@ -310,6 +310,27 @@ function clauseAt(text, index) {
   return text.slice(start, end);
 }
 
+/**
+ * SHIFT's own published figures (owner, 2026-10-05). Everything else stays an invented number.
+ *
+ * Without this, «الاشتراك 19.99 دينار بالشهر» and «أول ١٠ محلات» were blocked like any made-up price —
+ * and that is why the bot answered every price question with «ما عندي سعر معتمد» and never confirmed
+ * the October offer even when the customer named it. Each figure counts only in the clause it was
+ * published with, so the bot still cannot say «10 دنانير».
+ */
+const PUBLISHED_FIGURES = [
+  { value: 19.99, clause: /دينار|دنانير|JD|JOD|اشتراك|شهر|month/i },
+  { value: 10, clause: /محلات|محل|shops?|businesses/i },
+];
+
+function isPublishedFigure(text, n) {
+  if (n.value === null || n.value === undefined) return false;
+  const value = roleplay.canonical(n.value);
+  // The sentence, not the clause: the clause splitter breaks «19.99» at its decimal point.
+  const sentence = sentenceAt(text, n.start);
+  return PUBLISHED_FIGURES.some((f) => roleplay.canonical(f.value) === value && f.clause.test(sentence));
+}
+
 function checkDigits(line, vctx = {}) {
   const text = roleplay.toWesternDigits(String(line == null ? '' : line));
   const keywords = claimKeywordSpans(text, vctx);
@@ -336,6 +357,7 @@ function checkDigits(line, vctx = {}) {
       continue;
     }
     if (isConsentDelay(text, n, money)) continue;
+    if (isPublishedFigure(text, n)) continue;
     if (isQuotedFromCustomer(text, n, vctx) && !affirmsOffer(text, n)) continue;
     const value = n.value === null || n.value === undefined ? null : roleplay.canonical(n.value);
     if (vctx.roleplayActive && value !== null) {
@@ -1657,6 +1679,7 @@ module.exports = {
   findNumbers,
   claimContextNumbers,
   allowedNumberSet,
+  PUBLISHED_FIGURES,
   checkDigits,
   checkGuarantee,
   checkOverclaim,
