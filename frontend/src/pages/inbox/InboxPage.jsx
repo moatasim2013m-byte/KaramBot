@@ -289,7 +289,9 @@ function ContactPanel({ conv, onSaveNotes, onSaveLabel, onChanged, isShift }) {
       {saved && <p className="text-xs text-green-600">{saved} ✓</p>}
       {isShift && conv.workflow_data && (
         <div className="-mx-4 border-t">
-          <LeadCard conversation={conv} onChanged={onChanged} />
+          {/* key: a half-edited field for one customer can never be saved into the next one's lead —
+              the same remount the classic inbox relies on. */}
+          <LeadCard key={conv.id} conversation={conv} onChanged={onChanged} />
         </div>
       )}
     </div>
@@ -340,11 +342,23 @@ export default function InboxPage() {
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 300); return () => clearTimeout(t); }, [search]);
 
   // ── list ──
+  const listKeyRef = useRef('');
+  const pagesRef = useRef(1);
   const loadList = useCallback(async ({ more = false } = {}) => {
-    const params = { filter, limit: 30 };
+    const key = `${filter}|${debounced}`;
+    listKeyRef.current = key;
+    const params = { filter };
     if (debounced) params.search = debounced;
-    if (more && cursor) params.cursor = cursor;
+    if (more && cursor) {
+      params.cursor = cursor;
+      params.limit = 30;
+    } else {
+      // A refresh re-reads as many rows as are on screen, so «تحميل المزيد» is not undone every 8 s.
+      params.limit = Math.min(30 * pagesRef.current, 50);
+    }
     const res = await api.get(`${V2}/conversations`, { params });
+    if (listKeyRef.current !== key) return; // the filter or search changed meanwhile
+    if (more) pagesRef.current += 1;
     setConversations((prev) => (more ? [...prev, ...res.data.conversations] : res.data.conversations));
     setCursor(res.data.next_cursor);
   }, [filter, debounced, cursor]);
@@ -354,6 +368,7 @@ export default function InboxPage() {
   }, []);
 
   useEffect(() => {
+    pagesRef.current = 1;
     setListLoading(true);
     loadList().catch(() => setNotice('تعذّر تحميل المحادثات')).finally(() => setListLoading(false));
     loadStats();
@@ -382,11 +397,17 @@ export default function InboxPage() {
     setMessages((prev) => {
       const page = res.data.messages;
       if (!page.length) return prev.length ? prev : page;
+      // Older = before the page's first message on (created_at, id), so a same-instant message stays.
       const firstAt = new Date(page[0].created_at).getTime();
+      const firstId = page[0].id;
       const ids = new Set(page.map((m) => m.id));
-      return [...prev.filter((m) => !ids.has(m.id) && new Date(m.created_at).getTime() < firstAt), ...page];
+      const older = (m) => {
+        const t = new Date(m.created_at).getTime();
+        return t < firstAt || (t === firstAt && m.id < firstId);
+      };
+      return [...prev.filter((m) => !ids.has(m.id) && older(m)), ...page];
     });
-    setHasOlder((h) => h || res.data.has_older);
+    setHasOlder((h) => (h === null ? res.data.has_older : h));
   }, []);
 
   const markRead = useCallback(async (id) => {
@@ -401,8 +422,11 @@ export default function InboxPage() {
     setSelectedId(c.id);
     setConv(c);
     setMessages([]);
-    setHasOlder(false);
+    setHasOlder(null);
     setReplyingTo(null);
+    // A draft typed for one customer must never be sent to the next one (review, 2026-10-06).
+    setReplyText('');
+    setNotice('');
     setShowSheet(false);
     setShowLabels(false);
     setShowSnooze(false);
@@ -452,7 +476,7 @@ export default function InboxPage() {
     const el = scrollRef.current;
     const before = el ? el.scrollHeight : 0;
     try {
-      const res = await api.get(`${V2}/conversations/${selectedId}/messages`, { params: { before: messages[0].created_at, limit: 50 } });
+      const res = await api.get(`${V2}/conversations/${selectedId}/messages`, { params: { before: messages[0].created_at, before_id: messages[0].id, limit: 50 } });
       atBottomRef.current = false;
       setMessages((prev) => [...res.data.messages, ...prev]);
       setHasOlder(res.data.has_older);
@@ -460,6 +484,19 @@ export default function InboxPage() {
     } finally {
       setLoadingOlder(false);
     }
+  };
+
+  // Back on a phone closes the thread for real: polling and read-marking stop with it (it used to keep
+  // marking new messages read while staff looked at the list).
+  const closeThread = () => {
+    openIdRef.current = null;
+    setSelectedId(null);
+    setConv(null);
+    setMessages([]);
+    setReplyText('');
+    setReplyingTo(null);
+    setShowSheet(false);
+    setMobileThread(false);
   };
 
   // ── actions ──
@@ -503,7 +540,10 @@ export default function InboxPage() {
     if (!text || !selectedId || sending) return;
     setSending(true);
     try {
-      await api.post(`/inbox/conversations/${selectedId}/send`, { text });
+      await api.post(`/inbox/conversations/${selectedId}/send`, {
+        text,
+        ...(replyingTo && replyingTo.meta_message_id ? { reply_to_message_id: replyingTo.meta_message_id } : {}),
+      });
       setReplyText('');
       setReplyingTo(null);
       atBottomRef.current = true;
@@ -611,7 +651,7 @@ export default function InboxPage() {
         ) : (
           <>
             <header className="px-2 sm:px-4 py-2.5 border-b bg-[#F0F2F5] flex items-center gap-2 flex-shrink-0">
-              <button onClick={() => { setMobileThread(false); setShowSheet(false); }} className="lg:hidden w-9 h-9 rounded-full hover:bg-[#008069]/10 flex items-center justify-center flex-shrink-0" aria-label="رجوع">
+              <button onClick={closeThread} className="lg:hidden w-9 h-9 rounded-full hover:bg-[#008069]/10 flex items-center justify-center flex-shrink-0" aria-label="رجوع">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#008069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
               </button>
               <button onClick={() => (window.innerWidth >= 1280 ? setShowPanel((p) => !p) : setShowSheet(true))} className="flex items-center gap-2.5 min-w-0 flex-1 text-start">
@@ -705,7 +745,7 @@ export default function InboxPage() {
               </div>
               {showPanel && (
                 <aside className="hidden xl:block w-[340px] flex-none border-s bg-white overflow-y-auto inbox-scroll p-4">
-                  <ContactPanel conv={conv} onSaveNotes={saveNotes} onSaveLabel={saveLabel} onChanged={refreshOpen} isShift={isShift} />
+                  <ContactPanel key={conv.id} conv={conv} onSaveNotes={saveNotes} onSaveLabel={saveLabel} onChanged={refreshOpen} isShift={isShift} />
                 </aside>
               )}
             </div>
@@ -779,7 +819,7 @@ export default function InboxPage() {
                     </div>
                     {win && <p className="text-xs text-gray-500 flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> نافذة الرد: {win.label}</p>}
                     <div className="border-t pt-3">
-                      <ContactPanel conv={conv} onSaveNotes={saveNotes} onSaveLabel={saveLabel} onChanged={refreshOpen} isShift={isShift} />
+                      <ContactPanel key={conv.id} conv={conv} onSaveNotes={saveNotes} onSaveLabel={saveLabel} onChanged={refreshOpen} isShift={isShift} />
                     </div>
                   </div>
                 </div>

@@ -272,7 +272,8 @@ router.get('/conversations/:id', withConversation(async (req, res, conv) => {
     include: { assigned_staff: { select: { name: true } } },
   });
   const last = await latestMessages([conv.id]);
-  res.json({ conversation: { ...shapeConversation(full, last.get(conv.id)), workflow_data: full.workflow_data } });
+  // contact_notes only here, not in the list: the panel reads them back (they were write-only).
+  res.json({ conversation: { ...shapeConversation(full, last.get(conv.id)), workflow_data: full.workflow_data, contact_notes: full.contact_notes } });
 }));
 
 /**
@@ -287,11 +288,18 @@ router.get('/conversations/:id/messages', withConversation(async (req, res, conv
   if (req.query.before !== undefined) {
     const before = validDate(req.query.before);
     if (!before) return res.status(400).json({ error: 'invalid before' });
-    where.created_at = { lt: before };
+    // With before_id it is a keyset on (created_at, id): two messages stamped the same instant on a page
+    // boundary are neither skipped nor shown twice (review, 2026-10-06).
+    const beforeId = typeof req.query.before_id === 'string' && req.query.before_id ? req.query.before_id : null;
+    if (beforeId) {
+      where.OR = [{ created_at: { lt: before } }, { AND: [{ created_at: before }, { id: { lt: beforeId } }] }];
+    } else {
+      where.created_at = { lt: before };
+    }
   }
   const rows = (await prisma.message.findMany({
     where,
-    orderBy: { created_at: 'desc' },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
     take: limit + 1,
     include: { sent_by_user: { select: { name: true } } },
   }));

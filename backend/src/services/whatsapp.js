@@ -102,7 +102,7 @@ const LEGACY_TIMEOUT_MS = 15000;
 /**
  * Send a plain text message
  */
-async function sendTextMessage(phoneNumberId, accessToken, to, text, { callbackData } = {}) {
+async function sendTextMessage(phoneNumberId, accessToken, to, text, { callbackData, replyTo } = {}) {
   const url = `${graphBase()}/${phoneNumberId}/messages`;
   const payload = withCallbackData({
     messaging_product: 'whatsapp',
@@ -110,6 +110,8 @@ async function sendTextMessage(phoneNumberId, accessToken, to, text, { callbackD
     to,
     type: 'text',
     text: { body: text },
+    // WhatsApp's quoted reply: the customer sees the message this answers above it.
+    ...(replyTo ? { context: { message_id: replyTo } } : {}),
   }, callbackData);
 
   const res = await axios.post(url, payload, {

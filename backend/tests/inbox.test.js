@@ -736,3 +736,33 @@ describe('GET /api/inbox/conversations/:id/messages — which page', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('POST /api/inbox/conversations/:id/send — quoted reply', () => {
+  beforeEach(() => {
+    seedWorld({
+      conversations: [
+        { id: 'c_q', customer_wa_id: '962700000077' },
+        { id: 'c_other', customer_wa_id: '962700000078' },
+      ],
+      messages: [
+        { business_id: 'biz_shift', conversation_id: 'c_q', direction: 'inbound', status: 'answered', text_body: 'كم السعر؟', meta_message_id: 'wamid.mine' },
+        { business_id: 'biz_shift', conversation_id: 'c_other', direction: 'inbound', status: 'answered', text_body: 'سر', meta_message_id: 'wamid.theirs' },
+      ],
+    });
+  });
+
+  test('a message of this conversation is quoted', async () => {
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_q/send').set('Authorization', tokenFor('u_sara'))
+      .send({ text: '19.99 دينار بالشهر', reply_to_message_id: 'wamid.mine' });
+    expect(res.status).toBe(200);
+    expect(whatsapp.sendTextMessage.mock.calls[0][4]).toEqual({ replyTo: 'wamid.mine' });
+    const sent = db.store.messages.find((m) => m.direction === 'outbound' && m.conversation_id === 'c_q');
+    expect(sent.reply_to_message_id).toBe('wamid.mine');
+  });
+
+  test('a message id from another conversation is ignored, not quoted', async () => {
+    await request(inboxApp).post('/api/inbox/conversations/c_q/send').set('Authorization', tokenFor('u_sara'))
+      .send({ text: 'أهلين', reply_to_message_id: 'wamid.theirs' });
+    expect(whatsapp.sendTextMessage.mock.calls[0]).toHaveLength(4); // a plain send, no quote
+  });
+});
