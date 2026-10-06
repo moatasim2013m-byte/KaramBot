@@ -1009,7 +1009,7 @@ async function sweepCalendly(business, teamHours, now, report) {
  * The offer's places still open: ten minus the Karam Bot subscriptions started since it began. Read
  * from the contracts SHIFT enters, so «ضايل X أماكن» is a count, not a number picked to look urgent.
  */
-async function offerPlacesLeft() {
+async function offerPlacesLeft(business) {
   const taken = await prisma.subscription.findMany({
     where: {
       solution: 'karam_bot',
@@ -1018,7 +1018,11 @@ async function offerPlacesLeft() {
     },
     select: { business_id: true },
   });
-  return Math.max(0, weeklyFollowup.OFFER.places - new Set(taken.map((t) => t.business_id)).size);
+  const counted = Math.max(0, weeklyFollowup.OFFER.places - new Set(taken.map((t) => t.business_id)).size);
+  // The owner's own figure (ai_config.offer_places_left, 2026-10-06: «Remaining 5 chairs only») replaces
+  // the count — but never above it: places actually taken always show.
+  const set = Number((business && business.ai_config && business.ai_config.offer_places_left));
+  return Number.isInteger(set) && set >= 0 ? Math.min(set, counted) : counted;
 }
 
 async function sweepWeeklyFollowups(business, teamHours, now, report) {
@@ -1029,7 +1033,7 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
   const staffNumbers = [...(Array.isArray(cfg.alert_wa_numbers) ? cfg.alert_wa_numbers : []),
     ...(Array.isArray(cfg.test_numbers) ? cfg.test_numbers : []),
     ...(Array.isArray(cfg.followup_exclude) ? cfg.followup_exclude : [])].map((n) => String(n).replace(/\D/g, ''));
-  const placesLeft = await offerPlacesLeft();
+  const placesLeft = await offerPlacesLeft(business);
   const convs = await prisma.conversation.findMany({
     where: { business_id: business.id, last_message_at: { gte: ago(now, weeklyFollowup.LOOKBACK_MS) } },
   });
