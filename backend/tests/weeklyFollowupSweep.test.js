@@ -100,6 +100,13 @@ test('a number on the do-not-follow-up list never gets it', async () => {
   expect(replyBatcher.dispatchIntent).not.toHaveBeenCalled();
 });
 
+test('the owner\'s own figure replaces the count, but never shows more places than are really left', async () => {
+  seed();
+  db.store.businesses.find((b) => b.id === 'biz_shift').ai_config.offer_places_left = 5;
+  await runSweep({ now: NOW });
+  expect(replyBatcher.dispatchIntent.mock.calls[0][0].parts[0].bodyParams[1]).toBe('5');
+});
+
 test('switched off, nothing is sent', async () => {
   delete process.env.SHIFT_WEEKLY_FOLLOWUPS;
   seed();
