@@ -6,7 +6,8 @@
 const acks = require('./acks');
 const { normalizeArabic } = require('./handoff');
 
-const OPT_OUT_RE = /^(ايقاف|stop|unsubscribe|لا تبعتولي( شي| اشي)?|لا تبعتو|لا تبعتوا|مش مهتم|مش مهتمه|وقف(وا)? (بعت |ارسال )?(ال)?(رسايل|رسائل))$/i;
+// «ايقاف الرسائل» is the weekly follow-up template's own stop button (2026-10-06).
+const OPT_OUT_RE = /^(ايقاف( ال(رسايل|رسائل))?|stop|unsubscribe|لا تبعتولي( شي| اشي)?|لا تبعتو|لا تبعتوا|مش مهتم|مش مهتمه|وقف(وا)? (بعت |ارسال )?(ال)?(رسايل|رسائل))$/i;
 const MAX_WORDS = 4;
 
 function normalizeCommand(text) {

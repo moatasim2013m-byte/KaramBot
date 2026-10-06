@@ -235,7 +235,8 @@ function asksPrice(texts) {
 }
 
 // «شفت العرض تبع الشهر المجاني», «شو هو المجاني», «ببلاش؟», «شفت البوست», «أول ١٠».
-const OFFER_Q_RE = /العرض|مجاني|المجاني|المجانا|ببلاش|بلاش|شهر مجاني|البوست|الإعلان|الاعلان|أول\s*(?:10|١٠|عشر)|\bfree\b|\boffer\b/i;
+// «احجزلي مكان» / «بدي أجرّب»: the weekly follow-up template's buttons and its week-4 ask.
+const OFFER_Q_RE = /احجزلي مكان|احجز لي مكان|بدي أجرّب|بدي اجرب|بدي أجرب|العرض|مجاني|المجاني|المجانا|ببلاش|بلاش|شهر مجاني|البوست|الإعلان|الاعلان|أول\s*(?:10|١٠|عشر)|\bfree\b|\boffer\b/i;
 
 function asksAboutOffer(texts) {
   return (Array.isArray(texts) ? texts : []).some((t) => typeof t === 'string' && OFFER_Q_RE.test(t));
