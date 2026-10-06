@@ -235,12 +235,19 @@ router.post('/conversations/:id/send', async (req, res) => {
       human_active_until: new Date(Date.now() + HUMAN_ACTIVE_MS).toISOString(),
     });
 
-    const metaResponse = await sendTextMessage(
-      business.wa_phone_number_id,
-      accessToken,
-      conv.customer_wa_id,
-      text,
-    );
+    // A quoted reply (the new inbox's «رد على»): only a message of this same conversation can be quoted.
+    let replyTo = null;
+    if (typeof req.body.reply_to_message_id === 'string' && req.body.reply_to_message_id) {
+      const quoted = await prisma.message.findFirst({
+        where: { conversation_id: conv.id, meta_message_id: req.body.reply_to_message_id },
+        select: { meta_message_id: true },
+      });
+      replyTo = quoted ? quoted.meta_message_id : null;
+    }
+
+    const metaResponse = replyTo
+      ? await sendTextMessage(business.wa_phone_number_id, accessToken, conv.customer_wa_id, text, { replyTo })
+      : await sendTextMessage(business.wa_phone_number_id, accessToken, conv.customer_wa_id, text);
 
     const msg = await prisma.message.create({
       data: {
@@ -253,6 +260,7 @@ router.post('/conversations/:id/send', async (req, res) => {
         status: 'sent',
         sent_by_user_id: req.user.id,
         is_ai_generated: false,
+        reply_to_message_id: replyTo,
       },
     });
 

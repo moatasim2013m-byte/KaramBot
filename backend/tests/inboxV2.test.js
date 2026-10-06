@@ -297,3 +297,29 @@ describe('organising a conversation', () => {
     expect(conv('c1')).toMatchObject({ needs_attention: false, attention_reason: null });
   });
 });
+
+describe('review fixes (2026-10-06)', () => {
+  test('contact notes are read back on the conversation — they were write-only', async () => {
+    seed({ conversations: [{ id: 'c1', business_id: 'biz_a', customer_wa_id: '962790000001', contact_notes: 'بيفضّل الصبح' }] });
+    const res = await request(app).get('/api/inbox/v2/conversations/c1').set(SARA);
+    expect(res.body.conversation.contact_notes).toBe('بيفضّل الصبح');
+  });
+
+  test('older pages skip nothing when messages share a timestamp at the boundary', async () => {
+    const same = at(5);
+    seed({
+      conversations: [{ id: 'c1', business_id: 'biz_a', customer_wa_id: '962790000001' }],
+      messages: ['a', 'b', 'c', 'd', 'e'].map((x) => ({ id: `m_${x}`, business_id: 'biz_a', conversation_id: 'c1', direction: 'inbound', text_body: x, created_at: same })),
+    });
+    const first = await request(app).get('/api/inbox/v2/conversations/c1/messages?limit=2').set(SARA);
+    const seen = first.body.messages.map((m) => m.text_body);
+    let top = first.body.messages[0];
+    for (let i = 0; i < 5 && top; i += 1) {
+      const page = await request(app).get(`/api/inbox/v2/conversations/c1/messages?limit=2&before=${encodeURIComponent(new Date(top.created_at).toISOString())}&before_id=${top.id}`).set(SARA);
+      if (!page.body.messages.length) break;
+      seen.unshift(...page.body.messages.map((m) => m.text_body));
+      top = page.body.messages[0];
+    }
+    expect([...seen].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
