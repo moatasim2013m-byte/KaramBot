@@ -33,6 +33,10 @@ const MODELS = {
   businessKnowledge: 'businessKnowledge',
   // Contracts: the weekly follow-up counts the October offer's places taken from these.
   subscription: 'subscriptions',
+  // Inbox v2 (docs/inbox-v2-port-plan.md).
+  quickReply: 'quickReplies',
+  scheduledMessage: 'scheduledMessages',
+  staffInboxPresence: 'staffInboxPresence',
 };
 
 // Relations that routes ask for with `include`.
@@ -43,7 +47,12 @@ const RELATIONS = {
   conversation: { store: 'conversations', fk: 'conversation_id' },
 };
 
-const DATE_FIELDS = new Set(['created_at', 'updated_at', 'last_message_at', 'last_inbound_at', 'last_login', 'starts_at']);
+const DATE_FIELDS = new Set([
+  'created_at', 'updated_at', 'last_message_at', 'last_inbound_at', 'last_login', 'starts_at',
+  // Inbox v2
+  'snoozed_until', 'attention_at', 'last_staff_read_at', 'delivered_at', 'read_at', 'failed_at',
+  'last_used_at', 'send_at', 'processed_at', 'last_seen_at', 'typing_at',
+]);
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
@@ -78,7 +87,10 @@ function rejectNul(data) {
 }
 
 function createFakeDb() {
-  const store = { businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [], subscriptions: [] };
+  const store = {
+    businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [], subscriptions: [],
+    quickReplies: [], scheduledMessages: [], staffInboxPresence: [],
+  };
   let fixedNow = null;
   let idSeq = 0;
   const failures = new Map();
@@ -138,6 +150,8 @@ function createFakeDb() {
           assigned_staff_id: null, last_message_at: now, last_inbound_at: null, unread_count: 0,
           ai_enabled: true, current_workflow_type: null, current_state: null,
           workflow_data: {}, metadata: {},
+          labels: [], snoozed_until: null, contact_notes: null, custom_label: null,
+          needs_attention: false, attention_reason: null, attention_at: null, last_staff_read_at: null,
         };
         break;
       case 'messages':
@@ -146,7 +160,22 @@ function createFakeDb() {
           message_type: 'text', text_body: null, media_id: null, media_mime_type: null, media_url: null,
           interactive_reply: null, location: null, status: 'pending', sender_wa_id: null,
           sent_by_user_id: null, is_ai_generated: false, raw_payload: null,
+          reply_to_message_id: null, reactions: null, delivered_at: null, read_at: null, failed_at: null,
+          error_code: null, error_message: null,
         };
+        break;
+      case 'quickReplies':
+        defaults = { business_id: null, category: 'other', is_active: true, use_count: 0, last_used_at: null };
+        break;
+      case 'scheduledMessages':
+        defaults = {
+          business_id: null, conversation_id: null, text: null, template_name: null, template_language: null,
+          components: null, status: 'pending', fail_reason: null, sent_message_id: null,
+          created_by_user_id: null, processed_at: null,
+        };
+        break;
+      case 'staffInboxPresence':
+        defaults = { business_id: null, viewing_conversation_id: null, typing_conversation_id: null, typing_at: null };
         break;
       case 'users':
         defaults = {
@@ -185,7 +214,8 @@ function createFakeDb() {
     return comparable(rowValue) === operand(rowValue, filterValue);
   }
 
-  const OPERATORS = new Set(['mode', 'equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith']);
+  // `has`: Prisma's scalar-list operator (conversations.labels text[]); not a JSON-path filter.
+  const OPERATORS = new Set(['mode', 'equals', 'in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte', 'contains', 'startsWith', 'endsWith', 'has']);
 
   // Checked up front so a forbidden filter fails even when the table is empty.
   function validateWhere(where) {
@@ -245,6 +275,9 @@ function createFakeDb() {
           if (op === 'gte' && !(a >= b)) return false;
           break;
         }
+        case 'has':
+          if (!Array.isArray(value) || !value.some((v) => equals(v, arg))) return false;
+          break;
         case 'contains': case 'startsWith': case 'endsWith': {
           if (typeof value !== 'string') return false;
           const hay = insensitive ? value.toLowerCase() : value;
