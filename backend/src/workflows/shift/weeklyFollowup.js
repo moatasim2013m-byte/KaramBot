@@ -74,7 +74,9 @@ function nameFor(conversation) {
     const s = raw.replace(/\s+/g, ' ').trim();
     if (!s || s.length > NAME_MAX || /[@\d]/.test(s)) continue;
     if (!/^[ء-ي٠-٩ a-zA-Z.'-]+$/.test(s)) continue;
-    return s.split(' ').slice(0, 2).join(' ');
+    // Whole, up to three words: cutting at two turned «مندوب أبو راشد» into «مندوب أبو».
+    const words = s.split(' ');
+    return words.length <= 3 ? s : NAME_FALLBACK;
   }
   return NAME_FALLBACK;
 }

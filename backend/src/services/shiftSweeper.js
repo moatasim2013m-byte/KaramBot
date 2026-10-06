@@ -1024,8 +1024,11 @@ async function offerPlacesLeft() {
 async function sweepWeeklyFollowups(business, teamHours, now, report) {
   if (!weeklyFollowup.enabled()) return;
   const cfg = business.ai_config || {};
+  // Staff, test numbers, and a hand-kept list of numbers that must never get the campaign (family,
+  // spam senders): a staff number taken off the alert list is still not a lead.
   const staffNumbers = [...(Array.isArray(cfg.alert_wa_numbers) ? cfg.alert_wa_numbers : []),
-    ...(Array.isArray(cfg.test_numbers) ? cfg.test_numbers : [])].map((n) => String(n).replace(/\D/g, ''));
+    ...(Array.isArray(cfg.test_numbers) ? cfg.test_numbers : []),
+    ...(Array.isArray(cfg.followup_exclude) ? cfg.followup_exclude : [])].map((n) => String(n).replace(/\D/g, ''));
   const placesLeft = await offerPlacesLeft();
   const convs = await prisma.conversation.findMany({
     where: { business_id: business.id, last_message_at: { gte: ago(now, weeklyFollowup.LOOKBACK_MS) } },

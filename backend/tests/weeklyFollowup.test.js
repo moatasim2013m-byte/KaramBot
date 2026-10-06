@@ -82,6 +82,9 @@ describe('the template part', () => {
     expect(wf.nameFor(conv({ profile_name: 'aaldawd57@gmailcom' }))).toBe('صديقنا');
     expect(wf.nameFor(conv({ profile_name: 'علا الحايك' }))).toBe('علا الحايك');
     expect(wf.nameFor(conv({ profile_name: null }))).toBe('صديقنا');
+    // Whole, never cut mid-name.
+    expect(wf.nameFor(conv({ profile_name: 'مندوب أبو راشد' }))).toBe('مندوب أبو راشد');
+    expect(wf.nameFor(conv({ profile_name: 'one two three four' }))).toBe('صديقنا');
   });
 });
 

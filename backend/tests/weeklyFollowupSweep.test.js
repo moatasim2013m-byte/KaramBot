@@ -93,6 +93,13 @@ test('«ضايل X» is ten minus the Karam Bot contracts started since the offe
   expect(replyBatcher.dispatchIntent.mock.calls[0][0].parts[0].bodyParams[1]).toBe('8');
 });
 
+test('a number on the do-not-follow-up list never gets it', async () => {
+  seed();
+  db.store.businesses.find((b) => b.id === 'biz_shift').ai_config.followup_exclude = ['+962 78 757 3973'];
+  await runSweep({ now: NOW });
+  expect(replyBatcher.dispatchIntent).not.toHaveBeenCalled();
+});
+
 test('switched off, nothing is sent', async () => {
   delete process.env.SHIFT_WEEKLY_FOLLOWUPS;
   seed();
