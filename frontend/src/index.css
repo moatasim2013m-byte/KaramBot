@@ -31,3 +31,28 @@ body {
 .badge-delivered { @apply bg-gray-100 text-gray-700; }
 .badge-cancelled { @apply bg-red-100 text-red-700; }
 .badge-draft { @apply bg-yellow-100 text-yellow-700; }
+
+/* ─── Inbox v2 — WhatsApp look, ported from the Peekaboo staff inbox ─────────────────────────────── */
+@keyframes waFlash { 0% { background-color: rgba(0, 128, 105, 0.18); } 100% { background-color: transparent; } }
+.wa-flash { animation: waFlash 1.2s ease-out; border-radius: 12px; }
+/* The chat wallpaper: WhatsApp's beige under an original doodle tile (no Meta asset). */
+.inbox-messages-bg {
+  background-color: #EFEAE2;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='%23d6cfc4' opacity='0.42'%3E%3Cpath d='M28 18l2.6 5.6 6 .7-4.5 4.1 1.2 5.9-5.3-3-5.3 3 1.2-5.9-4.5-4.1 6-.7z'/%3E%3Cpath d='M96 26c0-3 2.4-5 5-5 1.8 0 3.2.8 4 2.2.8-1.4 2.2-2.2 4-2.2 2.6 0 5 2 5 5 0 4.4-9 10-9 10s-9-5.6-9-10z'/%3E%3Ccircle cx='176' cy='24' r='7'/%3E%3Cpath d='M175 31l-2 8h6l-2-8z'/%3E%3Cpath d='M44 88a8 8 0 0 1 8-8 8 8 0 0 1 15 2 6 6 0 0 1 5 6H44z' /%3E%3Cpath d='M118 74l6 9-6 9-6-9z'/%3E%3Ccircle cx='24' cy='150' r='6.5'/%3E%3Cpath d='M80 142h14v3a7 7 0 0 1-14 0zM94 143h4a3 3 0 0 1 0 6h-3'/%3E%3Cpath d='M150 138a9 9 0 1 0 9 12 7 7 0 0 1-9-12z'/%3E%3Ccircle cx='208' cy='146' r='8'/%3E%3Cpath d='M36 208c8-8 18-8 26 0-8 3-18 3-26 0z'/%3E%3Cpath d='M96 198c0-6 4-9 9-9v14a5 5 0 1 1-9-5z'/%3E%3Ccircle cx='158' cy='204' r='3.4'/%3E%3Ccircle cx='170' cy='196' r='3.4'/%3E%3Ccircle cx='170' cy='212' r='3.4'/%3E%3Ccircle cx='182' cy='204' r='3.4'/%3E%3C/g%3E%3C/svg%3E");
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+/* Bubble tails on the first bubble of a group. The page is RTL: outbound sits at the physical left. */
+.wa-tail-out::before { content: ""; position: absolute; top: 0; left: -7px; width: 8px; height: 12px; background: #D9FDD3; clip-path: polygon(100% 0, 0 0, 100% 100%); }
+.wa-tail-in::before { content: ""; position: absolute; top: 0; right: -7px; width: 8px; height: 12px; background: #FFFFFF; clip-path: polygon(0 0, 100% 0, 0 100%); }
+.inbox-shell, .inbox-shell * { -webkit-tap-highlight-color: transparent; }
+@keyframes waSlideIn { from { transform: translateX(-14px); opacity: 0.6; } to { transform: translateX(0); opacity: 1; } }
+@media (max-width: 1023px) {
+  .wa-thread-enter { animation: waSlideIn 0.22s ease-out; }
+  .inbox-shell { max-width: 100%; overflow-x: hidden; }
+}
+.inbox-scroll { scrollbar-width: thin; scrollbar-color: #c4d1de transparent; }
+.inbox-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.inbox-scroll::-webkit-scrollbar-thumb { background: #c4d1de; border-radius: 999px; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

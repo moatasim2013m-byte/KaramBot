@@ -157,7 +157,24 @@ function shapeConversation(conv, last) {
     assigned_staff: conv.assigned_staff ? { id: conv.assigned_staff_id, name: conv.assigned_staff.name } : null,
     current_state: conv.current_state,
     last_message: preview(last),
+    // What the current inbox shows on SHIFT's rows: an open request to the team, and who the lead is.
+    team_request: openTeamRequest(conv),
+    lead: leadSummary(conv),
   };
+}
+
+function openTeamRequest(conv) {
+  const nt = conv.workflow_data && conv.workflow_data.needs_team;
+  if (!nt || typeof nt !== 'object' || nt.resolved_at) return null;
+  return { reason: nt.reason || null, summary: typeof nt.summary === 'string' ? nt.summary.slice(0, 160) : null, at: nt.at || null };
+}
+
+function leadSummary(conv) {
+  const lead = conv.workflow_data && conv.workflow_data.lead;
+  if (!lead || typeof lead !== 'object') return null;
+  const pick = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 60) : null);
+  const out = { name: pick(lead.name), business_name: pick(lead.business_name), sector_text: pick(lead.sector_text), interest: pick(lead.interest) };
+  return Object.values(out).some(Boolean) ? out : null;
 }
 
 // ─── list ─────────────────────────────────────────────────────────────────────
