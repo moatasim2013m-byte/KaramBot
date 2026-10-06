@@ -27,6 +27,7 @@ const { resolveModel } = require('../ai/provider');
 const { graphVersion } = require('./whatsapp');
 // PR2 (contract §11.1): the idle role-play and single-nudge steps. All pure decision modules.
 const followups = require('../workflows/shift/followups');
+const weeklyFollowup = require('../workflows/shift/weeklyFollowup');
 const roleplay = require('../workflows/shift/roleplay');
 const { staffTask } = require('../workflows/shift/buttons');
 const { expectedLanguage } = require('../workflows/shift/validators');
@@ -84,7 +85,8 @@ function emptyReport() {
     pause_requeued: 0, orphans: 0, sla_notes: 0, awaiting_notes: 0, window_flags: 0, unanswered_alerts: 0,
     roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
     reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
-    calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0, errors: [],
+    calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
+    weekly_followups_sent: 0, weekly_followups_failed: 0, errors: [],
   };
 }
 
@@ -1003,6 +1005,92 @@ async function sweepCalendly(business, teamHours, now, report) {
 
 // Order matters: settled or un-paused rows are back to `received` before the orphan step schedules
 // runs, and before the awaiting note would tell a customer the bot is about to answer to keep waiting.
+/**
+ * The offer's places still open: ten minus the Karam Bot subscriptions started since it began. Read
+ * from the contracts SHIFT enters, so «ضايل X أماكن» is a count, not a number picked to look urgent.
+ */
+async function offerPlacesLeft() {
+  const taken = await prisma.subscription.findMany({
+    where: {
+      solution: 'karam_bot',
+      status: { in: ['trial', 'active', 'past_due', 'paused'] },
+      starts_at: { gte: new Date(weeklyFollowup.OFFER.startsAt) },
+    },
+    select: { business_id: true },
+  });
+  return Math.max(0, weeklyFollowup.OFFER.places - new Set(taken.map((t) => t.business_id)).size);
+}
+
+async function sweepWeeklyFollowups(business, teamHours, now, report) {
+  if (!weeklyFollowup.enabled()) return;
+  const cfg = business.ai_config || {};
+  // Staff, test numbers, and a hand-kept list of numbers that must never get the campaign (family,
+  // spam senders): a staff number taken off the alert list is still not a lead.
+  const staffNumbers = [...(Array.isArray(cfg.alert_wa_numbers) ? cfg.alert_wa_numbers : []),
+    ...(Array.isArray(cfg.test_numbers) ? cfg.test_numbers : []),
+    ...(Array.isArray(cfg.followup_exclude) ? cfg.followup_exclude : [])].map((n) => String(n).replace(/\D/g, ''));
+  const placesLeft = await offerPlacesLeft();
+  const convs = await prisma.conversation.findMany({
+    where: { business_id: business.id, last_message_at: { gte: ago(now, weeklyFollowup.LOOKBACK_MS) } },
+  });
+  await each(report, `weekly_followups ${business.id}`, convs, async (conv) => {
+    if (!notesAllowed(business, conv)) return;
+    const lastInbound = await prisma.message.findFirst({
+      where: { conversation_id: conv.id, direction: 'inbound' },
+      orderBy: { created_at: 'desc' },
+    });
+    const decision = weeklyFollowup.plan({ conversation: conv, lastInbound, now, staffNumbers, placesLeft });
+    const wd = workflowData(conv);
+    const wf = wd.weekly_followup || {};
+    if (!decision.step) {
+      // A permanent reason is recorded once, so the series stays over even if the state changes later.
+      if (decision.stop && !wf.stopped && Number(wf.step) > 0) {
+        await jsonb.patchJson('conversations', conv.id, 'workflow_data', { weekly_followup: { ...wf, stopped: decision.skip, stopped_at: now.toISOString() } });
+      }
+      return;
+    }
+
+    // Exactly once per step: a second sweep, or one racing this, finds the claim taken and does nothing.
+    const claimKey = `weekly_followup_${decision.step}`;
+    if (!await jsonb.claimFlag('conversations', conv.id, 'metadata', [claimKey])) return;
+
+    const dispatch = await replyBatcher.dispatchIntent({
+      business,
+      conversation: conv,
+      kind: 'weekly_followup',
+      parts: [weeklyFollowup.part({ conversation: conv, step: decision.step, placesLeft })],
+      batchIds: [],
+      batchKey: `weekly_followup:${decision.step}`,
+      since: new Date(now.getTime() - 60 * MINUTE_MS),
+      // Never over a person handling the conversation, and never after an opt-out of any age.
+      precheck: { humanGuard: true, optedOutSince: new Date(0).toISOString() },
+      now,
+    });
+    const outcome = dispatch && dispatch.outcome;
+    const at = now.toISOString();
+    if (DELIVERED_OUTCOMES.includes(outcome)) {
+      await jsonb.patchJson('conversations', conv.id, 'workflow_data', {
+        weekly_followup: { step: decision.step, last_sent_at: at, started_at: wf.started_at || at, template: decision.template },
+      });
+      report.weekly_followups_sent += 1;
+      return;
+    }
+    const reason = ((dispatch && dispatch.parts) || []).map((p) => p.reason).find(Boolean) || outcome || 'failed';
+    // Not sent and not retried: the claim stays, so this step is skipped rather than risked twice. A
+    // template that is not approved yet or a missing payment method stops the series and tells the owner.
+    await jsonb.patchJson('conversations', conv.id, 'workflow_data', {
+      weekly_followup: { ...wf, last_error: { step: decision.step, reason, at }, ...(['template', 'billing'].includes(reason) ? { stopped: reason, stopped_at: at } : {}) },
+    });
+    report.weekly_followups_failed += 1;
+    if (['template', 'billing'].includes(reason) && await jsonb.claimValue('conversations', conv.id, 'metadata', 'weekly_followup_blocked_alert', reason)) {
+      await sendStaffAlert({
+        reason: 'reminder_blocked', business, conversation: conv, now,
+        summary: `متابعة أسبوعية ${decision.step}: ${reason === 'billing' ? 'واتساب بدو طريقة دفع' : `القالب ${decision.template} مش معتمد أو موقوف`}`,
+      });
+    }
+  });
+}
+
 const STEPS = [
   ['unconfirmed', (b, th, now, r) => sweepUnconfirmed(b, now, r)],
   ['expired_pauses', (b, th, now, r) => sweepExpiredPauses(b, now, r)],
@@ -1018,6 +1106,8 @@ const STEPS = [
   ['calendly', sweepCalendly],
   // PR3: booking reminders and passed calls.
   ['bookings', sweepBookings],
+  // The October 2026 offer's weekly follow-up (owner, 2026-10-06). Off unless SHIFT_WEEKLY_FOLLOWUPS=1.
+  ['weekly_followups', sweepWeeklyFollowups],
 ];
 
 /**

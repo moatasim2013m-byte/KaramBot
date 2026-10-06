@@ -31,6 +31,8 @@ const MODELS = {
   // What the agent knows about a business with no sector workflow. Empty by default, which is
   // what a freshly created account looks like.
   businessKnowledge: 'businessKnowledge',
+  // Contracts: the weekly follow-up counts the October offer's places taken from these.
+  subscription: 'subscriptions',
 };
 
 // Relations that routes ask for with `include`.
@@ -41,7 +43,7 @@ const RELATIONS = {
   conversation: { store: 'conversations', fk: 'conversation_id' },
 };
 
-const DATE_FIELDS = new Set(['created_at', 'updated_at', 'last_message_at', 'last_inbound_at', 'last_login']);
+const DATE_FIELDS = new Set(['created_at', 'updated_at', 'last_message_at', 'last_inbound_at', 'last_login', 'starts_at']);
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
@@ -76,7 +78,7 @@ function rejectNul(data) {
 }
 
 function createFakeDb() {
-  const store = { businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [] };
+  const store = { businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [], subscriptions: [] };
   let fixedNow = null;
   let idSeq = 0;
   const failures = new Map();

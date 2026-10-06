@@ -923,6 +923,8 @@ describe('runSweep', () => {
       reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
       // Calendly bookings seen on the sales calendar.
       calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
+      // The October offer's weekly follow-up (off by default).
+      weekly_followups_sent: 0, weekly_followups_failed: 0,
       errors: [],
     });
   });
