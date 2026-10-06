@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../utils/api';
 import {
@@ -11,6 +11,8 @@ import {
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fullBleed = location.pathname === '/inbox';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -82,7 +84,9 @@ export default function DashboardLayout() {
   const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    // 100dvh, not h-screen: on a phone 100vh includes the browser's address bar, which pushed the
+    // bottom of every page — the inbox composer first — off the screen.
+    <div className="flex h-[100dvh] bg-gray-50 overflow-hidden">
       {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 right-0 z-50 w-64 bg-gray-900 text-white flex flex-col
@@ -169,7 +173,9 @@ export default function DashboardLayout() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        {/* The inbox runs edge to edge at the real screen height, like WhatsApp: no page padding, and
+            the inbox scrolls its own panes instead of the page. */}
+        <main className={fullBleed ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto p-4 lg:p-6'}>
           <Outlet />
         </main>
       </div>

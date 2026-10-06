@@ -45,6 +45,9 @@ model Business {
   whatsappOnboarding WhatsappOnboarding?
   subscriptions Subscription[]
   knowledge     BusinessKnowledge[]
+  quickReplies      QuickReply[]
+  scheduledMessages ScheduledMessage[]
+  inboxPresence     StaffInboxPresence[]
 
   @@index([slug])
   @@index([wa_phone_number_id])
@@ -72,6 +75,8 @@ model User {
   activations         UserActivation[]
   assignedConversations Conversation[] @relation("AssignedStaff")
   sentMessages        Message[]
+  scheduledMessages   ScheduledMessage[] @relation("ScheduledMessageCreator")
+  inboxPresence       StaffInboxPresence?
   orderStatusChanges  OrderStatusHistory[]
 
   @@index([email])
@@ -96,6 +101,15 @@ model Conversation {
   current_state          String?
   workflow_data          Json      @default("{}")
   metadata               Json      @default("{}")
+  // Inbox v2 (docs/inbox-v2-port-plan.md): what staff organise a conversation by.
+  labels                 String[]  @default([])
+  snoozed_until          DateTime?
+  contact_notes          String?
+  custom_label           String?
+  needs_attention        Boolean   @default(false)
+  attention_reason       String?
+  attention_at           DateTime?
+  last_staff_read_at     DateTime?
   created_at             DateTime  @default(now())
   updated_at             DateTime  @updatedAt
 
@@ -103,10 +117,15 @@ model Conversation {
   assigned_staff User?     @relation("AssignedStaff", fields: [assigned_staff_id], references: [id])
   messages       Message[]
   orders         Order[]
+  scheduledMessages ScheduledMessage[]
 
   @@unique([business_id, customer_wa_id])
   @@index([business_id])
   @@index([customer_wa_id])
+  @@index([business_id, last_message_at])
+  @@index([business_id, needs_attention])
+  @@index([business_id, snoozed_until])
+  @@index([business_id, assigned_staff_id])
   @@map("conversations")
 }
 
@@ -130,6 +149,14 @@ model Message {
   sent_by_user_id  String?
   is_ai_generated  Boolean  @default(false)
   raw_payload      Json?
+  // Inbox v2: the quoted message (Meta context.id), reactions, and the delivery timeline.
+  reply_to_message_id String?
+  reactions        Json?
+  delivered_at     DateTime?
+  read_at          DateTime?
+  failed_at        DateTime?
+  error_code       String?
+  error_message    String?
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
@@ -521,4 +548,65 @@ model BusinessKnowledge {
 
   @@index([business_id, active, position])
   @@map("business_knowledge")
+}
+
+// ─── Inbox v2 (docs/inbox-v2-port-plan.md) ──────────────────────────────────────
+// Every table carries business_id: the Peekaboo inbox these come from had none, being one business.
+
+model QuickReply {
+  id           String    @id @default(cuid())
+  business_id  String
+  label        String
+  text         String
+  category     String    @default("other") // greeting | booking | payment | inquiry | closing | other
+  is_active    Boolean   @default(true)
+  use_count    Int       @default(0)
+  last_used_at DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, is_active])
+  @@map("quick_replies")
+}
+
+model ScheduledMessage {
+  id                 String    @id @default(cuid())
+  business_id        String
+  conversation_id    String
+  text               String?
+  template_name      String?
+  template_language  String?
+  components         Json?
+  send_at            DateTime
+  status             String    @default("pending") // pending | sent | cancelled | failed
+  fail_reason        String?
+  sent_message_id    String?
+  created_by_user_id String?
+  created_at         DateTime  @default(now())
+  processed_at       DateTime?
+
+  business     Business     @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  created_by   User?        @relation("ScheduledMessageCreator", fields: [created_by_user_id], references: [id], onDelete: SetNull)
+
+  @@index([status, send_at])
+  @@index([business_id, conversation_id, status])
+  @@map("scheduled_messages")
+}
+
+model StaffInboxPresence {
+  user_id                 String    @id
+  business_id             String
+  last_seen_at            DateTime
+  viewing_conversation_id String?
+  typing_conversation_id  String?
+  typing_at               DateTime?
+
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, last_seen_at])
+  @@map("staff_inbox_presence")
 }

@@ -4,7 +4,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './components/common/DashboardLayout';
 import OverviewPage from './pages/OverviewPage';
-import InboxPage from './pages/InboxPage';
+import InboxPage from './pages/inbox/InboxPage';
+import ClassicInboxPage from './pages/InboxPage';
 import OrdersPage from './pages/OrdersPage';
 import MenuPage from './pages/MenuPage';
 import SettingsPage from './pages/SettingsPage';
@@ -69,6 +70,8 @@ export default function App() {
             <Route index element={<HomeRedirect />} />
             <Route path="overview" element={<OverviewPage />} />
             <Route path="inbox" element={<InboxPage />} />
+            {/* The previous inbox, kept reachable while the new one beds in. */}
+            <Route path="inbox/classic" element={<ClassicInboxPage />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="menu" element={
               <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>

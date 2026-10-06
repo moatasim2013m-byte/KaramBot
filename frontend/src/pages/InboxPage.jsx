@@ -17,12 +17,12 @@ const STATUS_LABELS = {
   resolved: { label: 'محلول', color: 'text-gray-400' },
 };
 
-const STAGE_LABELS = {
+export const STAGE_LABELS = {
   opening: 'بداية', discovery: 'اكتشاف', fit: 'ملاءمة', sample: 'مثال', roleplay_setup: 'تجهيز مثال',
   roleplay: 'مثال جاري', objection: 'اعتراض', close: 'إغلاق', captured: 'طلب مكالمة', handoff: 'تحويل', closed: 'مغلق',
 };
 
-const NEEDS_TEAM_LABELS = {
+export const NEEDS_TEAM_LABELS = {
   quote: 'عرض سعر', meeting: 'مكالمة', person: 'شخص', complaint: 'شكوى', demo: 'عرض تجريبي',
   unknown: 'سؤال', ai_failure: 'تعطّل البوت', unsent_reply: 'بدون رد',
 };
@@ -71,7 +71,7 @@ function replyGaveUp(conv) {
   return Number(conv?.metadata?.reply_failures) >= MAX_REPLY_FAILURES;
 }
 
-function openNeedsTeam(conv) {
+export function openNeedsTeam(conv) {
   const nt = conv?.workflow_data?.needs_team;
   return nt && !nt.resolved_at ? nt : null;
 }
@@ -475,7 +475,7 @@ function LeadDetails({ conversation }) {
 // Rendered with key={conversation.id} (GPT-6 #14): switching customers remounts the card and its rows,
 // so a half-typed draft for one customer can never be saved into the next one's lead. Every save below
 // therefore targets the only conversation this instance was ever shown.
-function LeadCard({ conversation, onChanged }) {
+export function LeadCard({ conversation, onChanged }) {
   const [open, setOpen] = useState(true);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);

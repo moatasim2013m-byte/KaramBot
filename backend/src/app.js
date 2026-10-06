@@ -71,6 +71,8 @@ app.use('/api/shift/whatsapp', require('./routes/shiftWhatsapp'));
 // Bearer-protected and called every minute by Cloud Scheduler: never behind apiLimiter.
 app.use('/api/internal', require('./routes/internal'));
 app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
+// Before /api/inbox so /v2 is not tried against the current inbox's routes first.
+app.use('/api/inbox/v2', apiLimiter, require('./routes/inboxV2'));
 app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
 app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
