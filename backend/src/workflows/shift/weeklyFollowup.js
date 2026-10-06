@@ -87,6 +87,7 @@ function nameFor(conversation) {
  */
 function plan({ conversation, lastInbound, now = new Date(), staffNumbers = [], placesLeft = OFFER.places } = {}) {
   const t = now.getTime();
+  if (t < toMs(OFFER.startsAt)) return { skip: 'offer_not_started' };
   if (t >= toMs(OFFER.endsAt)) return { skip: 'offer_ended' };
   if (placesLeft <= 0) return { skip: 'offer_full' };
   if (!conversation || !lastInbound) return { skip: 'no_inbound' };
@@ -97,7 +98,8 @@ function plan({ conversation, lastInbound, now = new Date(), staffNumbers = [], 
   if (wf.stopped) return { skip: wf.stopped };
   if (wd.marketing_opted_out_at) return { skip: 'opted_out', stop: true };
   if (STOP_STATES.includes(conversation.current_state)) return { skip: `state_${conversation.current_state}`, stop: true };
-  if (STOP_STATUSES.includes(conversation.status)) return { skip: `status_${conversation.status}` };
+  // With the team means the series is over, not paused (review, 2026-10-06).
+  if (STOP_STATUSES.includes(conversation.status)) return { skip: `status_${conversation.status}`, stop: true };
   if (wd.booking && ['booked', 'rescheduled'].includes(wd.booking.status)) return { skip: 'booked', stop: true };
 
   const lastInboundAt = toMs(lastInbound.created_at);

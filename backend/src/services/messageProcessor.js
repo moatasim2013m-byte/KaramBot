@@ -507,6 +507,19 @@ async function handleStatuses(phoneNumberId, statuses) {
         await prisma.message.updateMany({ where: { id: found.id }, data: { status: status.status } });
       }
 
+      // A weekly follow-up Meta accepted and later failed (2026-10-06: Hanaa, 131042) was counted as
+      // sent, so the series would have carried on to week 2 without week 1 ever arriving. It ends here.
+      if (status.status === 'failed' && found && found.raw_payload && found.raw_payload.kind === 'weekly_followup' && found.conversation_id) {
+        const code = status.errors?.[0]?.code;
+        const fresh = await prisma.conversation.findUnique({ where: { id: found.conversation_id }, select: { workflow_data: true } });
+        const wf = (fresh && fresh.workflow_data && fresh.workflow_data.weekly_followup) || {};
+        if (!wf.stopped) {
+          await jsonb.patchJson('conversations', found.conversation_id, 'workflow_data', {
+            weekly_followup: { ...wf, stopped: code === BILLING_ERROR_CODE ? 'billing' : 'failed_delivery', stopped_at: now.toISOString(), failed_code: code || null },
+          });
+        }
+      }
+
       const billing = status.status === 'failed' && status.errors?.[0]?.code === BILLING_ERROR_CODE;
       if (!billing) continue;
       // A billing alert is itself a WhatsApp message, so it fails for the very reason it is
