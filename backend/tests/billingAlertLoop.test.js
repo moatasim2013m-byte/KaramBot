@@ -162,3 +162,18 @@ test('every later refusal in the same conversation carries the banner but does n
   expect(billingAlerts()).toHaveLength(1);
   expect(db.store.conversations.find((c) => c.id === 'conv_cust2').metadata.billing_blocked_at).toBeTruthy();
 });
+
+test('a weekly follow-up Meta accepted and then failed ends that lead\'s series', async () => {
+  // 2026-10-06: Hanaa's week 1 was accepted, then failed with 131042, and was still counted as sent.
+  db.seed({
+    conversations: [{ id: 'conv_wf', business_id: 'biz_shift', customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true,
+      workflow_data: { weekly_followup: { step: 1, last_sent_at: new Date().toISOString(), template: 'karam_followup_w1' } } }],
+    messages: [{ id: 'm_wf', business_id: 'biz_shift', conversation_id: 'conv_wf', direction: 'outbound', meta_message_id: 'wamid.wf1',
+      status: 'sent', raw_payload: { kind: 'weekly_followup' } }],
+  });
+
+  await deliverStatus({ id: 'wamid.wf1', status: 'failed', recipient_id: CUSTOMER, errors: [{ code: 131049, title: 'marketing not delivered' }] });
+
+  const wf = db.store.conversations.find((c) => c.id === 'conv_wf').workflow_data.weekly_followup;
+  expect(wf).toMatchObject({ step: 1, stopped: 'failed_delivery', failed_code: 131049 });
+});

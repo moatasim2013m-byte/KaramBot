@@ -28,6 +28,7 @@ const { graphVersion } = require('./whatsapp');
 // PR2 (contract §11.1): the idle role-play and single-nudge steps. All pure decision modules.
 const followups = require('../workflows/shift/followups');
 const weeklyFollowup = require('../workflows/shift/weeklyFollowup');
+const { normalizePhone } = require('../utils/phone');
 const roleplay = require('../workflows/shift/roleplay');
 const { staffTask } = require('../workflows/shift/buttons');
 const { expectedLanguage } = require('../workflows/shift/validators');
@@ -1032,7 +1033,9 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
   // spam senders): a staff number taken off the alert list is still not a lead.
   const staffNumbers = [...(Array.isArray(cfg.alert_wa_numbers) ? cfg.alert_wa_numbers : []),
     ...(Array.isArray(cfg.test_numbers) ? cfg.test_numbers : []),
-    ...(Array.isArray(cfg.followup_exclude) ? cfg.followup_exclude : [])].map((n) => String(n).replace(/\D/g, ''));
+    ...(Array.isArray(cfg.followup_exclude) ? cfg.followup_exclude : [])]
+    // The country-aware parser: «0787573973» and «00962…» are the same person as WhatsApp's «962787573973».
+    .map((n) => normalizePhone(String(n)) || String(n).replace(/\D/g, ''));
   const placesLeft = await offerPlacesLeft(business);
   const convs = await prisma.conversation.findMany({
     where: { business_id: business.id, last_message_at: { gte: ago(now, weeklyFollowup.LOOKBACK_MS) } },
@@ -1048,7 +1051,9 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
     const wf = wd.weekly_followup || {};
     if (!decision.step) {
       // A permanent reason is recorded once, so the series stays over even if the state changes later.
-      if (decision.stop && !wf.stopped && Number(wf.step) > 0) {
+      // Recorded even before week 1: a lead closed or handed to the team before the series began must not
+      // become eligible later when that state changes (review, 2026-10-06).
+      if (decision.stop && !wf.stopped) {
         await jsonb.patchJson('conversations', conv.id, 'workflow_data', { weekly_followup: { ...wf, stopped: decision.skip, stopped_at: now.toISOString() } });
       }
       return;
@@ -1057,6 +1062,14 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
     // Exactly once per step: a second sweep, or one racing this, finds the claim taken and does nothing.
     const claimKey = `weekly_followup_${decision.step}`;
     if (!await jsonb.claimFlag('conversations', conv.id, 'metadata', [claimKey])) return;
+    // The customer may have written in the moments since the decision: then the conversation is theirs
+    // and this week is not sent (the claim stays, so it is not retried either).
+    const newest = await prisma.message.findFirst({
+      where: { conversation_id: conv.id, direction: 'inbound' },
+      orderBy: { created_at: 'desc' },
+      select: { id: true },
+    });
+    if (newest && newest.id !== lastInbound.id) return;
 
     const dispatch = await replyBatcher.dispatchIntent({
       business,
@@ -1073,8 +1086,11 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
     const outcome = dispatch && dispatch.outcome;
     const at = now.toISOString();
     if (DELIVERED_OUTCOMES.includes(outcome)) {
+      // Read again: a stop recorded while this was sending (a failed-delivery status) must survive.
+      const fresh = await prisma.conversation.findUnique({ where: { id: conv.id }, select: { workflow_data: true } });
+      const freshWf = (fresh && fresh.workflow_data && fresh.workflow_data.weekly_followup) || {};
       await jsonb.patchJson('conversations', conv.id, 'workflow_data', {
-        weekly_followup: { step: decision.step, last_sent_at: at, started_at: wf.started_at || at, template: decision.template },
+        weekly_followup: { ...freshWf, step: decision.step, last_sent_at: at, started_at: freshWf.started_at || wf.started_at || at, template: decision.template },
       });
       report.weekly_followups_sent += 1;
       return;

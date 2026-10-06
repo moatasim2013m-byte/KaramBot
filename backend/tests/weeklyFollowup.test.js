@@ -42,7 +42,9 @@ describe('plan', () => {
       [conv({}, { booking: { status: 'booked' } }), 'booked'],
     ];
     for (const [c, reason] of cases) expect(wf.plan({ conversation: c, lastInbound: inbound(4), now: NOW })).toMatchObject({ skip: reason, stop: true });
-    expect(wf.plan({ conversation: conv({ status: 'pending' }), lastInbound: inbound(4), now: NOW })).toEqual({ skip: 'status_pending' });
+    // With the team is the end of the series, not a pause (review, 2026-10-06).
+    expect(wf.plan({ conversation: conv({ status: 'pending' }), lastInbound: inbound(4), now: NOW })).toEqual({ skip: 'status_pending', stop: true });
+    expect(wf.plan({ conversation: conv({ status: 'human_takeover' }), lastInbound: inbound(4), now: NOW })).toEqual({ skip: 'status_human_takeover', stop: true });
   });
 
   test('never to SHIFT\'s own staff numbers', () => {
@@ -52,6 +54,10 @@ describe('plan', () => {
 
   test('a series that was stopped stays stopped', () => {
     expect(wf.plan({ conversation: conv({}, { weekly_followup: { step: 2, stopped: 'replied' } }), lastInbound: inbound(20), now: NOW })).toEqual({ skip: 'replied' });
+  });
+
+  test('nothing before the offer begins', () => {
+    expect(wf.plan({ conversation: conv(), lastInbound: inbound(4), now: new Date('2026-09-28T13:00:00+03:00') })).toEqual({ skip: 'offer_not_started' });
   });
 
   test('the offer ending, or all ten places taken, stops everyone', () => {

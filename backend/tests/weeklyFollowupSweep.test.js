@@ -107,6 +107,38 @@ test('the owner\'s own figure replaces the count, but never shows more places th
   expect(replyBatcher.dispatchIntent.mock.calls[0][0].parts[0].bodyParams[1]).toBe('5');
 });
 
+test('the do-not-follow-up list matches the local and 00 formats too', async () => {
+  for (const written of ['0787573973', '00962787573973', '+962 78 757 3973']) {
+    db.reset(); jest.clearAllMocks(); seed();
+    db.store.businesses.find((b) => b.id === 'biz_shift').ai_config.followup_exclude = [written];
+    await runSweep({ now: NOW });
+    expect(replyBatcher.dispatchIntent).not.toHaveBeenCalled();
+  }
+});
+
+test('a lead closed before week 1 stays stopped even if it reopens', async () => {
+  seed();
+  conv('c_lead').current_state = 'closed';
+  await runSweep({ now: NOW });
+  expect(conv('c_lead').workflow_data.weekly_followup).toMatchObject({ stopped: 'state_closed' });
+  conv('c_lead').current_state = 'discovery';
+  await runSweep({ now: new Date(NOW.getTime() + DAY) });
+  expect(replyBatcher.dispatchIntent).not.toHaveBeenCalled();
+});
+
+test('a customer who writes between the decision and the send does not get the follow-up', async () => {
+  seed();
+  // dispatchIntent is only reached after the re-check; simulate the reply landing as the claim is taken.
+  const jsonb = require('../src/db/jsonb');
+  const realClaim = jsonb.claimFlag;
+  jest.spyOn(jsonb, 'claimFlag').mockImplementation(async (...args) => {
+    db.seed({ messages: [{ business_id: 'biz_shift', conversation_id: 'c_lead', direction: 'inbound', text_body: 'رجعت', created_at: new Date(NOW.getTime() + 1000) }] });
+    return realClaim(...args);
+  });
+  await runSweep({ now: NOW });
+  expect(replyBatcher.dispatchIntent).not.toHaveBeenCalled();
+});
+
 test('switched off, nothing is sent', async () => {
   delete process.env.SHIFT_WEEKLY_FOLLOWUPS;
   seed();
