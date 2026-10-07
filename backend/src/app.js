@@ -50,9 +50,25 @@ app.use('/api/shift/whatsapp/webhook', express.raw({ type: 'application/json' })
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Cloud Run puts one Google front end before the app. Without this, req.ip was that proxy for every
+// request, so both limiters below counted ALL users of ALL businesses as one client: twenty failed
+// logins anywhere locked everyone out for 15 minutes (review, 2026-10-07).
+app.set('trust proxy', 1);
+
 // Rate limiting
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Too many requests' } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100 });
+// Signed-in requests are counted per session token, so two staff members behind one Wi-Fi do not share
+// a budget; anonymous ones per client IP.
+const crypto = require('crypto');
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  keyGenerator: (req) => {
+    const auth = req.headers.authorization;
+    return auth ? `t:${crypto.createHash('sha256').update(auth).digest('hex').slice(0, 24)}` : `ip:${req.ip}`;
+  },
+  validate: { keyGeneratorIpFallback: false },
+});
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));

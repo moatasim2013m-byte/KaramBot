@@ -249,25 +249,33 @@ router.post('/conversations/:id/send', async (req, res) => {
       ? await sendTextMessage(business.wa_phone_number_id, accessToken, conv.customer_wa_id, text, { replyTo })
       : await sendTextMessage(business.wa_phone_number_id, accessToken, conv.customer_wa_id, text);
 
-    const msg = await prisma.message.create({
-      data: {
-        business_id: req.businessId,
-        conversation_id: conv.id,
-        meta_message_id: metaResponse?.messages?.[0]?.id || null,
-        direction: 'outbound',
-        message_type: 'text',
-        text_body: text,
-        status: 'sent',
-        sent_by_user_id: req.user.id,
-        is_ai_generated: false,
-        reply_to_message_id: replyTo,
-      },
-    });
+    // WhatsApp has the message now. A failure recording it must not come back as «not sent»: staff would
+    // retry and the customer would get it twice (review, 2026-10-07). It is logged and answered as sent.
+    let msg = null;
+    try {
+      msg = await prisma.message.create({
+        data: {
+          business_id: req.businessId,
+          conversation_id: conv.id,
+          meta_message_id: metaResponse?.messages?.[0]?.id || null,
+          direction: 'outbound',
+          message_type: 'text',
+          text_body: text,
+          status: 'sent',
+          sent_by_user_id: req.user.id,
+          is_ai_generated: false,
+          reply_to_message_id: replyTo,
+        },
+      });
 
-    await prisma.conversation.update({
-      where: { id: conv.id },
-      data: { last_message_at: new Date() },
-    });
+      await prisma.conversation.update({
+        where: { id: conv.id },
+        data: { last_message_at: new Date() },
+      });
+    } catch (recordErr) {
+      console.error(`[inbox] sent to WhatsApp but not recorded conversation=${conv.id}: ${recordErr.message}`);
+      return res.json({ sent: true, recorded: false, meta_message_id: metaResponse?.messages?.[0]?.id || null });
+    }
 
     // The message is already on the customer's phone, so bookkeeping failures are logged, never
     // returned as an error (staff would resend). awaiting_staff rows are now answered by this send.
