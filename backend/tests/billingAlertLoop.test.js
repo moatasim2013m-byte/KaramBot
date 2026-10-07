@@ -177,3 +177,15 @@ test('a weekly follow-up Meta accepted and then failed ends that lead\'s series'
   const wf = db.store.conversations.find((c) => c.id === 'conv_wf').workflow_data.weekly_followup;
   expect(wf).toMatchObject({ step: 1, stopped: 'failed_delivery', failed_code: 131049 });
 });
+
+test('a late failure report about an earlier week does not stop a series that has moved on', async () => {
+  const week2At = new Date();
+  db.seed({
+    conversations: [{ id: 'conv_wf2', business_id: 'biz_shift', customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true,
+      workflow_data: { weekly_followup: { step: 2, last_sent_at: week2At.toISOString() } } }],
+    messages: [{ id: 'm_w1', business_id: 'biz_shift', conversation_id: 'conv_wf2', direction: 'outbound', meta_message_id: 'wamid.w1old',
+      status: 'sent', raw_payload: { kind: 'weekly_followup' }, created_at: new Date(week2At.getTime() - 7 * 24 * 3600 * 1000) }],
+  });
+  await deliverStatus({ id: 'wamid.w1old', status: 'failed', recipient_id: CUSTOMER, errors: [{ code: 131049 }] });
+  expect(db.store.conversations.find((c) => c.id === 'conv_wf2').workflow_data.weekly_followup.stopped).toBeUndefined();
+});

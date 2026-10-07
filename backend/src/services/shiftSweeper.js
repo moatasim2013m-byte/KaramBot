@@ -1064,12 +1064,19 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
     if (!await jsonb.claimFlag('conversations', conv.id, 'metadata', [claimKey])) return;
     // The customer may have written in the moments since the decision: then the conversation is theirs
     // and this week is not sent (the claim stays, so it is not retried either).
-    const newest = await prisma.message.findFirst({
-      where: { conversation_id: conv.id, direction: 'inbound' },
-      orderBy: { created_at: 'desc' },
+    // Compared by time, not id: two inbounds in the same millisecond must not read as a new reply.
+    const newer = await prisma.message.findFirst({
+      where: { conversation_id: conv.id, direction: 'inbound', created_at: { gt: lastInbound.created_at } },
       select: { id: true },
     });
-    if (newest && newest.id !== lastInbound.id) return;
+    if (newer) {
+      // A reply ends the series, the same as one the planner sees — recorded, so the claimed week is not
+      // left half-done with nothing saying why (second review, 2026-10-07).
+      await jsonb.patchJson('conversations', conv.id, 'workflow_data', {
+        weekly_followup: { ...wf, stopped: 'replied', stopped_at: now.toISOString() },
+      });
+      return;
+    }
 
     const dispatch = await replyBatcher.dispatchIntent({
       business,
@@ -1089,6 +1096,8 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
       // Read again: a stop recorded while this was sending (a failed-delivery status) must survive.
       const fresh = await prisma.conversation.findUnique({ where: { id: conv.id }, select: { workflow_data: true } });
       const freshWf = (fresh && fresh.workflow_data && fresh.workflow_data.weekly_followup) || {};
+      // Stopped while this was sending (Meta already reported it failed): not counted as sent.
+      if (freshWf.stopped) return;
       await jsonb.patchJson('conversations', conv.id, 'workflow_data', {
         weekly_followup: { ...freshWf, step: decision.step, last_sent_at: at, started_at: freshWf.started_at || wf.started_at || at, template: decision.template },
       });

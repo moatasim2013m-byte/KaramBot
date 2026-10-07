@@ -513,7 +513,11 @@ async function handleStatuses(phoneNumberId, statuses) {
         const code = status.errors?.[0]?.code;
         const fresh = await prisma.conversation.findUnique({ where: { id: found.conversation_id }, select: { workflow_data: true } });
         const wf = (fresh && fresh.workflow_data && fresh.workflow_data.weekly_followup) || {};
-        if (!wf.stopped) {
+        // Only a failure of the LATEST send ends the series: a late report about week 1, arriving after
+        // week 2 went out, must not stop a series that is working (second review, 2026-10-07).
+        const lastSentMs = wf.last_sent_at ? new Date(wf.last_sent_at).getTime() : NaN;
+        const isLatest = !Number.isFinite(lastSentMs) || new Date(found.created_at).getTime() >= lastSentMs - 5 * 60 * 1000;
+        if (!wf.stopped && isLatest) {
           await jsonb.patchJson('conversations', found.conversation_id, 'workflow_data', {
             weekly_followup: { ...wf, stopped: code === BILLING_ERROR_CODE ? 'billing' : 'failed_delivery', stopped_at: now.toISOString(), failed_code: code || null },
           });

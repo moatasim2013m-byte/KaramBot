@@ -155,3 +155,15 @@ test('a template Meta has not approved stops the series and tells the owner once
   expect(conv('c_lead').workflow_data.weekly_followup).toMatchObject({ stopped: 'template' });
   expect(alerts.sendStaffAlert).toHaveBeenCalledTimes(1);
 });
+
+test('a reply at the moment of sending ends the series with a reason — it is not left half-done', async () => {
+  seed();
+  const jsonb = require('../src/db/jsonb');
+  const realClaim = jsonb.claimFlag;
+  jest.spyOn(jsonb, 'claimFlag').mockImplementation(async (...args) => {
+    db.seed({ messages: [{ business_id: 'biz_shift', conversation_id: 'c_lead', direction: 'inbound', text_body: 'رجعت', created_at: new Date(NOW.getTime() + 1000) }] });
+    return realClaim(...args);
+  });
+  await runSweep({ now: NOW });
+  expect(conv('c_lead').workflow_data.weekly_followup).toMatchObject({ stopped: 'replied' });
+});
