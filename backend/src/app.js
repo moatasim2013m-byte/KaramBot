@@ -67,7 +67,6 @@ const apiLimiter = rateLimit({
     const auth = req.headers.authorization;
     return auth ? `t:${crypto.createHash('sha256').update(auth).digest('hex').slice(0, 24)}` : `ip:${req.ip}`;
   },
-  validate: { keyGeneratorIpFallback: false },
 });
 
 // Health check
