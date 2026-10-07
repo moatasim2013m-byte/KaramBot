@@ -77,7 +77,7 @@ test('audio ok → the batch line uses the transcript and updates has one entry'
   expect(batch[0].shift_media).toBeUndefined(); // the input row is not mutated
 
   // The SDK got the inline audio with its base mime type, temperature 0 and the verbatim prompt.
-  expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({ generationConfig: { temperature: 0, maxOutputTokens: 600 } }));
+  expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({ generationConfig: media.GENERATION_CONFIG }));
   const [parts, opts] = mockGenerateContent.mock.calls[0];
   expect(parts[0].inlineData).toEqual({ mimeType: 'audio/ogg', data: Buffer.from('bytes').toString('base64') });
   expect(parts[1].text).toBe(media.PROMPT.audio);
@@ -200,4 +200,19 @@ test('no token and no stored token → failed, no Graph call', async () => {
   const out = await media.enrichBatch({ id: 'b1' }, null, [row('m1', 'audio')], { now: NOW });
   expect(out.updates[0].shift_media.status).toBe('failed');
   expect(axios.get).not.toHaveBeenCalled();
+});
+
+test('a cut-off answer (finish MAX_TOKENS) is not passed on as what the file says', async () => {
+  mockGraph();
+  mockGenerateContent.mockImplementation(async () => ({ response: {
+    text: () => 'صورة تحتوي على نص مكتوب باللغة العربية باللون الأسود على خلفية بي',
+    candidates: [{ finishReason: 'MAX_TOKENS' }],
+  } }));
+  const out = await media.enrichBatch(business, 'token', [row('m1', 'image')], { now: NOW });
+  expect(out.batch[0].shift_media).toMatchObject({ status: 'failed', text: null });
+});
+
+test('thinking is kept low so the answer is not starved', () => {
+  expect(media.GENERATION_CONFIG.thinkingConfig).toEqual({ thinkingLevel: 'low' });
+  expect(media.GENERATION_CONFIG.maxOutputTokens).toBeGreaterThanOrEqual(1500);
 });

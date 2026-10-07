@@ -37,6 +37,10 @@ const PROMPT = {
     + 'إذا في نص ظاهر (أسعار، أسماء)، اكتبه بسطر يبدأ بـ «النص:». بدون تخمين. إذا الفيديو فارغ أو مش واضح اكتب: [فارغ]',
 };
 
+// Measured on gemini-3.6-flash, 2026-10-07: with default thinking the model spent ~580 of 600 tokens
+// reasoning and the answer stopped mid-sentence (finish MAX_TOKENS). Low thinking: complete in ~1.5 s.
+const GENERATION_CONFIG = { temperature: 0, maxOutputTokens: 1500, thinkingConfig: { thinkingLevel: 'low' } };
+
 // Graph's defaults when neither the download nor the webhook named a type.
 const DEFAULT_MIME = { audio: 'audio/ogg', image: 'image/jpeg', video: 'video/mp4' };
 
@@ -112,7 +116,7 @@ async function readRow(row, token, remainingMs) {
   try {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const geminiModel = genAI.getGenerativeModel({ model, generationConfig: { temperature: 0, maxOutputTokens: 600 } });
+    const geminiModel = genAI.getGenerativeModel({ model, generationConfig: GENERATION_CONFIG });
     const timeout = Math.max(1, left());
     const result = await withBudget(
       geminiModel.generateContent(
@@ -124,6 +128,8 @@ async function readRow(row, token, remainingMs) {
     response = result && result.response;
     const text = response && typeof response.text === 'function' ? String(response.text() || '').trim() : '';
     ok = true;
+    // A cut-off answer is half a sentence about the customer's file: treat it as unread, not as content.
+    if (response?.candidates?.[0]?.finishReason === 'MAX_TOKENS') return { status: 'failed', text: null, error: 'truncated' };
     if (!text || EMPTY_MARKERS.some((m) => text === m || text.replace(/[.\s]/g, '') === m.replace(/\s/g, ''))) {
       return { status: 'empty', text: null };
     }
@@ -223,6 +229,7 @@ module.exports = {
   enrichBatch,
   readForTenant,
   VIDEO_DEADLINE_MS,
+  GENERATION_CONFIG,
   transcriptLines,
   PROMPT,
   MAX_PER_BATCH,
