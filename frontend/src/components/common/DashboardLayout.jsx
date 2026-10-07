@@ -16,7 +16,9 @@ export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const calcUnread = (data) => (data?.open || 0) + (data?.human_takeover || 0);
+  // Conversations with unread messages (it counted open + takeover conversations, which reading could
+  // never clear — review, 2026-10-07).
+  const calcUnread = (data) => data?.unread || 0;
 
   // Poll inbox stats for unread badge (SSE disabled to avoid token in URL logs)
   useEffect(() => {
@@ -24,7 +26,7 @@ export default function DashboardLayout() {
 
     const loadUnread = async () => {
       try {
-        const res = await api.get('/inbox/stats');
+        const res = await api.get('/inbox/v2/stats');
         if (!cancelled) setUnreadCount(calcUnread(res.data));
       } catch (_) {
         // ignore polling errors
@@ -32,7 +34,8 @@ export default function DashboardLayout() {
     };
 
     loadUnread();
-    const interval = setInterval(loadUnread, 10000);
+    // 30 s: the badge is a hint, and the inbox page keeps its own fresher counts.
+    const interval = setInterval(loadUnread, 30000);
 
     return () => {
       cancelled = true;

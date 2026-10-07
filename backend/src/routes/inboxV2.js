@@ -26,7 +26,8 @@ router.use(authenticate, attachBusinessId);
 
 // ─── limits ───────────────────────────────────────────────────────────────────
 
-const LIST_MAX = 50;
+// A refresh re-reads every row staff have loaded (up to this many), so it never drops rows.
+const LIST_MAX = 150;
 const THREAD_MAX = 100;
 const SEARCH_MAX = 80;
 const LABEL_MAX = 30;
@@ -346,10 +347,23 @@ router.get('/conversations/:id/messages', withConversation(async (req, res, conv
 }));
 
 /** POST /conversations/:id/read — explicit, sent by the page only while it is visible. */
+/**
+ * POST /conversations/:id/read { up_to } — up_to is the created_at of the newest message the page has
+ * actually shown. Whatever arrived after it stays unread: zeroing the counter used to swallow a message
+ * that landed between the page's fetch and this call (review, 2026-10-07). Without up_to: everything.
+ */
 router.post('/conversations/:id/read', withConversation(async (req, res, conv) => {
   const now = new Date();
-  await prisma.conversation.update({ where: { id: conv.id }, data: { unread_count: 0, last_staff_read_at: now } });
-  res.json({ ok: true, last_staff_read_at: now });
+  let remaining = 0;
+  if (req.body && req.body.up_to !== undefined) {
+    const upTo = validDate(req.body.up_to);
+    if (!upTo) return res.status(400).json({ error: 'invalid up_to' });
+    remaining = await prisma.message.count({
+      where: { conversation_id: conv.id, direction: 'inbound', created_at: { gt: upTo } },
+    });
+  }
+  await prisma.conversation.update({ where: { id: conv.id }, data: { unread_count: remaining, last_staff_read_at: now } });
+  res.json({ ok: true, unread_count: remaining, last_staff_read_at: now });
 }));
 
 router.post('/conversations/:id/labels', withConversation(async (req, res, conv) => {

@@ -323,3 +323,32 @@ describe('review fixes (2026-10-06)', () => {
     expect([...seen].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 });
+
+describe('read up to what was shown (Codex review, 2026-10-07)', () => {
+  test('a message that arrived after the shown one stays unread', async () => {
+    seed({
+      conversations: [{ id: 'c1', business_id: 'biz_a', customer_wa_id: '962790000001', unread_count: 3 }],
+      messages: [
+        { business_id: 'biz_a', conversation_id: 'c1', direction: 'inbound', text_body: 'a', created_at: at(1) },
+        { business_id: 'biz_a', conversation_id: 'c1', direction: 'inbound', text_body: 'b', created_at: at(2) },
+        { business_id: 'biz_a', conversation_id: 'c1', direction: 'inbound', text_body: 'arrived after the page loaded', created_at: at(3) },
+      ],
+    });
+    const res = await request(app).post('/api/inbox/v2/conversations/c1/read').set(SARA).send({ up_to: at(2).toISOString() });
+    expect(res.body.unread_count).toBe(1);
+    expect(conv('c1').unread_count).toBe(1);
+  });
+
+  test('a bad up_to is refused rather than zeroing everything', async () => {
+    seed({ conversations: [{ id: 'c1', business_id: 'biz_a', customer_wa_id: '962790000001', unread_count: 3 }] });
+    const res = await request(app).post('/api/inbox/v2/conversations/c1/read').set(SARA).send({ up_to: 'soon' });
+    expect(res.status).toBe(400);
+    expect(conv('c1').unread_count).toBe(3);
+  });
+
+  test('a refresh can re-read up to 150 rows', async () => {
+    seed({ conversations: Array.from({ length: 70 }, (_, i) => ({ id: `c${i}`, business_id: 'biz_a', customer_wa_id: `96279${String(i).padStart(7, '0')}`, last_message_at: at(i) })) });
+    const res = await request(app).get('/api/inbox/v2/conversations?limit=150').set(SARA);
+    expect(res.body.conversations).toHaveLength(70);
+  });
+});

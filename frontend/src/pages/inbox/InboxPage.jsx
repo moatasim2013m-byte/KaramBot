@@ -23,8 +23,10 @@ import { StatusTick, TickDouble, WaText, windowState, Avatar, LABEL_PRESETS } fr
 import { LeadCard, NEEDS_TEAM_LABELS, STAGE_LABELS } from '../InboxPage';
 
 const V2 = '/inbox/v2';
-const LIST_POLL_MS = 8000;
-const THREAD_POLL_MS = 4000;
+const LIST_POLL_MS = 10000;
+const STATS_POLL_MS = 30000;
+const THREAD_POLL_MS = 5000;
+const DETAIL_POLL_MS = 20000;
 
 const TABS = [
   { key: 'all', label: 'الكل' },
@@ -276,7 +278,7 @@ function ContactPanel({ conv, onSaveNotes, onSaveLabel, onChanged, isShift }) {
         <div className="flex gap-2">
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="مثلًا: أبو أحمد — مطعم الساحة"
             className="flex-1 min-w-0 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#008069]" />
-          <button onClick={async () => { await onSaveLabel(label); flash('تم الحفظ'); }} className="text-sm bg-[#008069] text-white px-3 rounded-xl">حفظ</button>
+          <button onClick={async () => { if (await onSaveLabel(label)) flash('تم الحفظ'); }} className="text-sm bg-[#008069] text-white px-3 rounded-xl">حفظ</button>
         </div>
       </div>
       <div>
@@ -284,7 +286,7 @@ function ContactPanel({ conv, onSaveNotes, onSaveLabel, onChanged, isShift }) {
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} maxLength={2000}
           placeholder="مثلًا: بيفضّل التواصل الصبح، عنده فرعين…"
           className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-[#008069]" />
-        <button onClick={async () => { await onSaveNotes(notes); flash('تم الحفظ'); }} className="mt-1 text-sm bg-[#008069] text-white px-4 py-1.5 rounded-xl">حفظ الملاحظات</button>
+        <button onClick={async () => { if (await onSaveNotes(notes)) flash('تم الحفظ'); }} className="mt-1 text-sm bg-[#008069] text-white px-4 py-1.5 rounded-xl">حفظ الملاحظات</button>
       </div>
       {saved && <p className="text-xs text-green-600">{saved} ✓</p>}
       {isShift && conv.workflow_data && (
@@ -341,30 +343,60 @@ export default function InboxPage() {
 
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 300); return () => clearTimeout(t); }, [search]);
 
+  // ── request discipline (Codex review, 2026-10-07) ──
+  // A generation token per opened thread: every thread response is applied only if the thread it was
+  // asked for is still the one on screen, so a slow answer for A can never land inside B — not even
+  // after A → B → A. Poll responses also carry a sequence number, so an older one cannot replace a
+  // newer one. A 429 pauses all polling for a minute instead of hammering the limiter.
+  const genRef = useRef(0);
+  const msgSeqRef = useRef(0);
+  const msgAppliedRef = useRef(0);
+  const backoffUntilRef = useRef(0);
+  const backedOff = () => Date.now() < backoffUntilRef.current;
+  const noteRateLimit = (err) => {
+    if (err && err.response && err.response.status === 429) backoffUntilRef.current = Date.now() + 60000;
+  };
+  const isCurrent = (gen, id) => genRef.current === gen && openIdRef.current === id;
+
   // ── list ──
   const listKeyRef = useRef('');
   const pagesRef = useRef(1);
+  const listBusyRef = useRef(false);
   const loadList = useCallback(async ({ more = false } = {}) => {
+    // A refresh never runs on top of «تحميل المزيد» (or the other way round): their answers interleaved.
+    if (listBusyRef.current) return;
+    listBusyRef.current = true;
     const key = `${filter}|${debounced}`;
     listKeyRef.current = key;
-    const params = { filter };
-    if (debounced) params.search = debounced;
-    if (more && cursor) {
-      params.cursor = cursor;
-      params.limit = 30;
-    } else {
-      // A refresh re-reads as many rows as are on screen, so «تحميل المزيد» is not undone every 8 s.
-      params.limit = Math.min(30 * pagesRef.current, 50);
+    try {
+      const params = { filter };
+      if (debounced) params.search = debounced;
+      if (more && cursor) {
+        params.cursor = cursor;
+        params.limit = 30;
+      } else {
+        // A refresh re-reads every row on screen (the API allows 150), so nothing loaded is dropped.
+        params.limit = Math.min(30 * pagesRef.current, 150);
+      }
+      const res = await api.get(`${V2}/conversations`, { params });
+      if (listKeyRef.current !== key) return; // the filter or search changed meanwhile
+      if (more) pagesRef.current += 1;
+      setConversations((prev) => {
+        if (!more) return res.data.conversations;
+        const seen = new Set(prev.map((c) => c.id));
+        return [...prev, ...res.data.conversations.filter((c) => !seen.has(c.id))];
+      });
+      setCursor(res.data.next_cursor);
+    } catch (err) {
+      noteRateLimit(err);
+      throw err;
+    } finally {
+      listBusyRef.current = false;
     }
-    const res = await api.get(`${V2}/conversations`, { params });
-    if (listKeyRef.current !== key) return; // the filter or search changed meanwhile
-    if (more) pagesRef.current += 1;
-    setConversations((prev) => (more ? [...prev, ...res.data.conversations] : res.data.conversations));
-    setCursor(res.data.next_cursor);
   }, [filter, debounced, cursor]);
 
   const loadStats = useCallback(async () => {
-    try { setStats((await api.get(`${V2}/stats`)).data); } catch { /* badges are decoration */ }
+    try { setStats((await api.get(`${V2}/stats`)).data); } catch (err) { noteRateLimit(err); }
   }, []);
 
   useEffect(() => {
@@ -377,22 +409,32 @@ export default function InboxPage() {
 
   useEffect(() => { api.get(`${V2}/staff-list`).then((r) => setStaff(r.data.staff || [])).catch(() => {}); }, []);
 
+  // Polling budget, per open tab: list 6/min + stats 2/min + thread 12/min + detail 3/min ≈ 23/min
+  // (it was 51 with the menu badge). The limiter is 100/min per signed-in session.
   useEffect(() => {
     if (!visible) return undefined;
-    const t = setInterval(() => { loadList().catch(() => {}); loadStats(); }, LIST_POLL_MS);
-    return () => clearInterval(t);
+    const t1 = setInterval(() => { if (!backedOff()) loadList().catch(() => {}); }, LIST_POLL_MS);
+    const t2 = setInterval(() => { if (!backedOff()) loadStats(); }, STATS_POLL_MS);
+    return () => { clearInterval(t1); clearInterval(t2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, filter, debounced]);
 
   // ── thread ──
-  const loadConversation = useCallback(async (id) => {
-    const res = await api.get(`${V2}/conversations/${id}`);
-    if (openIdRef.current === id) setConv(res.data.conversation);
+  const loadConversation = useCallback(async (id, gen = genRef.current) => {
+    try {
+      const res = await api.get(`${V2}/conversations/${id}`);
+      if (isCurrent(gen, id)) setConv(res.data.conversation);
+    } catch (err) { noteRateLimit(err); throw err; }
   }, []);
 
-  const loadMessages = useCallback(async (id) => {
-    const res = await api.get(`${V2}/conversations/${id}/messages`, { params: { limit: 50 } });
-    if (openIdRef.current !== id) return;
+  const loadMessages = useCallback(async (id, gen = genRef.current) => {
+    const seq = ++msgSeqRef.current;
+    let res;
+    try {
+      res = await api.get(`${V2}/conversations/${id}/messages`, { params: { limit: 50 } });
+    } catch (err) { noteRateLimit(err); throw err; }
+    if (!isCurrent(gen, id) || seq < msgAppliedRef.current) return;
+    msgAppliedRef.current = seq;
     // The newest page replaces itself; older pages staff already loaded stay above it.
     setMessages((prev) => {
       const page = res.data.messages;
@@ -410,15 +452,27 @@ export default function InboxPage() {
     setHasOlder((h) => (h === null ? res.data.has_older : h));
   }, []);
 
-  const markRead = useCallback(async (id) => {
+  // Read up to the newest message actually on screen, and only while the tab is visible and the thread
+  // is the open one: whatever arrived after that stays unread (it used to be zeroed unseen).
+  const lastAckRef = useRef('');
+  const markRead = useCallback(async (id, gen, upTo) => {
+    if (!isCurrent(gen, id) || document.visibilityState !== 'visible' || !upTo) return;
+    const ackKey = `${id}|${upTo}`;
+    if (lastAckRef.current === ackKey) return;
+    lastAckRef.current = ackKey;
     try {
-      await api.post(`${V2}/conversations/${id}/read`);
-      setConversations((list) => list.map((c) => (c.id === id ? { ...c, unread_count: 0 } : c)));
-    } catch { /* next poll retries */ }
+      const res = await api.post(`${V2}/conversations/${id}/read`, { up_to: upTo });
+      const left = res.data.unread_count || 0;
+      setConversations((list) => list.map((c) => (c.id === id ? { ...c, unread_count: left } : c)));
+      if (isCurrent(gen, id)) setConv((c) => (c && c.id === id ? { ...c, unread_count: left } : c));
+    } catch (err) { noteRateLimit(err); lastAckRef.current = ''; }
   }, []);
 
   const openConversation = async (c) => {
+    const gen = ++genRef.current;
     openIdRef.current = c.id;
+    msgAppliedRef.current = msgSeqRef.current;
+    lastAckRef.current = '';
     setSelectedId(c.id);
     setConv(c);
     setMessages([]);
@@ -434,28 +488,29 @@ export default function InboxPage() {
     atBottomRef.current = true;
     setThreadLoading(true);
     try {
-      await Promise.all([loadConversation(c.id), loadMessages(c.id)]);
-      if (visible) markRead(c.id);
+      await Promise.all([loadConversation(c.id, gen), loadMessages(c.id, gen)]);
     } catch {
-      setNotice('تعذّر فتح المحادثة');
+      if (isCurrent(gen, c.id)) setNotice('تعذّر فتح المحادثة');
     } finally {
-      setThreadLoading(false);
+      if (isCurrent(gen, c.id)) setThreadLoading(false);
     }
   };
 
   useEffect(() => {
     if (!selectedId || !visible) return undefined;
-    const t = setInterval(() => {
-      loadMessages(selectedId).catch(() => {});
-      loadConversation(selectedId).catch(() => {});
-    }, THREAD_POLL_MS);
-    return () => clearInterval(t);
+    const gen = genRef.current;
+    const t1 = setInterval(() => { if (!backedOff()) loadMessages(selectedId, gen).catch(() => {}); }, THREAD_POLL_MS);
+    const t2 = setInterval(() => { if (!backedOff()) loadConversation(selectedId, gen).catch(() => {}); }, DETAIL_POLL_MS);
+    return () => { clearInterval(t1); clearInterval(t2); };
   }, [selectedId, visible, loadMessages, loadConversation]);
 
-  // Read only while someone can actually see the thread.
+  // Acknowledge from what was rendered, not from the conversation's counter.
+  const newest = messages.length ? messages[messages.length - 1] : null;
   useEffect(() => {
-    if (selectedId && visible && conv && conv.unread_count > 0) markRead(selectedId);
-  }, [selectedId, visible, conv, markRead]);
+    if (!selectedId || !visible || !conv || !newest) return;
+    if ((conv.unread_count || 0) <= 0) return;
+    markRead(selectedId, genRef.current, newest.created_at);
+  }, [selectedId, visible, conv, newest, markRead]);
 
   // Stick to the bottom when new messages arrive, unless staff scrolled up to read.
   useEffect(() => {
@@ -472,23 +527,34 @@ export default function InboxPage() {
 
   const loadOlder = async () => {
     if (!messages.length || !selectedId) return;
+    const id = selectedId;
+    const gen = genRef.current;
+    const first = messages[0];
     setLoadingOlder(true);
     const el = scrollRef.current;
     const before = el ? el.scrollHeight : 0;
     try {
-      const res = await api.get(`${V2}/conversations/${selectedId}/messages`, { params: { before: messages[0].created_at, before_id: messages[0].id, limit: 50 } });
+      const res = await api.get(`${V2}/conversations/${id}/messages`, { params: { before: first.created_at, before_id: first.id, limit: 50 } });
+      // Another thread is open now: this page belongs to the one that asked for it, not this one.
+      if (!isCurrent(gen, id)) return;
       atBottomRef.current = false;
-      setMessages((prev) => [...res.data.messages, ...prev]);
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id));
+        return [...res.data.messages.filter((m) => !seen.has(m.id)), ...prev];
+      });
       setHasOlder(res.data.has_older);
       requestAnimationFrame(() => { if (el) el.scrollTop = el.scrollHeight - before; });
+    } catch (err) {
+      noteRateLimit(err);
     } finally {
-      setLoadingOlder(false);
+      if (isCurrent(gen, id)) setLoadingOlder(false);
     }
   };
 
-  // Back on a phone closes the thread for real: polling and read-marking stop with it (it used to keep
-  // marking new messages read while staff looked at the list).
+  // Back on a phone closes the thread for real: polling, read-marking and any answer still on its way
+  // for it stop with it.
   const closeThread = () => {
+    genRef.current += 1;
     openIdRef.current = null;
     setSelectedId(null);
     setConv(null);
@@ -501,25 +567,51 @@ export default function InboxPage() {
 
   // ── actions ──
   const refreshOpen = async () => {
-    if (!selectedId) return;
-    await Promise.all([loadConversation(selectedId), loadMessages(selectedId), loadList().catch(() => {}), loadStats()]);
+    const id = openIdRef.current;
+    if (!id) return;
+    const gen = genRef.current;
+    await Promise.all([
+      loadConversation(id, gen).catch(() => {}),
+      loadMessages(id, gen).catch(() => {}),
+      loadList().catch(() => {}),
+      loadStats(),
+    ]);
   };
 
+  /** Runs a write; true only if the WRITE succeeded — a failed refresh afterwards is not a failed save. */
   const act = async (fn, okText) => {
     try {
       await fn();
-      await refreshOpen();
-      if (okText) { setNotice(okText); setTimeout(() => setNotice(''), 1800); }
     } catch (err) {
+      noteRateLimit(err);
       setNotice(`فشلت العملية: ${err.response?.data?.error || err.message}`);
+      return false;
     }
+    refreshOpen();
+    if (okText) { setNotice(okText); setTimeout(() => setNotice(''), 1800); }
+    return true;
   };
 
   const setStatus = (status) => act(() => api.post(`${V2}/conversations/${selectedId}/status`, { status }));
   const assign = (userId) => act(() => api.post(`${V2}/conversations/${selectedId}/assign`, { user_id: userId || null }));
+
+  // Label taps queue: each computes from the labels the previous tap left, so two quick taps both stick.
+  const labelsRef = useRef({ id: null, labels: [] });
+  const labelChainRef = useRef(Promise.resolve());
+  useEffect(() => {
+    if (conv && labelsRef.current.id !== conv.id) labelsRef.current = { id: conv.id, labels: conv.labels || [] };
+  }, [conv]);
   const toggleLabel = (name) => {
-    const labels = conv.labels.includes(name) ? conv.labels.filter((l) => l !== name) : [...conv.labels, name];
-    return act(() => api.post(`${V2}/conversations/${selectedId}/labels`, { labels }));
+    const id = selectedId;
+    const cur = labelsRef.current.id === id ? labelsRef.current.labels : (conv ? conv.labels : []);
+    const labels = cur.includes(name) ? cur.filter((l) => l !== name) : [...cur, name];
+    labelsRef.current = { id, labels };
+    setConv((c) => (c && c.id === id ? { ...c, labels } : c));
+    labelChainRef.current = labelChainRef.current
+      .then(() => api.post(`${V2}/conversations/${id}/labels`, { labels: labelsRef.current.labels }))
+      .then(() => loadList().catch(() => {}))
+      .catch((err) => { noteRateLimit(err); setNotice('ما انحفظت التصنيفات'); });
+    return labelChainRef.current;
   };
   const snooze = (minutes) => {
     setShowSnooze(false);
@@ -539,22 +631,27 @@ export default function InboxPage() {
     const text = replyText.trim();
     if (!text || !selectedId || sending) return;
     setSending(true);
+    let sent = false;
     try {
       await api.post(`/inbox/conversations/${selectedId}/send`, {
         text,
         ...(replyingTo && replyingTo.meta_message_id ? { reply_to_message_id: replyingTo.meta_message_id } : {}),
       });
+      sent = true;
+    } catch (err) {
+      noteRateLimit(err);
+      setNotice(`ما انبعتت: ${err.response?.data?.error || err.message}`);
+    }
+    if (sent) {
+      // Sent is sent: the draft goes, whatever happens to the refresh after it.
       setReplyText('');
       setReplyingTo(null);
       atBottomRef.current = true;
-      await refreshOpen();
       try { navigator.vibrate?.(10); } catch { /* unsupported */ }
-    } catch (err) {
-      setNotice(`ما انبعتت: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setSending(false);
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      refreshOpen();
     }
+    setSending(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   // Auto-grow the composer like WhatsApp: one line, up to ~6.
