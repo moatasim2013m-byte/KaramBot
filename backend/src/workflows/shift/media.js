@@ -16,20 +16,29 @@ const whatsapp = require('../../services/whatsapp');
 const { resolveModel } = require('../../ai/provider');
 const { decrypt } = require('../../utils/tokenCrypto');
 
-const MEDIA_KINDS = ['audio', 'image'];
+// Owner, 2026-10-07: «must listen to audio and see photos and videos and respond». Photos are now
+// SEEN (what is in them, as well as any text), and videos are watched.
+const MEDIA_KINDS = ['audio', 'image', 'video'];
 const MAX_PER_BATCH = 2;
 const DEFAULT_DEADLINE_MS = 8000;
-const MAX_BYTES = { audio: 2 * 1024 * 1024, image: 5 * 1024 * 1024 };
-const TEXT_MAX = 1000;
-const EMPTY_MARKERS = ['[غير واضح]', '[بلا نص]'];
+// A video takes the model longer to watch than a voice note to hear: its batch gets more time.
+const VIDEO_DEADLINE_MS = 20000;
+// Video stays under Gemini's inline-request limit (~20 MB once base64-encoded); larger ones fall back.
+const MAX_BYTES = { audio: 2 * 1024 * 1024, image: 5 * 1024 * 1024, video: 12 * 1024 * 1024 };
+const TEXT_MAX = 1200;
+const EMPTY_MARKERS = ['[غير واضح]', '[بلا نص]', '[فارغ]'];
 
 const PROMPT = {
   audio: 'فرّغ الرسالة الصوتية حرفيًا بلغتها بدون أي إضافة. إذا ما فيها كلام واضح اكتب: [غير واضح]',
-  image: 'اكتب النص الظاهر بالصورة حرفيًا (أسماء أصناف وأسعار وأوقات إن وجدت) بأسطر قصيرة. لا تصف الصورة ولا تستنتج. إذا ما في نص اكتب: [بلا نص]',
+  image: 'صف هالصورة بسطرين قصيرين بالعربي: شو فيها بالضبط (منتج، منيو، مكان، وصفة طبية، لقطة شاشة، شخص…) بدون تخمين أو مبالغة. '
+    + 'بعدها، إذا فيها نص (أسماء أصناف، أسعار، أوقات، أرقام)، اكتبه حرفيًا بسطر يبدأ بـ «النص:». '
+    + 'إذا الصورة فارغة أو مش واضحة اكتب: [فارغ]',
+  video: 'لخّص هالفيديو بالعربي بثلاث أسطر كحد أقصى: شو بيبين بالضبط. إذا في كلام مسموع، اكتبه حرفيًا بسطر يبدأ بـ «الكلام:». '
+    + 'إذا في نص ظاهر (أسعار، أسماء)، اكتبه بسطر يبدأ بـ «النص:». بدون تخمين. إذا الفيديو فارغ أو مش واضح اكتب: [فارغ]',
 };
 
 // Graph's defaults when neither the download nor the webhook named a type.
-const DEFAULT_MIME = { audio: 'audio/ogg', image: 'image/jpeg' };
+const DEFAULT_MIME = { audio: 'audio/ogg', image: 'image/jpeg', video: 'video/mp4' };
 
 function mediaEnabled(env = process.env) {
   return !!env && env.SHIFT_MEDIA === '1';
@@ -103,7 +112,7 @@ async function readRow(row, token, remainingMs) {
   try {
     const { GoogleGenerativeAI } = require('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const geminiModel = genAI.getGenerativeModel({ model, generationConfig: { temperature: 0, maxOutputTokens: 400 } });
+    const geminiModel = genAI.getGenerativeModel({ model, generationConfig: { temperature: 0, maxOutputTokens: 600 } });
     const timeout = Math.max(1, left());
     const result = await withBudget(
       geminiModel.generateContent(
@@ -140,12 +149,15 @@ async function readRow(row, token, remainingMs) {
  * batch with `shift_media` on the rows it processed and the updates the batcher persists into
  * raw_payload. Rows it had no budget left for stay untouched. Never throws.
  */
-async function enrichBatch(business, accessToken, batch, { now, deadlineMs = DEFAULT_DEADLINE_MS } = {}) {
+async function enrichBatch(business, accessToken, batch, { now, deadlineMs } = {}) {
   const rows = Array.isArray(batch) ? batch : [];
   if (!mediaEnabled()) return { batch: rows, updates: [] };
 
   const candidates = rows.filter(isCandidate).slice(0, MAX_PER_BATCH);
   if (!candidates.length) return { batch: rows, updates: [] };
+  if (deadlineMs === undefined) {
+    deadlineMs = candidates.some((r) => r.message_type === 'video') ? VIDEO_DEADLINE_MS : DEFAULT_DEADLINE_MS;
+  }
 
   const token = resolveToken(business, accessToken);
   const started = Date.now();
@@ -194,9 +206,23 @@ function transcriptLines(row) {
   return sm.text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 }
 
+/**
+ * One attachment read for a customer business's bot (restaurant, clinic, generic) — the same reading
+ * the SHIFT bot uses. Returns { type, text, status, at, ms } or null when media is off or the row is
+ * not one it reads. Never throws: a failure is a status, and the caller keeps its old reply.
+ */
+async function readForTenant(business, accessToken, row, { now } = {}) {
+  if (!mediaEnabled() || !isCandidate(row)) return null;
+  const out = await enrichBatch(business, accessToken, [row], { now });
+  const read = out.batch[0] && out.batch[0].shift_media;
+  return read || null;
+}
+
 module.exports = {
   mediaEnabled,
   enrichBatch,
+  readForTenant,
+  VIDEO_DEADLINE_MS,
   transcriptLines,
   PROMPT,
   MAX_PER_BATCH,

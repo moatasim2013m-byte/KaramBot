@@ -435,9 +435,10 @@ function sampleAlreadySent(lang) {
 const TRANSCRIBED_PREFIX = {
   audio: { ar: '(سمعت رسالتك الصوتية)', en: '(I listened to your voice note)' },
   image: { ar: '(شفت الصورة)', en: '(I saw the image)' },
+  video: { ar: '(شفت الفيديو)', en: '(I watched the video)' },
 };
 
-/** Prefix for a reply built on a transcript (SHIFT_MEDIA=1). Only audio and image are transcribed; others → ''. */
+/** Prefix for a reply built on a transcript (SHIFT_MEDIA=1). Audio, image and video are read; others → ''. */
 function mediaTranscribedPrefix(type, lang) {
   const row = TRANSCRIBED_PREFIX[type];
   if (!row) return '';

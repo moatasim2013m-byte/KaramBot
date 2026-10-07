@@ -272,7 +272,8 @@ describe('PR2 acks (contract §7.3)', () => {
     expect(acks.sampleAlreadySent('ar')).toBe('المثال وصلك فوق 👆 بتحب تجرّبه على شغلك أنت؟');
     expect(acks.mediaTranscribedPrefix('audio', 'ar')).toBe('(سمعت رسالتك الصوتية)');
     expect(acks.mediaTranscribedPrefix('image', 'en')).toBe('(I saw the image)');
-    expect(acks.mediaTranscribedPrefix('video', 'ar')).toBe('');
+    // Videos are watched since 2026-10-07.
+    expect(acks.mediaTranscribedPrefix('video', 'ar')).toBe('(شفت الفيديو)');
   });
 
   test('sectorListPart builds a valid list part in both languages', () => {

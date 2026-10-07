@@ -77,7 +77,7 @@ test('audio ok → the batch line uses the transcript and updates has one entry'
   expect(batch[0].shift_media).toBeUndefined(); // the input row is not mutated
 
   // The SDK got the inline audio with its base mime type, temperature 0 and the verbatim prompt.
-  expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({ generationConfig: { temperature: 0, maxOutputTokens: 400 } }));
+  expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({ generationConfig: { temperature: 0, maxOutputTokens: 600 } }));
   const [parts, opts] = mockGenerateContent.mock.calls[0];
   expect(parts[0].inlineData).toEqual({ mimeType: 'audio/ogg', data: Buffer.from('bytes').toString('base64') });
   expect(parts[1].text).toBe(media.PROMPT.audio);
@@ -122,19 +122,36 @@ test('a Graph failure or an oversized voice note → failed without calling the 
   expect(mockGenerateContent).not.toHaveBeenCalled();
 });
 
-test('over the 2-per-batch cap → the third media row is untouched; processed and non-media rows skipped', async () => {
+test('over the 2-per-batch cap → later media rows are untouched; processed and non-media rows skipped', async () => {
   mockGraph();
   mockGenerateContent.mockImplementation(() => modelReply('نص'));
   const done = row('m0', 'audio', { raw_payload: { shift_media: { status: 'ok', text: 'قديم' } } });
-  const video = row('v1', 'video');
-  const batch = [done, video, row('m1', 'audio'), row('m2', 'image'), row('m3', 'audio')];
+  const doc = row('d1', 'document');
+  const batch = [done, doc, row('m1', 'audio'), row('m2', 'image'), row('m3', 'audio')];
   const out = await media.enrichBatch(business, 'token', batch, { now: NOW });
   expect(out.updates.map((u) => u.id)).toEqual(['m1', 'm2']);
   expect(out.batch[4]).toBe(batch[4]);
   expect(out.batch[4].shift_media).toBeUndefined();
   expect(out.batch[0]).toBe(done);
-  expect(out.batch[1]).toBe(video);
+  expect(out.batch[1]).toBe(doc); // a document is still not read
   expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+});
+
+test('a video is watched, with the longer budget, and the model is asked what it shows and says', async () => {
+  mockGraph();
+  mockGenerateContent.mockImplementation(() => modelReply('فيديو لصحن مشاوي على طاولة.\nالكلام: قديش سعر هاد؟'));
+  const out = await media.enrichBatch(business, 'token', [row('v1', 'video')], { now: NOW });
+  expect(out.updates).toHaveLength(1);
+  expect(out.batch[0].shift_media).toMatchObject({ type: 'video', status: 'ok' });
+  expect(out.batch[0].shift_media.text).toContain('قديش سعر هاد');
+  const [parts] = mockGenerateContent.mock.calls[0];
+  expect(parts[1].text).toBe(media.PROMPT.video);
+  expect(media.VIDEO_DEADLINE_MS).toBeGreaterThan(8000);
+});
+
+test('a photo is described, not only read for text', () => {
+  expect(media.PROMPT.image).toContain('صف');
+  expect(media.PROMPT.image).toContain('النص:');
 });
 
 test('the deadline is honoured (fake timers): a hung model → failed at the budget, the next row never starts', async () => {

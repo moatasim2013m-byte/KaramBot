@@ -23,6 +23,7 @@ const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
 const jsonb = require('../db/jsonb');
+const media = require('../workflows/shift/media');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
@@ -725,6 +726,36 @@ async function processTenantItems(business, accessToken, items) {
   }
 }
 
+const TENANT_MEDIA_LABEL = { audio: '[رسالة صوتية]', image: '[صورة]', video: '[فيديو]' };
+
+/**
+ * A customer business's bot reads a voice note, photo or video (owner, 2026-10-07: «must listen to audio
+ * and see photos and videos and respond»), with the same reader as the SHIFT bot. Returns the text the
+ * workflow should answer — the attachment's content under a label, plus the customer's caption — or ''
+ * when media is off or it could not be read, and the old «send it as text» reply applies.
+ */
+async function readTenantMedia(business, accessToken, item, waMsg) {
+  const row = item && item.message;
+  if (!row || !media.mediaEnabled()) return '';
+  let read = null;
+  try {
+    read = await media.readForTenant(business, accessToken, row, { now: new Date() });
+  } catch (err) {
+    console.error(`[media] tenant read failed business=${business.id}: ${err.message}`);
+  }
+  if (!read || read.status !== 'ok' || !read.text) return '';
+  try {
+    await prisma.message.update({
+      where: { id: row.id },
+      data: { raw_payload: { ...(row.raw_payload && typeof row.raw_payload === 'object' ? row.raw_payload : {}), shift_media: read } },
+    });
+  } catch (err) {
+    console.error(`[media] tenant transcript not saved message=${row.id}: ${err.message}`);
+  }
+  const caption = (waMsg.image && waMsg.image.caption) || (waMsg.video && waMsg.video.caption) || '';
+  return [`${TENANT_MEDIA_LABEL[read.type] || '[مرفق]'}${caption ? ` ${caption}` : ''}`, read.text].join('\n');
+}
+
 async function runTenantWorkflow(business, accessToken, item, startConversation) {
   const { waMsg, customerWaId } = item;
   const phoneNumberId = business.wa_phone_number_id;
@@ -747,6 +778,8 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
       customerText = parts.length ? parts.join(' - ') : `${loc.latitude},${loc.longitude}`;
     } else if (msgType === 'reaction') {
       return;
+    } else if (['image', 'audio', 'video'].includes(msgType) && (customerText = await readTenantMedia(business, accessToken, item, waMsg))) {
+      // Read: the workflow answers what the customer sent, like a typed message (owner, 2026-10-07).
     } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
       const mediaReply = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
       if (!canSendAutoReply(business, conversation, 'media-not-supported reply')) return;
