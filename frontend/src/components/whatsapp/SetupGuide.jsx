@@ -23,16 +23,21 @@ const OWNER_BADGE = {
   nobody: { label: 'تلقائي', cls: 'bg-gray-100 text-gray-500' },
 };
 
-export default function SetupGuide() {
-  const [setup, setSetup] = useState(null);
+// A page that already read GET /whatsapp/status («الرئيسية») passes its `setup` and its own
+// `onReload`, so the checklist and the status line come from one read and refresh together.
+export default function SetupGuide({ setup: given, onReload } = {}) {
+  const [own, setOwn] = useState(null);
+  const controlled = given !== undefined;
+  const setup = controlled ? given : own;
 
   const load = useCallback(() => {
+    if (controlled) { if (onReload) onReload(); return; }
     api.get('/whatsapp/status')
-      .then((res) => setSetup(res.data.setup || null))
-      .catch(() => setSetup(null));
-  }, []);
+      .then((res) => setOwn(res.data.setup || null))
+      .catch(() => setOwn(null));
+  }, [controlled, onReload]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!controlled) load(); }, [controlled, load]);
 
   // The footer promises this list disappears on its own, and the last step — a customer writing
   // in — completes without anyone touching the page. So it keeps looking while there is anything

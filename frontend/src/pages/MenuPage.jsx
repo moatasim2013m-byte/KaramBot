@@ -189,6 +189,49 @@ function ModifierGroupModal({ group, onSave, onClose }) {
   );
 }
 
+/**
+ * «إضافة تصنيف»: the menu had no way to make a category, so a new restaurant could not add its
+ * first item (every item needs one) without SHIFT creating categories for it.
+ */
+function CategoryModal({ onSave, onClose, nextOrder }) {
+  const [name, setName] = useState('');
+  const [nameEn, setNameEn] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleSave = async () => {
+    if (!name.trim()) { setError('اسم التصنيف مطلوب'); return; }
+    setSaving(true); setError(null);
+    try {
+      await api.post('/menu/categories', { name_ar: name.trim(), name_en: nameEn.trim() || null, sort_order: nextOrder });
+      onSave();
+    } catch (err) {
+      setError(err.response?.data?.error || 'تعذّر الحفظ، حاول مرة أخرى');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+        <h3 className="font-semibold text-gray-800">إضافة تصنيف</h3>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="الاسم، مثال: مشاوي" autoFocus
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+        <input value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder="الاسم بالإنجليزية (اختياري)" dir="ltr"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" />
+        {error && <p className="text-red-600 text-xs">{error}</p>}
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm">إلغاء</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-500 text-white py-2 rounded-lg text-sm disabled:opacity-50">
+            {saving ? 'جاري الحفظ...' : 'إضافة'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MenuPage() {
   const [tab, setTab] = useState('items'); // 'items' | 'modifiers'
   const [menu, setMenu] = useState([]);
@@ -235,6 +278,16 @@ export default function MenuPage() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-gray-800">القائمة</h1>
+        <div className="flex items-center gap-2">
+        {tab === 'items' && (
+          <button
+            onClick={() => setModal('category')}
+            className="flex items-center gap-2 border border-green-500 text-green-700 px-4 py-2 rounded-lg text-sm hover:bg-green-50"
+          >
+            <Plus size={16} />
+            إضافة تصنيف
+          </button>
+        )}
         <button
           onClick={() => tab === 'items' ? setModal('add') : setModal({ type: 'modifier', group: null })}
           className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-600"
@@ -242,6 +295,7 @@ export default function MenuPage() {
           <Plus size={16} />
           {tab === 'items' ? 'إضافة صنف' : 'إضافة مجموعة إضافات'}
         </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -257,6 +311,12 @@ export default function MenuPage() {
       {/* Items Tab */}
       {tab === 'items' && !loading && (
         <div className="space-y-5">
+          {menu.length === 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center">
+              <p className="text-sm font-medium text-amber-900">بدون هذه المعلومات يرد البوت بالترحيب فقط</p>
+              <p className="text-xs text-amber-800 mt-1">ابدأ بـ «إضافة تصنيف»، ثم أضف الأصناف وأسعارها.</p>
+            </div>
+          )}
           {menu.map(cat => (
             <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="bg-gray-50 px-4 py-3 font-semibold text-gray-700 text-sm border-b border-gray-100">
@@ -333,7 +393,7 @@ export default function MenuPage() {
       )}
 
       {/* Item Modal */}
-      {modal && modal !== 'add' && !modal.type && (
+      {modal && modal !== 'add' && modal !== 'category' && !modal.type && (
         <ItemModal
           item={modal}
           categories={categories}
@@ -345,6 +405,14 @@ export default function MenuPage() {
         <ItemModal
           item={null}
           categories={categories}
+          onSave={() => { setModal(null); load(); }}
+          onClose={() => setModal(null)}
+        />
+      )}
+
+      {modal === 'category' && (
+        <CategoryModal
+          nextOrder={categories.length}
           onSave={() => { setModal(null); load(); }}
           onClose={() => setModal(null)}
         />

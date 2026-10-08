@@ -11,13 +11,14 @@ import { CONTROL_LABEL } from './setupControls';
  * server again.
  */
 
-export function ConnectInline({ onDone }) {
+// `label` lets a broken link say «أعد الربط» instead of «اربط واتساب»; the flow is the same.
+export function ConnectInline({ onDone, label = CONTROL_LABEL.connect }) {
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}
         className="inline-flex items-center gap-1.5 mt-1.5 rounded-md bg-green-600 px-3 h-9 text-[13px] font-medium text-white hover:bg-green-700">
-        <MessageCircle size={14} /> {CONTROL_LABEL.connect}
+        <MessageCircle size={14} /> {label}
       </button>
     );
   }

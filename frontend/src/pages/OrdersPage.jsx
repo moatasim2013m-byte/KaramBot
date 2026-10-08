@@ -1,6 +1,108 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../utils/api';
-import { RefreshCw, ChevronDown } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { RefreshCw, ChevronDown, Stethoscope, User, Clock } from 'lucide-react';
+
+/**
+ * «الطلبات» (restaurants) / «المواعيد» (clinics): what the bot completed in the chat.
+ *
+ * The line under the title answers the walkthrough's question «من وين بتيجي الطلبات؟»: nobody
+ * types them here, the bot fills them in from the conversation, and the conversation itself stays
+ * in «المحادثات». A clinic's list is its appointments, the same rows as «الخدمات والأطباء».
+ */
+
+function Explainer({ clinic }) {
+  return (
+    <p className="text-[13px] text-gray-500 -mt-3 mb-4 leading-relaxed">
+      {clinic ? 'المواعيد' : 'الطلبات'} التي يتمّها البوت في المحادثة تظهر هنا تلقائيًا، والمحادثة نفسها في{' '}
+      <Link to="/inbox" className="text-green-700 underline underline-offset-2">«المحادثات»</Link>.
+    </p>
+  );
+}
+
+const APPT_STATUS_AR = { draft: 'مسودة', confirmed: 'مؤكد', completed: 'منتهي', cancelled: 'ملغى', no_show: 'لم يحضر' };
+const APPT_STATUS_COLOR = {
+  confirmed: 'bg-green-100 text-green-700',
+  completed: 'bg-gray-100 text-gray-600',
+  cancelled: 'bg-red-100 text-red-600',
+  no_show: 'bg-yellow-100 text-yellow-700',
+  draft: 'bg-blue-100 text-blue-700',
+};
+const APPT_NEXT = { draft: ['confirmed', 'cancelled'], confirmed: ['completed', 'no_show', 'cancelled'] };
+
+function Appointments() {
+  const [items, setItems] = useState(null);
+  const [filter, setFilter] = useState('');
+  const [error, setError] = useState(null);
+
+  const load = () => {
+    api.get('/clinic/appointments', { params: filter ? { status: filter } : {} })
+      .then((res) => { setItems(res.data.appointments || []); setError(null); })
+      .catch((err) => setError(err.response?.status === 403
+        ? 'المواعيد يراها صاحب العيادة والمدير.'
+        : (err.response?.data?.error || 'تعذّر تحميل المواعيد')));
+  };
+  useEffect(load, [filter]);
+
+  const setStatus = async (id, status) => {
+    try { await api.patch(`/clinic/appointments/${id}`, { status }); load(); }
+    catch (err) { setError(err.response?.data?.error || 'تعذّر الحفظ'); }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-gray-800">المواعيد</h1>
+        <div className="flex items-center gap-2">
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+            <option value="">كل المواعيد</option>
+            {Object.entries(APPT_STATUS_AR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <button onClick={load} className="text-gray-400 hover:text-gray-600 p-2" title="تحديث"><RefreshCw size={16} /></button>
+        </div>
+      </div>
+      <Explainer clinic />
+      {error && <p className="mb-3 text-[13px] text-red-700">{error}</p>}
+      {!items && !error && <div className="text-center py-12 text-gray-400">جاري التحميل...</div>}
+      <div className="space-y-3">
+        {(items || []).map((a) => (
+          <div key={a.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-medium text-sm text-gray-800">{a.customer_name || a.customer_wa_id || '—'}</div>
+                <div className="text-xs text-gray-400 mt-0.5 flex flex-wrap items-center gap-3">
+                  {a.service && <span><Stethoscope size={10} className="inline ml-1" />{a.service.name_ar}</span>}
+                  {a.doctor && <span><User size={10} className="inline ml-1" />{a.doctor.name_ar}</span>}
+                  {a.scheduled_at && (
+                    <span><Clock size={10} className="inline ml-1" />
+                      {new Date(a.scheduled_at).toLocaleString('ar-JO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className={`shrink-0 text-xs px-2 py-1 rounded-full font-medium ${APPT_STATUS_COLOR[a.status] || 'bg-gray-100 text-gray-600'}`}>
+                {APPT_STATUS_AR[a.status] || a.status}
+              </span>
+            </div>
+            {APPT_NEXT[a.status] && (
+              <div className="flex gap-2 flex-wrap mt-3">
+                {APPT_NEXT[a.status].map((next) => (
+                  <button key={next} onClick={() => setStatus(a.id, next)}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium ${next === 'cancelled' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                    {APPT_STATUS_AR[next]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {items && items.length === 0 && <div className="text-center py-16 text-gray-400">لا توجد مواعيد بعد</div>}
+      </div>
+    </div>
+  );
+}
 
 const STATUS_AR = {
   draft: 'مسودة',
@@ -32,6 +134,12 @@ const NEXT_STATUSES = {
 };
 
 export default function OrdersPage() {
+  const { user } = useAuth();
+  if (user?.business_type === 'clinic') return <Appointments />;
+  return <Orders />;
+}
+
+function Orders() {
   const [orders, setOrders] = useState([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
@@ -79,6 +187,7 @@ export default function OrdersPage() {
           </button>
         </div>
       </div>
+      <Explainer />
 
       {loading && <div className="text-center py-12 text-gray-400">جاري التحميل...</div>}
 

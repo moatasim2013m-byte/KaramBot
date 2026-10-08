@@ -12,6 +12,8 @@ import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
 import ClinicPage from './pages/ClinicPage';
 import ReportsPage from './pages/ReportsPage';
+import BotPage from './pages/BotPage';
+import BillingPage from './pages/BillingPage';
 import AdminLayout from './layouts/AdminLayout';
 import AdminOverviewPage from './pages/admin/AdminOverviewPage';
 import BusinessesPage from './pages/admin/BusinessesPage';
@@ -50,7 +52,9 @@ function RoleRoute({ roles, children }) {
  */
 function HomeRedirect() {
   const { user } = useAuth();
-  return <Navigate to={user?.role === 'platform_admin' ? '/admin/overview' : '/overview'} replace />;
+  // Staff answer chats; their home is the inbox (spec «الرئيسية»).
+  const home = user?.role === 'platform_admin' ? '/admin/overview' : user?.role === 'staff' ? '/inbox' : '/overview';
+  return <Navigate to={home} replace />;
 }
 
 export default function App() {
@@ -98,8 +102,21 @@ export default function App() {
                 <StaffPage />
               </RoleRoute>
             } />
-            <Route path="settings" element={
+            {/* «البوت»: the owner sees every card, a manager knowledge, gaps and the tester. */}
+            <Route path="bot" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>
+                <BotPage />
+              </RoleRoute>
+            } />
+            {/* «الاشتراك»: money is the owner's. */}
+            <Route path="billing" element={
               <RoleRoute roles={['platform_admin', 'business_owner']}>
+                <BillingPage />
+              </RoleRoute>
+            } />
+            {/* Every role: managers and staff get «حسابي» only; the shop's tabs are the owner's. */}
+            <Route path="settings" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager', 'staff']}>
                 <SettingsPage />
               </RoleRoute>
             } />
