@@ -29,6 +29,8 @@ const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
 const { markOutbound } = require('./lastOutbound');
 const accountEvents = require('./accountEvents');
+const costGuard = require('./costGuard');
+const tokenHealth = require('./tokenHealth');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -39,6 +41,10 @@ const BILLING_ERROR_CODE = 131042;
 // Not something the customer wrote (newMessageAlert's SKIP_TYPES): never puts a conversation in front of staff.
 const NO_ANSWER_TYPES = ['reaction', 'system', 'ephemeral', 'request_welcome'];
 const BOT_PAUSED = 'bot_paused';
+const BOT_LIMIT = 'bot_limit';
+// Sent at most once a day per conversation while the cost guard holds the bot (ai_config.limit_message
+// overrides it). It promises a person, which is true: the conversation is on the staff's attention list.
+const DEFAULT_LIMIT_MESSAGE = 'شكرًا لتواصلك معنا. وصلت رسالتك لفريقنا وسيرد عليك أحد الموظفين بأقرب وقت.';
 
 /** The numbers staff alerts are sent TO. A conversation with one of them is a staff thread. */
 function isStaffNumber(business, waId) {
@@ -65,7 +71,7 @@ const SETTLED_STATUSES = ['failed', 'ambiguous_unreconciled', 'cancelled'];
 const BUSINESS_SELECT = {
   id: true, name: true, business_type: true, status: true,
   currency: true, wa_phone_number_id: true, wa_access_token: true, wa_business_account_id: true,
-  wa_app_id: true, ai_config: true, policies: true,
+  wa_app_id: true, ai_config: true, policies: true, is_internal: true,
 };
 
 function canSendAutoReply(business, conversation, label) {
@@ -209,6 +215,7 @@ async function saveOutboundMessage(businessId, conversationId, text, metaRespons
     },
   });
   await markOutbound(conversationId, msg && msg.created_at);
+  costGuard.noteReply(businessId);
   return msg;
 }
 
@@ -891,6 +898,107 @@ async function readTenantMedia(business, accessToken, item, waMsg) {
   return [`${TENANT_MEDIA_LABEL[read.type] || '[مرفق]'}${caption ? ` ${caption}` : ''}`, read.text].join('\n');
 }
 
+/**
+ * A tenant send Meta refused synchronously. Two refusals mean the bot has gone quiet for a reason
+ * only SHIFT can see: 131042 (no payment method at Meta) gets the same treatment as the status
+ * webhook's 131042 (handleStatuses), and 190 (the token is no longer valid) is recorded by
+ * tokenHealth. Never throws: the caller is already handling a failed send.
+ */
+async function noteSendRefusal(business, conversation, err) {
+  try {
+    const code = tokenHealth.graphCode(err);
+    if (code === tokenHealth.TOKEN_INVALID_CODE) {
+      await tokenHealth.markInvalid(business, { source: 'send' });
+      return;
+    }
+    if (code !== BILLING_ERROR_CODE || !business || business.business_type === 'shift') return;
+    const decided = await markPaymentBlocked(business, new Date());
+    if (!conversation || isStaffNumber(business, conversation.customer_wa_id)) return;
+    // The conversation's first block, as in handleStatuses: one banner, one shop alert.
+    const firstBlock = await jsonb.claimFlag('conversations', conversation.id, 'metadata', ['billing_blocked_at']);
+    if (!firstBlock) return;
+    if (!decided) await reportPaymentBlocked(business);
+    Promise.resolve(alerts.sendStaffAlert({
+      reason: 'billing', business, conversation, summary: 'واتساب رفض رسالة — لازم تنضاف طريقة دفع',
+    })).catch(() => {});
+  } catch (e) {
+    console.error(`[send] refusal not recorded business=${business && business.id}: ${e.message}`);
+  }
+}
+
+function limitMessage(business) {
+  const custom = business?.ai_config?.limit_message;
+  return typeof custom === 'string' && custom.trim() ? custom.trim().slice(0, 1000) : DEFAULT_LIMIT_MESSAGE;
+}
+
+/**
+ * The cost guard said no (costGuard.allow): the bot neither reads nor replies, and the customer
+ * becomes the shop staff's, exactly like a paused bot, with attention_reason 'bot_limit'. Unlike a
+ * pause, the customer is told once a day that a person will answer, so a free-month shop past its
+ * cap does not look dead. The day is claimed on the conversation (metadata.bot_limit_notice_day),
+ * so two deliveries racing send one notice.
+ *
+ * The notice is stored with is_ai_generated false: it is not a bot answer, it must not count
+ * against the cap that caused it, and it does not stamp last_outbound_at, which would read the
+ * customer as answered and restart their wait on the attention list.
+ */
+async function holdForLimit(business, accessToken, conversation, item) {
+  const { customerWaId } = item;
+  if (isStaffNumber(business, customerWaId || conversation.customer_wa_id)) return;
+  const flagged = await flagForStaff(conversation, BOT_LIMIT, item.message && item.message.created_at);
+  emitNewMessages(business, [{ conversation: flagged || conversation }]);
+
+  let claimed = false;
+  try {
+    claimed = await jsonb.claimValue('conversations', conversation.id, 'metadata', 'bot_limit_notice_day', costGuard.ammanDay());
+  } catch (err) {
+    console.error(`[costGuard] notice claim failed conversation=${conversation.id}: ${err.message}`);
+  }
+  if (!claimed || !canSendAutoReply(business, conversation, 'bot-limit notice')) return;
+
+  const text = limitMessage(business);
+  try {
+    const metaResponse = await sendTextMessage(business.wa_phone_number_id, accessToken, customerWaId, text);
+    await prisma.message.create({
+      data: {
+        business_id: business.id,
+        conversation_id: conversation.id,
+        meta_message_id: metaResponse?.messages?.[0]?.id || null,
+        direction: 'outbound',
+        message_type: 'text',
+        text_body: text,
+        status: 'sent',
+        is_ai_generated: false,
+      },
+    });
+  } catch (err) {
+    console.error(`[costGuard] limit notice not sent conversation=${conversation.id}: ${err.message}`);
+    await noteSendRefusal(business, conversation, err);
+  }
+}
+
+/** True when the shop may spend on this message; otherwise the conversation is held for staff. */
+async function spendAllowed(business, accessToken, conversation, item, kind) {
+  const verdict = await costGuard.allow(business, kind);
+  if (verdict.ok) return true;
+  console.warn(`[costGuard] business=${business.id} held (${verdict.reason}) conversation=${conversation.id}`);
+  await holdForLimit(business, accessToken, conversation, item);
+  return false;
+}
+
+const MEDIA_UNSUPPORTED_REPLY = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
+
+async function sendMediaUnsupported(business, accessToken, conversation, customerWaId) {
+  if (!canSendAutoReply(business, conversation, 'media-not-supported reply')) return;
+  try {
+    const metaResponse = await sendTextMessage(business.wa_phone_number_id, accessToken, customerWaId, MEDIA_UNSUPPORTED_REPLY);
+    await saveOutboundMessage(business.id, conversation.id, MEDIA_UNSUPPORTED_REPLY, metaResponse);
+  } catch (sendErr) {
+    console.error('Failed to send media-not-supported reply:', sendErr.message);
+    await noteSendRefusal(business, conversation, sendErr);
+  }
+}
+
 async function runTenantWorkflow(business, accessToken, item, startConversation) {
   const { waMsg, customerWaId } = item;
   const phoneNumberId = business.wa_phone_number_id;
@@ -910,6 +1018,8 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   }
 
   const msgType = waMsg.type || 'text';
+  // Set once the cost guard has been asked, so a media read and the reply it feeds are one check.
+  let guarded = false;
   let customerText = waMsg.text?.body
     || waMsg.interactive?.button_reply?.title
     || waMsg.interactive?.list_reply?.title
@@ -922,22 +1032,26 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
       customerText = parts.length ? parts.join(' - ') : `${loc.latitude},${loc.longitude}`;
     } else if (msgType === 'reaction') {
       return;
-    } else if (['image', 'audio', 'video'].includes(msgType) && (customerText = await readTenantMedia(business, accessToken, item, waMsg))) {
+    } else if (['image', 'audio', 'video'].includes(msgType) && media.mediaEnabled()) {
+      // Reading costs money, so the guard is asked first (the daily media cap and the reply caps).
+      if (!(await spendAllowed(business, accessToken, conversation, item, 'media'))) return;
+      guarded = true;
       // Read: the workflow answers what the customer sent, like a typed message (owner, 2026-10-07).
-    } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
-      const mediaReply = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
-      if (!canSendAutoReply(business, conversation, 'media-not-supported reply')) return;
-      try {
-        const metaResponse = await sendTextMessage(phoneNumberId, accessToken, customerWaId, mediaReply);
-        await saveOutboundMessage(business.id, conversation.id, mediaReply, metaResponse);
-      } catch (sendErr) {
-        console.error('Failed to send media-not-supported reply:', sendErr.message);
+      customerText = await readTenantMedia(business, accessToken, item, waMsg);
+      if (!customerText) {
+        await sendMediaUnsupported(business, accessToken, conversation, customerWaId);
+        return;
       }
+    } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
+      await sendMediaUnsupported(business, accessToken, conversation, customerWaId);
       return;
     } else {
       return;
     }
   }
+
+  // The AI is not asked once the shop is over a hard limit (costGuard; SHIFT's own number is exempt).
+  if (!guarded && !(await spendAllowed(business, accessToken, conversation, item, 'reply'))) return;
 
   // Shared with «جرّب البوت»: the dry run and production go through the same dispatch, so a
   // test reply is the reply a customer would get.
@@ -1027,6 +1141,7 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
       await saveOutboundMessage(business.id, conversation.id, workflowResult.reply, metaResponse);
     } catch (sendErr) {
       console.error('Failed to send WhatsApp message:', sendErr.message);
+      await noteSendRefusal(business, conversation, sendErr);
     }
   }
 }
