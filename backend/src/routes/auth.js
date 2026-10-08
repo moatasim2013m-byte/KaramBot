@@ -4,6 +4,11 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { authenticate } = require('../middleware/auth');
+const {
+  findUserByLogin, normalizeEmail, normalizeLoginPhone, loginTaken, LOGIN_TAKEN_ERROR, maskPhone,
+} = require('../utils/login');
+
+const BAD_LOGIN = 'رقم الموبايل أو البريد أو كلمة المرور غير صحيحة';
 
 function signToken(userId) {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -33,25 +38,27 @@ async function businessInfo(user) {
   }
 }
 
-// POST /api/auth/login
+// POST /api/auth/login — {login | email, password}. `login` is what the form now sends: a mobile
+// number or an email (utils/login.js decides by '@'). `email` is still read so a browser holding
+// the previous bundle keeps signing in across the deploy.
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+    const { password } = req.body || {};
+    const login = (req.body || {}).login ?? (req.body || {}).email;
+    if (!login || !password) return res.status(400).json({ error: 'أدخل رقم الموبايل أو البريد الإلكتروني وكلمة المرور' });
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true, name: true, email: true, role: true,
-        business_id: true, active: true, password: true,
-      },
+    const user = await findUserByLogin(login, {
+      id: true, name: true, email: true, phone: true, role: true,
+      business_id: true, active: true, password: true,
     });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    // One answer for an unknown login and a wrong password, so the form cannot be used to learn
+    // which numbers have an account.
+    if (!user) return res.status(401).json({ error: BAD_LOGIN });
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+    const valid = await bcrypt.compare(String(password), user.password);
+    if (!valid) return res.status(401).json({ error: BAD_LOGIN });
 
-    if (!user.active) return res.status(403).json({ error: 'Account is inactive' });
+    if (!user.active) return res.status(403).json({ error: 'هذا الحساب غير مفعّل. تواصل مع شِفت.' });
 
     await prisma.user.update({
       where: { id: user.id },
@@ -68,6 +75,7 @@ router.post('/login', async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone ?? null,
         role: user.role,
         business_id: user.business_id,
         business_type,
@@ -86,8 +94,16 @@ router.post('/register', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    const { name, email, password, role, business_id } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, password required' });
+    const { name, password, role, business_id } = req.body || {};
+    // A login is an email, a mobile, or both (Migration 2). A phone that is given must be a real
+    // Jordanian mobile: storing a typo would make an account nobody can sign in to.
+    const email = normalizeEmail(req.body?.email);
+    const rawPhone = req.body?.phone;
+    const phone = rawPhone ? normalizeLoginPhone(rawPhone) : null;
+    if (rawPhone && !phone) return res.status(400).json({ error: 'رقم الموبايل غير صحيح' });
+    if (!name || !password || (!email && !phone)) {
+      return res.status(400).json({ error: 'الاسم وكلمة المرور ورقم الموبايل أو البريد مطلوبة' });
+    }
 
     const targetBusinessId = req.user.role === 'platform_admin' ? business_id : req.user.business_id;
     const targetRole = req.user.role === 'platform_admin' ? (role || 'staff') : 'staff';
@@ -99,20 +115,21 @@ router.post('/register', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'business_id required for a non-admin user' });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: 'Email already in use' });
+    const taken = await loginTaken({ email, phone });
+    if (taken) return res.status(409).json({ error: LOGIN_TAKEN_ERROR[taken] });
 
     const hashed = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: {
         name,
         email,
+        phone,
         password: hashed,
         role: targetRole,
         business_id: targetBusinessId || null,
       },
     });
-    res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role });
+    res.status(201).json({ id: user.id, name: user.name, email: user.email, phone: user.phone ?? null, role: user.role });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -127,6 +144,7 @@ router.get('/me', authenticate, async (req, res) => {
     id: req.user.id,
     name: req.user.name,
     email: req.user.email,
+    phone: req.user.phone ?? null,
     role: req.user.role,
     business_id: req.user.business_id,
     business_type: req.user.business_type,
@@ -159,6 +177,8 @@ router.post('/activate/lookup', async (req, res) => {
   res.json({
     name: row.user.name,
     email: row.user.email,
+    // Masked: the owner recognises their own number, a leaked link does not hand it out.
+    phone_masked: maskPhone(row.user.phone),
     role: row.user.role || null,
     business_name,
     expires_at: row.expires_at,
@@ -188,6 +208,7 @@ router.post('/activate', async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone ?? null,
         role: user.role,
         business_id: user.business_id,
         business_type,

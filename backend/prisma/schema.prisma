@@ -76,7 +76,13 @@ model Business {
 model User {
   id          String    @id @default(cuid())
   name        String
-  email       String    @unique
+  // Optional since Migration 2 (P2): a shop owner signs in with the mobile number SHIFT already
+  // has, and many have no email they read. Staff and SHIFT's own logins keep theirs. A user has at
+  // least one of email or phone; the routes that create users enforce it (Postgres does not).
+  email       String?   @unique
+  // The owner's login, normalized to 9627XXXXXXXX by utils/phone.js normalizePhone, so «0791…»,
+  // «+962 79…» and Arabic-Indic digits all find the same row.
+  phone       String?   @unique
   password    String    // bcrypt hash
   role        String    @default("staff")
   business_id String?

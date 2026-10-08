@@ -6,7 +6,7 @@ import { MessageSquare, Eye, EyeOff } from 'lucide-react';
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '' });
+  const [form, setForm] = useState({ login: '', password: '' });
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,7 +16,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(form.email, form.password);
+      await login(form.login, form.password);
       navigate('/overview');
     } catch (err) {
       setError(err.response?.data?.error || 'حدث خطأ، يرجى المحاولة مجدداً');
@@ -49,13 +49,16 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">البريد الإلكتروني</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">رقم الموبايل أو البريد الإلكتروني</label>
+              {/* type text, not email: an owner types «079…» here, which an email field rejects. */}
               <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                type="text"
+                inputMode="email"
+                autoComplete="username"
+                value={form.login}
+                onChange={e => setForm(f => ({ ...f, login: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="example@email.com"
+                placeholder="07XXXXXXXX"
                 required
                 dir="ltr"
               />

@@ -26,8 +26,9 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const login = async (email, password) => {
-    const res = await api.post('/auth/login', { email, password });
+  // `login` is a mobile number or an email; the server tells them apart by '@'.
+  const login = async (loginId, password) => {
+    const res = await api.post('/auth/login', { login: loginId, password });
     localStorage.setItem('token', res.data.token);
     localStorage.setItem('user', JSON.stringify(res.data.user));
     setUser(res.data.user);

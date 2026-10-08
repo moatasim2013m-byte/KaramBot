@@ -141,6 +141,9 @@ describe('redeeming a link', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       name: 'د. أحمد', email: 'ahmad@clinic.jo', role: 'business_owner', business_name: 'عيادة النور', expires_at: expect.any(String),
+      // Migration 2: an email-only user has no number to show; a phone owner's is masked
+      // (phoneLoginCreate.test.js).
+      phone_masked: null,
     });
     // The lookup asks for the shop through the user's own relation, never by an id from the request.
     const include = prisma.userActivation.findUnique.mock.calls[0][0].include;
@@ -161,7 +164,7 @@ describe('redeeming a link', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.user).toEqual({
-      id: 'u9', name: 'د. أحمد', email: 'ahmad@clinic.jo', role: 'business_owner',
+      id: 'u9', name: 'د. أحمد', email: 'ahmad@clinic.jo', phone: null, role: 'business_owner',
       business_id: 'b1', business_type: 'clinic', business_name: 'عيادة النور',
     });
   });

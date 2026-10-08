@@ -74,7 +74,7 @@ async function lookup(token) {
     include: {
       user: {
         select: {
-          id: true, name: true, email: true, role: true, active: true, business_id: true,
+          id: true, name: true, email: true, phone: true, role: true, active: true, business_id: true,
           business: { select: { name: true, business_type: true } },
         },
       },

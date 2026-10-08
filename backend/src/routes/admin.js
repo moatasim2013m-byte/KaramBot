@@ -651,6 +651,7 @@ router.get('/accounts/:id/conversations/:conversationId', async (req, res) => {
  */
 const bcryptAdmin = require('bcryptjs');
 const activation = require('../services/activation');
+const { normalizeEmail, normalizeLoginPhone, loginTaken, LOGIN_TAKEN_ERROR } = require('../utils/login');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // A customer's people only. platform_admin is never created from an account screen.
@@ -660,7 +661,7 @@ router.get('/accounts/:id/users', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       where: { business_id: req.params.id },
-      select: { id: true, name: true, email: true, role: true, active: true, last_login: true, created_at: true },
+      select: { id: true, name: true, email: true, phone: true, role: true, active: true, last_login: true, created_at: true },
       orderBy: { created_at: 'asc' },
     });
 
@@ -687,19 +688,25 @@ router.get('/accounts/:id/users', async (req, res) => {
 /** Create a login for this account's owner and return a one-time link to send them. */
 router.post('/accounts/:id/users', async (req, res) => {
   const name = String(req.body?.name || '').trim();
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  // An owner signs in with their mobile, an email, or both (Migration 2). Either one that is
+  // given must be valid: a typo here is an account nobody can sign in to.
+  const email = normalizeEmail(req.body?.email);
+  const rawPhone = req.body?.phone;
+  const phone = rawPhone ? normalizeLoginPhone(rawPhone) : null;
   const role = String(req.body?.role || 'business_owner');
 
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
-  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'بريد إلكتروني غير صالح' });
+  if (email && !EMAIL_RE.test(email)) return res.status(400).json({ error: 'بريد إلكتروني غير صالح' });
+  if (rawPhone && !phone) return res.status(400).json({ error: 'رقم الموبايل غير صحيح' });
+  if (!email && !phone) return res.status(400).json({ error: 'أدخل رقم الموبايل أو البريد الإلكتروني' });
   if (!CUSTOMER_ROLES.includes(role)) return res.status(400).json({ error: 'صلاحية غير مسموحة' });
 
   try {
     const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true } });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
-    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-    if (existing) return res.status(409).json({ error: 'هذا البريد مستخدم مسبقًا' });
+    const taken = await loginTaken({ email, phone });
+    if (taken) return res.status(409).json({ error: LOGIN_TAKEN_ERROR[taken] });
 
     // A password is required by the schema, so one is set that nobody knows and nobody can use:
     // the account is unusable until the activation link is redeemed.
@@ -709,12 +716,13 @@ router.post('/accounts/:id/users', async (req, res) => {
       data: {
         name,
         email,
+        phone,
         password: unusable,
         role,
         business_id: business.id, // from the URL, never the body
         active: false,            // becomes active when they set a password
       },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, phone: true, role: true },
     });
 
     await recordAccess(req, business.id, 'user_created', null);
@@ -740,7 +748,7 @@ router.post('/accounts/:id/users/:userId/invite', async (req, res) => {
     const user = await prisma.user.findFirst({
       where: { id: req.params.userId, business_id: req.params.id },
       // Scoped to the account in the URL, so a user id from another tenant is simply not found.
-      select: { id: true, name: true, email: true, role: true, active: true, last_login: true },
+      select: { id: true, name: true, email: true, phone: true, role: true, active: true, last_login: true },
     });
     if (!user) return res.status(404).json({ error: 'لا يوجد مستخدم بهذا المعرّف في هذا الحساب' });
 

@@ -18,7 +18,7 @@ router.get('/', requireRole('platform_admin', 'business_owner', 'manager'), asyn
     const users = await prisma.user.findMany({
       where,
       select: {
-        id: true, name: true, email: true, role: true,
+        id: true, name: true, email: true, phone: true, role: true,
         business_id: true, active: true, last_login: true,
         created_at: true, updated_at: true,
       },
@@ -55,7 +55,7 @@ router.patch('/:id', requireRole('platform_admin', 'business_owner'), async (req
         where: { id: req.params.id },
         data,
         select: {
-          id: true, name: true, email: true, role: true,
+          id: true, name: true, email: true, phone: true, role: true,
           business_id: true, active: true, last_login: true,
           created_at: true, updated_at: true,
         },

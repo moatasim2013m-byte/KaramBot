@@ -42,6 +42,10 @@ const MODELS = {
   accountEvent: 'accountEvents',
   platformSetting: 'platformSettings',
   whatsappOnboarding: 'whatsappOnboardings',
+  // Migration 2 (phone login): the activation links and the admin access log the login routes
+  // write, so those routes run against the fake end to end instead of hand-rolled mocks.
+  userActivation: 'userActivations',
+  adminAccessLog: 'adminAccessLogs',
 };
 
 // Primary key when it is not `id` (PlatformSetting is keyed by its name, with no id column).
@@ -54,12 +58,15 @@ const UNIQUE = {
   businesses: ['slug', 'wa_phone_number_id'],
   platformSettings: ['key'],
   whatsappOnboardings: ['business_id', 'phone_number_id'],
+  // Migration 2: a login is an email, a mobile, or both, and neither may belong to two people.
+  users: ['email', 'phone'],
 };
 // Nullable @unique columns. Prisma refuses `null` for them in a unique where (findUnique, upsert):
 // "Argument `wa_phone_number_id` must not be null". The fake used to return the first NULL row.
 const NULLABLE_UNIQUE = {
   businesses: ['wa_phone_number_id'],
   whatsappOnboardings: ['business_id', 'phone_number_id'],
+  users: ['email', 'phone'],
 };
 
 // Relations that routes ask for with `include`.
@@ -68,6 +75,7 @@ const RELATIONS = {
   sent_by_user: { store: 'users', fk: 'sent_by_user_id' },
   business: { store: 'businesses', fk: 'business_id' },
   conversation: { store: 'conversations', fk: 'conversation_id' },
+  user: { store: 'users', fk: 'user_id' },
 };
 
 const DATE_FIELDS = new Set([
@@ -80,6 +88,8 @@ const DATE_FIELDS = new Set([
   'token_exchanged_at', 'subscribed_at', 'registered_at', 'payment_method_marked_at',
   'payment_method_claimed_at', 'payment_blocked_at', 'revoked_at', 'detached_at', 'token_checked_at',
   'meta_checked_at', 'last_error_at',
+  // Migration 2
+  'expires_at', 'used_at', 'sessions_valid_from',
 ]);
 
 function isPlainObject(v) {
@@ -119,6 +129,7 @@ function createFakeDb() {
     businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [], subscriptions: [],
     quickReplies: [], scheduledMessages: [], staffInboxPresence: [],
     accountEvents: [], platformSettings: [], whatsappOnboardings: [],
+    userActivations: [], adminAccessLogs: [],
   };
   let fixedNow = null;
   let idSeq = 0;
@@ -236,7 +247,7 @@ function createFakeDb() {
         break;
       case 'users':
         defaults = {
-          name: 'Staff', email: `${id}@test.local`, password: '', role: 'staff', business_id: null,
+          name: 'Staff', email: `${id}@test.local`, phone: null, password: '', role: 'staff', business_id: null,
           active: true, last_login: null,
         };
         break;

@@ -548,7 +548,7 @@ router.get('/updates', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, name: true, email: true, role: true, business_id: true, active: true },
+      select: { id: true, name: true, email: true, phone: true, role: true, business_id: true, active: true },
     });
     if (!user || !user.active) return res.status(401).json({ error: 'Unauthorized' });
     req.user = user;

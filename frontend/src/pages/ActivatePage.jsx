@@ -85,6 +85,13 @@ export default function ActivatePage() {
                 <p className={invite.business_name ? 'text-sm text-gray-700 mt-0.5' : 'text-sm font-medium text-gray-900'}>
                   أهلًا {invite.name}
                 </p>
+                {/* An owner made with a mobile signs in with it (Migration 2); the server sends it
+                    masked, so a leaked link does not hand out the number. */}
+                {invite.phone_masked && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    الدخول برقم الموبايل: <span dir="ltr">{invite.phone_masked}</span>
+                  </p>
+                )}
                 {invite.email && (
                   <p className="text-xs text-gray-500 mt-1">
                     الدخول بالبريد: <span dir="ltr">{invite.email}</span>
