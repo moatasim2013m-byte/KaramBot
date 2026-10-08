@@ -33,6 +33,7 @@ const labels = require('../config/eventLabels');
 const { firstName } = require('../utils/names');
 const adminAccounts = require('./adminAccounts');
 const latePolicy = require('../services/latePolicy');
+const { dueCents } = require('./adminBilling');
 
 // The waiting and handoff lists are read row by row; this caps a pathological day rather than
 // shaping a normal one (ten shops have tens of open threads, not thousands).
@@ -288,7 +289,11 @@ router.get('/overview', async (req, res) => {
     // The board's own inputs (owners, links, events, knowledge), so «مسار الانضمام» and the board
     // put a shop in the same stage.
     const campaignShops = businesses.filter((b) => !b.is_internal && b.business_type !== 'shift' && b.status !== 'closed');
-    const [stageInputs, settings, repliesToday, conv7Agg, lastEventAgg, trialPayments, recentRaw, orphanRows, unmatchedRows] = await Promise.all([
+    // The money figures follow the same contract «الاشتراكات والدفعات» shows (the Karam Bot one,
+    // else the newest), and what is still owed on it, so both screens give one «متأخر» figure.
+    const moneyContractOf = (id) => botContractByBusiness.get(id) || contractByBusiness.get(id) || null;
+    const moneySubIds = [...new Set(businesses.map((b) => moneyContractOf(b.id)).filter(Boolean).map((c) => c.id))];
+    const [stageInputs, settings, repliesToday, conv7Agg, lastEventAgg, trialPayments, recentRaw, orphanRows, unmatchedRows, paidAgg] = await Promise.all([
       soft('stage inputs', () => adminAccounts.loadStageInputs(businesses, { extraTypes: OVERVIEW_EVENT_TYPES }), EMPTY_STAGE_INPUTS),
       soft('platform settings', () => platformSettings.getAll(), {}),
       soft('replies today', () => costGuard.platformAiRepliesToday({ now: nowDate }), null),
@@ -312,6 +317,9 @@ router.get('/overview', async (req, res) => {
         where: { business_id: null, type: 'partner_added_unmatched', resolved_at: null },
         select: { id: true, business_id: true, type: true, resolved_at: true, created_at: true }, take: 50,
       }), []),
+      moneySubIds.length ? soft('payments paid', () => prisma.payment.groupBy({
+        by: ['subscription_id'], where: { subscription_id: { in: moneySubIds } }, _sum: { amount_jod: true },
+      }), []) : [],
     ]);
     const conv7ByBusiness = new Map((conv7Agg || []).map((c) => [c.business_id, (c._count && c._count._all) || 0]));
     const lastEventByBusiness = new Map((lastEventAgg || []).map((e) => [e.business_id, e._max && e._max.created_at]));
@@ -323,6 +331,7 @@ router.get('/overview', async (req, res) => {
     const attention = [];
     const accounts = [];
     const cents = (v) => Math.round(Number(v || 0) * 100);
+    const paidCentsOf = new Map((paidAgg || []).map((p) => [p.subscription_id, cents(p._sum && p._sum.amount_jod)]));
     let dueWeekCents = 0;
     let overdueCents = 0;
 
@@ -363,12 +372,13 @@ router.get('/overview', async (req, res) => {
         if (!contract) money.unstarted += 1;
         else if (contract.status === 'trial') money.trial += 1;
         else if (contract.status === 'active') money.paid += 1;
-        if (contract && ['trial', 'active', 'past_due'].includes(contract.status) && contract.next_due_at) {
-          const due = new Date(contract.next_due_at).getTime();
-          if (contract.status === 'past_due' || due < now) overdueCents += cents(contract.amount_jod);
-          else if (due - now <= 7 * 86400000) dueWeekCents += cents(contract.amount_jod);
-        } else if (contract && contract.status === 'past_due') {
-          overdueCents += cents(contract.amount_jod);
+        // The shops billing counts: not SHIFT's own row, not a closed shop.
+        const mc = b.business_type !== 'shift' && b.status !== 'closed' ? moneyContractOf(b.id) : null;
+        if (mc && ['trial', 'active', 'past_due'].includes(mc.status)) {
+          const owed = dueCents(mc, paidCentsOf.get(mc.id) || 0);
+          const due = mc.next_due_at ? new Date(mc.next_due_at).getTime() : null;
+          if (mc.status === 'past_due' || (due !== null && due < now)) overdueCents += owed;
+          else if (due !== null && due - now <= 7 * 86400000) dueWeekCents += owed;
         }
       }
 
@@ -704,13 +714,18 @@ router.patch('/accounts/:id/bot', async (req, res) => {
     // Except over the owner's own pause: SHIFT's pause then takes it over, or the owner's switch
     // could lift what SHIFT just asked to stay off.
     const takesOverOwnerPause = !enabled && business.ai_config?.paused_by === 'owner';
-    if (wasEnabled === enabled && !takesOverOwnerPause) return res.json({ enabled, changed: false });
+    // And over the late policy's pause: SHIFT's hand pause replaces it, or the next payment would
+    // lift what SHIFT just switched off for another reason (latePolicy.liftLatePause).
+    const takesOverLatePause = !enabled && latePolicy.isLatePause(business.ai_config);
+    if (wasEnabled === enabled && !takesOverOwnerPause && !takesOverLatePause) return res.json({ enabled, changed: false });
 
     // paused_by marks the pause as SHIFT's, so the owner's switch on /bot cannot lift it; resuming
-    // clears it (and the late policy's pause_reason), and the owner may pause and resume again.
+    // clears it (and the late policy's pause_reason and the pause it covered), and the owner may
+    // pause and resume again.
+    const markers = ['paused_by', 'pause_reason', 'prior_pause'];
     const { ok } = enabled
-      ? await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled }, { remove: ['paused_by', 'pause_reason'] })
-      : await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled, paused_by: 'shift' });
+      ? await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled }, { remove: markers })
+      : await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled, paused_by: 'shift' }, { remove: ['pause_reason', 'prior_pause'] });
     if (!ok) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
     await shiftEvent(req, business.id, enabled ? 'bot_resumed' : 'bot_paused', reason ? { reason } : {});
@@ -1020,6 +1035,16 @@ router.patch('/accounts/:id/users/:userId', async (req, res) => {
     if (data.active === true && !user.active && !user.last_login) {
       return res.status(409).json({ error: 'لم يختر هذا المستخدم كلمة مرور بعد — أرسل له رابطًا جديدًا بدل التفعيل' });
     }
+    // A login reset is waiting on its new link: switching it on by hand would skip the one step
+    // that proves the right person is back (the reset also wiped the old password).
+    if (data.active === true && !user.active) {
+      const outstanding = await prisma.userActivation.findFirst({
+        where: { user_id: user.id, used_at: null, expires_at: { gt: new Date() } }, select: { id: true },
+      });
+      if (outstanding) {
+        return res.status(409).json({ error: 'أُرسل لهذا المستخدم رابط دخول جديد — يعود الدخول حين يختار منه كلمة مرور' });
+      }
+    }
     if (data.role && data.role !== 'business_owner' && user.role === 'business_owner') {
       const otherOwners = await prisma.user.count({
         where: { business_id: req.params.id, role: 'business_owner', active: true, id: { not: user.id } },
@@ -1073,8 +1098,11 @@ router.post('/accounts/:id/users/:userId/reset', async (req, res) => {
     // The record comes first: if it cannot be written, the reset does not happen.
     await recordAccess(req, business.id, 'user_reset');
     const ttlDays = await adminAccounts.inviteTtlDays();
+    // The old password goes too, for a random one nobody knows: a reset is the fix for a login
+    // someone else got hold of, and only the new link may bring the account back.
+    const unusable = await bcryptAdmin.hash(crypto.randomBytes(32).toString('hex'), 12);
     const link = await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: user.id }, data: { active: false, sessions_valid_from: new Date() } });
+      await tx.user.update({ where: { id: user.id }, data: { active: false, sessions_valid_from: new Date(), password: unusable } });
       const revoked = await activation.revoke(user.id, tx);
       const issued = await activation.issue(user.id, req.user.id, { ttlHours: ttlDays * 24, client: tx });
       await tx.accountEvent.create({

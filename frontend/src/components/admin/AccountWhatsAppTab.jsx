@@ -90,8 +90,9 @@ export default function AccountWhatsAppTab({ accountId, biz }) {
     api.get(`/admin/accounts/${accountId}`)
       .then((res) => setDetail(res.data))
       .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل بيانات واتساب'));
-    api.get('/admin/onboarding')
-      .then((res) => setAttempts((res.data?.attempts || []).filter((a) => a.account_id === accountId)))
+    // This shop's own history, with no 30-day window (the board's list is the fleet's last month).
+    api.get(`/admin/accounts/${accountId}/es-attempts`)
+      .then((res) => setAttempts(res.data?.attempts || []))
       .catch(() => setAttempts([]));
   }, [accountId]);
 

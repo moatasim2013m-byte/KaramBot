@@ -66,11 +66,21 @@ describe('the billing math', () => {
 });
 
 describe('recording a payment', () => {
-  function withSub(sub, prior = []) {
-    prisma.subscription.findFirst.mockResolvedValue({ ...sub, payments: prior });
+  // The route reads the contract first; latePolicy.liftLatePause then reads the shop's live Karam
+  // Bot contract, which is this one as the payment left it unless `botLive` says otherwise.
+  function withSub(sub, prior = [], botLive = null) {
+    let latest = sub;
+    prisma.subscription.findFirst.mockReset()
+      .mockResolvedValueOnce({ ...sub, payments: prior })
+      .mockImplementation(() => Promise.resolve(botLive || latest));
     const tx = {
       payment: { create: jest.fn().mockResolvedValue({}) },
-      subscription: { update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...sub, ...data, payments: [] })) },
+      subscription: {
+        update: jest.fn().mockImplementation(({ data }) => {
+          latest = { ...sub, ...data };
+          return Promise.resolve({ ...latest, payments: [] });
+        }),
+      },
     };
     prisma.$transaction.mockImplementation((fn) => fn(tx));
     return tx;
@@ -124,8 +134,30 @@ describe('recording a payment', () => {
     prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false, paused_by: 'shift', pause_reason: 'late_payment' } });
     const res = await pay({ amount_jod: 19.99 });
     expect(res.body.bot_resumed).toBe(true);
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason'] });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason', 'prior_pause'] });
     expect(events().find((e) => e.type === 'bot_resumed')).toMatchObject({ actor_kind: 'shift', actor_user_id: 'admin1', data: { reason: 'payment_recorded' } });
+  });
+
+  test('a payment on the shop\'s website contract does not lift the late Karam Bot contract\'s pause', async () => {
+    withSub(
+      { id: 's1', business_id: 'b1', solution: 'website', status: 'active', billing_cycle: 'monthly', amount_jod: 50, next_due_at: due },
+      [],
+      { id: 'sbot', business_id: 'b1', solution: 'karam_bot', status: 'past_due', next_due_at: ago(10 * D) },
+    );
+    prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false, paused_by: 'shift', pause_reason: 'late_payment' } });
+    const res = await pay({ amount_jod: 50 });
+    expect(res.status).toBe(201);
+    expect(res.body.bot_resumed).toBe(false);
+    expect(jsonb.patchJson).not.toHaveBeenCalled();
+  });
+
+  test('a few dinars that turn a late free month «فعّال» do not buy the bot back', async () => {
+    withSub({ id: 's1', business_id: 'b1', solution: 'karam_bot', status: 'trial', billing_cycle: 'monthly', amount_jod: 19.99, next_due_at: ago(10 * D) });
+    prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false, paused_by: 'shift', pause_reason: 'late_payment' } });
+    const res = await pay({ amount_jod: 5 });
+    expect(res.body.subscription.status).toBe('active');
+    expect(res.body.bot_resumed).toBe(false);
+    expect(jsonb.patchJson).not.toHaveBeenCalled();
   });
 
   test('a pause SHIFT made by hand for another reason is not lifted by a payment', async () => {

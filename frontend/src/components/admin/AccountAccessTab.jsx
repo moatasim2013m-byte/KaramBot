@@ -210,7 +210,10 @@ export default function AccountAccessTab({ accountId }) {
                               <KeyRound size={12} /> إعادة ضبط الدخول
                             </button>
                           )}
-                          {u.active === false && u.has_signed_in ? (
+                          {/* After «إعادة ضبط الدخول» the way back in is the new link alone: no «تفعيل» while it waits. */}
+                          {u.active === false && u.has_signed_in && u.invitation_pending_until ? (
+                            <span className="text-[12px] text-amber-700">بانتظار الرابط الجديد</span>
+                          ) : u.active === false && u.has_signed_in ? (
                             <button type="button" onClick={() => setActive(u, true)} disabled={busy === u.id}
                               className="inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-900 disabled:opacity-40">
                               <RotateCcw size={12} /> تفعيل

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Building2, MessageCircle, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { Plus, Search, Building2, MessageCircle, ArrowUpDown, ArrowUp, ArrowDown, X, Copy } from 'lucide-react';
 import api from '../../utils/api';
 import {
   Panel, StateCell, StatusDot, Ltr, Num, Freshness, SkeletonRows, EmptyState, relativeTime,
@@ -133,6 +133,10 @@ export default function BusinessesPage() {
   // Same default as «اليوم»: SHIFT's own row and the -sim shops only when asked for.
   const [showInternal, setShowInternal] = useState(false);
 
+  // «انسخ روابط الدعوات غير المستخدمة»: {text, count} once made, shown selectable under the toolbar.
+  const [invites, setInvites] = useState(null);
+  const [invitesBusy, setInvitesBusy] = useState(false);
+
   const filter = params.get('filter') || 'all';
   const stage = params.get('stage') || null;
 
@@ -172,6 +176,27 @@ export default function BusinessesPage() {
     next.delete('stage');
     setParams(next, { replace: true });
   };
+  // The links are stored hashed, so each unused one is reissued (the server says so in its log)
+  // and the old link stops working: hence the confirm. Only the shops on screen are included.
+  const copyUnusedInvites = async () => {
+    if (!window.confirm('سيُنشأ رابط جديد لكل صاحب محل لم يستخدم دعوته بعد، وتتوقف روابطهم القديمة. متابعة؟')) return;
+    setInvitesBusy(true); setError(null);
+    try {
+      const res = await api.post('/admin/accounts/invites/unused-links', { account_ids: rows.map((r) => r.id) });
+      const links = res.data?.links || [];
+      const text = links.map((l) => `${l.name}\n${l.share_text}`).join('\n\n');
+      let copied = false;
+      if (text) {
+        try { await navigator.clipboard.writeText(text); copied = true; } catch { /* selectable below */ }
+      }
+      setInvites({ text, count: links.length, copied });
+    } catch (err) {
+      setError(err.response?.data?.error || 'تعذّر تجهيز روابط الدعوات');
+    } finally {
+      setInvitesBusy(false);
+    }
+  };
+
   const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
   return (
@@ -183,6 +208,10 @@ export default function BusinessesPage() {
         </div>
         <div className="flex items-center gap-3">
           <Freshness at={data?.generated_at} onRefresh={load} loading={loading} />
+          <button type="button" onClick={copyUnusedInvites} disabled={invitesBusy || !rows.length}
+            className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 px-3 h-8 rounded-md text-[13px] hover:border-gray-300 disabled:opacity-50">
+            <Copy size={14} /> انسخ روابط الدعوات غير المستخدمة
+          </button>
           <button type="button" onClick={() => navigate('/admin/accounts/new')}
             className="flex items-center gap-1.5 bg-gray-900 text-white px-3 h-8 rounded-md text-[13px] hover:bg-gray-800">
             <Plus size={15} /> زبون جديد
@@ -191,6 +220,24 @@ export default function BusinessesPage() {
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+
+      {invites && (
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[13px] text-gray-700">
+              {invites.count === 0
+                ? 'لا توجد دعوات غير مستخدمة بين المحلات الظاهرة'
+                : <>جُهّز <Num>{invites.count}</Num> رابط{invites.copied ? ' ونُسخت' : ' — انسخها من هنا'}. الروابط القديمة لم تعد تعمل.</>}
+            </p>
+            <button type="button" onClick={() => setInvites(null)} aria-label="إغلاق" className="text-gray-400 hover:text-gray-700"><X size={14} /></button>
+          </div>
+          {invites.text && (
+            <textarea readOnly value={invites.text} rows={Math.min(10, invites.count * 3)}
+              onFocus={(e) => e.target.select()}
+              className="w-full text-[12px] border border-gray-200 rounded-md p-2 text-gray-700" />
+          )}
+        </div>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative w-full sm:w-auto">

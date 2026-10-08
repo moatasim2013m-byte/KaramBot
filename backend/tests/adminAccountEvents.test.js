@@ -69,7 +69,7 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ enabled: false, changed: true });
     // paused_by marks it as SHIFT's pause, which the owner's switch on /bot may not lift.
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' }, { remove: ['pause_reason', 'prior_pause'] });
     expect(lastEvent()).toMatchObject({
       business_id: 'b1', actor_user_id: 'admin1', actor_kind: 'shift', type: 'bot_paused', data: { reason: 'تأخر الدفع' },
     });
@@ -80,7 +80,7 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
     const res = await patch({ enabled: true });
     expect(res.status).toBe(200);
     // pause_reason goes too: a late-payment pause SHIFT lifts by hand is lifted (services/latePolicy.js).
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason'] });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason', 'prior_pause'] });
     expect(lastEvent()).toMatchObject({ type: 'bot_resumed', data: {} });
   });
 
@@ -88,8 +88,16 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
     prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false, paused_by: 'owner' } });
     const res = await patch({ enabled: false, reason: 'تأخر الدفع' });
     expect(res.body).toEqual({ enabled: false, changed: true });
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' }, { remove: ['pause_reason', 'prior_pause'] });
     expect(lastEvent()).toMatchObject({ type: 'bot_paused', actor_kind: 'shift' });
+  });
+
+  test('pausing over the late policy\'s pause makes it a hand pause, which a payment will not lift', async () => {
+    prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false, paused_by: 'shift', pause_reason: 'late_payment' } });
+    const res = await patch({ enabled: false, reason: 'ردود خاطئة' });
+    expect(res.body).toEqual({ enabled: false, changed: true });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' }, { remove: ['pause_reason', 'prior_pause'] });
+    expect(lastEvent()).toMatchObject({ type: 'bot_paused', data: { reason: 'ردود خاطئة' } });
   });
 
   test('pausing a paused bot changes nothing and logs nothing', async () => {

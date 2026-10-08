@@ -91,15 +91,20 @@ test('past the grace days: past_due and the bot paused as SHIFT\'s, with the rea
   seed();
   const out = await applyLatePolicy(NOW);
 
-  expect(out).toMatchObject({ grace_days: 7, marked_past_due: 3, paused: 3, errors: 0 });
+  // The owner's shop was already off: it is not counted (or logged) as paused a second time.
+  expect(out).toMatchObject({ grace_days: 7, marked_past_due: 3, paused: 2, errors: 0 });
   expect(subOf('s_late').status).toBe('past_due');
   expect(biz('late').ai_config).toMatchObject({ greeting_message: 'أهلًا', enabled: false, paused_by: 'shift', pause_reason: 'late_payment' });
   expect(isLatePause(biz('late').ai_config)).toBe(true);
   // A free month that ended unpaid is late the same way.
   expect(subOf('s_trial').status).toBe('past_due');
   expect(isLatePause(biz('trial').ai_config)).toBe(true);
-  // The owner's own pause becomes SHIFT's, so their switch cannot lift it while they owe.
-  expect(biz('owner_paused').ai_config).toMatchObject({ paused_by: 'shift', pause_reason: 'late_payment' });
+  // The owner's own pause becomes SHIFT's, so their switch cannot lift it while they owe, and the
+  // pause it covers is kept for the payment to put back.
+  expect(biz('owner_paused').ai_config).toMatchObject({
+    paused_by: 'shift', pause_reason: 'late_payment', prior_pause: { paused_by: 'owner', pause_reason: null },
+  });
+  expect(events('bot_paused').some((e) => e.business_id === 'owner_paused')).toBe(false);
 
   expect(events('late_policy_applied').find((e) => e.business_id === 'late')).toMatchObject({
     actor_kind: 'system', data: { subscription_id: 's_late', from: 'active', grace_days: 7 },
@@ -159,10 +164,17 @@ test('a newer live contract decides, not an old one left behind', async () => {
   expect(biz('resigned').ai_config.enabled).toBeUndefined();
 });
 
+/** What the payment route leaves behind once the late cycle is paid: active, due a month on. */
+const paidUp = (id) => Object.assign(subOf(id), { status: 'active', next_due_at: new Date(NOW.getTime() + 22 * D) });
+
 test('liftLatePause lifts only the late policy\'s pause', async () => {
   seed();
   await applyLatePolicy(NOW);
-  expect(await liftLatePause('late', { actorUserId: 'admin1' })).toBe(true);
+  // Still owed: nothing is lifted.
+  expect(await liftLatePause('late', { actorUserId: 'admin1', now: NOW })).toBe(false);
+  expect(biz('late').ai_config.enabled).toBe(false);
+  paidUp('s_late');
+  expect(await liftLatePause('late', { actorUserId: 'admin1', now: NOW })).toBe(true);
   expect(biz('late').ai_config).toMatchObject({ greeting_message: 'أهلًا', enabled: true });
   expect(biz('late').ai_config.paused_by).toBeUndefined();
   expect(biz('late').ai_config.pause_reason).toBeUndefined();
@@ -176,6 +188,45 @@ test('liftLatePause lifts only the late policy\'s pause', async () => {
 test('the daily sweep runs it once a day', async () => {
   seed();
   const first = await sweepDaily(NOW);
-  expect(first.late).toMatchObject({ marked_past_due: 3, paused: 3 });
+  expect(first.late).toMatchObject({ marked_past_due: 3, paused: 2 });
   expect(await sweepDaily(new Date(NOW.getTime() + 60000))).toBeNull();
+});
+
+test('an owner\'s pause the late policy covered comes back with the payment: the bot stays off', async () => {
+  seed();
+  await applyLatePolicy(NOW);
+  paidUp('s_owner');
+  expect(await liftLatePause('owner_paused', { actorUserId: 'admin1', now: NOW })).toBe(false);
+  expect(biz('owner_paused').ai_config).toMatchObject({ enabled: false, paused_by: 'owner' });
+  expect(biz('owner_paused').ai_config.pause_reason).toBeUndefined();
+  expect(biz('owner_paused').ai_config.prior_pause).toBeUndefined();
+  expect(events('bot_resumed')).toHaveLength(0);
+});
+
+test('a pause SHIFT made by hand before the shop went late stays after the payment', async () => {
+  db.seed({
+    businesses: [{ id: 'hand', name: 'أوقفته شِفت', ai_config: { enabled: false, paused_by: 'shift' } }],
+    subscriptions: [sub({ id: 's_hand', business_id: 'hand', next_due_at: daysAgo(10) })],
+  });
+  await applyLatePolicy(NOW);
+  expect(isLatePause(biz('hand').ai_config)).toBe(true);
+  paidUp('s_hand');
+  expect(await liftLatePause('hand', { actorUserId: 'admin1', now: NOW })).toBe(false);
+  expect(biz('hand').ai_config).toMatchObject({ enabled: false, paused_by: 'shift' });
+  expect(biz('hand').ai_config.pause_reason).toBeUndefined();
+  expect(biz('hand').ai_config.prior_pause).toBeUndefined();
+});
+
+test('a payment on another contract, or a few dinars that leave the free month late, lift nothing', async () => {
+  seed();
+  db.seed({ subscriptions: [sub({ id: 's_web', business_id: 'late', solution: 'website', status: 'active', next_due_at: new Date(NOW.getTime() + 20 * D), created_at: daysAgo(1) })] });
+  await applyLatePolicy(NOW);
+  // The website contract is paid and active; the Karam Bot one is still past_due.
+  expect(await liftLatePause('late', { actorUserId: 'admin1', now: NOW })).toBe(false);
+  expect(isLatePause(biz('late').ai_config)).toBe(true);
+
+  // The free month turned «فعّال» on a partial payment, its due date still past the grace days.
+  Object.assign(subOf('s_trial'), { status: 'active' });
+  expect(await liftLatePause('trial', { actorUserId: 'admin1', now: NOW })).toBe(false);
+  expect(isLatePause(biz('trial').ai_config)).toBe(true);
 });

@@ -144,7 +144,9 @@ test('paused for a late payment: the message is stored, alerted and handed to th
 
 test('once the payment lifts the pause, the same shop\'s bot answers again', async () => {
   await applyLatePolicy(T_NOW);
-  expect(await liftLatePause('biz_late', { actorUserId: 'admin1' })).toBe(true);
+  // The payment route leaves the contract active and due a month on; only then is the pause lifted.
+  Object.assign(db.store.subscriptions.find((s) => s.id === 's1'), { status: 'active', next_due_at: new Date(T_NOW.getTime() + 21 * D) });
+  expect(await liftLatePause('biz_late', { actorUserId: 'admin1', now: T_NOW })).toBe(true);
 
   await deliver('عندكم بنادول؟');
 

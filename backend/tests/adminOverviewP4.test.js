@@ -154,6 +154,25 @@ test('the money line: free month, paid, unstarted, due this week and overdue, cu
   expect(res.body.money).toEqual({ trial: 1, paid: 1, unstarted: 1, due_this_week_jod: 19.99, overdue_jod: 25 });
 });
 
+test('the overdue figure is what «الاشتراكات والدفعات» shows: the Karam Bot contract, less what was paid', async () => {
+  mockDb({
+    businesses: [biz({ id: 'c' }), biz({ id: 'w' })],
+    subs: [
+      // Half the late month is paid: 9.99 is left, not the whole 19.99.
+      { id: 'sc', business_id: 'c', solution: 'karam_bot', status: 'past_due', amount_jod: 19.99, billing_cycle: 'monthly', next_due_at: ago(9 * D), created_at: ago(60 * D) },
+      // A newer website contract, paid up; the bot contract behind it is the late one.
+      { id: 'sw_web', business_id: 'w', solution: 'website', status: 'active', amount_jod: 100, billing_cycle: 'monthly', next_due_at: ahead(20 * D), created_at: ago(2 * D) },
+      { id: 'sw_bot', business_id: 'w', solution: 'karam_bot', status: 'past_due', amount_jod: 19.99, billing_cycle: 'monthly', next_due_at: ago(9 * D), created_at: ago(60 * D) },
+    ],
+  });
+  prisma.payment.groupBy.mockImplementation(({ _sum }) => Promise.resolve(
+    _sum ? [{ subscription_id: 'sc', _sum: { amount_jod: 10 } }] : [],
+  ));
+  const res = await get();
+  expect(res.body.money.overdue_jod).toBe(29.98);
+  expect(res.body.money.due_this_week_jod).toBe(0);
+});
+
 test('«آخر ما حصل»: the 15 newest events, in Arabic, with the shop and who did it', async () => {
   mockDb({
     businesses: [biz()],

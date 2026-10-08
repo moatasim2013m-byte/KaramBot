@@ -22,6 +22,8 @@ const {
  *   POST   /api/admin/accounts/:id/join-link   a new link (refused once the owner signed in)
  *   DELETE /api/admin/accounts/:id/invite      cancel the link and keep the unused owner inactive
  *   POST   /api/admin/accounts/:id/events      {type:'invite_shared'}: the operator sent it
+ *   GET    /api/admin/accounts/:id/es-attempts one shop's «محاولات الربط», however old
+ *   POST   /api/admin/accounts/invites/unused-links  reissue and return every unused owner link
  *   GET    /api/admin/onboarding               the campaign board, the Meta attempts, orphans
  *
  * The October path is invite-only: SHIFT types the shop's name, its type and the owner's mobile,
@@ -156,6 +158,38 @@ async function ownerOf(businessId) {
 // them (the same rule as admin.js's re-invite). Recovery is deliberate: deactivate, then invite.
 const ownerSignedIn = (owner) => Boolean(owner && owner.active && owner.last_login);
 
+/**
+ * «محاولات الربط» rows from es_* AccountEvents, in Arabic: when, who started it, the result, the
+ * step, the error, and Meta's session id. Shared by the fleet board and one shop's own history.
+ */
+async function describeAttempts(attemptsRaw, nameOf = new Map()) {
+  const missing = [...new Set(attemptsRaw.map((e) => e.business_id).filter((id) => id && !nameOf.has(id)))];
+  if (missing.length) {
+    for (const b of await prisma.business.findMany({ where: { id: { in: missing } }, select: { id: true, name: true } })) nameOf.set(b.id, b.name);
+  }
+  const actorIds = [...new Set(attemptsRaw.filter((e) => e.actor_kind === 'shift' && e.actor_user_id).map((e) => e.actor_user_id))];
+  const actorName = new Map(actorIds.length
+    ? (await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
+    : []);
+  const startedBy = (e) => {
+    if (e.actor_kind === 'owner') return 'الزبون';
+    if (e.actor_kind === 'shift') return actorName.get(e.actor_user_id) ? `شِفت: ${firstName(actorName.get(e.actor_user_id))}` : 'شِفت';
+    if (e.actor_kind === 'meta') return 'Meta';
+    return 'النظام';
+  };
+  return attemptsRaw.map((e) => ({
+    at: e.created_at,
+    account_id: e.business_id,
+    name: nameOf.get(e.business_id) || null,
+    started_by_ar: startedBy(e),
+    ...resultOf(e),
+    step_ar: stepOf(e),
+    error_ar: errorOf(e),
+    // Meta's session id: what Meta support asks for. Shown to SHIFT only, never to the shop.
+    session_id: (e.data && e.data.session_id) || null,
+  }));
+}
+
 // ─── «زبون جديد» ────────────────────────────────────────────────────────────
 
 const accountsRouter = express.Router();
@@ -265,6 +299,65 @@ accountsRouter.post('/', guard, async (req, res) => {
   }
 });
 
+/**
+ * «انسخ روابط الدعوات غير المستخدمة» on «الزبائن» (docs/panels/spec.md, the campaign action): one
+ * fresh link for every owner who never signed in and still holds an unused, unexpired invite, so
+ * the operator can paste them into their own WhatsApp in one go instead of shop by shop.
+ *
+ * The links are stored hashed, so the outstanding ones cannot be read back: each is reissued (the
+ * old one stops working, as with «رابط جديد»), logged as invite_created with bulk: true, and
+ * returned once. Customer shops only; an owner who signed in is never given a link (ownerSignedIn).
+ * `account_ids` narrows it to the shops shown. Declared before '/:id/…' so «invites» is no id.
+ */
+const BULK_LINKS_MAX = 50;
+accountsRouter.post('/invites/unused-links', guard, async (req, res) => {
+  const only = Array.isArray(req.body?.account_ids) ? req.body.account_ids.map(String).slice(0, 500) : null;
+  try {
+    const now = new Date();
+    const live = await prisma.userActivation.findMany({
+      where: { used_at: null, expires_at: { gt: now } },
+      select: { user_id: true },
+    });
+    const userIds = [...new Set(live.map((a) => a.user_id))];
+    const owners = userIds.length ? await prisma.user.findMany({
+      where: { id: { in: userIds }, role: 'business_owner', last_login: null },
+      select: { id: true, name: true, phone: true, business_id: true, active: true, last_login: true },
+    }) : [];
+    const wanted = owners.filter((o) => o.business_id && !ownerSignedIn(o) && (!only || only.includes(o.business_id)));
+    const shops = wanted.length ? await prisma.business.findMany({
+      where: {
+        id: { in: [...new Set(wanted.map((o) => o.business_id))] },
+        is_internal: false, business_type: { not: 'shift' }, status: { not: 'closed' },
+      },
+      select: { id: true, name: true, owner_phone: true },
+    }) : [];
+    const shopOf = new Map(shops.map((b) => [b.id, b]));
+
+    const ttlDays = await inviteTtlDays();
+    const links = [];
+    for (const owner of wanted) {
+      const shop = shopOf.get(owner.business_id);
+      // The first owner per shop only (a shop's later owners have their own team invite).
+      if (!shop || links.some((l) => l.account_id === shop.id) || links.length >= BULK_LINKS_MAX) continue;
+      const link = await activation.issue(owner.id, req.user.id, { ttlHours: ttlDays * 24 });
+      await shiftEvent(req, shop.id, 'invite_created', {
+        user_id: owner.id, role: 'business_owner', reissued: true, bulk: true, expires_at: link.expires_at,
+      });
+      links.push({
+        name: shop.name,
+        ...invitePayload({
+          businessId: shop.id, ownerName: owner.name, ownerPhone: owner.phone || shop.owner_phone || null,
+          shopName: shop.name, token: link.token, expiresAt: link.expires_at, ttlDays,
+        }),
+      });
+    }
+    return res.json({ links });
+  } catch (err) {
+    console.error(`[admin/accounts/unused-links] failed: ${err.message}`);
+    return res.status(500).json({ error: 'تعذّر تجهيز روابط الدعوات' });
+  }
+});
+
 /** A new join link for an owner who has not signed in yet: the old one stops working. */
 accountsRouter.post('/:id/join-link', guard, async (req, res) => {
   try {
@@ -321,6 +414,27 @@ accountsRouter.delete('/:id/invite', guard, async (req, res) => {
   } catch (err) {
     console.error(`[admin/accounts/invite] cancel failed: ${err.message}`);
     return res.status(500).json({ error: 'تعذّر إلغاء الدعوة' });
+  }
+});
+
+/**
+ * One shop's «محاولات الربط» for its WhatsApp tab: every es_* event it has, with no 30-day window
+ * and no fleet-wide cap, so an old connection can still be traced when SHIFT investigates it.
+ */
+const SHOP_ATTEMPTS_LIMIT = 200;
+accountsRouter.get('/:id/es-attempts', guard, async (req, res) => {
+  try {
+    const shop = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true } });
+    if (!shop) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
+    const rows = await prisma.accountEvent.findMany({
+      where: { business_id: shop.id, type: { in: ES_TYPES } },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: SHOP_ATTEMPTS_LIMIT,
+    });
+    res.json({ attempts: await describeAttempts(rows, new Map([[shop.id, shop.name]])) });
+  } catch (err) {
+    console.error(`[admin/accounts/es-attempts] failed: ${err.message}`);
+    res.status(500).json({ error: 'تعذّر تحميل محاولات الربط' });
   }
 });
 
@@ -668,32 +782,7 @@ boardRouter.get('/', guard, async (req, res) => {
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
       take: ATTEMPTS_LIMIT,
     });
-    const nameOf = new Map(businesses.map((b) => [b.id, b.name]));
-    const missing = [...new Set(attemptsRaw.map((e) => e.business_id).filter((id) => id && !nameOf.has(id)))];
-    if (missing.length) {
-      for (const b of await prisma.business.findMany({ where: { id: { in: missing } }, select: { id: true, name: true } })) nameOf.set(b.id, b.name);
-    }
-    const actorIds = [...new Set(attemptsRaw.filter((e) => e.actor_kind === 'shift' && e.actor_user_id).map((e) => e.actor_user_id))];
-    const actorName = new Map(actorIds.length
-      ? (await prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })).map((u) => [u.id, u.name])
-      : []);
-    const startedBy = (e) => {
-      if (e.actor_kind === 'owner') return 'الزبون';
-      if (e.actor_kind === 'shift') return actorName.get(e.actor_user_id) ? `شِفت: ${firstName(actorName.get(e.actor_user_id))}` : 'شِفت';
-      if (e.actor_kind === 'meta') return 'Meta';
-      return 'النظام';
-    };
-    const attempts = attemptsRaw.map((e) => ({
-      at: e.created_at,
-      account_id: e.business_id,
-      name: nameOf.get(e.business_id) || null,
-      started_by_ar: startedBy(e),
-      ...resultOf(e),
-      step_ar: stepOf(e),
-      error_ar: errorOf(e),
-      // Meta's session id: what Meta support asks for. Shown to SHIFT only, never to the shop.
-      session_id: (e.data && e.data.session_id) || null,
-    }));
+    const attempts = await describeAttempts(attemptsRaw, new Map(businesses.map((b) => [b.id, b.name])));
 
     res.json({ columns, attempts, orphans_count: await orphansCount() });
   } catch (err) {

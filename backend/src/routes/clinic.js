@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate, attachBusinessId, requireRole } = require('../middleware/auth');
 const prisma = require('../config/prisma');
+const { recordCatalogChange } = require('../middleware/recordCatalogChange');
 
 router.use(authenticate, attachBusinessId);
 
@@ -11,6 +12,11 @@ const catalogRoles = requireRole('platform_admin', 'business_owner', 'manager');
 router.use((req, res, next) => (req.path === '/appointments' || req.path.startsWith('/appointments/')
   ? next()
   : catalogRoles(req, res, next)));
+// Who changed which service, doctor or slot, in the shop's «السجل»; appointments are bookings, not
+// what the bot knows, and are left out (middleware/recordCatalogChange.js).
+router.use(recordCatalogChange('clinic_changed', {
+  skip: (req) => req.path === '/appointments' || req.path.startsWith('/appointments/'),
+}));
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 

@@ -11,6 +11,13 @@
  *  - the owner's own switch on /bot cannot lift it (routes/businesses.js pausedByShift);
  *  - a payment lifts only this pause, never one SHIFT made by hand for another reason;
  *  - the panels can say why («موقوف — تأخر الدفع»).
+ * A bot that was already off (the owner's pause, or SHIFT's by hand) keeps who paused it and why in
+ * ai_config.prior_pause, and a payment puts that pause back instead of switching the bot on: the
+ * late policy would otherwise launder someone's deliberate «off» into one a payment undoes.
+ * A payment lifts the pause only when the shop's live Karam Bot contract is no longer late (not
+ * past_due, and its due date within the grace days): a payment on the shop's website contract, or
+ * a few dinars that leave a free month still unpaid, do not buy back the bot, and since the claim
+ * below would stop the sweep pausing it again for that due date, the check has to be here.
  *
  * Run once a day from shiftSweeper.sweepDaily. Idempotent: a contract already past_due is not
  * written again, and the pause is claimed once per contract and due date (accountsDaily.claimOnce),
@@ -111,10 +118,16 @@ async function applyLatePolicy(now = new Date()) {
         // One pause per contract and due date. A bot SHIFT resumed by hand stays on until the
         // next due date passes its grace too.
         if (!(await claimOnce(shop.id, `late_pause:${sub.id}:${dayOf(sub.next_due_at)}`, at))) continue;
-        const { ok } = await jsonb.patchJson('businesses', shop.id, 'ai_config', {
-          enabled: false, paused_by: 'shift', pause_reason: PAUSE_REASON,
-        });
+        const cfg = shop.ai_config || {};
+        // Already off: the late pause still takes over (so the owner's switch cannot lift it while
+        // they owe), but remembers the pause it covers, which liftLatePause puts back.
+        const alreadyOff = cfg.enabled === false;
+        const patch = { enabled: false, paused_by: 'shift', pause_reason: PAUSE_REASON };
+        if (alreadyOff) patch.prior_pause = { paused_by: cfg.paused_by || null, pause_reason: cfg.pause_reason || null };
+        const { ok } = await jsonb.patchJson('businesses', shop.id, 'ai_config', patch);
         if (!ok) continue;
+        // A bot that was already off is not paused again: no second bot_paused in its log.
+        if (alreadyOff) continue;
         out.paused += 1;
         await accountEvents.record({
           businessId: shop.id, actorKind: 'system', type: 'bot_paused',
@@ -133,15 +146,45 @@ async function applyLatePolicy(now = new Date()) {
 }
 
 /**
+ * Whether the shop's live Karam Bot contract is still late as of `now`: past_due, or its due date
+ * older than the grace days. No live contract counts as not late (nothing left to owe on it).
+ */
+async function botContractLate(businessId, now) {
+  const live = await prisma.subscription.findFirst({
+    where: { business_id: businessId, solution: DEFAULT_PLAN.solution, status: { not: 'cancelled' } },
+    orderBy: { created_at: 'desc' },
+    select: { id: true, status: true, next_due_at: true },
+  });
+  if (!live) return false;
+  if (live.status === 'past_due') return true;
+  if (!BILLING_STATUSES.includes(live.status) || !live.next_due_at) return false;
+  const cutoff = now.getTime() - (await graceDays()) * DAY_MS;
+  return new Date(live.next_due_at).getTime() < cutoff;
+}
+
+/**
  * A payment brought the contract back: lift the late policy's pause, and only that pause (one SHIFT
- * made by hand, or the owner's own, stays). Returns true when the bot was turned back on.
+ * made by hand, or the owner's own, stays: when the late pause covered one, that one comes back).
+ * Lifts nothing while the shop's live Karam Bot contract is still late, whichever contract was paid.
+ * Returns true when the bot was turned back on.
  * Never throws: the payment is already saved, and a failed resume is SHIFT's to press by hand.
  */
-async function liftLatePause(businessId, { actorUserId = null, reason = 'payment_recorded' } = {}) {
+async function liftLatePause(businessId, { actorUserId = null, reason = 'payment_recorded', now = new Date() } = {}) {
   try {
     const shop = await prisma.business.findUnique({ where: { id: businessId }, select: { id: true, ai_config: true } });
     if (!shop || !isLatePause(shop.ai_config)) return false;
-    const { ok } = await jsonb.patchJson('businesses', shop.id, 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason'] });
+    if (await botContractLate(shop.id, new Date(now))) return false;
+    const prior = shop.ai_config.prior_pause;
+    if (prior && typeof prior === 'object') {
+      // Back to the pause the late policy covered: still off, and still the owner's or SHIFT's.
+      const back = { enabled: false };
+      if (prior.paused_by) back.paused_by = prior.paused_by;
+      if (prior.pause_reason) back.pause_reason = prior.pause_reason;
+      const remove = ['prior_pause', ...['paused_by', 'pause_reason'].filter((k) => !(k in back))];
+      await jsonb.patchJson('businesses', shop.id, 'ai_config', back, { remove });
+      return false;
+    }
+    const { ok } = await jsonb.patchJson('businesses', shop.id, 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason', 'prior_pause'] });
     if (!ok) return false;
     await accountEvents.record({
       businessId: shop.id, actorUserId, actorKind: actorUserId ? 'shift' : 'system', type: 'bot_resumed', data: { reason },

@@ -24,7 +24,8 @@ const TYPES = [
   'invite_created', 'invite_shared', 'join_opened', 'password_set', 'invite_expired', 'invite_cancelled',
   'es_started', 'es_cancelled', 'es_failed', 'es_conflict', 'es_ownership_mismatch', 'es_connected',
   'wrong_number', 'partner_added_unmatched', 'partner_removed', 'meta_restriction', 'token_invalid',
-  'payment_claimed', 'payment_confirmed', 'payment_blocked', 'knowledge_added', 'went_live',
+  'payment_claimed', 'payment_confirmed', 'payment_blocked', 'knowledge_added', 'knowledge_updated', 'knowledge_removed',
+  'menu_changed', 'clinic_changed', 'went_live',
   'bot_handoff', 'bot_paused', 'bot_resumed', 'cap_80', 'cap_reached', 'payment_recorded',
   'business_created', 'user_added', 'role_changed', 'user_deactivated', 'user_reactivated', 'login_reset', 'settings_changed', 'platform_setting_changed',
 ];

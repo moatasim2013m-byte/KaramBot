@@ -251,6 +251,21 @@ const KNOWLEDGE_KIND_AR = Object.freeze({
   hours: 'الدوام', faq: 'سؤال وجواب', service: 'خدمة', policy: 'سياسة',
 });
 
+// menu_changed / clinic_changed (middleware/recordCatalogChange.js): what changed, by route.
+const MENU_WHAT_AR = Object.freeze({
+  categories: 'قسم', items: 'صنف', 'modifier-groups': 'خيارات صنف',
+});
+const CLINIC_WHAT_AR = Object.freeze({
+  services: 'خدمة', doctors: 'طبيب', slots: 'موعد متاح',
+});
+const CATALOG_ACTION_AR = Object.freeze({ added: 'أضاف', updated: 'عدّل', removed: 'حذف' });
+function catalogText(area, whatAr, d) {
+  const verb = CATALOG_ACTION_AR[d.action] || 'عدّل';
+  const what = whatAr[d.what];
+  if (!what) return `${verb} في ${area}`;
+  return `${verb} ${what}${d.name ? ` «${d.name}»` : ''} في ${area}`;
+}
+
 const PAUSE_REASON_AR = Object.freeze({
   late_payment: 'تأخر الدفع',
 });
@@ -295,6 +310,10 @@ const EVENT_AR = Object.freeze({
     if (d.from_gap) return 'علّم البوت جوابًا لسؤال لم يعرفه';
     return KNOWLEDGE_KIND_AR[d.kind] ? `أضاف معلومة: ${KNOWLEDGE_KIND_AR[d.kind]}` : 'أضاف معلومة للبوت';
   },
+  knowledge_updated: (d) => (KNOWLEDGE_KIND_AR[d.kind] ? `عدّل معلومة: ${KNOWLEDGE_KIND_AR[d.kind]}` : 'عدّل معلومة للبوت'),
+  knowledge_removed: (d) => (KNOWLEDGE_KIND_AR[d.kind] ? `حذف معلومة: ${KNOWLEDGE_KIND_AR[d.kind]}` : 'حذف معلومة من البوت'),
+  menu_changed: (d) => catalogText('القائمة', MENU_WHAT_AR, d),
+  clinic_changed: (d) => catalogText('خدمات العيادة', CLINIC_WHAT_AR, d),
   went_live: () => 'يعمل — أول رد للبوت على زبون',
   bot_handoff: () => 'حوّل البوت سؤالًا لم يعرف جوابه لفريق المحل',
   bot_paused: (d) => `أُوقف البوت مؤقتًا${reasonOf(d)}`,

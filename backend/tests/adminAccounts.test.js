@@ -359,6 +359,25 @@ describe('GET /api/admin/onboarding', () => {
     expect(JSON.stringify(res.body.attempts)).not.toContain('PHONE_NUMBER_VERIFICATION');
   });
 
+  test('one shop\'s attempts: all of them, however old, and only that shop\'s', async () => {
+    seedBoard();
+    const old = new Date(Date.now() - 90 * 24 * HOUR);
+    db.seed({ accountEvents: [
+      { business_id: 'b_card', actor_kind: 'owner', type: 'es_failed', created_at: old, data: { session_id: 'OLD1' } },
+      ...Array.from({ length: 120 }, (_, i) => ({ business_id: 'b_live', actor_kind: 'owner', type: 'es_started', created_at: ago(i + 1) })),
+    ] });
+    // The fleet board's list no longer reaches it.
+    const board = await request(app).get('/api/admin/onboarding').set(ADMIN());
+    expect(board.body.attempts.some((a) => a.session_id === 'OLD1')).toBe(false);
+
+    const res = await request(app).get('/api/admin/accounts/b_card/es-attempts').set(ADMIN());
+    expect(res.status).toBe(200);
+    expect(res.body.attempts.every((a) => a.account_id === 'b_card')).toBe(true);
+    expect(res.body.attempts[0]).toMatchObject({ result: 'connected', started_by_ar: 'شِفت: معتصم', name: 'مطعم الشام' });
+    expect(res.body.attempts[res.body.attempts.length - 1]).toMatchObject({ session_id: 'OLD1', result: 'failed' });
+    expect((await request(app).get('/api/admin/accounts/nope/es-attempts').set(ADMIN())).status).toBe(404);
+  });
+
   test('an expired link and a link opened but not used say so; the owner button state changes the connect reason', async () => {
     seedBoard();
     db.store.userActivations[0].expires_at = ago(HOUR);
@@ -374,6 +393,42 @@ describe('GET /api/admin/onboarding', () => {
 
   test('SHIFT only', async () => {
     const res = await request(app).get('/api/admin/onboarding').set(as('u_staff'));
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('POST /api/admin/accounts/invites/unused-links', () => {
+  const activation = require('../src/services/activation');
+
+  test('a fresh link for each owner still holding an unused one; never for one who signed in, nor internal rows', async () => {
+    const a = await request(app).post('/api/admin/accounts').set(ADMIN()).send(form({ name: 'مطعم الشام', owner_phone: '0791234567' }));
+    const b = await request(app).post('/api/admin/accounts').set(ADMIN()).send(form({ name: 'صالون ريم', owner_phone: '0781234567', sector: 'salon' }));
+    const c = await request(app).post('/api/admin/accounts').set(ADMIN()).send(form({ name: 'تجريبي', owner_phone: '0771234567' }));
+    // b's owner got in; c is an internal test row.
+    Object.assign(db.store.users.find((u) => u.business_id === b.body.account_id), { active: true, last_login: new Date() });
+    db.store.businesses.find((x) => x.id === c.body.account_id).is_internal = true;
+
+    const res = await request(app).post('/api/admin/accounts/invites/unused-links').set(ADMIN()).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.links.map((l) => l.account_id)).toEqual([a.body.account_id]);
+    const [link] = res.body.links;
+    expect(link).toMatchObject({ name: 'مطعم الشام' });
+    expect(link.join_url).toMatch(/\/join#/);
+    expect(link.share_text).toContain('لمطعم الشام');
+    // The link the owner had stops working; the new one works.
+    expect(await activation.lookup(tokenOf(a.body.join_url))).toBeNull();
+    expect(await activation.lookup(tokenOf(link.join_url))).toBeTruthy();
+    expect(events('invite_created').filter((e) => e.data && e.data.bulk)).toHaveLength(1);
+    expect(JSON.stringify(db.store.accountEvents)).not.toContain(tokenOf(link.join_url));
+
+    // Narrowed to the shops shown.
+    const none = await request(app).post('/api/admin/accounts/invites/unused-links').set(ADMIN()).send({ account_ids: ['biz_other'] });
+    expect(none.body.links).toEqual([]);
+  });
+
+  test('SHIFT only', async () => {
+    db.seed({ users: [{ id: 'u_owner', role: 'business_owner', business_id: 'biz_other' }] });
+    const res = await request(app).post('/api/admin/accounts/invites/unused-links').set(as('u_owner')).send({});
     expect(res.status).toBe(403);
   });
 });

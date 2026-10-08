@@ -192,6 +192,12 @@ router.patch('/:id', async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'لا توجد معلومة بهذا المعرّف' });
 
     const item = await prisma.businessKnowledge.update({ where: { id: existing.id }, data });
+    // Edits and removals are logged like additions: a wrong answer the bot gives traces to who
+    // changed it. Never throws.
+    await accountEvents.record({
+      businessId: req.businessId, actorUserId: req.user.id, actorKind: actorKindOf(req),
+      type: 'knowledge_updated', data: { knowledge_id: item.id, kind: item.kind, changed: Object.keys(data) },
+    });
     res.json({ item });
   } catch (err) {
     console.error('[knowledge] update failed:', err.message);
@@ -202,10 +208,14 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const existing = await prisma.businessKnowledge.findFirst({
-      where: { id: req.params.id, business_id: req.businessId }, select: { id: true },
+      where: { id: req.params.id, business_id: req.businessId }, select: { id: true, kind: true },
     });
     if (!existing) return res.status(404).json({ error: 'لا توجد معلومة بهذا المعرّف' });
     await prisma.businessKnowledge.delete({ where: { id: existing.id } });
+    await accountEvents.record({
+      businessId: req.businessId, actorUserId: req.user.id, actorKind: actorKindOf(req),
+      type: 'knowledge_removed', data: { knowledge_id: existing.id, kind: existing.kind },
+    });
     res.json({ deleted: true });
   } catch (err) {
     console.error('[knowledge] delete failed:', err.message);

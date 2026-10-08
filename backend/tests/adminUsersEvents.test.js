@@ -116,6 +116,23 @@ describe('POST /api/admin/accounts/:id/users/:userId/reset', () => {
     expect(JSON.stringify(db.store.adminAccessLogs)).not.toContain(token);
   });
 
+  test('the old password stops working, and «تفعيل» cannot bring it back while the new link waits', async () => {
+    const bcrypt = require('bcryptjs');
+    user('owner1').password = await bcrypt.hash('stolen-pass', 4);
+    expect((await reset('owner1')).status).toBe(200);
+    expect(await bcrypt.compare('stolen-pass', user('owner1').password)).toBe(false);
+
+    const back = await request(app).patch('/api/admin/accounts/b1/users/owner1').set(auth()).send({ active: true });
+    expect(back.status).toBe(409);
+    expect(back.body.error).toMatch(/رابط دخول جديد/);
+    expect(user('owner1').active).toBe(false);
+    expect(db.store.userActivations.filter((a) => a.user_id === 'owner1' && !a.used_at)).toHaveLength(1);
+
+    // A login switched off by hand (no link waiting) can still be switched back on.
+    await request(app).patch('/api/admin/accounts/b1/users/staff1').set(auth()).send({ active: false });
+    expect((await request(app).patch('/api/admin/accounts/b1/users/staff1').set(auth()).send({ active: true })).status).toBe(200);
+  });
+
   test('a team member gets an /activate link', async () => {
     const res = await reset('staff1');
     expect(res.body.join_url).toMatch(/\/activate#/);
