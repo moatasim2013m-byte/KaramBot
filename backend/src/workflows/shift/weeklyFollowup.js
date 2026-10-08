@@ -19,6 +19,7 @@
  */
 
 const followups = require('./followups');
+const templateText = require('../../services/templateText');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -126,7 +127,9 @@ function part({ conversation, step, placesLeft }) {
     name: s.name,
     language: 'ar',
     bodyParams: s.places ? [name, String(placesLeft)] : [name],
-    text: `[متابعة أسبوعية ${step}/4 — ${s.name}] ${name}${s.places ? ` · ضايل ${placesLeft}` : ''}`,
+    // The message the customer receives, for the Inbox thread (it showed an internal tag before).
+    text: templateText.render(s.name, s.places ? [name, String(placesLeft)] : [name])
+      || `[متابعة أسبوعية ${step}/4 — ${s.name}] ${name}${s.places ? ` · ضايل ${placesLeft}` : ''}`,
   };
 }
 
