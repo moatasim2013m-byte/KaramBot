@@ -62,6 +62,9 @@ const KIND_TAGS = {
 
 const MEDIA_LABELS = { image: '📷 صورة', audio: '🎤 رسالة صوتية', video: '🎥 فيديو', document: '📄 مستند', sticker: '🌟 ملصق' };
 
+// attention_reason is a code the server writes; the banner shows its Arabic label, never the code.
+const ATTENTION_LABELS = { bot_paused: 'البوت موقوف مؤقتًا — رد على الزبون بنفسك' };
+
 const useVisible = () => {
   const [visible, setVisible] = useState(typeof document === 'undefined' ? true : document.visibilityState === 'visible');
   useEffect(() => {
@@ -803,7 +806,7 @@ export default function InboxPage() {
                   <span className="truncate">
                     {conv.team_request
                       ? `يحتاج الفريق: ${NEEDS_TEAM_LABELS[conv.team_request.reason] || conv.team_request.reason || ''}${conv.team_request.summary ? ` — ${conv.team_request.summary}` : ''}`
-                      : `يحتاج انتباه${conv.attention_reason ? `: ${conv.attention_reason}` : ''}`}
+                      : `يحتاج انتباه${ATTENTION_LABELS[conv.attention_reason] ? `: ${ATTENTION_LABELS[conv.attention_reason]}` : ''}`}
                   </span>
                 </p>
                 {conv.needs_attention && <button onClick={clearAttention} className="text-[11px] font-bold text-amber-800 bg-white border border-amber-300 rounded-lg px-2.5 py-1 flex-shrink-0">تم ✓</button>}

@@ -27,6 +27,7 @@ const media = require('../workflows/shift/media');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
+const { markOutbound } = require('./lastOutbound');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -34,6 +35,9 @@ const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 const SHIFT_SKIP_TYPES = ['reaction', 'system', 'ephemeral'];
 const REFERRAL_KEYS = ['source_url', 'source_id', 'source_type', 'headline', 'body', 'ctwa_clid'];
 const BILLING_ERROR_CODE = 131042;
+// Not something the customer wrote (newMessageAlert's SKIP_TYPES): never puts a conversation in front of staff.
+const NO_ANSWER_TYPES = ['reaction', 'system', 'ephemeral', 'request_welcome'];
+const BOT_PAUSED = 'bot_paused';
 
 /** The numbers staff alerts are sent TO. A conversation with one of them is a staff thread. */
 function isStaffNumber(business, waId) {
@@ -191,7 +195,7 @@ async function insertInbound(businessId, conversationId, waMsg, senderWaId, stat
 }
 
 async function saveOutboundMessage(businessId, conversationId, text, metaResponse) {
-  return prisma.message.create({
+  const msg = await prisma.message.create({
     data: {
       business_id: businessId,
       conversation_id: conversationId,
@@ -203,6 +207,48 @@ async function saveOutboundMessage(businessId, conversationId, text, metaRespons
       is_ai_generated: true,
     },
   });
+  await markOutbound(conversationId, msg && msg.created_at);
+  return msg;
+}
+
+/**
+ * «أوقف البوت مؤقتًا» (ai_config.enabled). Only an explicit false pauses: a business that never set
+ * the flag has always had a bot that answers, and must keep it.
+ */
+function botPaused(business) {
+  return business?.ai_config?.enabled === false;
+}
+
+/**
+ * The bot will not answer, so this customer is waiting for a person: the conversation joins the
+ * inbox's attention list. attention_at is when the customer wrote. It is kept while they are still
+ * waiting, so a burst is one item aged from its first message, and moves once staff have answered
+ * since, so the next message is a new wait. Best effort: the message is stored either way.
+ */
+async function flagForStaff(conversation, reason, at) {
+  const since = conversation.attention_at ? new Date(conversation.attention_at).getTime() : NaN;
+  const answered = !!conversation.last_outbound_at && new Date(conversation.last_outbound_at).getTime() >= since;
+  if (conversation.needs_attention && Number.isFinite(since) && !answered) return conversation;
+  try {
+    return await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { needs_attention: true, attention_reason: reason, attention_at: at ? new Date(at) : new Date() },
+    });
+  } catch (err) {
+    console.error(`[inbound] attention flag not set conversation=${conversation.id}: ${err.message}`);
+    return conversation;
+  }
+}
+
+// The inbox refreshes the thread and the list as soon as a message is stored.
+function emitNewMessages(business, items) {
+  for (const item of items) {
+    sseEmitter.emit(`business:${business.id}`, {
+      type: 'new_message',
+      conversationId: item.conversation.id,
+      businessId: business.id,
+    });
+  }
 }
 
 async function createConfirmedOrder(business, conversation, orderData) {
@@ -328,12 +374,18 @@ async function persistInbound(entry, { servesApp, endpoint } = {}) {
   if (refusesDelivery(business, { wabaId, servesApp, endpoint, what: 'message' })) {
     return { business: null, items: [] };
   }
-  if (business.status !== 'active') return { business, items: [] };
-
   // D5: only SHIFT rows enter the batcher's queue. D24: every other tenant's row is `processing` until its
   // forward/workflow ran (then `delivered`, today's value), so a crash in between is visible and recoverable.
-  const shiftQueue = business.business_type === 'shift' && business.ai_config?.reply_mode !== 'external';
-  const inboundStatus = shiftQueue ? 'received' : PROCESSING;
+  const shiftRows = business.business_type === 'shift' && business.ai_config?.reply_mode !== 'external';
+  // P0: a shop that is not 'active' (suspended, inactive) still has its messages stored, so they reach
+  // the inbox and the new-message alert; only the bot stops. Until now they were dropped here, unsaved.
+  // Its rows are stored already settled, with the value a non-active shop's rows end with anyway
+  // (runLeased marks SHIFT rows `skipped`, reprocessStuckInbound marks the others `delivered`): no
+  // sweep ever picks one up and answers it later, after the shop is switched back on.
+  const active = business.status === 'active';
+  let inboundStatus;
+  if (!active) inboundStatus = shiftRows ? 'skipped' : 'delivered';
+  else inboundStatus = shiftRows ? 'received' : PROCESSING;
   const contacts = value.contacts || [];
   const items = [];
 
@@ -347,7 +399,7 @@ async function persistInbound(entry, { servesApp, endpoint } = {}) {
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
 
       const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
-        { captions: shiftQueue });
+        { captions: shiftRows });
       items.push({
         waMsg, contact, customerWaId, conversation: conversation || found, message: msg, created, recovered: false, claimed: created,
       });
@@ -596,6 +648,11 @@ async function processShiftItem(business, accessToken, item) {
     // D1 save-only: nothing is ever sent, so there is no state to make durable first (runBatch would
     // reach the same `skipped` for a row left `received`).
     await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
+    // A paused bot is save-only too (isShiftReplyAllowed), but unlike the test-number mode a customer
+    // is now waiting for the team. A conversation staff already hold needs no flag.
+    if (botPaused(business) && !NO_ANSWER_TYPES.includes(waMsg.type) && !staffHolds(conv, now)) {
+      await flagForStaff(conv, BOT_PAUSED, msg.created_at);
+    }
     return;
   }
 
@@ -674,13 +731,7 @@ async function markDelivered(ids) {
  */
 async function forwardExternal(business, value, items) {
   const claimed = items.filter(needsProcessing);
-  for (const item of claimed) {
-    sseEmitter.emit(`business:${business.id}`, {
-      type: 'new_message',
-      conversationId: item.conversation.id,
-      businessId: business.id,
-    });
-  }
+  emitNewMessages(business, claimed);
 
   const forwardUrl = business.ai_config?.forward_url;
   if (claimed.length && forwardUrl) {
@@ -762,6 +813,17 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   let conversation = startConversation;
 
   if (!conversation.ai_enabled || conversation.status === 'human_takeover') {
+    return;
+  }
+
+  // «أوقف البوت مؤقتًا»: nothing is sent, not even the «send it as text» media reply, and nothing is
+  // read or asked of the AI (both cost money). The message is already stored; the customer now waits
+  // for the shop's staff, so the conversation goes to their attention list.
+  if (botPaused(business)) {
+    if (!NO_ANSWER_TYPES.includes(waMsg.type)) {
+      await flagForStaff(conversation, BOT_PAUSED, item.message && item.message.created_at);
+    }
+    emitNewMessages(business, [{ conversation }]);
     return;
   }
 
@@ -937,11 +999,19 @@ async function processInboundMessage(entry, { persisted, servesApp, endpoint } =
 
     // Legacy callers (scripts, tests) did not persist first.
     const { business, items } = persisted || await persistInbound(entry, { servesApp, endpoint });
-    if (!business || business.status !== 'active') return;
+    if (!business) return;
 
-    // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path
-    // below neither waits for it nor fails with it.
+    // «رسالة جديدة من عميل» to staff (where configured), whatever the shop's status: a suspended shop
+    // still hears from its customers. Not awaited and never rejects: the reply path below neither waits
+    // for it nor fails with it.
     newMessageAlert.notifyNewMessages(business, items);
+
+    // P0: the bot answers only for an active shop. The others' messages are stored (persistInbound) and
+    // shown in the inbox; nothing is sent or read, and no forward goes to an outside automation.
+    if (business.status !== 'active') {
+      emitNewMessages(business, items.filter(needsProcessing));
+      return;
+    }
 
     if (business.ai_config?.reply_mode === 'external') {
       await forwardExternal(business, value, items);
@@ -1043,6 +1113,10 @@ async function reprocessStuckInbound({ olderThanMs = STUCK_AFTER_MS, now = new D
         recovered: true,
         claimed: true,
       };
+
+      // The delivery that died may never have reached its new-message alert. Staff hear about the
+      // message whatever the shop's status; an alert that did go out is not repeated (its claim).
+      if (business && conversation) newMessageAlert.notifyNewMessages(business, [item]);
 
       if (!business || business.status !== 'active' || !conversation) {
         await markDelivered([message.id]);

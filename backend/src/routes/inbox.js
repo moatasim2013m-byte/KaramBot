@@ -7,6 +7,7 @@ const replyBatcher = require('../services/replyBatcher');
 const { decrypt } = require('../utils/tokenCrypto');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const sseEmitter = require('../utils/sseEmitter');
+const { markOutbound } = require('../services/lastOutbound');
 const jsonb = require('../db/jsonb');
 const { patchJson, mergeObjectKey } = jsonb;
 const { saveLead } = require('../workflows/shift/lead');
@@ -272,6 +273,8 @@ router.post('/conversations/:id/send', async (req, res) => {
         where: { id: conv.id },
         data: { last_message_at: new Date() },
       });
+      // Both inboxes send through this route: the customer has been answered as of this message.
+      await markOutbound(conv.id, msg.created_at);
     } catch (recordErr) {
       console.error(`[inbox] sent to WhatsApp but not recorded conversation=${conv.id}: ${recordErr.message}`);
       return res.json({ sent: true, recorded: false, meta_message_id: metaResponse?.messages?.[0]?.id || null });
