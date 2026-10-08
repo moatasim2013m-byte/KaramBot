@@ -10,7 +10,7 @@ require('./setup');
 
 jest.mock('../src/config/prisma', () => ({
   user: { findUnique: jest.fn() },
-  business: { findUnique: jest.fn() },
+  business: { findUnique: jest.fn(), update: jest.fn() },
   whatsappOnboarding: { findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
 }));
 

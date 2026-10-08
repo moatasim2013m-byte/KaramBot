@@ -142,11 +142,14 @@ beforeEach(() => {
   settings.clearCache();
   axios.get.mockReset();
   axios.post.mockReset();
+  // metaStatus.refresh runs after every connect and reads Meta with fetch: never the network here.
+  global.fetch = jest.fn(async () => ({ ok: false, json: async () => ({ error: { message: 'offline in tests' } }) }));
   jest.spyOn(console, 'error').mockImplementation(() => {});
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.spyOn(console, 'log').mockImplementation(() => {});
   seedWorld();
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { jest.restoreAllMocks(); delete global.fetch; });
 
 const OWNER_ROUTES = [
   ['get', '/config'],
@@ -235,7 +238,7 @@ describe('the business comes from the session, never the request', () => {
     for (const url of [`${OWNER_BASE}/status`, `${OWNER_BASE}/status?phone_number_id=${PHONE_B}`]) {
       const res = await request(app).get(url).set(OWNER_A());
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ onboarding: null }); // A has not started; B's row is not A's answer
+      expect(res.body).toEqual({ status: 'not_started', onboarding: null }); // B's row is not A's answer
     }
   });
 
@@ -342,7 +345,7 @@ describe('a number that belongs to another shop is refused before anything is wr
       .send(exchangeBody({ phone_number_id: phone }));
 
     expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: 'number_taken', message: expect.stringMatching(/[؀-ۿ]/) });
+    expect(res.body).toEqual({ error: 'number_taken', status: 'failed', message: expect.stringMatching(/[؀-ۿ]/) });
     expect(metaCalls()).toBe(0); // not even the code exchange: subscribed_apps and /register never ran
     expect(snapshot()).toBe(before);
 
@@ -445,7 +448,8 @@ describe('a clean connect binds to the caller\'s business', () => {
     metaAccepts();
     for (const body of [
       exchangeBody({ code: '' }),
-      exchangeBody({ waba_id: undefined }),
+      exchangeBody({ waba_id: 'abc' }),
+      exchangeBody({ finish_event: 'CANCEL' }),
       exchangeBody({ phone_number_id: '../../me' }),
       exchangeBody({ meta_business_id: 'not-a-portfolio' }),
     ]) {
@@ -464,9 +468,9 @@ describe('the admin mirror binds to the account in the URL', () => {
     const res = await request(app).post(`${adminBase('biz_a')}/exchange`).set(ADMIN()).send(exchangeBody());
 
     expect(res.status).toBe(200);
-    // Staff see the ids they follow up with Meta, never the token.
-    expect(res.body.onboarding).toMatchObject({ step: 'done', waba_id: WABA_A, phone_number_id: PHONE_A });
-    expect(JSON.stringify(res.body)).not.toContain(TOKEN_NEW);
+    // Staff see the step, never the token, and no Meta id (the contract: display_phone only).
+    expect(res.body).toMatchObject({ status: 'connected', onboarding: { step: 'done' } });
+    for (const hidden of [TOKEN_NEW, PHONE_A, WABA_A]) expect(JSON.stringify(res.body)).not.toContain(hidden);
 
     const row = db.store.whatsappOnboardings.find((r) => r.business_id === 'biz_a');
     expect(row).toMatchObject({ phone_number_id: PHONE_A, started_by_user_id: 'u_admin' });
@@ -491,8 +495,8 @@ describe('the admin mirror binds to the account in the URL', () => {
       .toEqual([['es_connected', 'shift', 'u_admin']]);
 
     const status = await request(app).get(`${adminBase('biz_c')}/status`).set(ADMIN());
-    expect(status.body.onboarding).toMatchObject({ step: 'token_exchanged', phone_number_id: PHONE_C, waba_id: WABA_C });
-    expect(JSON.stringify(status.body)).not.toContain(TOKEN_C);
+    expect(status.body).toMatchObject({ status: 'in_progress', onboarding: { step: 'token_exchanged' } });
+    for (const hidden of [TOKEN_C, PHONE_C, WABA_C]) expect(JSON.stringify(status.body)).not.toContain(hidden);
   });
 
   test('a number on another shop is refused here too, with SHIFT as the actor', async () => {
@@ -593,7 +597,7 @@ describe('the browser\'s ids are proven by Meta before anything is written (revi
     const res = await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A()).send(exchangeBody());
 
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ error: 'es_ownership_mismatch', message: expect.stringMatching(/[؀-ۿ]/) });
+    expect(res.body).toEqual({ error: 'es_ownership_mismatch', status: 'failed', message: expect.stringMatching(/[؀-ۿ]/) });
     expect(snapshot()).toBe(before);
     expect(axios.post).not.toHaveBeenCalled();
     expect(eventsOf('biz_a')).toEqual([expect.objectContaining({

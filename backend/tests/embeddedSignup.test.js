@@ -247,11 +247,12 @@ describe('what the browser is shown', () => {
     });
   });
 
-  test('SHIFT staff see the ids and the Graph error they follow up with, in staff wording', () => {
+  test('SHIFT staff see the Graph error they quote to Meta, in staff wording, and still no ids', () => {
     const shown = publicStatus(row({ last_error: 'register failed: x (code 100)', pin_enc: 'enc' }), { audience: 'staff' });
-    expect(shown).toMatchObject({ waba_id: WABA, phone_number_id: PHONE, last_error: 'register failed: x (code 100)' });
+    expect(shown).toMatchObject({ last_error: 'register failed: x (code 100)' });
     expect(shown.next_action.ar).toBe(notices.PAYMENT_METHOD_STAFF_LONG);
     expect(JSON.stringify(shown)).not.toMatch(/pin_enc|access_token/);
+    for (const id of [WABA, PHONE]) expect(JSON.stringify(shown)).not.toContain(id);
   });
 
   test('the dashboard\'s copy of the wording has not drifted from the server\'s', () => {
