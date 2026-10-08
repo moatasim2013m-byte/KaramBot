@@ -13,6 +13,9 @@ require('./setup');
 jest.mock('axios');
 jest.mock('../src/config/prisma', () => require('./helpers/fakeDb').getFakeDb().prisma);
 jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb);
+// After a connect the owner_alert template goes to the new WABA (ownerAlertTemplate.test.js covers
+// it); stubbed here so these tests keep reading exactly the connect flow's own Graph calls and log.
+jest.mock('../src/services/ownerAlertTemplate', () => ({ submitAfterConnect: jest.fn(async () => 'skipped') }));
 
 const axios = require('axios');
 const jwt = require('jsonwebtoken');

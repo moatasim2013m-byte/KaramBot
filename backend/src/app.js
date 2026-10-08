@@ -96,6 +96,12 @@ app.use('/api/admin/embedded-signup', apiLimiter, adminEmbeddedSignup.configRout
 app.use('/api/admin/accounts/:id/embedded-signup', apiLimiter, adminEmbeddedSignup.accountRouter);
 // Signups SHIFT finishes by hand: orphans, «أكمل الربط». Before admin.js for the same reason.
 app.use('/api/admin/onboardings', apiLimiter, require('./routes/adminOnboardings'));
+// «زبون جديد» and the «الانضمام» board (routes/adminAccounts.js). Before admin.js. The accounts
+// router guards each of its own routes, so the other /api/admin/accounts/... paths fall through
+// to admin.js untouched (authenticated and rate-limited once, there).
+const adminAccounts = require('./routes/adminAccounts');
+app.use('/api/admin/onboarding', apiLimiter, adminAccounts.boardRouter);
+app.use('/api/admin/accounts', adminAccounts.accountsRouter);
 app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));

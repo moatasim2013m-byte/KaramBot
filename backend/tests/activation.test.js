@@ -11,6 +11,8 @@ jest.mock('../src/config/prisma', () => ({
   business: { findUnique: jest.fn() },
   userActivation: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
   adminAccessLog: { create: jest.fn() },
+  // join_opened (the first open of an owner's link) and password_set land on the account's log.
+  accountEvent: { findMany: jest.fn(), create: jest.fn() },
   $transaction: jest.fn(),
 }));
 
@@ -20,6 +22,7 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const prisma = require('../src/config/prisma');
 const activation = require('../src/services/activation');
+const alerts = require('../src/services/alerts');
 const app = require('../src/app');
 
 const ADMIN = { id: 'admin1', name: 'A', email: 'a@shifts-ai.com', role: 'platform_admin', business_id: null, active: true };
@@ -42,6 +45,9 @@ beforeEach(() => {
   prisma.userActivation.updateMany.mockResolvedValue({ count: 0 });
   prisma.userActivation.create.mockResolvedValue({ id: 'act1' });
   prisma.adminAccessLog.create.mockResolvedValue({ id: 'log1' });
+  prisma.accountEvent.findMany.mockResolvedValue([]);
+  prisma.accountEvent.create.mockImplementation(({ data }) => Promise.resolve({ id: 'ev1', ...data }));
+  jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
   // issue() writes both statements in one transaction, so the spies live here where a test
   // can inspect what was actually persisted.
   tx = {
@@ -144,10 +150,14 @@ describe('redeeming a link', () => {
       // Migration 2: an email-only user has no number to show; a phone owner's is masked
       // (phoneLoginCreate.test.js).
       phone_masked: null,
+      // P2 /join: the greeting, the starter cards and whether the connect step is already done.
+      shop_name: 'عيادة النور', owner_first_name: 'د. أحمد', sector: null, connected: false,
     });
     // The lookup asks for the shop through the user's own relation, never by an id from the request.
     const include = prisma.userActivation.findUnique.mock.calls[0][0].include;
-    expect(include.user.select.business).toEqual({ select: { name: true, business_type: true } });
+    expect(include.user.select.business).toEqual({
+      select: { name: true, business_type: true, sector: true, wa_phone_number_id: true },
+    });
   });
 
   test('redeeming answers with the complete user, so the first session renders the right nav', async () => {

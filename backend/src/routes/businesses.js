@@ -367,3 +367,7 @@ router.patch('/:id/token', requireRole('platform_admin'), async (req, res) => {
 });
 
 module.exports = router;
+// «زبون جديد» (routes/adminAccounts.js) names shops the same way: one slug rule, not two.
+module.exports.slugFromName = slugFromName;
+module.exports.nextSlug = nextSlug;
+module.exports.uniqueField = uniqueField;
