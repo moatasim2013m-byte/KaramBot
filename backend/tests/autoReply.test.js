@@ -1,10 +1,9 @@
 /**
- * A customer's WhatsApp away message is stored for staff but answered by nobody (Laraca, 2026-10-08):
- * staff wrote «hi», and four seconds later the customer's phone replied «Thank you for your message. We're
- * unavailable right now, but will respond as soon as possible.»
+ * A customer's WhatsApp away message never starts a machine-to-machine loop (Laraca, 2026-10-08).
  *
- * Shape AND timing: an adversarial review showed wording alone silences real people, so the same words
- * minutes after our last message are a person, and are answered.
+ * Wording-based detection was rejected after two adversarial reviews (it silenced shop owners answering
+ * «شو بيصير بالرسائل بعد الدوام؟» and urgent requests). The rule: the first away message is answered like
+ * any message; an exact repeat of a template-length text, seconds after our last message, is a machine.
  */
 require('./setup');
 jest.mock('../src/config/prisma', () => require('./helpers/fakeDb').getFakeDb().prisma);
@@ -14,110 +13,95 @@ jest.mock('../src/ai/provider', () => ({ generateValidatedAIReply: jest.fn(), ge
 
 const axios = require('axios');
 const db = require('./helpers/fakeDb').getFakeDb();
-const provider = require('../src/ai/provider');
 const replyBatcher = require('../src/services/replyBatcher');
-const { looksLikeAwayText, withinAwayWindow } = require('../src/services/autoReply');
+const autoReply = require('../src/services/autoReply');
 const { persistInbound, processInboundMessage } = require('../src/services/messageProcessor');
 const { encrypt } = require('../src/utils/tokenCrypto');
 
-describe('the away-message shape', () => {
-  test.each([
-    'Thank you for your message. We’re unavailable right now, but will respond as soon as possible.',
-    'Hello! Thanks for contacting us. We are currently out of the office and will get back to you shortly.',
-    'شكراً لتواصلك معنا، نحن غير متواجدين حالياً وسيتم الرد عليك في أقرب وقت',
-    'شكرًا لتواصلك معنا، سنرد عليك في أقرب وقت',
-    'شكـــراً لتواصلك معنا، سنرد عليك في أقرب وقت',
-    'هذه رسالة تلقائية: سنرد عليك بأقرب وقت',
-    'هلا فيك! حالياً مش موجودين، رح نرجعلك بأسرع وقت 🙏',
-    'تم استلام رسالتك بنجاح، سنتواصل معك قريباً.',
-    'Our office is closed. We will reply as soon as we can.',
-  ])('is an away message: %s', (t) => expect(looksLikeAwayText(t)).toBe(true));
+const PNID = 'pn_ar';
+const AWAY = 'Thank you for your message. We’re unavailable right now, but will respond as soon as possible.';
+let seq = 0;
+const entry = (body, atMs, extra = {}) => ({ changes: [{ value: {
+  messaging_product: 'whatsapp', metadata: { phone_number_id: PNID },
+  contacts: [{ wa_id: '17868225826', profile: { name: 'Laraca company' } }],
+  messages: [{ id: `wamid.ar${++seq}`, from: '17868225826', timestamp: String(Math.floor(atMs / 1000)), type: 'text', text: { body }, ...extra }],
+} }] });
+async function deliver(body, atMs, extra) {
+  const e = entry(body, atMs, extra);
+  const persisted = await persistInbound(e);
+  await processInboundMessage(e, { persisted });
+  await new Promise((r) => setImmediate(r));
+}
+const inbound = () => db.store.messages.filter((m) => m.direction === 'inbound').sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+const textSends = () => axios.post.mock.calls.map((c) => c[1]).filter((p) => p && p.type === 'text');
+function outboundAt(ms) {
+  db.seed({ messages: [{ business_id: 'biz_g', conversation_id: 'c_lar', direction: 'outbound', message_type: 'text', text_body: 'hi', status: 'delivered', created_at: new Date(ms) }] });
+}
 
-  // Every one of these was silenced by the first version (adversarial review, 2026-10-08).
-  test.each([
-    'شكرا',
-    'ليش ما حدا رد الي؟',
-    'ارجو الرد الي باقرب وقت',
-    'بدي رد تلقائي لمحلي',
-    'هل الرد آلي؟ بدي احكي مع حدا',
-    'is it auto-reply or real AI?',
-    'I already have an automatic reply in WhatsApp Business, why do I need you?',
-    'thanks, I will get back to you tomorrow',
-    'I am busy now, will reply later',
-    "I'm away this week, will reply when I'm back with the measurements",
-    'المقاس 42 غير متاح؟ بدي ياه بأقرب وقت',
-    'الدكتور غير متواجد اليوم؟ بدي موعد باقرب وقت',
-    'احنا بنسكر الساعة 10 وما في حدا يرد بعدها',
-    'مرحبا، شفت العرض تبع الشهر المجاني وبدي أعرف أكثر',
-    'Hello! Can I get more info on this?',
-    '',
-  ])('is a person: %s', (t) => expect(looksLikeAwayText(t)).toBe(false));
-
-  test('timing: within 30 s of our last message only', () => {
-    expect(withinAwayWindow(1004000, 1000000)).toBe(true);
-    expect(withinAwayWindow(1000000 + 31000, 1000000)).toBe(false);
-    expect(withinAwayWindow(1000000 + 5 * 60000, 1000000)).toBe(false);
-    expect(withinAwayWindow(1000000, NaN)).toBe(false);
+let t0;
+beforeEach(() => {
+  db.reset();
+  jest.clearAllMocks();
+  axios.post.mockResolvedValue({ data: { messages: [{ id: 'wamid.out' }] } });
+  t0 = Date.now() - 60 * 60000;
+  db.seed({
+    businesses: [{ id: 'biz_g', name: 'محل', business_type: 'generic', status: 'active', wa_phone_number_id: PNID, wa_access_token: encrypt('tok'), ai_config: {} }],
+    conversations: [{ id: 'c_lar', business_id: 'biz_g', customer_wa_id: '17868225826', status: 'open', unread_count: 0, last_inbound_at: new Date(t0 - 3600e3) }],
   });
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+});
+afterEach(() => { replyBatcher.cancelAll?.(); jest.restoreAllMocks(); });
+
+test('the first away message is answered like any message', async () => {
+  outboundAt(Date.now());
+  await deliver(AWAY, Date.now() + 4000);
+  expect(inbound()[0].message_type).toBe('text');
+  expect(textSends().length).toBeGreaterThan(0);
 });
 
-describe('the inbound path', () => {
-  const PNID = 'pn_ar';
-  const AWAY = 'Thank you for your message. We’re unavailable right now, but will respond as soon as possible.';
-  let seq = 0;
-  const entry = (body, atMs) => ({ changes: [{ value: {
-    messaging_product: 'whatsapp', metadata: { phone_number_id: PNID },
-    contacts: [{ wa_id: '17868225826', profile: { name: 'Laraca company' } }],
-    messages: [{ id: `wamid.ar${++seq}`, from: '17868225826', timestamp: String(Math.floor(atMs / 1000)), type: 'text', text: { body } }],
-  } }] });
-  async function deliver(body, atMs) {
-    const e = entry(body, atMs);
-    const persisted = await persistInbound(e);
-    await processInboundMessage(e, { persisted });
-    await new Promise((r) => setImmediate(r));
-  }
+test('the same away text again, seconds after our reply: stored for staff, answered by nobody', async () => {
+  outboundAt(Date.now());
+  await deliver(AWAY, Date.now() + 4000);
+  // The bot answered it; the customer's phone sends the identical away text seconds later.
+  const sendsBefore = textSends().length;
+  const windowBefore = db.store.conversations.find((c) => c.id === 'c_lar').last_inbound_at;
+  await deliver(AWAY, Date.now() + 3000);
+  const second = inbound()[1];
+  expect(second.message_type).toBe('auto_reply');
+  expect(second.status).toBe('skipped');
+  expect(second.raw_payload.auto_reply).toBe(true);
+  expect(textSends().length).toBe(sendsBefore);
+  const conv = db.store.conversations.find((c) => c.id === 'c_lar');
+  expect(conv.last_inbound_at).toEqual(windowBefore);
+});
 
-  let staffAt;
-  beforeEach(() => {
-    db.reset();
-    jest.clearAllMocks();
-    axios.post.mockResolvedValue({ data: { messages: [{ id: 'wamid.out' }] } });
-    staffAt = Date.now();
-    db.seed({
-      businesses: [{ id: 'biz_g', name: 'محل', business_type: 'generic', status: 'active', wa_phone_number_id: PNID, wa_access_token: encrypt('tok'), ai_config: {} }],
-      conversations: [{ id: 'c_lar', business_id: 'biz_g', customer_wa_id: '17868225826', status: 'open', unread_count: 0, last_inbound_at: new Date(staffAt - 8 * 3600e3) }],
-      messages: [{ business_id: 'biz_g', conversation_id: 'c_lar', direction: 'outbound', message_type: 'text', text_body: 'hi', status: 'delivered', created_at: new Date(staffAt) }],
-    });
-    jest.spyOn(console, 'error').mockImplementation(() => {});
-    jest.spyOn(console, 'log').mockImplementation(() => {});
-  });
-  afterEach(() => { replyBatcher.cancelAll?.(); jest.restoreAllMocks(); });
+test('a repeat minutes after our message is a person resending, and is answered', async () => {
+  outboundAt(Date.now());
+  await deliver(AWAY, Date.now() + 4000);
+  await deliver(AWAY, Date.now() + 5 * 60000);
+  expect(inbound()[1].message_type).toBe('text');
+});
 
-  test('an away message seconds after our «hi»: stored for staff, answered by nobody, not the customer writing', async () => {
-    await deliver(AWAY, staffAt + 4000);
-    const row = db.store.messages.find((m) => m.direction === 'inbound');
-    expect(row.message_type).toBe('auto_reply');
-    expect(row.status).toBe('skipped');
-    expect(row.raw_payload.auto_reply).toBe(true);
-    const conv = db.store.conversations.find((c) => c.id === 'c_lar');
-    expect(conv.unread_count).toBe(0);
-    expect(new Date(conv.last_inbound_at).getTime()).toBe(staffAt - 8 * 3600e3);
-    expect(provider.generateValidatedAIReply).not.toHaveBeenCalled();
-    expect(axios.post.mock.calls.map((c) => c[1]).filter((p) => p && p.type === 'text')).toHaveLength(0);
-  });
+test('the ad clicked twice is a person (WhatsApp marks ad clicks with a referral)', async () => {
+  const prefill = 'مرحبا، شفت العرض تبع الشهر المجاني وبدي أعرف أكثر';
+  const ad = { referral: { source_type: 'ad', source_id: '1', headline: 'SHIFT AI & Automation' } };
+  outboundAt(Date.now());
+  await deliver(prefill, Date.now() + 4000, ad);
+  await deliver(prefill, Date.now() + 3000, ad);
+  expect(inbound().map((m) => m.message_type)).toEqual(['text', 'text']);
+});
 
-  test('the same words minutes later are a person, and are answered', async () => {
-    await deliver(AWAY, staffAt + 5 * 60000);
-    const row = db.store.messages.find((m) => m.direction === 'inbound');
-    expect(row.message_type).toBe('text');
-    expect(row.status).not.toBe('skipped');
-    expect(axios.post.mock.calls.map((c) => c[1]).filter((p) => p && p.type === 'text').length).toBeGreaterThan(0);
-  });
+test('a shop owner answering «شو بيصير بالرسائل بعد الدوام؟» in seconds is answered (review 2, 2026-10-08)', async () => {
+  outboundAt(Date.now());
+  await deliver('احنا مش متواجدين بعد الدوام، بنرد عليهم تاني يوم بأقرب وقت', Date.now() + 8000);
+  expect(inbound()[0].message_type).toBe('text');
+});
 
-  test('a real message seconds after ours is answered', async () => {
-    await deliver('مرحبا، بدي أعرف السعر', staffAt + 3000);
-    const row = db.store.messages.find((m) => m.direction === 'inbound');
-    expect(row.message_type).toBe('text');
-    expect(axios.post.mock.calls.map((c) => c[1]).filter((p) => p && p.type === 'text').length).toBeGreaterThan(0);
-  });
+test('helpers: short texts are never templates; spelling noise is the same text', () => {
+  expect(autoReply.templateLength('تمام')).toBe(false);
+  expect(autoReply.templateLength(AWAY)).toBe(true);
+  expect(autoReply.normalizeText('شكـــراً   لتواصلك')).toBe(autoReply.normalizeText('شكرا لتواصلك'));
+  expect(autoReply.withinAwayWindow(1004000, 1000000)).toBe(true);
+  expect(autoReply.withinAwayWindow(1000000 + 31000, 1000000)).toBe(false);
 });

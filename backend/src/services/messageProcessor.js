@@ -24,6 +24,7 @@ const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
 const jsonb = require('../db/jsonb');
 const autoReply = require('./autoReply');
+const { isAdPrefill } = require('../workflows/shift/validators');
 const media = require('../workflows/shift/media');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
@@ -164,12 +165,15 @@ function inboundData(businessId, conversationId, waMsg, senderWaId, status, { ca
  * @returns {Promise<{created: boolean, msg: object|null, conversation: object|null}>}
  */
 /**
- * The customer's own WhatsApp away message (services/autoReply.js): its shape, AND sent within seconds of
- * our last message. Decided before the row exists, so no path — batcher, sweeper, recovery — ever sees it
- * as `received`. A failed lookup is "not an away message": the row goes the normal way.
+ * The customer's own WhatsApp away message, repeated (services/autoReply.js): the same template-length text
+ * this customer already sent, arriving within seconds of our last message. An ad click (WhatsApp's
+ * `referral`) or the ad's canned English prefill is a person, never a repeat. Decided before the row exists, so no batch, sweep or recovery path
+ * ever sees it as `received`. A failed lookup is "not an away message": the row goes the normal way.
  */
 async function isAwayMessage(conversationId, waMsg) {
-  if (!waMsg || waMsg.type !== 'text' || !autoReply.looksLikeAwayText(waMsg.text && waMsg.text.body)) return false;
+  const text = waMsg && waMsg.type === 'text' && waMsg.text ? waMsg.text.body : null;
+  // A click on the ad (WhatsApp attaches `referral`) is always a person, whatever the canned text says.
+  if (!autoReply.templateLength(text) || waMsg.referral || isAdPrefill(text)) return false;
   try {
     const last = await prisma.message.findFirst({
       where: { conversation_id: conversationId, direction: 'outbound' },
@@ -178,7 +182,19 @@ async function isAwayMessage(conversationId, waMsg) {
     });
     if (!last) return false;
     const sentAt = Number(waMsg.timestamp) > 0 ? Number(waMsg.timestamp) * 1000 : Date.now();
-    return autoReply.withinAwayWindow(sentAt, new Date(last.created_at).getTime());
+    if (!autoReply.withinAwayWindow(sentAt, new Date(last.created_at).getTime())) return false;
+    const earlier = await prisma.message.findMany({
+      where: {
+        conversation_id: conversationId,
+        direction: 'inbound',
+        created_at: { gte: new Date(sentAt - autoReply.REPEAT_LOOKBACK_MS) },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+      select: { text_body: true },
+    });
+    const norm = autoReply.normalizeText(text);
+    return earlier.some((m) => autoReply.normalizeText(m.text_body) === norm);
   } catch (err) {
     console.error(`[inbound] away-message check failed conversation=${conversationId}: ${err.message}`);
     return false;
