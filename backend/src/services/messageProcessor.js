@@ -23,6 +23,7 @@ const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
 const jsonb = require('../db/jsonb');
+const autoReply = require('./autoReply');
 const media = require('../workflows/shift/media');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
@@ -898,6 +899,27 @@ function decryptBusinessToken(business) {
   }
 }
 
+/** Marks the away/greeting replies in this delivery `skipped` (raw_payload.auto_reply); returns their ids. */
+async function markAutoReplies(items) {
+  const ids = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const row = item && item.message;
+    if (!row || !needsProcessing(item) || row.message_type !== 'text' || !autoReply.isAutoReply(row.text_body)) continue;
+    try {
+      await prisma.message.update({
+        where: { id: row.id },
+        data: { status: 'skipped', raw_payload: { ...(row.raw_payload && typeof row.raw_payload === 'object' ? row.raw_payload : {}), auto_reply: true } },
+      });
+      ids.add(row.id);
+      console.log(`[inbound] auto-reply not answered message=${row.id} conversation=${row.conversation_id}`);
+    } catch (err) {
+      // Not marked: it goes through the normal path, as before this guard existed.
+      console.error(`[inbound] auto-reply mark failed message=${row.id}: ${err.message}`);
+    }
+  }
+  return ids;
+}
+
 async function processInboundMessage(entry, { persisted, servesApp, endpoint } = {}) {
   try {
     const changes = entry?.changes?.[0];
@@ -936,8 +958,14 @@ async function processInboundMessage(entry, { persisted, servesApp, endpoint } =
     if (!messages.length) return;
 
     // Legacy callers (scripts, tests) did not persist first.
-    const { business, items } = persisted || await persistInbound(entry, { servesApp, endpoint });
+    const { business, items: persistedItems } = persisted || await persistInbound(entry, { servesApp, endpoint });
     if (!business || business.status !== 'active') return;
+
+    // A customer's own WhatsApp away message is kept for staff but answered by nobody: no reply, no
+    // alert, no «waiting for the team» note (Laraca, 2026-10-08).
+    const autoIds = await markAutoReplies(persistedItems);
+    const items = autoIds.size ? persistedItems.filter((i) => !autoIds.has(i.message && i.message.id)) : persistedItems;
+    if (!items.length) return;
 
     // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path
     // below neither waits for it nor fails with it.
