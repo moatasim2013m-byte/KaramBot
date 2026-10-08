@@ -200,7 +200,12 @@ router.get('/', async (req, res) => {
       prisma.whatsappOnboarding.findFirst({
         where: { business_id: business.id },
         orderBy: { created_at: 'desc' },
-        select: { step: true, payment_method_ok: true, payment_method_claimed_at: true, meta_name_status: true, meta_quality_rating: true },
+        // payment_blocked_at so connectionState can say a Meta 131042 refusal (it reads it), and
+        // revoked_at so the home page can say «أعد الربط» rather than a generic «غير موصول».
+        select: {
+          step: true, payment_method_ok: true, payment_method_claimed_at: true, payment_blocked_at: true,
+          revoked_at: true, meta_name_status: true, meta_quality_rating: true,
+        },
       }),
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true } }),
       prisma.message.aggregate({ where: { business_id: business.id, direction: 'outbound', is_ai_generated: true }, _max: { created_at: true } }),
@@ -237,6 +242,10 @@ router.get('/', async (req, res) => {
         amount_jod: Number(contract.amount_jod), billing_cycle: contract.billing_cycle, next_due_at: contract.next_due_at,
       } : null,
       payment_method_claimed: paymentClaimed,
+      // The two states the home page's status line leads with, as plain booleans: the connection
+      // ended on Meta's side (reconnect), or Meta refused the bot's replies over payment (131042).
+      revoked: Boolean(onboarding && onboarding.revoked_at),
+      payment_blocked: Boolean(onboarding && onboarding.payment_blocked_at),
       // «رقم المحل» and «الاسم الذي يراه زبائنك» as Meta shows them, never the ids behind them.
       // name_status and quality_rating are Meta's words (APPROVED, GREEN…); the page says them in Arabic.
       number: {

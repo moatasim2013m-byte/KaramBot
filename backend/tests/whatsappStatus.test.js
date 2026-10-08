@@ -290,6 +290,26 @@ describe('the home page numbers (P3)', () => {
     console.error.mockRestore();
   });
 
+  // The home page's status line leads with these two (frontend panelView.statusLine). Before the P3
+  // merge the route selected neither column, so a revoked or 131042-blocked shop read «غير موصول».
+  test('revoked at Meta and payment-blocked are said as booleans, never as the Meta ids', async () => {
+    setup();
+    let res = await get();
+    expect(res.body).toMatchObject({ revoked: false, payment_blocked: false });
+    expect(prisma.whatsappOnboarding.findFirst.mock.calls[0][0].select).toMatchObject({ revoked_at: true, payment_blocked_at: true });
+
+    setup({ onboarding: { step: 'done', payment_method_ok: true, payment_blocked_at: minsAgo(5) } });
+    res = await get();
+    expect(res.body.payment_blocked).toBe(true);
+    expect(res.body.connection.state).toBe('down');
+
+    setup({ onboarding: { step: 'done', payment_method_ok: true, revoked_at: minsAgo(5) } });
+    expect((await get()).body.revoked).toBe(true);
+
+    setup({ onboarding: null });
+    expect((await get()).body).toMatchObject({ revoked: false, payment_blocked: false });
+  });
+
   test('a generic shop is sent to «البوت» to teach it', async () => {
     setup({ business: biz({ business_type: 'generic' }), knowledge: 0 });
     const { setup: s } = (await get()).body;

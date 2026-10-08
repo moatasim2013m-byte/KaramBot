@@ -23,11 +23,12 @@ const STATUS_AR = {
 
 const input = 'w-full rounded-md border border-gray-200 px-3 h-11 text-[14px] focus:outline-none focus:ring-1 focus:ring-green-500';
 
-function InviteSheet({ onClose, onInvited }) {
-  const [form, setForm] = useState({ name: '', phone: '', role: 'staff' });
+// `initial` opens the sheet on an already-issued link («أرسل رابطًا جديدًا» for someone who never signed in).
+function InviteSheet({ onClose, onInvited, initial = null }) {
+  const [form, setForm] = useState({ name: initial?.name || '', phone: '', role: 'staff' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);   // { join_url, wa_share_url }
+  const [result, setResult] = useState(initial?.result || null);   // { join_url, wa_share_url }
   const [copied, setCopied] = useState(false);
 
   const submit = async (e) => {
@@ -107,6 +108,7 @@ export default function StaffPage() {
   const [error, setError] = useState(null);
   const [inviting, setInviting] = useState(false);
   const [busy, setBusy] = useState(null);
+  const [relink, setRelink] = useState(null);   // { name, result } from POST /team/:id/resend
   const owner = user?.role === 'business_owner' || user?.role === 'platform_admin';
 
   const load = useCallback(() => {
@@ -123,6 +125,21 @@ export default function StaffPage() {
       load();
     } catch (err) {
       setError(err.response?.data?.error || 'تعذّر الحفظ، حاول مرة أخرى');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // A member who never signed in has no password: switching them on would leave them unable to
+  // sign in (the server answers 409), so their way back is a fresh link, which the old one stops.
+  const resend = async (member) => {
+    setBusy(member.id); setError(null);
+    try {
+      const res = await api.post(`/team/${member.id}/resend`);
+      setRelink({ name: member.name, result: res.data });
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'تعذّر إنشاء الرابط، حاول مرة أخرى');
     } finally {
       setBusy(null);
     }
@@ -197,7 +214,7 @@ export default function StaffPage() {
                   <td className="px-4 py-2.5 text-gray-600"><Timestamp value={m.last_login} /></td>
                   {owner && (
                     <td className="px-4 py-2.5 text-left">
-                      {editable(m) && <ActiveButton m={m} busy={busy === m.id} onToggle={() => patch(m, { active: m.status === 'disabled' })} />}
+                      {editable(m) && <MemberActions m={m} busy={busy === m.id} onToggle={() => patch(m, { active: m.status === 'disabled' })} onResend={() => resend(m)} />}
                     </td>
                   )}
                 </tr>
@@ -218,7 +235,7 @@ export default function StaffPage() {
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <RoleCell m={m} editable={editable(m)} busy={busy === m.id} onRole={(role) => patch(m, { role })} />
-                  {editable(m) && <ActiveButton m={m} busy={busy === m.id} onToggle={() => patch(m, { active: m.status === 'disabled' })} />}
+                  {editable(m) && <MemberActions m={m} busy={busy === m.id} onToggle={() => patch(m, { active: m.status === 'disabled' })} onResend={() => resend(m)} />}
                 </div>
               </li>
             ))}
@@ -229,6 +246,7 @@ export default function StaffPage() {
       )}
 
       {inviting && <InviteSheet onClose={() => setInviting(false)} onInvited={load} />}
+      {relink && <InviteSheet initial={relink} onClose={() => setRelink(null)} onInvited={load} />}
     </div>
   );
 }
@@ -246,6 +264,22 @@ function RoleCell({ m, editable, busy, onRole }) {
       <option value="staff">موظف</option>
       <option value="manager">مدير</option>
     </select>
+  );
+}
+
+function MemberActions({ m, busy, onToggle, onResend }) {
+  const neverIn = !m.last_login;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {neverIn && (
+        <button type="button" onClick={onResend} disabled={busy}
+          className="h-9 px-3 rounded-md text-[12px] font-medium bg-green-50 text-green-700 disabled:opacity-50">
+          أرسل رابطًا جديدًا
+        </button>
+      )}
+      {/* «فعّل» only for someone who has a password; the rest come back through the link. */}
+      {!(neverIn && m.status === 'disabled') && <ActiveButton m={m} busy={busy} onToggle={onToggle} />}
+    </span>
   );
 }
 
