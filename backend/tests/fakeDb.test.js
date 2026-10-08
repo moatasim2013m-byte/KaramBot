@@ -382,3 +382,78 @@ describe('jsonb fake', () => {
     expect(Math.abs(db.clock.now().getTime() - Date.now())).toBeLessThan(1000);
   });
 });
+
+describe('Migration 1 (docs/panels/spec.md): new models, nullable numbers, upsert and delete', () => {
+  test('a shop with no number yet: many NULLs under the unique index, a real number still unique', async () => {
+    const a = await prisma.business.create({ data: { name: 'مطعم الشام', slug: 'alsham', wa_phone_number_id: null } });
+    const b = await prisma.business.create({ data: { name: 'صيدلية', slug: 'pharma', wa_phone_number_id: null } });
+    expect(a).toMatchObject({ wa_phone_number_id: null, source: 'operator', is_internal: false, connected_at: null });
+    expect(b.wa_phone_number_id).toBeNull();
+
+    await prisma.business.update({ where: { id: a.id }, data: { wa_phone_number_id: 'pn1' } });
+    await expect(prisma.business.update({ where: { id: b.id }, data: { wa_phone_number_id: 'pn1' } }))
+      .rejects.toMatchObject({ code: 'P2002' });
+    await expect(prisma.business.create({ data: { slug: 'alsham' } })).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  test('Prisma refuses null in a unique where for a nullable unique column', async () => {
+    db.seed({ businesses: [{ wa_phone_number_id: null }] });
+    await expect(prisma.business.findUnique({ where: { wa_phone_number_id: null } }))
+      .rejects.toThrow('Argument `wa_phone_number_id` must not be null.');
+    // findFirst has no such rule: null matches the shop without a number, as in SQL `IS NULL`.
+    expect(await prisma.business.findFirst({ where: { wa_phone_number_id: null } })).not.toBeNull();
+  });
+
+  test('platformSetting is keyed by name, with no id or created_at', async () => {
+    const row = await prisma.platformSetting.create({ data: { key: 'es_owner_enabled', value: true } });
+    expect(row).toEqual({ key: 'es_owner_enabled', value: true, updated_by: null, updated_at: expect.any(Date) });
+    await expect(prisma.platformSetting.create({ data: { key: 'es_owner_enabled', value: false } }))
+      .rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  test('upsert creates, then updates the same row', async () => {
+    const args = (value) => ({ where: { key: 'invite_ttl_days' }, create: { key: 'invite_ttl_days', value }, update: { value } });
+    await prisma.platformSetting.upsert(args(3));
+    await prisma.platformSetting.upsert(args(5));
+    expect(db.store.platformSettings).toEqual([expect.objectContaining({ key: 'invite_ttl_days', value: 5 })]);
+  });
+
+  test('delete removes one row or throws P2025; deleteMany returns the count', async () => {
+    db.seed({ accountEvents: [{ id: 'e1', type: 'a', actor_kind: 'system' }, { id: 'e2', type: 'b', actor_kind: 'system' }, { id: 'e3', type: 'b', actor_kind: 'system' }] });
+    expect((await prisma.accountEvent.delete({ where: { id: 'e1' } })).id).toBe('e1');
+    await expect(prisma.accountEvent.delete({ where: { id: 'e1' } })).rejects.toMatchObject({ code: 'P2025' });
+    expect(await prisma.accountEvent.deleteMany({ where: { type: 'b' } })).toEqual({ count: 2 });
+    expect(db.store.accountEvents).toHaveLength(0);
+  });
+
+  test('a rolled-back transaction undoes upsert, delete and deleteMany, in place', async () => {
+    db.seed({
+      platformSettings: [{ key: 'invite_ttl_days', value: 7 }],
+      accountEvents: [{ id: 'e1', type: 'a', actor_kind: 'system' }, { id: 'e2', type: 'b', actor_kind: 'system' }, { id: 'e3', type: 'c', actor_kind: 'system' }],
+    });
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.platformSetting.upsert({ where: { key: 'invite_ttl_days' }, create: { key: 'invite_ttl_days', value: 1 }, update: { value: 1 } });
+      await tx.platformSetting.upsert({ where: { key: 'es_owner_enabled' }, create: { key: 'es_owner_enabled', value: true }, update: { value: true } });
+      await tx.accountEvent.delete({ where: { id: 'e2' } });
+      await tx.accountEvent.deleteMany({ where: { type: { in: ['a', 'c'] } } });
+      throw new Error('boom');
+    })).rejects.toThrow('boom');
+    expect(db.store.platformSettings).toEqual([expect.objectContaining({ key: 'invite_ttl_days', value: 7 })]);
+    expect(db.store.accountEvents.map((e) => e.id)).toEqual(['e1', 'e2', 'e3']);
+  });
+
+  test('whatsappOnboarding: schema defaults, and a row without a number', async () => {
+    const row = await prisma.whatsappOnboarding.create({ data: { app_id: 'app', meta_business_id: 'mb', waba_id: 'w1' } });
+    expect(row).toMatchObject({ phone_number_id: null, step: 'code_received', needs_operator: false, payment_method_ok: false, payment_blocked_at: null });
+    await prisma.whatsappOnboarding.create({ data: { app_id: 'app', meta_business_id: 'mb', waba_id: 'w2' } });
+    await prisma.whatsappOnboarding.create({ data: { app_id: 'app', meta_business_id: 'mb', waba_id: 'w3', phone_number_id: 'pn1', business_id: 'b1' } });
+    await expect(prisma.whatsappOnboarding.create({ data: { app_id: 'app', meta_business_id: 'mb', waba_id: 'w4', business_id: 'b1' } }))
+      .rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  test('new date columns are stored as Dates', async () => {
+    const { conv } = seedConversation();
+    await prisma.conversation.update({ where: { id: conv.id }, data: { last_outbound_at: '2026-10-08T10:00:00Z' } });
+    expect(db.store.conversations[0].last_outbound_at).toBeInstanceOf(Date);
+  });
+});

@@ -37,6 +37,29 @@ const MODELS = {
   quickReply: 'quickReplies',
   scheduledMessage: 'scheduledMessages',
   staffInboxPresence: 'staffInboxPresence',
+  // Ten customers (docs/panels/spec.md): the activity log, the platform switches, and the Embedded
+  // Signup rows the connect flow and the 131042 branch write.
+  accountEvent: 'accountEvents',
+  platformSetting: 'platformSettings',
+  whatsappOnboarding: 'whatsappOnboardings',
+};
+
+// Primary key when it is not `id` (PlatformSetting is keyed by its name, with no id column).
+const PRIMARY_KEY = { platformSettings: 'key' };
+const pkOf = (storeKey) => PRIMARY_KEY[storeKey] || 'id';
+
+// Unique columns checked on create/update/upsert, beyond the two checked by hand in checkUnique.
+// NULL never collides, as in Postgres: many businesses have no number until WhatsApp is connected.
+const UNIQUE = {
+  businesses: ['slug', 'wa_phone_number_id'],
+  platformSettings: ['key'],
+  whatsappOnboardings: ['business_id', 'phone_number_id'],
+};
+// Nullable @unique columns. Prisma refuses `null` for them in a unique where (findUnique, upsert):
+// "Argument `wa_phone_number_id` must not be null". The fake used to return the first NULL row.
+const NULLABLE_UNIQUE = {
+  businesses: ['wa_phone_number_id'],
+  whatsappOnboardings: ['business_id', 'phone_number_id'],
 };
 
 // Relations that routes ask for with `include`.
@@ -52,6 +75,11 @@ const DATE_FIELDS = new Set([
   // Inbox v2
   'snoozed_until', 'attention_at', 'last_staff_read_at', 'delivered_at', 'read_at', 'failed_at',
   'last_used_at', 'send_at', 'processed_at', 'last_seen_at', 'typing_at',
+  // Ten customers (Migration 1)
+  'last_outbound_at', 'connected_at', 'went_live_at', 'resolved_at', 'trial_ends_at',
+  'token_exchanged_at', 'subscribed_at', 'registered_at', 'payment_method_marked_at',
+  'payment_method_claimed_at', 'payment_blocked_at', 'revoked_at', 'detached_at', 'token_checked_at',
+  'meta_checked_at', 'last_error_at',
 ]);
 
 function isPlainObject(v) {
@@ -90,6 +118,7 @@ function createFakeDb() {
   const store = {
     businesses: [], conversations: [], messages: [], users: [], orders: [], businessKnowledge: [], subscriptions: [],
     quickReplies: [], scheduledMessages: [], staffInboxPresence: [],
+    accountEvents: [], platformSettings: [], whatsappOnboardings: [],
   };
   let fixedNow = null;
   let idSeq = 0;
@@ -133,7 +162,7 @@ function createFakeDb() {
   function withDefaults(storeKey, data) {
     const now = clock.now();
     const id = data.id || nextId();
-    const common = { id, created_at: now, updated_at: now };
+    const common = pkOf(storeKey) === 'id' ? { id, created_at: now, updated_at: now } : { updated_at: now };
     let defaults;
     switch (storeKey) {
       case 'businesses':
@@ -142,6 +171,11 @@ function createFakeDb() {
           language_default: 'ar', timezone: 'Asia/Amman', currency: 'JOD', address: null,
           wa_phone_number_id: `pnid_${id}`, wa_business_account_id: null, wa_access_token: null,
           opening_hours: [], status: 'active', ai_config: {}, policies: {},
+          // Migration 1. wa_phone_number_id stays filled by default (most tests are about a connected
+          // number); pass `wa_phone_number_id: null` for a shop that has not connected yet.
+          wa_app_id: null, wa_display_phone: null, wa_verified_name: null, meta_business_id: null,
+          sector: null, city: null, owner_phone: null, source: 'operator', is_internal: false,
+          connected_at: null, went_live_at: null,
         };
         break;
       case 'conversations':
@@ -152,6 +186,7 @@ function createFakeDb() {
           workflow_data: {}, metadata: {},
           labels: [], snoozed_until: null, contact_notes: null, custom_label: null,
           needs_attention: false, attention_reason: null, attention_at: null, last_staff_read_at: null,
+          last_outbound_at: null,
         };
         break;
       case 'messages':
@@ -177,6 +212,28 @@ function createFakeDb() {
       case 'staffInboxPresence':
         defaults = { business_id: null, viewing_conversation_id: null, typing_conversation_id: null, typing_at: null };
         break;
+      case 'subscriptions':
+        // Only the Migration 1 columns: the older ones are left as each test seeds them.
+        defaults = { trial_ends_at: null, ai_replies_month: null, seats: null, campaign: null };
+        break;
+      case 'accountEvents':
+        defaults = { business_id: null, actor_user_id: null, data: {}, resolved_at: null };
+        break;
+      case 'platformSettings':
+        defaults = { updated_by: null };
+        break;
+      case 'whatsappOnboardings':
+        defaults = {
+          business_id: null, phone_number_id: null, finish_event: null, needs_operator: false,
+          started_by_user_id: null, access_token_enc: null, pin_enc: null, step: 'code_received',
+          token_exchanged_at: null, subscribed_at: null, registered_at: null,
+          payment_method_ok: false, payment_method_marked_by: null, payment_method_marked_at: null,
+          payment_method_claimed_at: null, payment_blocked_at: null,
+          revoked_at: null, revoked_reason: null, detached_at: null, token_checked_at: null,
+          meta_quality_rating: null, meta_throughput: null, meta_number_status: null, meta_name_status: null,
+          meta_review_status: null, meta_checked_at: null, session_id: null, last_error: null, last_error_at: null,
+        };
+        break;
       case 'users':
         defaults = {
           name: 'Staff', email: `${id}@test.local`, password: '', role: 'staff', business_id: null,
@@ -186,7 +243,8 @@ function createFakeDb() {
       default:
         defaults = {};
     }
-    const row = { ...common, ...defaults, ...clone(data), id };
+    const row = { ...common, ...defaults, ...clone(data) };
+    if (pkOf(storeKey) === 'id') row.id = id;
     for (const f of DATE_FIELDS) {
       if (row[f] !== null && row[f] !== undefined && !(row[f] instanceof Date)) row[f] = new Date(row[f]);
     }
@@ -408,6 +466,21 @@ function createFakeDb() {
         throw prismaError('P2002', 'Unique constraint failed on the fields: (`business_id`,`customer_wa_id`)');
       }
     }
+    for (const field of UNIQUE[storeKey] || []) {
+      const v = candidate[field];
+      if (v === null || v === undefined) continue;
+      if (rows.some((r) => r !== selfRow && r[field] === v)) {
+        throw prismaError('P2002', `Unique constraint failed on the fields: (\`${field}\`)`);
+      }
+    }
+  }
+
+  function checkUniqueWhere(storeKey, where) {
+    for (const field of NULLABLE_UNIQUE[storeKey] || []) {
+      if (where && Object.prototype.hasOwnProperty.call(where, field) && where[field] === null) {
+        throw Object.assign(new Error(`Argument \`${field}\` must not be null.`), { name: 'PrismaClientValidationError' });
+      }
+    }
   }
 
   function makeModel(modelName) {
@@ -429,6 +502,7 @@ function createFakeDb() {
       async findUnique(args = {}) {
         guard('findUnique');
         validateWhere(args.where);
+        checkUniqueWhere(storeKey, args.where);
         const row = rows().find((r) => matches(r, args.where));
         return row ? project(row, args.include, args.select) : null;
       },
@@ -479,6 +553,42 @@ function createFakeDb() {
         }
         return { count: targets.length };
       },
+      async upsert(args = {}) {
+        guard('upsert');
+        rejectNul(args.create);
+        rejectNul(args.update);
+        validateWhere(args.where);
+        checkUniqueWhere(storeKey, args.where);
+        const row = rows().find((r) => matches(r, args.where));
+        if (!row) {
+          const created = withDefaults(storeKey, args.create || {});
+          checkUnique(storeKey, created, null);
+          rows().push(created);
+          return project(created, args.include, args.select);
+        }
+        const next = { ...row };
+        applyData(next, args.update);
+        checkUnique(storeKey, next, row);
+        Object.assign(row, next, { updated_at: clock.now() });
+        return project(row, args.include, args.select);
+      },
+      async delete(args = {}) {
+        guard('delete');
+        validateWhere(args.where);
+        const i = rows().findIndex((r) => matches(r, args.where));
+        if (i < 0) throw prismaError('P2025', 'Record to delete does not exist.');
+        const [removed] = rows().splice(i, 1);
+        return project(removed, args.include, args.select);
+      },
+      async deleteMany(args = {}) {
+        guard('deleteMany');
+        validateWhere(args.where);
+        const keep = rows().filter((r) => !matches(r, args.where));
+        const count = rows().length - keep.length;
+        rows().length = 0;
+        rows().push(...keep);
+        return { count };
+      },
     };
   }
 
@@ -492,7 +602,15 @@ function createFakeDb() {
     const tx = {};
     for (const name of Object.keys(MODELS)) {
       const storeKey = MODELS[name];
-      const snapshotWhere = (where) => store[storeKey].filter((r) => matches(r, where)).map((r) => ({ id: r.id, before: clone(r) }));
+      const pk = pkOf(storeKey);
+      const snapshotWhere = (where) => store[storeKey].filter((r) => matches(r, where)).map((r) => ({ id: r[pk], before: clone(r) }));
+      // Deleted rows go back where they were, so ordering (insertion order breaks ties) is unchanged.
+      const snapshotIndexed = (where) => store[storeKey]
+        .map((r, i) => ({ i, row: clone(r) }))
+        .filter((e) => matches(e.row, where));
+      const reinsert = (snaps) => () => {
+        for (const { i, row } of snaps) store[storeKey].splice(Math.min(i, store[storeKey].length), 0, row);
+      };
       tx[name] = {
         findUnique: (a) => prisma[name].findUnique(a),
         findFirst: (a) => prisma[name].findFirst(a),
@@ -501,10 +619,36 @@ function createFakeDb() {
         async create(a) {
           const created = await prisma[name].create(a);
           journal.push(() => {
-            const i = store[storeKey].findIndex((r) => r.id === created.id);
+            const i = store[storeKey].findIndex((r) => r[pk] === created[pk]);
             if (i >= 0) store[storeKey].splice(i, 1);
           });
           return created;
+        },
+        async upsert(a) {
+          const before = snapshotWhere(a && a.where).slice(0, 1);
+          const out = await prisma[name].upsert(a);
+          if (before.length) {
+            journal.push(() => restoreRows(storeKey, before));
+          } else {
+            const key = out && out[pk];
+            journal.push(() => {
+              const i = store[storeKey].findIndex((r) => r[pk] === key);
+              if (i >= 0) store[storeKey].splice(i, 1);
+            });
+          }
+          return out;
+        },
+        async delete(a) {
+          const before = snapshotIndexed(a && a.where).slice(0, 1);
+          const out = await prisma[name].delete(a);
+          journal.push(reinsert(before));
+          return out;
+        },
+        async deleteMany(a) {
+          const before = snapshotIndexed(a && a.where);
+          const out = await prisma[name].deleteMany(a);
+          journal.push(reinsert(before));
+          return out;
         },
         async update(a) {
           const before = snapshotWhere(a && a.where).slice(0, 1);
@@ -524,8 +668,9 @@ function createFakeDb() {
   }
 
   function restoreRows(storeKey, snapshots) {
+    const pk = pkOf(storeKey);
     for (const { id, before } of snapshots) {
-      const row = store[storeKey].find((r) => r.id === id);
+      const row = store[storeKey].find((r) => r[pk] === id);
       if (!row) continue;
       for (const k of Object.keys(row)) delete row[k];
       Object.assign(row, clone(before));
