@@ -85,22 +85,30 @@ export default function AccountHealthTab({ accountId }) {
             </li>
           ))}
         </ul>
-        {onboarding && !onboarding.payment_method_ok && (
-          <div className="px-4 py-3 bg-amber-50 border-t border-amber-100">
-            <p className="text-[13px] text-amber-900 font-medium">لا توجد طريقة دفع — مهلة 30 أيلول</p>
-            <p className="text-xs text-amber-800 mt-0.5">
-              من 1 تشرين الأول تتوقف Meta عن تسليم رسائل الخدمة لأي حساب بلا طريقة دفع: أي أن الوكيل
-              يتوقف عن الرد على الزبائن. Meta لا تُخبرنا بذلك، فأكّدها يدويًا بعد أن تراها مضافة.
+        {/* The wording comes from the server (config/metaNotices.js), the one copy every panel
+            shares — the dated copy that was here read as a missed deadline once its date passed. */}
+        {onboarding?.payment_notice && (
+          <div className={`px-4 py-3 border-t ${onboarding.payment_notice.state === 'blocked' ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
+            <p className={`text-[13px] font-medium ${onboarding.payment_notice.state === 'blocked' ? 'text-red-900' : 'text-amber-900'}`}>
+              {onboarding.payment_notice.short}
             </p>
+            <p className={`text-xs mt-0.5 ${onboarding.payment_notice.state === 'blocked' ? 'text-red-800' : 'text-amber-800'}`}>
+              {onboarding.payment_notice.long}
+            </p>
+            {onboarding.payment_method_claimed_at && onboarding.payment_notice.state === 'claimed' && (
+              <p className="text-[11px] text-amber-700 mt-0.5">ضغط الزبون «أضفت البطاقة» <Timestamp value={onboarding.payment_method_claimed_at} /></p>
+            )}
             <div className="flex items-center gap-3 mt-2">
-              <a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener noreferrer"
+              <a href={onboarding.payment_notice.whatsapp_manager_url} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs font-medium text-amber-900 underline">
                 WhatsApp Manager <ExternalLink size={11} />
               </a>
-              <button onClick={() => setPaymentMethod(true)} disabled={busy}
-                className="text-xs font-medium bg-amber-900 text-white px-2.5 h-7 rounded disabled:opacity-40">
-                رأيتها مضافة — أكّد
-              </button>
+              {!onboarding.payment_method_ok && (
+                <button onClick={() => setPaymentMethod(true)} disabled={busy}
+                  className="text-xs font-medium bg-amber-900 text-white px-2.5 h-7 rounded disabled:opacity-40">
+                  رأيتها مضافة — أكّد
+                </button>
+              )}
             </div>
           </div>
         )}
