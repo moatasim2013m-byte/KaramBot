@@ -102,6 +102,9 @@ app.use('/api/admin/onboardings', apiLimiter, require('./routes/adminOnboardings
 const adminAccounts = require('./routes/adminAccounts');
 app.use('/api/admin/onboarding', apiLimiter, adminAccounts.boardRouter);
 app.use('/api/admin/accounts', adminAccounts.accountsRouter);
+// «الاشتراكات والدفعات» and «إعدادات المنصة» (operator panel, P4). Before admin.js, each guarded.
+app.use('/api/admin/billing', apiLimiter, require('./routes/adminBilling'));
+app.use('/api/admin/platform-settings', apiLimiter, require('./routes/adminPlatform'));
 app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));

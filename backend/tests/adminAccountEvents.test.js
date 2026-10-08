@@ -79,7 +79,8 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
     prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false } });
     const res = await patch({ enabled: true });
     expect(res.status).toBe(200);
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by'] });
+    // pause_reason goes too: a late-payment pause SHIFT lifts by hand is lifted (services/latePolicy.js).
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by', 'pause_reason'] });
     expect(lastEvent()).toMatchObject({ type: 'bot_resumed', data: {} });
   });
 

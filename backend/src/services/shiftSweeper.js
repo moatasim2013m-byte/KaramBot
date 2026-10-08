@@ -41,6 +41,7 @@ const calendlySync = require('./calendlySync');
 const costGuard = require('./costGuard');
 const tokenHealth = require('./tokenHealth');
 const metaStatus = require('./metaStatus');
+const latePolicy = require('./latePolicy');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -1188,7 +1189,7 @@ async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } 
   const started = clock();
   const out = {
     date: today, shops: 0, skipped: 0, deferred: 0, meta_refreshed: 0, token_valid: 0, token_invalid: 0, token_unknown: 0, errors: 0,
-    accounts: null, templates: null,
+    accounts: null, templates: null, late: null,
   };
 
   // The join campaign's chores (invite expiry, the 14-day backstop, and from the morning the
@@ -1196,6 +1197,9 @@ async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } 
   // so another instance running them the same minute repeats nothing.
   if (accountsRanFor !== today) {
     out.accounts = await accountsDaily.runAccountsDaily(now, { reminders: remindNow });
+    // The late-payment policy (services/latePolicy.js): past the grace days, the contract turns
+    // past_due and the bot pauses while the inbox keeps working. Never throws; claimed per item.
+    out.late = await latePolicy.applyLatePolicy(now);
     accountsRanFor = today;
     if (remindNow) remindedFor = today;
   } else if (remindNow) {
