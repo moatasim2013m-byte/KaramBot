@@ -10,14 +10,18 @@ export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forgot, setForgot] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(form.login, form.password);
-      navigate('/overview');
+      const data = await login(form.login, form.password);
+      // Each role lands where its work is: SHIFT on the platform, staff in the conversations,
+      // owners and managers on the overview.
+      const role = data?.user?.role;
+      navigate(role === 'platform_admin' ? '/admin/overview' : role === 'staff' ? '/inbox' : '/overview');
     } catch (err) {
       setError(err.response?.data?.error || 'حدث خطأ، يرجى المحاولة مجدداً');
     } finally {
@@ -33,8 +37,8 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-green-500 rounded-2xl mb-4">
             <MessageSquare size={32} className="text-white" />
           </div>
-          <h1 className="text-white text-2xl font-bold">واتساب AI</h1>
-          <p className="text-gray-400 text-sm mt-1">لوحة تحكم الأعمال</p>
+          <h1 className="text-white text-2xl font-bold">كرم بوت — من شِفت</h1>
+          <p className="text-gray-400 text-sm mt-1">لوحة المحل</p>
         </div>
 
         {/* Form */}
@@ -94,6 +98,28 @@ export default function LoginPage() {
               {loading ? 'جاري الدخول...' : 'دخول'}
             </button>
           </form>
+
+          {/* No email reset: most owners sign in with a mobile and no OTP exists yet. SHIFT sends a
+              new link instead, through «إعادة ضبط الدخول», which is audited. */}
+          <div className="mt-5 text-center">
+            {!forgot ? (
+              <button type="button" onClick={() => setForgot(true)} className="text-sm text-gray-500 hover:text-gray-800 underline underline-offset-2">
+                نسيت كلمة المرور؟
+              </button>
+            ) : (
+              <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                <p>راسل شِفت على واتساب ونرسل لك رابطًا جديدًا.</p>
+                <a
+                  href={`https://wa.me/962776788972?text=${encodeURIComponent(`مرحبًا، نسيت كلمة مرور كرم بوت${form.login ? ` (الدخول: ${form.login})` : ''}. أرجو رابطًا جديدًا.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center justify-center w-full h-10 rounded-lg bg-green-500 hover:bg-green-600 text-white font-medium"
+                >
+                  راسل شِفت على واتساب
+                </a>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

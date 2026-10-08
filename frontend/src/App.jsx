@@ -22,6 +22,8 @@ import AccountWorkspacePage from './pages/admin/AccountWorkspacePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import DataDeletionPage from './pages/DataDeletionPage';
 import ActivatePage from './pages/ActivatePage';
+import JoinPage from './pages/JoinPage';
+import OnboardingBoardPage from './pages/admin/OnboardingBoardPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -62,6 +64,9 @@ export default function App() {
           {/* Public: a new customer has no account until they redeem this. The token rides in
               the URL fragment, which browsers never send, so it stays out of every server log. */}
           <Route path="/activate" element={<ActivatePage />} />
+          {/* Public too: the shop owner's join wizard (/join#token). It signs them in at the
+              password step and carries on with their own session from there. */}
+          <Route path="/join" element={<JoinPage />} />
           <Route path="/" element={
             <ProtectedRoute>
               <DashboardLayout />
@@ -114,6 +119,7 @@ export default function App() {
             <Route path="accounts/:id" element={<BusinessDetailPage />} />
             {/* Read-only, audited: every visit is written to admin_access_logs. */}
             <Route path="accounts/:id/conversations" element={<AccountWorkspacePage />} />
+            <Route path="onboarding" element={<OnboardingBoardPage />} />
             <Route path="settings" element={<PlatformSettingsPage />} />
           </Route>
 
