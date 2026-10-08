@@ -3,21 +3,63 @@ import api from '../../utils/api';
 import { loadFacebookSdk, launchEmbeddedSignup, isFacebookOrigin } from '../../utils/facebookSdk';
 
 /**
- * "Connect WhatsApp" — Embedded Signup v4.
+ * «اربط واتساب» — Embedded Signup v4.
  *
  * The browser's whole job is to collect the signup result and the 30-second code and
  * hand both to the backend. No Graph call and no token ever happens here.
  *
- * Admin-only while the flow is being proven (the backend enforces it too).
+ * SHIFT's side for now: it calls the admin mirror (/admin/accounts/:businessId/embedded-signup),
+ * where the account comes from the URL. The owner's own routes (/whatsapp/embedded-signup)
+ * require a business_owner and stay closed until G1 has passed, so this panel would stop working
+ * on them. The body never names a business: the backend refuses one with a 400.
  */
 
 const STEP_LABEL = {
-  code_received: 'Starting…',
-  token_exchanged: 'Authorised — subscribing to your account',
-  subscribed: 'Subscribed — registering your number',
-  registered: 'Number registered',
-  done: 'Connected',
+  code_received: 'جارٍ البدء…',
+  token_exchanged: 'تمّ التفويض — جارٍ ربط حساب واتساب',
+  subscribed: 'تمّ الربط — جارٍ تسجيل الرقم',
+  registered: 'تمّ تسجيل الرقم',
+  done: 'متصل',
 };
+
+// A copy of backend/src/config/metaNotices.js, which the browser cannot import. Keep the two in
+// step: backend/tests/embeddedSignup.test.js fails when a string here differs from the server's.
+// No dates, and never a promise of «بدون رسوم»: Meta bills the shop directly.
+const WHATSAPP_MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
+const PAYMENT_NOTICES = {
+  missing: {
+    owner: {
+      short: 'أضف بطاقة الدفع لدى Meta',
+      long: 'أضف بطاقة دفع في WhatsApp Manager. بدونها قد ترفض Meta ردود البوت على زبائنك. هذه خطوة عندك أنت، لا عند شِفت.',
+    },
+    staff: {
+      short: 'بدون بطاقة دفع مؤكدة لدى Meta',
+      long: 'بدون طريقة دفع لدى Meta لا تُسلَّم ردود البوت للزبائن. Meta لا تُخبرنا إن كانت مضافة، فأكّدها يدويًا بعد أن تراها في WhatsApp Manager.',
+    },
+  },
+  claimed: {
+    owner: {
+      short: 'أضفت البطاقة — بانتظار تأكيد شِفت',
+      long: 'شكرًا. سيتأكد فريق شِفت من ظهور البطاقة في حسابك لدى Meta.',
+    },
+    staff: {
+      short: 'الزبون أضاف البطاقة — بانتظار تأكيدك',
+      long: 'يقول الزبون إنه أضاف بطاقة الدفع. تأكد من ظهورها في WhatsApp Manager ثم أكّدها هنا.',
+    },
+  },
+  blocked: {
+    owner: {
+      short: 'رفضت واتساب ردود البوت — أضف بطاقة دفع لدى Meta',
+      long: 'رفضت Meta تسليم ردود البوت لزبائنك بسبب طريقة الدفع. أضف بطاقة دفع أو صحّح بطاقتك في WhatsApp Manager. رسائل زبائنك ما زالت تصلك في «المحادثات».',
+    },
+    staff: {
+      short: 'رفضت واتساب ردود البوت — طريقة الدفع لدى Meta',
+      long: 'فشل إرسال رد بخطأ Meta رقم 131042 (طريقة الدفع). على الزبون إضافة بطاقة دفع أو تصحيحها في WhatsApp Manager.',
+    },
+  },
+};
+// The admin mirror is read by SHIFT staff, so the staff wording.
+const AUDIENCE = 'staff';
 
 export default function ConnectWhatsApp({ businessId }) {
   const [state, setState] = useState('idle'); // idle | connecting | connected | failed
@@ -29,15 +71,18 @@ export default function ConnectWhatsApp({ businessId }) {
   // and the backend needs both. Whichever lands first waits here.
   const signupData = useRef(null);
 
+  // Every account-scoped call names the account in the URL, never in the body.
+  const base = `/admin/accounts/${encodeURIComponent(businessId || '')}/embedded-signup`;
+
   useEffect(() => {
-    api.get('/whatsapp/embedded-signup/config')
+    api.get('/admin/embedded-signup/config')
       .then((res) => setConfig(res.data))
-      .catch(() => setError('Could not load the WhatsApp settings.'));
+      .catch(() => setError('تعذّر تحميل إعدادات واتساب.'));
   }, []);
 
   useEffect(() => {
     if (!businessId) return undefined;
-    api.get('/whatsapp/embedded-signup/status', { params: { business_id: businessId } })
+    api.get(`${base}/status`)
       .then((res) => {
         if (res.data.onboarding) {
           setStatus(res.data.onboarding);
@@ -46,9 +91,9 @@ export default function ConnectWhatsApp({ businessId }) {
       })
       .catch(() => {});
     return undefined;
-  }, [businessId]);
+  }, [businessId, base]);
 
-  // Meta's events for the flow. Registered once, and only trusted from facebook.com.
+  // Meta's events for the flow. Registered per account, and only trusted from facebook.com.
   useEffect(() => {
     function onMessage(event) {
       if (!isFacebookOrigin(event.origin)) return;
@@ -75,24 +120,25 @@ export default function ConnectWhatsApp({ businessId }) {
       }
 
       const message = data.error_message
-        || (data.current_step ? `Cancelled at ${data.current_step}` : 'Signup cancelled');
+        || (data.current_step ? `أُلغي الربط عند خطوة ${data.current_step}` : 'أُلغي الربط');
       setError(message);
       setState('failed');
-      api.post('/whatsapp/embedded-signup/events', {
+      if (!businessId) return;
+      api.post(`${base}/events`, {
         event: data.error_message ? 'ERROR' : 'CANCEL',
         current_step: data.current_step,
         error_message: data.error_message,
+        error_code: data.error_code,
         session_id: data.session_id,
-        phone_number_id: signupData.current?.phone_number_id,
       }).catch(() => {});
     }
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [businessId, base]);
 
   const connect = useCallback(async () => {
-    if (!config) return;
+    if (!config || !businessId) return;
     setError(null);
     setState('connecting');
     signupData.current = null;
@@ -103,9 +149,8 @@ export default function ConnectWhatsApp({ businessId }) {
 
       // FINISH normally lands before the callback; if it has not, the code is still the
       // thing that expires, so it goes up with whatever we have.
-      const res = await api.post('/whatsapp/embedded-signup/exchange', {
+      const res = await api.post(`${base}/exchange`, {
         code,
-        business_id: businessId,
         ...(signupData.current || {}),
       });
       setStatus(res.data.onboarding);
@@ -113,54 +158,60 @@ export default function ConnectWhatsApp({ businessId }) {
     } catch (err) {
       const body = err.response?.data;
       setStatus(body?.onboarding || null);
-      setError(body?.message || err.message || 'Connection failed.');
+      setError(body?.message || err.message || 'تعذّر الربط.');
       setState('failed');
     }
-  }, [config, businessId]);
+  }, [config, businessId, base]);
 
   const retry = useCallback(async () => {
     // A signup that got past the token step resumes server-side; anything earlier
-    // needs a fresh run, because the code is long gone.
-    if (!status?.id || status.step === 'code_received') return connect();
+    // needs a fresh run, because the code is long gone. The server resumes this account's
+    // own signup, so no id is sent.
+    if (!status?.step || status.step === 'code_received') return connect();
     setError(null);
     setState('connecting');
     try {
-      const res = await api.post(`/whatsapp/embedded-signup/${status.id}/retry`);
+      const res = await api.post(`${base}/retry`);
       setStatus(res.data.onboarding);
       setState('connected');
     } catch (err) {
-      setError(err.response?.data?.message || 'Retry failed.');
+      const body = err.response?.data;
+      if (body?.onboarding) setStatus(body.onboarding);
+      setError(body?.message || 'تعذّرت إعادة المحاولة.');
       setState('failed');
     }
     return undefined;
-  }, [status, connect]);
+  }, [status, connect, base]);
+
+  const paymentState = status?.payment?.state || status?.next_action?.state || null;
+  const paymentNotice = paymentState ? PAYMENT_NOTICES[paymentState]?.[AUDIENCE] : null;
 
   return (
-    <div className="rounded-lg border border-gray-200 p-4">
+    <div className="rounded-lg border border-gray-200 p-4" dir="rtl">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="font-semibold">WhatsApp Business</h3>
+          <h3 className="font-semibold">ربط واتساب</h3>
           <p className="text-sm text-gray-500">
-            Connect your own WhatsApp Business account. You stay the owner of the number.
+            اربط حساب WhatsApp Business لهذا المحل عبر Meta. يبقى الرقم ملكًا لصاحب المحل.
           </p>
         </div>
 
         {state === 'connected' ? (
-          <span className="rounded-full bg-green-100 px-3 py-1 text-sm text-green-800">Connected</span>
+          <span className="rounded-full bg-green-100 px-3 py-1 text-sm text-green-800">متصل</span>
         ) : (
           <button
             type="button"
             onClick={state === 'failed' ? retry : connect}
-            disabled={state === 'connecting' || !config}
+            disabled={state === 'connecting' || !config || !businessId}
             className="rounded-md bg-green-600 px-4 py-2 text-white disabled:opacity-50"
           >
-            {state === 'connecting' ? 'Connecting…' : state === 'failed' ? 'Try again' : 'Connect WhatsApp'}
+            {state === 'connecting' ? 'جارٍ الربط…' : state === 'failed' ? 'حاول مجددًا' : 'اربط واتساب'}
           </button>
         )}
       </div>
 
       {state === 'connecting' && status?.step && (
-        <p className="mt-3 text-sm text-gray-600">{STEP_LABEL[status.step] || 'Working…'}</p>
+        <p className="mt-3 text-sm text-gray-600">{STEP_LABEL[status.step] || 'جارٍ العمل…'}</p>
       )}
 
       {error && (
@@ -168,7 +219,7 @@ export default function ConnectWhatsApp({ businessId }) {
           <p>{error}</p>
           {status?.step && status.step !== 'code_received' && (
             <p className="mt-1 text-red-600">
-              Your account is already linked — “Try again” picks up from {STEP_LABEL[status.step]}.
+              الحساب مربوط جزئيًا — «حاول مجددًا» يكمل من: {STEP_LABEL[status.step]}
             </p>
           )}
         </div>
@@ -176,17 +227,17 @@ export default function ConnectWhatsApp({ businessId }) {
 
       {/* The last step is the customer's own, and it is the one that silently blocks
           sending, so it sits in the open rather than in a footnote. */}
-      {status?.next_action?.code === 'add_payment_method' && (
+      {paymentNotice && (
         <div className="mt-3 rounded bg-amber-50 p-3 text-sm text-amber-900">
-          <p className="font-medium">Add a payment method before 30 September</p>
-          <p className="mt-1">{status.next_action.en}</p>
+          <p className="font-medium">{paymentNotice.short}</p>
+          <p className="mt-1">{paymentNotice.long}</p>
           <a
-            href={status.next_action.url}
+            href={status?.next_action?.url || WHATSAPP_MANAGER_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-2 inline-block font-medium underline"
           >
-            Open WhatsApp Manager
+            افتح WhatsApp Manager
           </a>
         </div>
       )}
