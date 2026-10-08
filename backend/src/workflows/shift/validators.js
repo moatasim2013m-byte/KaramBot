@@ -336,6 +336,10 @@ function clauseAt(text, index) {
  */
 const PUBLISHED_FIGURES = [
   { value: 19.99, clause: /دينار|دنانير|JD|JOD|اشتراك|شهر|month/i },
+  // The larger packages (owner, 2026-10-08). Their contents are not published; only the prices.
+  { value: 39.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
+  { value: 79.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
+  { value: 149.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 10, clause: /محلات|محل|عيادات|مطاعم|متاجر|منشآت|منشات|أماكن|اماكن|مكان|shops?|businesses|clinics|restaurants|stores|places|spots/i },
 ];
 

@@ -1184,3 +1184,19 @@ describe('live chat review, 2026-10-08', () => {
     expect(v.checkDigits('سوفاج 25 دينار.', { stage: 'roleplay_setup', batchTexts, lead: {} })).toEqual([{ code: 'digits', detail: '25' }]);
   });
 });
+
+describe('the larger packages (owner, 2026-10-08)', () => {
+  const v = require('../src/workflows/shift/validators');
+  const check = (t, lang = 'ar') => v.validateResult(
+    { kind: 'reply', action: 'NONE', messages: [{ type: 'text', text: t, modelLine: t }] },
+    { lang, batchTexts: ['قديش الباقات؟'], lead: {}, stage: 'fit', attempt: 1 },
+  );
+  test('39.99, 79.99 and 149.99 a month may be said', () => {
+    expect(check('في كمان باقات 39.99 و79.99 و149.99 دينار بالشهر، وباقات مخصّصة حسب احتياجك.').verdict).toBe('ok');
+    expect(check('The packages are 39.99, 79.99 and 149.99 JOD a month.', 'en').verdict).toBe('ok');
+  });
+  test('any other package price is still invented', () => {
+    expect(check('الباقة الذهبية 99.99 دينار بالشهر.').blocks.map((b) => b.code)).toContain('digits');
+    expect(check('عنا 149.99 عميل.').blocks.map((b) => b.code)).toContain('digits');
+  });
+});
