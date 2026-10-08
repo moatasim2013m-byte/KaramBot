@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { Save, Smartphone } from 'lucide-react';
-import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
 import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
 import TryTheBot from '../components/whatsapp/TryTheBot';
 import BusinessKnowledge from '../components/whatsapp/BusinessKnowledge';
@@ -234,11 +233,15 @@ export default function SettingsPage() {
       {/* Tab content */}
       {tab === 'general' && (
         <>
-          {/* Embedded Signup, admin-only until one real WABA has been onboarded end to end.
-              The backend enforces the same role, so hiding it here is convenience, not the gate. */}
+          {/* SHIFT connects a shop's WhatsApp from the account's own page (الحالة › ربط واتساب),
+              where the account comes from the URL. The copy that lived here bound the signup to
+              whichever business the admin's session happened to hold. */}
           {user?.role === 'platform_admin' ? (
-            <div className="mb-5" dir="ltr">
-              <ConnectWhatsApp businessId={biz.id} />
+            <div className="mb-5 rounded-xl border border-gray-100 bg-white p-4 text-sm text-gray-700">
+              ربط واتساب لهذا المحل يتم من صفحة الحساب في لوحة شِفت.{' '}
+              <Link to={`/admin/accounts/${biz.id}`} className="font-medium text-green-600 hover:underline">
+                افتح «ربط واتساب»
+              </Link>
             </div>
           ) : (
             // The customer's answer to «هل واتسابي موصول؟» — the first thing on their Settings,
