@@ -15,7 +15,7 @@ export default function PlatformSettingsPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    api.get('/whatsapp/embedded-signup/config')
+    api.get('/admin/embedded-signup/config')
       .then((res) => setConfig(res.data))
       .catch(() => setError('تعذّر تحميل إعدادات المنصة'));
   }, []);

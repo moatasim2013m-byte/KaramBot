@@ -1,6 +1,8 @@
 /**
  * Embedded Signup (v4) onboarding: the three Graph steps, resume after a failure,
  * and the rule that one customer's WhatsApp traffic can never reach another's inbox.
+ *
+ * The routes and the tenant binding (whose signup a request may touch) are in esTenant.test.js.
  */
 require('./setup');
 
@@ -13,7 +15,8 @@ jest.mock('../src/config/prisma', () => ({
     upsert: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(),
     update: jest.fn(), updateMany: jest.fn(),
   },
-  business: { findFirst: jest.fn(), update: jest.fn() },
+  business: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+  accountEvent: { create: jest.fn() },
 }));
 
 const axios = require('axios');
@@ -37,6 +40,9 @@ beforeEach(() => {
   // Each update returns the row as changed, the way Prisma does.
   prisma.whatsappOnboarding.update.mockImplementation(({ where, data }) =>
     Promise.resolve(row({ id: where.id, ...data })));
+  // The number is on no other Business unless a test says so.
+  prisma.business.findUnique.mockResolvedValue(null);
+  prisma.accountEvent.create.mockImplementation(({ data }) => Promise.resolve({ id: 'ev_1', ...data }));
 });
 
 describe('the three Graph steps', () => {
@@ -159,5 +165,109 @@ describe('a number that already has two-step verification', () => {
 
     await expect(runOnboarding('onb_1', { pin: '12ab' })).rejects.toThrow(/6 digits/);
     expect(axios.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('a number linked to another shop since the signup started', () => {
+  test('a resume is refused before subscribed_apps and /register, and nothing is written', async () => {
+    const { encrypt } = require('../src/utils/tokenCrypto');
+    prisma.whatsappOnboarding.findUnique.mockResolvedValue(
+      row({ step: 'token_exchanged', access_token_enc: encrypt(TOKEN) }));
+    prisma.business.findUnique.mockResolvedValue({ id: 'biz_other' });
+
+    await expect(runOnboarding('onb_1', { actor: { kind: 'shift', userId: 'u_admin' } }))
+      .rejects.toMatchObject({ code: 'number_taken', status: 409 });
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(prisma.whatsappOnboarding.update).not.toHaveBeenCalled();
+    expect(prisma.business.update).not.toHaveBeenCalled();
+    const event = prisma.accountEvent.create.mock.calls[0][0].data;
+    expect(event).toMatchObject({
+      business_id: 'biz_1', actor_kind: 'shift', actor_user_id: 'u_admin', type: 'es_conflict',
+      data: { phone_number_id: PHONE, waba_id: WABA, held_by: 'business' },
+    });
+    expect(JSON.stringify(event)).not.toContain('biz_other'); // the other shop is not named
+  });
+
+  test('the shop\'s own number (already on its Business row) still connects', async () => {
+    prisma.whatsappOnboarding.findUnique.mockResolvedValue(row());
+    prisma.business.findUnique.mockResolvedValue({ id: 'biz_1' });
+    axios.get.mockResolvedValue({ data: { access_token: TOKEN } });
+    axios.post.mockResolvedValue({ data: {} });
+
+    const done = await runOnboarding('onb_1', { code: 'CODE30S' });
+    expect(done.step).toBe('done');
+    expect(prisma.accountEvent.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('what the browser is shown', () => {
+  const notices = require('../src/config/metaNotices');
+
+  test('the payment wording is the one constant in config/metaNotices.js, with no date', () => {
+    const shown = publicStatus(row({ step: 'done' }));
+    expect(shown.payment).toEqual({ state: 'missing', confirmed: false, claimed: false, blocked: false });
+    expect(shown.next_action).toEqual({
+      code: 'add_payment_method',
+      state: 'missing',
+      url: notices.WHATSAPP_MANAGER_URL,
+      severity: 'critical',
+      title: notices.PAYMENT_METHOD_OWNER_SHORT,
+      ar: notices.PAYMENT_METHOD_OWNER_LONG,
+    });
+    // The dated copy («قبل 30 أيلول», the English twin) is gone, and so is its deadline field.
+    expect(JSON.stringify(shown)).not.toMatch(/أيلول|تشرين|September|October|2026-09-30/);
+  });
+
+  test('claimed, blocked and confirmed each read as they should', () => {
+    const claimed = publicStatus(row({ payment_method_claimed_at: new Date() }));
+    expect(claimed.payment.state).toBe('claimed');
+    expect(claimed.next_action).toMatchObject({ severity: 'info', ar: notices.paymentNotice('claimed', 'owner', 'long') });
+
+    // A 131042 refusal outranks SHIFT's confirmation: Meta has just said the card does not work.
+    const blocked = publicStatus(row({ payment_method_ok: true, payment_blocked_at: new Date() }));
+    expect(blocked.payment).toMatchObject({ state: 'blocked', confirmed: true, blocked: true });
+    expect(blocked.next_action).toMatchObject({ severity: 'critical', title: notices.paymentNotice('blocked', 'owner', 'short') });
+
+    expect(publicStatus(row({ payment_method_ok: true })).next_action).toBeNull();
+  });
+
+  test('the owner sees no ids, no token and no raw Graph error', () => {
+    const shown = publicStatus(
+      row({ access_token_enc: 'enc', pin_enc: 'enc', step: 'subscribed', last_error: `register failed: number ${PHONE} (code 100)` }),
+      { business: { wa_display_phone: '+962 7 9000 0000', wa_verified_name: 'صيدلية النور' } },
+    );
+    const json = JSON.stringify(shown);
+    for (const secretOrId of [WABA, PHONE, 'onb_1', 'biz_1', 'access_token', 'pin_enc']) {
+      expect(json).not.toContain(secretOrId);
+    }
+    expect(shown).toMatchObject({
+      step: 'subscribed', connected: false, failed: true,
+      display_phone: '+962 7 9000 0000', verified_name: 'صيدلية النور',
+    });
+  });
+
+  test('SHIFT staff see the ids and the Graph error they follow up with, in staff wording', () => {
+    const shown = publicStatus(row({ last_error: 'register failed: x (code 100)', pin_enc: 'enc' }), { audience: 'staff' });
+    expect(shown).toMatchObject({ waba_id: WABA, phone_number_id: PHONE, last_error: 'register failed: x (code 100)' });
+    expect(shown.next_action.ar).toBe(notices.PAYMENT_METHOD_STAFF_LONG);
+    expect(JSON.stringify(shown)).not.toMatch(/pin_enc|access_token/);
+  });
+
+  test('the dashboard\'s copy of the wording has not drifted from the server\'s', () => {
+    // The browser cannot import config/metaNotices.js, so ConnectWhatsApp.jsx keeps its own copy.
+    // A wording change here without the same change there would show two different warnings.
+    const fs = require('fs');
+    const path = require('path');
+    const jsx = fs.readFileSync(path.join(__dirname, '../../frontend/src/components/whatsapp/ConnectWhatsApp.jsx'), 'utf8');
+    for (const state of ['missing', 'claimed', 'blocked']) {
+      for (const audience of ['owner', 'staff']) {
+        for (const variant of ['short', 'long']) {
+          expect(jsx).toContain(notices.PAYMENT_NOTICES[state][audience][variant]);
+        }
+      }
+    }
+    expect(jsx).toContain(notices.WHATSAPP_MANAGER_URL);
+    expect(jsx).not.toMatch(/30 أيلول|September/);
   });
 });

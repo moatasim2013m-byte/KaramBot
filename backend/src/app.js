@@ -89,6 +89,11 @@ app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
 // Before /api/inbox so /v2 is not tried against the current inbox's routes first.
 app.use('/api/inbox/v2', apiLimiter, require('./routes/inboxV2'));
 app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
+// SHIFT connecting WhatsApp for a shop: the business comes from the URL. Before admin.js, so
+// these paths are authenticated and rate-limited once instead of passing through both.
+const adminEmbeddedSignup = require('./routes/adminEmbeddedSignup');
+app.use('/api/admin/embedded-signup', apiLimiter, adminEmbeddedSignup.configRouter);
+app.use('/api/admin/accounts/:id/embedded-signup', apiLimiter, adminEmbeddedSignup.accountRouter);
 app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));
