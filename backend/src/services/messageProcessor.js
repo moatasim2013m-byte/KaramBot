@@ -31,6 +31,7 @@ const { markOutbound } = require('./lastOutbound');
 const accountEvents = require('./accountEvents');
 const costGuard = require('./costGuard');
 const tokenHealth = require('./tokenHealth');
+const wentLive = require('./wentLive');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -72,6 +73,8 @@ const BUSINESS_SELECT = {
   id: true, name: true, business_type: true, status: true,
   currency: true, wa_phone_number_id: true, wa_access_token: true, wa_business_account_id: true,
   wa_app_id: true, ai_config: true, policies: true, is_internal: true,
+  // went_live: read so a shop that is already live costs no query per reply (wentLive.candidate).
+  went_live_at: true, connected_at: true,
 };
 
 function canSendAutoReply(business, conversation, label) {
@@ -1139,6 +1142,9 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
     try {
       const metaResponse = await sendTextMessage(phoneNumberId, accessToken, customerWaId, workflowResult.reply);
       await saveOutboundMessage(business.id, conversation.id, workflowResult.reply, metaResponse);
+      // The shop's first AI reply to a real customer: «يعمل» on the board, the free month's start.
+      // Never throws, and is a no-op without a query once the shop is live.
+      await wentLive.noteAiReply(business, customerWaId);
     } catch (sendErr) {
       console.error('Failed to send WhatsApp message:', sendErr.message);
       await noteSendRefusal(business, conversation, sendErr);

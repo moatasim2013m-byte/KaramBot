@@ -25,6 +25,7 @@ const { sendStaffAlert, alertChannelConfigured } = require('./alerts');
 const { NOTE_WINDOW_MARGIN_MS, windowClosesAt, isWithinServiceWindow } = require('../utils/serviceWindow');
 const { resolveModel } = require('../ai/provider');
 const { graphVersion } = require('./whatsapp');
+const accountsDaily = require('./accountsDaily');
 // PR2 (contract §11.1): the idle role-play and single-nudge steps. All pure decision modules.
 const followups = require('../workflows/shift/followups');
 const weeklyFollowup = require('../workflows/shift/weeklyFollowup');
@@ -1151,6 +1152,8 @@ let dailyRanFor = null;
 // The shops this instance already checked today. token_checked_at cannot say it for a hand-wired
 // shop with no onboarding row, and a day split over several sweeps must not start over each time.
 let dailyDone = { day: null, ids: new Set() };
+// The Amman day accountsDaily ran on this instance (it is not split over sweeps like the shops).
+let accountsRanFor = null;
 // One sweep's share of the daily step. It runs after the SHIFT steps but still inside the
 // sweep's `running` flag, so a slow Graph must not keep the next minute's sweep (the sales bot's
 // recovery, alerts, nudges and reminders) waiting: past this, the rest of the shops wait for the
@@ -1175,6 +1178,7 @@ async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } 
   const started = clock();
   const out = {
     date: today, shops: 0, skipped: 0, deferred: 0, meta_refreshed: 0, token_valid: 0, token_invalid: 0, token_unknown: 0, errors: 0,
+    accounts: null,
   };
 
   const shops = (await prisma.business.findMany({
@@ -1187,6 +1191,14 @@ async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } 
       wa_phone_number_id: true, wa_business_account_id: true, wa_access_token: true,
     },
   })).filter((b) => !costGuard.isExempt(b) && b.wa_phone_number_id && b.wa_access_token && b.status !== 'closed');
+  // The join campaign's chores (invite expiry, the 14-day backstop, free-month reminders, and the
+  // owner-alert template poll, the only Graph reads, for the few shops whose template Meta has not
+  // decided yet). Once a day, after the shop list was read so a failed read retries them too, and
+  // before the slow Graph loop. Idempotent through AccountEvent rows.
+  if (accountsRanFor !== today) {
+    out.accounts = await accountsDaily.runAccountsDaily(now);
+    accountsRanFor = today;
+  }
   // A failed read leaves the day open: the next minute's sweep retries it.
   if (!shops.length) {
     dailyRanFor = today;
@@ -1242,6 +1254,7 @@ async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } 
 /** Tests: let the daily step run again in the same process. */
 function resetDaily() {
   dailyRanFor = null;
+  accountsRanFor = null;
   dailyDone = { day: null, ids: new Set() };
 }
 

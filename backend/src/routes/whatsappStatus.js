@@ -1,12 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../config/prisma');
-const { authenticate, attachBusinessId } = require('../middleware/auth');
+const { authenticate, attachBusinessId, requireRole } = require('../middleware/auth');
+const accountEvents = require('../services/accountEvents');
+const platformSettings = require('../services/platformSettings');
 const { connectionState, agentState, lifecycle } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
 // The payment wording lives in one place (no dates: the «30 أيلول» copies read as a missed
 // deadline once October came).
-const { PAYMENT_METHOD_OWNER_SHORT, PAYMENT_METHOD_OWNER_LONG, WHATSAPP_MANAGER_URL } = require('../config/metaNotices');
+const {
+  PAYMENT_METHOD_OWNER_SHORT, PAYMENT_METHOD_OWNER_LONG, WHATSAPP_MANAGER_URL, paymentNotice,
+} = require('../config/metaNotices');
+
+/**
+ * Whether owners may connect WhatsApp themselves (PlatformSetting es_owner_enabled, off until the
+ * first attended live signup, G1, has passed). A failed read is «no»: the checklist then says SHIFT
+ * connects the number, which is the safe and, until G1, the true answer.
+ */
+async function ownerConnectEnabled() {
+  try {
+    return platformSettings.isOn(await platformSettings.get('es_owner_enabled'));
+  } catch (err) {
+    return false;
+  }
+}
 
 /**
  * What is left before this account's bot is genuinely working, in the order it has to happen.
@@ -15,7 +32,9 @@ const { PAYMENT_METHOD_OWNER_SHORT, PAYMENT_METHOD_OWNER_LONG, WHATSAPP_MANAGER_
  * ticked box drifts from reality and this list is the one place they look to answer «هل يعمل؟».
  * `blocked_by` names whose move it is: ours, theirs, or nobody's (waiting on a customer to write).
  */
-function buildSetup({ business, connection, paymentOk, knowledgeCount, lastInbound }) {
+function buildSetup({
+  business, connection, paymentOk, paymentClaimed = false, knowledgeCount, lastInbound, ownerConnect = false,
+}) {
   const isRestaurant = business.business_type === 'restaurant';
   const isClinic = business.business_type === 'clinic';
 
@@ -26,21 +45,45 @@ function buildSetup({ business, connection, paymentOk, knowledgeCount, lastInbou
       : { key: 'knowledge', label: 'عرّف البوت على منشأتك — الدوام وأهم الأسئلة', where: '/settings', owner: 'you' };
 
   const steps = [
-    {
-      key: 'connected',
-      label: 'ربط رقم واتساب منشأتك',
-      done: connection.state === 'ok' || connection.state === 'degraded',
-      owner: 'shift',
-      hint: 'فريق شِفت يربط الرقم معك — لا شيء عليك هنا.',
-    },
-    {
-      key: 'payment',
-      label: PAYMENT_METHOD_OWNER_SHORT,
-      done: paymentOk === true,
-      owner: 'you',
-      hint: PAYMENT_METHOD_OWNER_LONG,
-      url: WHATSAPP_MANAGER_URL,
-    },
+    // Once owners may connect themselves, this is their step with a button («اربط واتساب»);
+    // until then it is SHIFT's, and saying so keeps the owner from hunting for a button that is
+    // not there.
+    ownerConnect
+      ? {
+        key: 'connected',
+        label: 'ربط رقم واتساب منشأتك',
+        done: connection.state === 'ok' || connection.state === 'degraded',
+        owner: 'you',
+        action: 'connect',
+        hint: 'اضغط «اربط واتساب» وأكمل الخطوات في نافذة فيسبوك — نحو 10 دقائق.',
+      }
+      : {
+        key: 'connected',
+        label: 'ربط رقم واتساب منشأتك',
+        done: connection.state === 'ok' || connection.state === 'degraded',
+        owner: 'shift',
+        hint: 'فريق شِفت يربط الرقم معك — لا شيء عليك هنا.',
+      },
+    // The owner's «أضفت البطاقة» is enough to move on (decisions-2026-10-08.md #9); SHIFT confirms
+    // it later, and a Meta 131042 refusal turns it red whatever either side said.
+    paymentOk !== true && paymentClaimed
+      ? {
+        key: 'payment',
+        label: paymentNotice('claimed', 'owner', 'short'),
+        done: true,
+        owner: 'you',
+        hint: paymentNotice('claimed', 'owner', 'long'),
+        url: WHATSAPP_MANAGER_URL,
+      }
+      : {
+        key: 'payment',
+        label: PAYMENT_METHOD_OWNER_SHORT,
+        done: paymentOk === true,
+        owner: 'you',
+        action: paymentOk === true ? undefined : 'payment_claim',
+        hint: PAYMENT_METHOD_OWNER_LONG,
+        url: WHATSAPP_MANAGER_URL,
+      },
     {
       ...knowledgeStep,
       done: knowledgeCount > 0,
@@ -83,7 +126,11 @@ router.use(authenticate, attachBusinessId);
 
 // Plain language for a business owner, not a state machine. Each message says what is true
 // and what, if anything, they can do about it themselves.
-function explain(connection, agent, onboarding, contract) {
+function explain(connection, agent, onboarding, contract, { ownerConnect = false, hasNumber = true } = {}) {
+  // A shop with no number yet whose owner can connect it: the move is theirs, not «SHIFT is on it».
+  if (ownerConnect && !hasNumber) {
+    return { tone: 'warn', title: 'واتساب غير مربوط بعد', body: 'اضغط «اربط واتساب» وأكمل الخطوات في نافذة فيسبوك. جهّز الهاتف الذي فيه شريحة رقم المحل.', action: 'connect' };
+  }
   if (connection.state === 'ok' && agent.state === 'ok') {
     return { tone: 'good', title: 'واتساب موصول والبوت يرد', body: 'كل رسالة تصل رقمك يجيب عليها الوكيل. تجد المحادثات في «المحادثات».', action: null };
   }
@@ -108,6 +155,9 @@ function explain(connection, agent, onboarding, contract) {
   }
   if (connection.state === 'idle' || agent.state === 'idle') {
     return { tone: 'warn', title: 'الوكيل موقوف', body: 'الرد الآلي متوقف يدويًا. الرسائل تصل لكن لا يجيب عليها أحد إلا فريقك.', action: null };
+  }
+  if (onboarding && onboarding.step === 'done' && !onboarding.payment_method_ok && onboarding.payment_method_claimed_at) {
+    return { tone: 'warn', title: paymentNotice('claimed', 'owner', 'short'), body: paymentNotice('claimed', 'owner', 'long'), action: null };
   }
   if (onboarding && onboarding.step === 'done' && !onboarding.payment_method_ok) {
     return { tone: 'warn', title: 'واتساب موصول — تبقّى طريقة الدفع', body: PAYMENT_METHOD_OWNER_LONG, action: 'payment' };
@@ -142,7 +192,7 @@ router.get('/', async (req, res) => {
     // newest reply: last_outbound_at is also stamped by staff sends and stored alerts, and an
     // owner covering by hand for a dead bot must still see «البوت لا يرد — تواصل مع شِفت».
     const [onboarding, latest, aiReply, contract] = await Promise.all([
-      prisma.whatsappOnboarding.findFirst({ where: { business_id: business.id }, orderBy: { created_at: 'desc' }, select: { step: true, payment_method_ok: true } }),
+      prisma.whatsappOnboarding.findFirst({ where: { business_id: business.id }, orderBy: { created_at: 'desc' }, select: { step: true, payment_method_ok: true, payment_method_claimed_at: true } }),
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true } }),
       prisma.message.aggregate({ where: { business_id: business.id, direction: 'outbound', is_ai_generated: true }, _max: { created_at: true } }),
       prisma.subscription.findFirst({
@@ -152,6 +202,7 @@ router.get('/', async (req, res) => {
       }),
     ]);
 
+    const ownerConnect = await ownerConnectEnabled();
     const lastInbound = latest._max.last_inbound_at;
     const lastOutbound = latest._max.last_outbound_at;
     const lastAiReply = aiReply._max.created_at;
@@ -171,13 +222,16 @@ router.get('/', async (req, res) => {
         solution: contract.solution, plan_name: contract.plan_name, status: contract.status,
         amount_jod: Number(contract.amount_jod), billing_cycle: contract.billing_cycle, next_due_at: contract.next_due_at,
       } : null,
-      explain: explain(connection, agent, onboarding, contract),
+      payment_method_claimed: Boolean(onboarding && onboarding.payment_method_claimed_at),
+      explain: explain(connection, agent, onboarding, contract, { ownerConnect, hasNumber: Boolean(business.wa_phone_number_id) }),
       setup: buildSetup({
         business,
         connection,
         paymentOk: onboarding ? onboarding.payment_method_ok : null,
+        paymentClaimed: Boolean(onboarding && onboarding.payment_method_claimed_at),
         knowledgeCount,
         lastInbound,
+        ownerConnect,
       }),
       // Never the token, never the raw Meta identifiers: the customer needs the state, not the plumbing.
     });
@@ -210,6 +264,48 @@ router.post('/test', async (req, res) => {
   } catch (err) {
     console.error('[whatsapp/status/test] failed:', err.message);
     res.status(502).json({ error: `تعذّر توليد الرد: ${err.message}` });
+  }
+});
+
+/**
+ * «أضفت البطاقة»: the owner says they added a payment card in WhatsApp Manager (spec step 8).
+ * Meta gives a Tech Provider no way to read it, so this is a statement, recorded with who made it
+ * and when; SHIFT confirms it with PATCH /api/admin/accounts/:id/payment-method after seeing the
+ * card. The first claim's time is kept: pressing again does not move it. Owner only: it is about
+ * the shop's money at Meta.
+ */
+router.post('/payment-method-claim', requireRole('business_owner'), async (req, res) => {
+  try {
+    const onboarding = await prisma.whatsappOnboarding.findFirst({
+      where: { business_id: req.businessId },
+      orderBy: { created_at: 'desc' },
+      select: { id: true, payment_method_ok: true, payment_method_claimed_at: true },
+    });
+    if (!onboarding) return res.status(409).json({ error: 'اربط واتساب أولًا، ثم أضف بطاقة الدفع لدى Meta.' });
+
+    let claimedAt = onboarding.payment_method_claimed_at;
+    if (!claimedAt) {
+      claimedAt = new Date();
+      // Only while unclaimed, so two taps at once record one claim and one event.
+      const { count } = await prisma.whatsappOnboarding.updateMany({
+        where: { id: onboarding.id, payment_method_claimed_at: null },
+        data: { payment_method_claimed_at: claimedAt },
+      });
+      if (count) {
+        await accountEvents.record({
+          businessId: req.businessId, actorUserId: req.user.id, actorKind: 'owner', type: 'payment_claimed', data: {},
+        });
+      }
+    }
+    const state = onboarding.payment_method_ok ? null : 'claimed';
+    res.json({
+      payment_method_claimed_at: claimedAt,
+      payment_method_ok: Boolean(onboarding.payment_method_ok),
+      notice: state ? paymentNotice(state, 'owner', 'short') : null,
+    });
+  } catch (err) {
+    console.error('[whatsapp/status/payment-method-claim] failed:', err.message);
+    res.status(500).json({ error: 'تعذّر الحفظ، حاول مرة أخرى' });
   }
 });
 

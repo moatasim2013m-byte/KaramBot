@@ -162,6 +162,57 @@ router.get('/me', authenticate, async (req, res) => {
  * /api/auth), so the token cannot be brute-forced by volume.
  */
 const activation = require('../services/activation');
+const accountEvents = require('../services/accountEvents');
+const alerts = require('../services/alerts');
+
+const { firstName } = require('../utils/names');
+
+/** The shop's sector and number for /join: from the loaded relation, else read by the user's own id. */
+async function joinBusiness(user) {
+  if (!user || !user.business_id) return null;
+  const loaded = user.business && typeof user.business === 'object' ? user.business : null;
+  if (loaded && 'sector' in loaded && 'wa_phone_number_id' in loaded) return loaded;
+  try {
+    return await prisma.business.findUnique({
+      where: { id: user.business_id },
+      select: { sector: true, wa_phone_number_id: true },
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * The first time a shop owner opens their join link: the account's log (join_opened, which moves
+ * the board card to «فتحه») and one WhatsApp alert to SHIFT, «أبو خالد فتح رابط مطعم الشام».
+ * Once per link: a reload, or the owner coming back the next day, says nothing new. Staff and
+ * manager invites are the shop's own business and do not alert SHIFT. Never throws.
+ */
+async function noteJoinOpened(row, shopName = null) {
+  try {
+    const user = row.user || {};
+    if (user.role !== 'business_owner' || !user.business_id) return;
+    const seen = await prisma.accountEvent.findMany({
+      where: { business_id: user.business_id, type: 'join_opened' },
+      select: { data: true },
+      take: 50,
+    });
+    if ((seen || []).some((e) => e.data && e.data.activation_id === row.id)) return;
+    await accountEvents.record({
+      businessId: user.business_id, actorUserId: user.id, actorKind: 'owner', type: 'join_opened',
+      data: { activation_id: row.id, user_id: user.id },
+    });
+    const shop = shopName || (user.business && user.business.name) || '';
+    await alerts.notifyShift({
+      reason: 'join_opened',
+      businessId: user.business_id,
+      shopName: shop,
+      summary: `${firstName(user.name) || 'صاحب المحل'} فتح رابط ${shop || 'الانضمام'}`,
+    });
+  } catch (err) {
+    console.error(`[auth/activate] join_opened not recorded: ${err.message}`);
+  }
+}
 
 // POST, with the token in the body, because a token in a URL path is written to the access
 // log by morgan AND by Cloud Run's own request log — which would undo the whole point of
@@ -174,6 +225,10 @@ router.post('/activate/lookup', async (req, res) => {
   // for the staff and manager invites that still sign in with one. Nothing here names a business
   // the link was not issued for, so a valid link still reveals only its own account.
   const { business_name } = await businessInfo(row.user);
+  const business = await joinBusiness(row.user);
+  // Not awaited: SHIFT's alert must not hold up the owner's first screen, and noteJoinOpened
+  // never throws.
+  noteJoinOpened(row, business_name);
   res.json({
     name: row.user.name,
     email: row.user.email,
@@ -181,6 +236,12 @@ router.post('/activate/lookup', async (req, res) => {
     phone_masked: maskPhone(row.user.phone),
     role: row.user.role || null,
     business_name,
+    // /join (docs/panels/spec.md step 3): «أهلًا أبو خالد», the sector's starter cards, and
+    // whether the connect step is already done (a number SHIFT wired by hand).
+    shop_name: business_name,
+    owner_first_name: firstName(row.user.name),
+    sector: business ? business.sector ?? null : null,
+    connected: Boolean(business && business.wa_phone_number_id),
     expires_at: row.expires_at,
   });
 });
@@ -202,6 +263,14 @@ router.post('/activate', async (req, res) => {
     // reload fetched /me.
     const jwtToken = signToken(user.id);
     const { business_type, business_name } = await businessInfo(user);
+    // The board's «يربط واتساب» starts here, and the shop's «السجل» shows when the owner got in.
+    if (user.business_id) {
+      await accountEvents.record({
+        businessId: user.business_id, actorUserId: user.id,
+        actorKind: user.role === 'business_owner' ? 'owner' : 'staff',
+        type: 'password_set', data: { user_id: user.id, role: user.role || null },
+      });
+    }
     res.json({
       token: jwtToken,
       user: {

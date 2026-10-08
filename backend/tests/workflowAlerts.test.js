@@ -47,6 +47,9 @@ function seedBusiness(aiConfig = {}, extra = {}) {
       wa_phone_number_id: PNID,
       wa_access_token: encrypt('tok'),
       ai_config: { alert_wa_numbers: [OWNER], ...aiConfig },
+      // Already live: these tests are about the shop's alerts, and a first reply would add SHIFT's
+      // went_live alert (wentLive.test.js).
+      went_live_at: new Date('2026-09-01T00:00:00Z'),
       ...extra,
     }],
   }).businesses[0];

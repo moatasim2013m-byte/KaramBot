@@ -14,6 +14,9 @@ require('./setup');
 jest.mock('axios');
 jest.mock('../src/config/prisma', () => require('./helpers/fakeDb').getFakeDb().prisma);
 jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb);
+// After a connect the owner_alert template goes to the new WABA (ownerAlertTemplate.test.js covers
+// it); stubbed here so these tests keep reading exactly the connect flow's own Graph calls and log.
+jest.mock('../src/services/ownerAlertTemplate', () => ({ submitAfterConnect: jest.fn(async () => 'skipped') }));
 
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
@@ -159,6 +162,8 @@ describe('a clean FINISH fills the shop\'s profile from Meta', () => {
     meta();
     await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finish()));
     expect(eventsOf().map((e) => [e.type, e.actor_kind, e.actor_user_id])).toEqual([['es_connected', 'shift', 'u_admin']]);
+    // The new WABA is asked for the owner_alert template once it is connected.
+    expect(require('../src/services/ownerAlertTemplate').submitAfterConnect).toHaveBeenCalledWith('biz_sham', expect.any(Object));
     expect(eventsOf()[0].data).toMatchObject({ waba_id: IDS.WABA, phone_number_id: IDS.PHONE, finish_event: 'FINISH' });
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({
       reason: 'customer_connected', businessId: 'biz_sham', summary: expect.stringContaining('+962 7 9123 4567'),

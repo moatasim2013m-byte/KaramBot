@@ -690,6 +690,9 @@ async function afterConnect({ businessId, onboarding, actor = {}, finishEvent = 
     finish_event: finishEvent || onboarding.finish_event || null,
     ...(resumedFrom ? { resumed_from: resumedFrom } : {}),
   });
+  // The owner_alert template on the shop's own WABA, so handoff alerts reach the owner outside 24 h.
+  // Not awaited: Meta's review is no reason to hold the owner's screen, and it never throws.
+  try { require('./ownerAlertTemplate').submitAfterConnect(businessId, { now }).catch(() => {}); } catch (err) { console.warn(`[embedded-signup] owner alert template business=${businessId}: ${err.message}`); }
   const display = business?.wa_display_phone ? `‎${business.wa_display_phone}` : 'رقمه';
   tellShift({
     reason: 'customer_connected',
