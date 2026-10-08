@@ -142,9 +142,104 @@ function ConversationRow({ conv, active, onOpen }) {
   );
 }
 
+// ─── attachments ─────────────────────────────────────────────────────────────
+
+const READ_LABELS = { audio: '🎧 كرم سمع', image: '👁️ كرم شاف', video: '🎬 كرم شاف' };
+
+/**
+ * A voice note, photo, video or file in the thread (owner, 2026-10-08: voice notes could not be played and
+ * photos were only a label). The file is fetched through the API with the staff member's session — WhatsApp's
+ * own link needs the business token — and only once the bubble scrolls into view.
+ */
+function MediaAttachment({ convId, msg }) {
+  const [url, setUrl] = useState(null);
+  const [state, setState] = useState('idle'); // idle | loading | ready | gone | error
+  const [zoom, setZoom] = useState(false);
+  const holder = useRef(null);
+  const type = msg.message_type;
+  const wantsAuto = type === 'image' || type === 'audio' || type === 'sticker';
+
+  const load = useCallback(async () => {
+    if (state === 'loading' || state === 'ready') return;
+    setState('loading');
+    try {
+      const res = await api.get(`${V2}/conversations/${convId}/messages/${msg.id}/media`, { responseType: 'blob' });
+      setUrl(URL.createObjectURL(res.data));
+      setState('ready');
+    } catch (err) {
+      setState(err.response && err.response.status === 410 ? 'gone' : 'error');
+    }
+  }, [convId, msg.id, state]);
+
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  useEffect(() => {
+    if (!wantsAuto || !msg.media_id || !holder.current || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { io.disconnect(); load(); }
+    }, { rootMargin: '200px' });
+    io.observe(holder.current);
+    return () => io.disconnect();
+  }, [wantsAuto, msg.media_id, load]);
+
+  const read = msg.media_read && msg.media_read.status === 'ok' && msg.media_read.text ? msg.media_read.text : null;
+  const label = MEDIA_LABELS[type] || `[${type}]`;
+  let content;
+  if (!msg.media_id) {
+    content = <p className="text-sm text-[#54656F]">{label}</p>;
+  } else if (state === 'gone') {
+    content = <p className="text-sm text-[#54656F]">{label} — <span className="text-xs">ما عاد متوفر على واتساب</span></p>;
+  } else if (state === 'error') {
+    content = (
+      <button type="button" onClick={() => { setState('idle'); setTimeout(load, 0); }} className="text-sm text-[#027EB5] underline">
+        {label} — تعذّر التحميل، جرّب مرة ثانية
+      </button>
+    );
+  } else if (state !== 'ready') {
+    content = wantsAuto ? (
+      <p className="text-sm text-[#54656F] flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> {label}</p>
+    ) : (
+      <button type="button" onClick={load} className="text-sm text-[#027EB5] flex items-center gap-1.5">
+        {state === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} {label} — اضغط للعرض
+      </button>
+    );
+  } else if (type === 'audio') {
+    content = <audio controls preload="metadata" src={url} className="w-[240px] max-w-full h-10" />;
+  } else if (type === 'image' || type === 'sticker') {
+    content = (
+      <>
+        <button type="button" onClick={() => setZoom(true)} className="block">
+          <img src={url} alt="صورة من العميل" className={`rounded-md ${type === 'sticker' ? 'w-28 h-28 object-contain' : 'max-h-72 max-w-full object-cover'}`} />
+        </button>
+        {zoom && (
+          <button type="button" onClick={() => setZoom(false)} className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" aria-label="إغلاق">
+            <img src={url} alt="" className="max-w-full max-h-full object-contain" />
+          </button>
+        )}
+      </>
+    );
+  } else if (type === 'video') {
+    content = <video controls preload="metadata" src={url} className="rounded-md max-h-80 max-w-full" />;
+  } else {
+    content = <a href={url} download className="text-sm text-[#027EB5] underline">{label} — تنزيل</a>;
+  }
+
+  return (
+    <div ref={holder}>
+      {content}
+      {read && (
+        <div className="mt-1.5 rounded-md bg-black/[0.04] px-2 py-1">
+          <p className="text-[11px] text-[#54656F] font-medium">{READ_LABELS[type] || 'كرم قرأ'}:</p>
+          <p className="text-[12.5px] text-[#3B4A54] whitespace-pre-wrap break-words" dir="auto">{read}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── thread ──────────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, prev, customerName, onReply }) {
+function MessageBubble({ msg, prev, customerName, onReply, convId }) {
   const dayChange = !prev || new Date(prev.created_at).toDateString() !== new Date(msg.created_at).toDateString();
   const grouped = !dayChange && prev && prev.direction === msg.direction;
   const out = msg.direction === 'outbound';
@@ -155,7 +250,22 @@ function MessageBubble({ msg, prev, customerName, onReply }) {
   }`;
   const body = (() => {
     const text = msg.text_body || '';
-    if (msg.message_type === 'text' || msg.message_type === 'template' || msg.message_type === 'interactive' || msg.message_type === 'button') {
+    if (msg.message_type === 'template') {
+      // The follow-up the customer actually got, with its buttons — not the stored «[قالب …]» tag.
+      return (
+        <div>
+          <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap break-words" dir="auto"><WaText text={text || '[قالب]'} /></p>
+          {Array.isArray(msg.template_buttons) && msg.template_buttons.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {msg.template_buttons.map((b) => (
+                <span key={b} className="text-[12px] text-[#027EB5] bg-white/70 border border-[#027EB5]/20 rounded-full px-2 py-0.5">{b}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (msg.message_type === 'text' || msg.message_type === 'interactive' || msg.message_type === 'button') {
       if (!text) return <p className="text-sm italic opacity-70">[{msg.message_type}]</p>;
       if (isJumboEmoji(text)) return <p className="text-[40px] leading-tight" dir="auto">{text}</p>;
       return <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap break-words" dir="auto"><WaText text={text} /></p>;
@@ -163,8 +273,8 @@ function MessageBubble({ msg, prev, customerName, onReply }) {
     if (MEDIA_LABELS[msg.message_type]) {
       return (
         <div>
-          <p className="text-sm text-[#54656F]">{MEDIA_LABELS[msg.message_type]}</p>
-          {text ? <p className="text-[14.5px] mt-1 whitespace-pre-wrap break-words" dir="auto"><WaText text={text} /></p> : null}
+          {convId ? <MediaAttachment convId={convId} msg={msg} /> : <p className="text-sm text-[#54656F]">{MEDIA_LABELS[msg.message_type]}</p>}
+          {text && !/^\[(?:صورة|image)\]\s*$/.test(text) ? <p className="text-[14.5px] mt-1 whitespace-pre-wrap break-words" dir="auto"><WaText text={text.replace(/^\[(?:صورة|image)\]\s*/, '')} /></p> : null}
         </div>
       );
     }
@@ -826,7 +936,7 @@ export default function InboxPage() {
                   <div className="text-center text-gray-500 py-12 text-sm">لا توجد رسائل بعد</div>
                 ) : (
                   messages.map((m, i) => (
-                    <MessageBubble key={m.id} msg={m} prev={i > 0 ? messages[i - 1] : null} customerName={customerName}
+                    <MessageBubble key={m.id} msg={m} convId={selectedId} prev={i > 0 ? messages[i - 1] : null} customerName={customerName}
                       onReply={(msg) => { setReplyingTo(msg); textareaRef.current?.focus(); }} />
                   ))
                 )}
