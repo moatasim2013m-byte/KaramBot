@@ -94,6 +94,8 @@ app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
 const adminEmbeddedSignup = require('./routes/adminEmbeddedSignup');
 app.use('/api/admin/embedded-signup', apiLimiter, adminEmbeddedSignup.configRouter);
 app.use('/api/admin/accounts/:id/embedded-signup', apiLimiter, adminEmbeddedSignup.accountRouter);
+// Signups SHIFT finishes by hand: orphans, «أكمل الربط». Before admin.js for the same reason.
+app.use('/api/admin/onboardings', apiLimiter, require('./routes/adminOnboardings'));
 app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));

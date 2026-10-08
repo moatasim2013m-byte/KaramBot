@@ -6,7 +6,7 @@ const { requireSetting } = require('../services/platformSettings');
 const accountEvents = require('../services/accountEvents');
 const { embeddedSignupAppId } = require('../utils/metaSecrets');
 const {
-  startOnboarding, runOnboarding, publicStatus, exchangeCode, verifyGrant, assertNumberFree,
+  connectFromCode, resumeOnboarding, publicStatus, deriveStatus, normalizeFinishEvent, ERRORS_AR,
 } = require('../services/embeddedSignup');
 
 /**
@@ -27,17 +27,19 @@ const ES_CLOSED_AR = 'الربط الذاتي متوقف مؤقتًا';
 
 const MESSAGES = {
   businessIdRefused: 'الحساب يُحدَّد من الجلسة أو من الرابط، لا من الطلب.',
-  missingFields: 'بيانات الربط من Meta ناقصة أو غير صالحة: يلزم code و waba_id و phone_number_id.',
-  numberTaken: 'هذا الرقم مربوط بحساب آخر على شِفت. تواصل مع فريق شِفت لحل المشكلة.',
-  ownershipMismatch: 'هذا الرقم لا يتبع الحساب الذي دخلت به في فيسبوك.',
-  failed: 'لم يكتمل ربط واتساب. حاول مرة أخرى، أو تواصل مع فريق شِفت.',
+  missingFields: 'بيانات الربط من Meta ناقصة أو غير صالحة. افتح نافذة الربط من جديد.',
+  numberTaken: ERRORS_AR.number_taken,
+  ownershipMismatch: ERRORS_AR.ownership,
+  failed: ERRORS_AR.generic,
   badPin: 'رمز التحقق بخطوتين يجب أن يكون 6 أرقام.',
   noOnboarding: 'لم يبدأ ربط واتساب لهذا الحساب بعد.',
   badEvent: 'نوع الحدث غير معروف.',
   internal: 'تعذّر إكمال الطلب. حاول مرة أخرى بعد قليل.',
 };
 
-const BROWSER_EVENTS = ['CANCEL', 'ERROR'];
+// What the browser reports besides a finished signup. LAUNCHED is sent right after FB.login opens
+// the popup, so the board shows «يربط واتساب» even when the customer never comes back.
+const BROWSER_EVENTS = ['LAUNCHED', 'CANCEL', 'ERROR'];
 
 /** A Meta id (WABA, phone number, portfolio) is a string of digits; anything else is refused. */
 function metaId(value) {
@@ -92,15 +94,23 @@ function record(scope, type, data) {
   });
 }
 
-// What a failed step tells SHIFT. err.message is a Graph message (graphError), never the token.
-function failureData(err, stage, extra = {}) {
-  return {
-    stage,
-    error_message: err.message,
+/**
+ * A failure as the panel reads it: the contract's status 'failed', the onboarding where it
+ * stopped, and Arabic words. SHIFT also gets Meta's own message (`detail`), which is what Meta
+ * support asks for; the owner never sees it.
+ */
+async function failureBody(scope, err, error, extra = {}) {
+  const body = {
+    error,
+    status: 'failed',
+    message: err.message_ar || MESSAGES.failed,
     error_code: err.graph?.code ?? null,
-    error_subcode: err.graph?.error_subcode ?? null,
+    needs_pin: Boolean(err.needs_pin),
+    onboarding: await statusFor(scope, err.onboarding || null),
     ...extra,
   };
+  if (scope.audience === 'staff') body.detail = err.message;
+  return body;
 }
 
 /** The config the browser needs. The app secret is not here and never will be. */
@@ -115,87 +125,56 @@ function config(req, res) {
 }
 
 /**
- * The browser posts the FINISH payload and the authResponse code together.
+ * The browser posts the authResponse code and whatever FINISH payload it got.
  *
  * The exchange runs inline, not on a queue: the code expires 30 seconds after the
  * flow closes, and a queue hop can cost more than that.
  *
- * Order (docs/panels/spec.md P0/P1, connectFromCode): a cheap number-conflict check, then the
- * code exchange, then verifyGrant, and only then the onboarding row. The browser's ids prove
- * nothing until Meta has confirmed them with the token: the previous order wrote them first, so
- * a bogus code naming another shop's fresh number left that number on the caller's row (the
- * failure path keeps the row) and the real owner got 409 number_taken when they connected it.
+ * Only the code is required. Every FINISH_* event is accepted, and so is none at all: a missing
+ * WABA or number is found on the server from what the token was granted (connectFromCode), where
+ * a 400 here used to burn the code. The ids the browser does send must at least look like Meta
+ * ids; they still prove nothing until Meta confirms them with the token.
+ *
+ * 200 answers carry status connected, needs_number or needs_operator; 409 a number another shop
+ * holds; 403 ids the customer's Facebook login does not cover; 502 a Graph step that failed,
+ * resumable from GET /status and POST /retry.
  */
 async function exchange(req, res) {
   const scope = req.es;
   const body = req.body || {};
   const code = typeof body.code === 'string' ? body.code.trim() : '';
+  const finishEvent = normalizeFinishEvent(body.finish_event);
   const wabaId = metaId(body.waba_id);
   const phoneNumberId = metaId(body.phone_number_id);
   const metaBusinessId = metaId(body.meta_business_id);
 
-  if (!code || !wabaId || !phoneNumberId || metaBusinessId === undefined) {
+  if (!code || code.length > 2048 || finishEvent === undefined
+    || wabaId === undefined || phoneNumberId === undefined || metaBusinessId === undefined) {
     return res.status(400).json({ error: 'missing_fields', message: MESSAGES.missingFields });
   }
 
-  let stage = 'exchange';
   try {
-    // Before the code is spent: a number another shop holds is refused without calling Meta.
-    // startOnboarding checks again after the proof, against a row created in between.
-    const own = await prisma.whatsappOnboarding.findUnique({ where: { business_id: scope.businessId } });
-    await assertNumberFree(phoneNumberId, scope.businessId, { onboardingId: own?.id || null, wabaId, actor: actorOf(scope) });
-
-    const token = await exchangeCode(code);
-    stage = 'verify';
-    const grant = await verifyGrant(token, { wabaId, phoneNumberId });
-    stage = 'exchange';
-
-    const row = await startOnboarding({
-      appId: embeddedSignupAppId(),
+    const result = await connectFromCode({
       businessId: scope.businessId,
-      metaBusinessId: grant.metaBusinessId || metaBusinessId,
-      wabaId: grant.wabaId,
-      phoneNumberId: grant.phoneNumberId,
-      sessionId: shortString(body.session_id, 128),
+      code,
+      finishEvent,
+      hints: { wabaId, phoneNumberId, metaBusinessId, sessionId: shortString(body.session_id, 128) },
       actor: actorOf(scope),
     });
-
-    const done = await runOnboarding(row.id, { token, actor: actorOf(scope) });
-    await record(scope, 'es_connected', { waba_id: wabaId, phone_number_id: phoneNumberId });
-    return res.json({ status: 'connected', onboarding: await statusFor(scope, done) });
+    return res.json({ status: result.status, onboarding: await statusFor(scope, result.onboarding) });
   } catch (err) {
-    // es_conflict is already on the account, and nothing was written or sent to Meta.
     if (err.code === 'number_taken') {
-      return res.status(409).json({ error: 'number_taken', message: MESSAGES.numberTaken });
+      return res.status(409).json({ error: 'number_taken', status: 'failed', message: MESSAGES.numberTaken });
     }
-    // Meta says the token does not cover these ids: nothing was written. SHIFT hears of it,
-    // since it is either a probe for another shop's number or a signup that went wrong.
     if (err.code === 'es_ownership_mismatch') {
-      await record(scope, 'es_ownership_mismatch', { waba_id: wabaId, phone_number_id: phoneNumberId, detail: err.detail });
-      try {
-        const alerts = require('../services/alerts');
-        Promise.resolve(alerts.notifyShift({
-          reason: 'needs_operator', businessId: scope.businessId, summary: 'رقم واتساب لا يتبع حساب فيسبوك الذي دخل به الزبون',
-        })).catch(() => {});
-      } catch (alertErr) {
-        console.error(`[embedded-signup] ownership alert failed: ${alertErr.message}`);
-      }
-      return res.status(403).json({ error: 'es_ownership_mismatch', message: MESSAGES.ownershipMismatch });
+      return res.status(403).json({ error: 'es_ownership_mismatch', status: 'failed', message: MESSAGES.ownershipMismatch });
     }
-    // The step reached is on the caller's own row when there is one, so the dashboard can offer
-    // a resume rather than a fresh signup. Read by business: the phone id came from the browser.
-    console.error('[embedded-signup] onboarding failed:', err.message);
-    const row = await prisma.whatsappOnboarding.findUnique({ where: { business_id: scope.businessId } }).catch(() => null);
-    await record(scope, 'es_failed', failureData(err, stage, {
-      step: row?.step || null, waba_id: wabaId, phone_number_id: phoneNumberId,
+    // A TypeError or a database error before any Graph call is ours, not Meta's.
+    if (!err.message_ar) throw err;
+    const row = err.onboarding || null;
+    return res.status(502).json(await failureBody(scope, err, 'onboarding_failed', {
+      resumable: Boolean(row && row.phone_number_id && row.step !== 'code_received'),
     }));
-    return res.status(502).json({
-      error: 'onboarding_failed',
-      message: scope.audience === 'staff' ? err.message : MESSAGES.failed,
-      error_code: err.graph?.code ?? null,
-      onboarding: await statusFor(scope, row),
-      resumable: Boolean(row && row.step !== 'code_received'),
-    });
   }
 }
 
@@ -216,36 +195,21 @@ async function retry(req, res) {
     return res.status(400).json({ error: 'bad_pin', message: MESSAGES.badPin });
   }
 
-  const row = await prisma.whatsappOnboarding.findFirst({
-    where: { business_id: scope.businessId },
-    orderBy: { created_at: 'desc' },
-  });
-  if (!row) return res.status(404).json({ error: 'no_onboarding', message: MESSAGES.noOnboarding });
-
   try {
-    const done = await runOnboarding(row.id, { pin, actor: actorOf(scope) });
-    if (row.step !== 'done') {
-      await record(scope, 'es_connected', { waba_id: row.waba_id, phone_number_id: row.phone_number_id, resumed_from: row.step });
-    }
-    return res.json({ status: 'connected', onboarding: await statusFor(scope, done) });
+    const result = await resumeOnboarding({ businessId: scope.businessId, pin, actor: actorOf(scope) });
+    if (!result) return res.status(404).json({ error: 'no_onboarding', message: MESSAGES.noOnboarding });
+    return res.json({ status: result.status, onboarding: await statusFor(scope, result.onboarding) });
   } catch (err) {
     if (err.code === 'number_taken') {
-      return res.status(409).json({ error: 'number_taken', message: MESSAGES.numberTaken });
+      return res.status(409).json({ error: 'number_taken', status: 'failed', message: MESSAGES.numberTaken });
     }
-    console.error('[embedded-signup] retry failed:', err.message);
-    const current = await prisma.whatsappOnboarding.findUnique({ where: { id: row.id } }).catch(() => null);
-    await record(scope, 'es_failed', failureData(err, 'retry', { step: current?.step || row.step }));
-    return res.status(502).json({
-      error: 'retry_failed',
-      message: scope.audience === 'staff' ? err.message : MESSAGES.failed,
-      error_code: err.graph?.code ?? null,
-      onboarding: await statusFor(scope, current),
-    });
+    if (!err.message_ar) throw err;
+    return res.status(502).json(await failureBody(scope, err, 'retry_failed'));
   }
 }
 
 /**
- * CANCEL and error events from the browser.
+ * LAUNCHED, CANCEL and error events from the browser.
  *
  * Kept because an abandoned signup is the useful thing to see: `current_step` says
  * where customers give up, and `session_id` is what Meta support asks for. Written as an
@@ -258,6 +222,10 @@ async function events(req, res) {
   const event = typeof body.event === 'string' ? body.event.trim().toUpperCase() : '';
   if (!BROWSER_EVENTS.includes(event)) {
     return res.status(400).json({ error: 'bad_event', message: MESSAGES.badEvent });
+  }
+  if (event === 'LAUNCHED') {
+    await record(scope, 'es_started', { source: 'browser', session_id: shortString(body.session_id, 128) });
+    return res.json({ ok: true });
   }
 
   const errorMessage = shortString(body.error_message, 500);
@@ -278,14 +246,17 @@ async function events(req, res) {
   return res.json({ ok: true });
 }
 
-/** The caller's own onboarding, for the dashboard checklist. Takes no parameters. */
+/**
+ * The caller's own onboarding, for the panels. Takes no parameters. Reading it is how the card
+ * resumes after a reload: the step, the Arabic problem and needs_pin are all here.
+ */
 async function status(req, res) {
   const scope = req.es;
   const row = await prisma.whatsappOnboarding.findFirst({
     where: { business_id: scope.businessId },
     orderBy: { created_at: 'desc' },
   });
-  res.json({ onboarding: await statusFor(scope, row) });
+  res.json({ status: deriveStatus(row), onboarding: await statusFor(scope, row) });
 }
 
 /**

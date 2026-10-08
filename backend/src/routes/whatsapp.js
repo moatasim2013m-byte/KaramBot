@@ -1,7 +1,14 @@
 const express = require('express');
 const { validateSignature, parseInboundMessage } = require('../services/whatsapp');
 const { persistInbound, processInboundMessage } = require('../services/messageProcessor');
-const { handleAccountUpdate } = require('../services/accountUpdate');
+const { handleAccountUpdate, handleQualityUpdate, handleTemplateStatusUpdate } = require('../services/accountUpdate');
+
+// The fields that carry no message, each with its handler. The app is subscribed to all three.
+const SIDE_FIELDS = {
+  account_update: handleAccountUpdate,
+  phone_number_quality_update: handleQualityUpdate,
+  message_template_status_update: handleTemplateStatusUpdate,
+};
 
 /**
  * One webhook implementation, mounted once per Meta app.
@@ -87,14 +94,16 @@ function withTimeout(promise, ms) {
   // answer within a few seconds, hence the budget.
   const entries = body.entry || [];
 
-  // account_update carries no messages; it is answered on its own so a Graph hiccup on an
-  // onboarding row can never delay the 200 that inbound messages depend on.
+  // account_update, the quality rating and template status carry no messages; they are handled on
+  // the side so a slow row or a bad payload can never delay the 200 that inbound messages depend
+  // on, nor stop the messages in the same delivery from being saved.
   for (const entry of entries) {
     for (const change of entry.changes || []) {
-      if (change.field === 'account_update') {
-        handleAccountUpdate(entry, change).catch((err) =>
-          console.error('[account_update] failed:', err.message));
-      }
+      const handler = Object.prototype.hasOwnProperty.call(SIDE_FIELDS, change?.field) ? SIDE_FIELDS[change.field] : null;
+      if (!handler) continue;
+      Promise.resolve()
+        .then(() => handler(entry, change))
+        .catch((err) => console.error(`[${change.field}] failed:`, err.message));
     }
   }
 

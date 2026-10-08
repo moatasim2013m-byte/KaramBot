@@ -5,7 +5,8 @@
  * server-to-server, because the steps need the app secret and the business token
  * and Meta does not allow them from a browser.
  *
- * Three Graph calls, in order:
+ * Three Graph calls, in order (connectFromCode runs them, with Meta's proof of the ids between
+ * 1 and 2):
  *   1. code → business token      (the code dies 30s after the flow ends)
  *   2. POST /<WABA_ID>/subscribed_apps   — our app starts receiving their webhooks
  *   3. POST /<PHONE_NUMBER_ID>/register  — with a generated 6-digit 2FA PIN
@@ -25,6 +26,10 @@ const prisma = require('../config/prisma');
 const { encrypt, decrypt } = require('../utils/tokenCrypto');
 const { embeddedSignupApp } = require('../utils/metaSecrets');
 const accountEvents = require('./accountEvents');
+const alerts = require('./alerts');
+const metaStatus = require('./metaStatus');
+const platformSettings = require('./platformSettings');
+const plans = require('../config/plans');
 const { WHATSAPP_MANAGER_URL, paymentNotice } = require('../config/metaNotices');
 
 // Same source of truth as the sending code, so the two cannot drift apart.
@@ -74,29 +79,83 @@ async function exchangeCode(code) {
 }
 
 /**
- * The browser's ids proven against Meta, before any of them is written.
+ * The FINISH events Embedded Signup can end with (docs/panels/meta-facts.md Q1a). Every one of
+ * them carries a code worth exchanging: the browser used to accept only FINISH and burn the
+ * 30-second code on the others. FINISH_ONLY_WABA may come without a number, and the coexistence
+ * one (FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING) carries only the WABA.
+ */
+const FINISH_EVENTS = Object.freeze([
+  'FINISH',
+  'FINISH_ONLY_WABA',
+  'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING',
+  'FINISH_OBO_MIGRATION',
+  'FINISH_GRANT_ONLY_API_ACCESS',
+]);
+// A number still on the WhatsApp Business app. Coexistence is off in October (decision 10): its
+// number is already registered by the app, so /register is not called and SHIFT finishes by hand.
+const COEXISTENCE_EVENT = 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
+
+/**
+ * The browser's finish event, normalised. null when none arrived (the popup closed before the
+ * message, or an older browser); undefined when the value is not a FINISH event at all, which the
+ * route refuses. An unlisted FINISH_* is kept as sent: Meta adds flows, and a new one is still a
+ * finished signup whose code must not be wasted.
+ */
+function normalizeFinishEvent(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const s = String(value).trim().toUpperCase();
+  return /^FINISH(_[A-Z]{1,30}){0,6}$/.test(s) && s.length <= 64 ? s : undefined;
+}
+
+function ownershipMismatch(detail) {
+  return Object.assign(new Error(`es_ownership_mismatch: ${detail}`), { code: 'es_ownership_mismatch', status: 403, detail });
+}
+
+/** The numbers on a WABA, read with the customer's own token. One page (Meta's default is 25). */
+async function listWabaNumbers(wabaId, token) {
+  try {
+    const { data } = await axios.get(`${graphBase()}/${wabaId}/phone_numbers`, {
+      params: { fields: 'id,display_phone_number,verified_name' },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 15000,
+    });
+    return (Array.isArray(data?.data) ? data.data : [])
+      .filter((n) => n && n.id !== undefined && n.id !== null)
+      .map((n) => ({
+        id: String(n.id),
+        display_phone_number: n.display_phone_number ? String(n.display_phone_number) : null,
+        verified_name: n.verified_name ? String(n.verified_name) : null,
+      }));
+  } catch (err) {
+    throw graphError(err, 'phone_numbers failed');
+  }
+}
+
+/**
+ * The browser's ids proven against Meta, and the missing ones found there, before any is written.
  *
  * The FINISH payload (waba_id, phone_number_id, business_id) comes from the browser, so on its
  * own it proves nothing: a shop could post another shop's fresh number with any code, get it
  * onto its own onboarding row, and leave the real owner a 409 when they connect it
  * (docs/panels/spec.md, «Ownership proof from Meta itself»). The business token answers for what
  * the customer actually granted:
- *   - debug_token granular_scopes: whatsapp_business_management must list the WABA;
- *   - GET /{waba}/phone_numbers (with that token) must list the number;
+ *   - debug_token granular_scopes: whatsapp_business_management must list the WABA. With no
+ *     waba_id from the browser (FINISH never arrived), the token's only granted WABA is used;
+ *   - GET /{waba}/phone_numbers (with that token) must list the number. With no phone_number_id
+ *     (FINISH_ONLY_WABA, coexistence, no FINISH), the WABA's single number is used. When it has
+ *     none the shop still has to add one (resolution 'none'); when it has several, the shop's own
+ *     current number wins if it is among them ('own', a reconnect), otherwise SHIFT picks
+ *     ('ambiguous'). Guessing the first would bind a number the customer may not have meant;
  *   - GET /me client_business_id is the portfolio, preferred over the browser's.
- * A mismatch throws code 'es_ownership_mismatch' (403 at the route). /me is the only read allowed
- * to fail: the portfolio id is informational, not part of the ownership proof.
+ * A mismatch throws code 'es_ownership_mismatch' (403 at the route). Several or no granted WABAs
+ * with none named throws 'waba_unresolved'. /me is the only read allowed to fail: the portfolio
+ * id is informational, not part of the ownership proof.
  *
- * @returns {Promise<{wabaId: string, phoneNumberId: string, metaBusinessId: string|null}>}
+ * @returns {Promise<{wabaId: string, phoneNumberId: string|null, number: object|null,
+ *   resolution: 'given'|'single'|'own'|'none'|'ambiguous', metaBusinessId: string|null}>}
  */
-function ownershipMismatch(detail) {
-  return Object.assign(new Error(`es_ownership_mismatch: ${detail}`), { code: 'es_ownership_mismatch', status: 403, detail });
-}
-
-async function verifyGrant(token, { wabaId, phoneNumberId } = {}) {
+async function verifyGrant(token, { wabaId, phoneNumberId, ownPhoneNumberId = null } = {}) {
   const { appId, secret } = embeddedSignupApp();
-  const waba = String(wabaId);
-  const phone = String(phoneNumberId);
 
   let grant;
   try {
@@ -109,21 +168,38 @@ async function verifyGrant(token, { wabaId, phoneNumberId } = {}) {
   }
   const scopes = Array.isArray(grant?.data?.granular_scopes) ? grant.data.granular_scopes : [];
   const management = scopes.find((s) => s && s.scope === 'whatsapp_business_management');
-  const targets = (management?.target_ids || []).map(String);
-  if (!targets.includes(waba)) throw ownershipMismatch('waba_not_granted');
+  const targets = [...new Set((management?.target_ids || []).map(String))];
 
-  let numbers;
-  try {
-    ({ data: numbers } = await axios.get(`${graphBase()}/${waba}/phone_numbers`, {
-      params: { fields: 'id,display_phone_number,verified_name' },
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 15000,
-    }));
-  } catch (err) {
-    throw graphError(err, 'phone_numbers failed');
+  let waba;
+  if (wabaId) {
+    waba = String(wabaId);
+    if (!targets.includes(waba)) throw ownershipMismatch('waba_not_granted');
+  } else if (targets.length === 1) {
+    [waba] = targets;
+  } else {
+    // Nothing to keep the token against: WhatsappOnboarding needs a WABA. SHIFT sees which ones
+    // were granted (es_failed) and finishes with the customer.
+    throw Object.assign(new Error(`waba_unresolved: ${targets.length} WABAs granted and none named`), {
+      code: 'waba_unresolved', granted: targets.length,
+    });
   }
-  const ids = (Array.isArray(numbers?.data) ? numbers.data : []).map((n) => String(n?.id));
-  if (!ids.includes(phone)) throw ownershipMismatch('number_not_on_waba');
+
+  const numbers = await listWabaNumbers(waba, token);
+  let number = null;
+  let resolution;
+  if (phoneNumberId) {
+    number = numbers.find((n) => n.id === String(phoneNumberId)) || null;
+    if (!number) throw ownershipMismatch('number_not_on_waba');
+    resolution = 'given';
+  } else if (numbers.length === 1) {
+    [number] = numbers;
+    resolution = 'single';
+  } else if (numbers.length === 0) {
+    resolution = 'none';
+  } else {
+    number = (ownPhoneNumberId && numbers.find((n) => n.id === String(ownPhoneNumberId))) || null;
+    resolution = number ? 'own' : 'ambiguous';
+  }
 
   let metaBusinessId = null;
   try {
@@ -136,7 +212,9 @@ async function verifyGrant(token, { wabaId, phoneNumberId } = {}) {
   } catch (err) {
     console.warn(`[embedded-signup] /me unreadable, keeping the browser's portfolio id: ${graphError(err, '/me').message}`);
   }
-  return { wabaId: waba, phoneNumberId: phone, metaBusinessId };
+  return {
+    wabaId: waba, phoneNumberId: number ? number.id : null, number, resolution, metaBusinessId,
+  };
 }
 
 /** Step 2 — subscribe our app to this WABA's webhooks. Idempotent at Meta: repeating it is a no-op. */
@@ -195,7 +273,8 @@ async function numberHolder(phoneNumberId, businessId, { onboardingId = null } =
     where: { phone_number_id: String(phoneNumberId) },
     select: { id: true, business_id: true },
   });
-  if (onboarding && onboarding.id !== onboardingId && onboarding.business_id !== businessId) {
+  // With no business (SHIFT completing an orphan), any other row holding the number is a holder.
+  if (onboarding && onboarding.id !== onboardingId && (!businessId || onboarding.business_id !== businessId)) {
     return onboarding.business_id ? 'onboarding' : 'unattached_onboarding';
   }
   return null;
@@ -222,6 +301,7 @@ async function assertNumberFree(phoneNumberId, businessId, { onboardingId = null
   });
   throw numberTakenError(phoneNumberId);
 }
+
 
 // What belongs to the number rather than to the shop. A shop's own row pointed at a new number
 // starts over from these, so the new number never inherits the old one's token, PIN or status.
@@ -265,21 +345,30 @@ const WABA_FIELDS_RESET = {
  *   - a number held by another business, or by an unattached row, is refused (409) before any
  *     write and before Meta is called;
  *   - the same number again updates the shop's own row, as before;
- *   - a different number re-points the shop's own row and starts it over, so business_id stays
- *     unique and the new number never inherits the old token or PIN.
+ *   - a different number (or none yet) re-points the shop's own row and starts it over, so
+ *     business_id stays unique and the new number never inherits the old token or PIN.
+ *
+ * With `token` (already exchanged and proven by verifyGrant) the row lands at token_exchanged
+ * with that token, whatever it was before. That is the reconnect: a 'done' or revoked row of the
+ * same shop used to return early in runOnboarding and keep the dead token (spec, «Reconnect is
+ * safe»); now a fresh code always re-runs subscribe and register on the fresh token.
+ *
+ * `phoneNumberId` may be null: the token and WABA are kept so the customer never redoes the popup
+ * while the number is found (needs_number) or picked by SHIFT (needs_operator).
  *
  * @param {object} p
  * @param {string} p.businessId  required; whose signup this is
  * @param {{kind?: string, userId?: string}} [p.actor]  who pressed the button (AccountEvent)
  */
 async function startOnboarding({
-  appId, businessId, metaBusinessId, wabaId, phoneNumberId, sessionId, actor = {},
+  appId, businessId, metaBusinessId, wabaId, phoneNumberId, sessionId, finishEvent = null,
+  needsOperator = false, token = null, actor = {},
 }) {
   if (!businessId) throw new TypeError('startOnboarding needs the business the signup is for');
-  const phone = String(phoneNumberId);
+  const phone = phoneNumberId ? String(phoneNumberId) : null;
 
   const own = await prisma.whatsappOnboarding.findUnique({ where: { business_id: businessId } });
-  await assertNumberFree(phone, businessId, { onboardingId: own?.id || null, wabaId, actor });
+  if (phone) await assertNumberFree(phone, businessId, { onboardingId: own?.id || null, wabaId, actor });
 
   const signup = {
     app_id: String(appId),
@@ -287,33 +376,45 @@ async function startOnboarding({
     meta_business_id: String(metaBusinessId || ''),
     session_id: sessionId || null,
     started_by_user_id: actor.userId || null,
+    finish_event: finishEvent || null,
+    needs_operator: Boolean(needsOperator),
   };
+  const fresh = token ? {
+    access_token_enc: encrypt(token),
+    step: 'token_exchanged',
+    token_exchanged_at: new Date(),
+    revoked_at: null,
+    revoked_reason: null,
+    detached_at: null,
+    token_checked_at: null,
+  } : {};
 
   try {
     if (!own) {
       return await prisma.whatsappOnboarding.create({
-        data: { ...signup, business_id: businessId, phone_number_id: phone, step: 'code_received' },
+        data: { ...signup, business_id: businessId, phone_number_id: phone, step: 'code_received', ...fresh },
       });
     }
-    if (own.phone_number_id === phone) {
+    if (phone && own.phone_number_id === phone) {
       return await prisma.whatsappOnboarding.update({
         where: { id: own.id },
-        data: { ...signup, last_error: null, last_error_at: null },
+        data: { ...signup, last_error: null, last_error_at: null, ...fresh },
       });
     }
     return await prisma.whatsappOnboarding.update({
       where: { id: own.id },
       data: {
-        ...signup,
         ...NUMBER_FIELDS_RESET,
         ...(own.waba_id === String(wabaId) ? {} : WABA_FIELDS_RESET),
+        ...signup,
         phone_number_id: phone,
+        ...fresh,
       },
     });
   } catch (err) {
     // Another shop's row took the number between the check and this write: same answer as the
     // check, and still nothing of theirs was touched (the unique index refused the write).
-    if (err?.code === 'P2002') {
+    if (err?.code === 'P2002' && phone) {
       await assertNumberFree(phone, businessId, { onboardingId: own?.id || null, wabaId, actor });
     }
     throw err;
@@ -328,18 +429,69 @@ async function recordFailure(id, step, err) {
 }
 
 /**
+ * Point the shop's Business row at the onboarding's number: from here inbound messages route to
+ * it (wa_phone_number_id is unique) and the sender uses its token.
+ *
+ * Factored out of runOnboarding so the operator's «أكمل الربط» and «اربط بحساب» take the same
+ * path. Whatever row the business held before is detached first (business_id NULL, detached_at),
+ * which keeps business_id unique and the old number's history. `number` ({display_phone_number,
+ * verified_name}) is what Meta showed for it; without it a changed number's old display fields
+ * are cleared rather than shown beside the new number, and metaStatus.refresh fills them.
+ * The portfolio id is the row's, which verifyGrant took from GET /me.
+ *
+ * @returns {Promise<object>} the onboarding row, attached to the business
+ */
+async function linkOnboardingToBusiness(row, { businessId = row.business_id, number = null, now = new Date() } = {}) {
+  if (!businessId) throw new TypeError('linkOnboardingToBusiness needs a business');
+  if (!row.phone_number_id) throw new TypeError('linkOnboardingToBusiness needs a number');
+
+  const holder = await prisma.whatsappOnboarding.findUnique({ where: { business_id: businessId } });
+  if (holder && holder.id !== row.id) {
+    await prisma.whatsappOnboarding.update({ where: { id: holder.id }, data: { business_id: null, detached_at: now } });
+  }
+  let linked = row;
+  if (row.business_id !== businessId) {
+    linked = await prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { business_id: businessId, detached_at: null } });
+  }
+
+  const current = await prisma.business.findUnique({ where: { id: businessId }, select: { wa_phone_number_id: true } });
+  const data = {
+    wa_phone_number_id: row.phone_number_id,
+    wa_business_account_id: row.waba_id,
+    wa_access_token: row.access_token_enc, // already encrypted, same format the sender expects
+    wa_app_id: row.app_id,
+    connected_at: now,
+  };
+  if (/^\d{1,32}$/.test(String(row.meta_business_id || ''))) data.meta_business_id = String(row.meta_business_id);
+  if (number?.display_phone_number) data.wa_display_phone = String(number.display_phone_number).slice(0, 32);
+  else if (current && current.wa_phone_number_id !== row.phone_number_id) data.wa_display_phone = null;
+  if (number?.verified_name) data.wa_verified_name = String(number.verified_name).slice(0, 200);
+  else if (current && current.wa_phone_number_id !== row.phone_number_id) data.wa_verified_name = null;
+
+  await prisma.business.update({ where: { id: businessId }, data });
+  return linked;
+}
+
+/**
  * Run the onboarding from wherever it stopped.
  *
- * `code` (or `token`, already exchanged and verified by the route) is only needed the first
- * time; a resume uses the stored token, which is why
- * a failed step 2 or 3 does not send the customer back through Embedded Signup.
- * `actor` ({kind, userId}) is who asked, for the es_conflict event when the number turns out
- * to be taken. Returns the row as the dashboard should show it.
+ * `code` (or `token`, already exchanged and verified by connectFromCode) is only needed the first
+ * time; a resume uses the stored token, which is why a failed step 2 or 3 does not send the
+ * customer back through Embedded Signup. `actor` ({kind, userId}) is who asked, for the
+ * es_conflict event when the number turns out to be taken. `number` is Meta's view of it, passed
+ * to the link. A coexistence row (or `skipRegister`) stops after subscribed_apps, marked
+ * needs_operator: its number is registered by the WhatsApp Business app, and /register would
+ * take it off the owner's phone. Returns the row as the dashboard should show it.
  */
-async function runOnboarding(onboardingId, { code, token: exchangedToken, pin: suppliedPin, actor = {} } = {}) {
+async function runOnboarding(onboardingId, {
+  code, token: exchangedToken, pin: suppliedPin, actor = {}, skipRegister = false, number = null,
+} = {}) {
   let row = await prisma.whatsappOnboarding.findUnique({ where: { id: onboardingId } });
   if (!row) throw new Error(`onboarding ${onboardingId} not found`);
   if (row.step === 'done') return row; // already finished — nothing to repeat
+  if (!row.phone_number_id) {
+    throw Object.assign(new Error('no phone number on this onboarding yet'), { code: 'needs_number' });
+  }
 
   // A resume can come days after the signup started, and the number may have been linked to
   // another shop since. Checked before subscribed_apps and /register, which act on Meta's side.
@@ -352,7 +504,7 @@ async function runOnboarding(onboardingId, { code, token: exchangedToken, pin: s
     if (!code && !exchangedToken) throw new Error('resume needs a new signup: no code and no stored token');
     let token = exchangedToken;
     try {
-      // The exchange route spends the code itself, before verifyGrant, and passes the token in.
+      // connectFromCode spends the code itself, before verifyGrant, and passes the token in.
       if (!token) token = await exchangeCode(code);
     } catch (err) {
       await recordFailure(row.id, 'code_received', err);
@@ -385,6 +537,11 @@ async function runOnboarding(onboardingId, { code, token: exchangedToken, pin: s
       where: { id: row.id },
       data: { step: 'subscribed', subscribed_at: new Date(), last_error: null, last_error_at: null },
     });
+  }
+
+  if (skipRegister || row.finish_event === COEXISTENCE_EVENT) {
+    if (row.needs_operator) return row;
+    return prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { needs_operator: true } });
   }
 
   // ── Step 3: register the number ────────────────────────────────────────────
@@ -420,20 +577,471 @@ async function runOnboarding(onboardingId, { code, token: exchangedToken, pin: s
   }
 
   // ── Link to the business row that will receive the messages ────────────────
-  // wa_phone_number_id is unique, so this is also what makes inbound routing work.
-  if (row.business_id) {
-    await prisma.business.update({
-      where: { id: row.business_id },
-      data: {
-        wa_phone_number_id: row.phone_number_id,
-        wa_business_account_id: row.waba_id,
-        wa_access_token: row.access_token_enc, // already encrypted, same format the sender expects
-        wa_app_id: row.app_id,
-      },
+  // A row with no business (an orphan) stops at 'registered' until SHIFT attaches it.
+  if (!row.business_id) return row;
+  row = await linkOnboardingToBusiness(row, { number });
+  return prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { step: 'done', needs_operator: false } });
+}
+
+// ── After a connect ────────────────────────────────────────────────────────────
+
+// Subscription.campaign for the free month when PlatformSetting campaign names none.
+const DEFAULT_CAMPAIGN_SLUG = 'irbid-2026-10';
+
+/**
+ * The shop's free-month contract, created once, at connect (never at invite: an unused invite
+ * must not take one of the offer's places, shiftSweeper.offerPlacesLeft).
+ *
+ * Idempotent by looking first: any Karam Bot subscription the shop already has, whatever its
+ * status, means no new trial. A reconnect, a retry or SHIFT's own contract therefore never adds a
+ * second one, and a cancelled shop does not get a fresh free month by reconnecting. The terms are
+ * plans.js's, with the free-month rules from PlatformSetting campaign. Internal rows (SHIFT, the
+ * -sim shops) get none.
+ *
+ * @returns {Promise<{subscription: object|null, created: boolean}>}
+ */
+async function ensureTrialSubscription(businessId, { connectedAt = new Date(), createdBy = 'system' } = {}) {
+  if (!businessId) throw new TypeError('ensureTrialSubscription needs a business');
+  const existing = await prisma.subscription.findFirst({
+    where: { business_id: businessId, solution: plans.DEFAULT_PLAN.solution },
+    orderBy: { created_at: 'desc' },
+  });
+  if (existing) return { subscription: existing, created: false };
+
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { id: true, is_internal: true } });
+  if (!business || business.is_internal) return { subscription: null, created: false };
+
+  const campaign = (await platformSettings.get('campaign')) || {};
+  const data = plans.trialSubscriptionData({
+    businessId,
+    createdBy,
+    connectedAt,
+    campaign: typeof campaign.slug === 'string' && campaign.slug.trim() ? campaign.slug.trim() : DEFAULT_CAMPAIGN_SLUG,
+    ...(Number.isFinite(campaign.trial_days) ? { trialDays: campaign.trial_days } : {}),
+    ...(Number.isFinite(campaign.backstop_days) ? { backstopDays: campaign.backstop_days } : {}),
+    ...(['first_reply', 'connect'].includes(campaign.trial_starts) ? { trialStarts: campaign.trial_starts } : {}),
+  });
+  const subscription = await prisma.subscription.create({ data });
+  return { subscription, created: true };
+}
+
+// The row again after afterConnect, so the answer carries what metaStatus.refresh just stored.
+async function reread(row) {
+  return (await prisma.whatsappOnboarding.findUnique({ where: { id: row.id } }).catch(() => null)) || row;
+}
+
+function eventLogger(businessId, actor = {}) {
+  return (type, data) => accountEvents.record({
+    businessId,
+    actorUserId: actor.userId || null,
+    actorKind: actor.kind || 'system',
+    type,
+    data,
+  });
+}
+
+// notifyShift never throws, and SHIFT's alert must not hold up the shop's screen.
+function tellShift(payload) {
+  try {
+    Promise.resolve(alerts.notifyShift(payload)).catch(() => {});
+  } catch (err) {
+    console.error(`[embedded-signup] notifyShift ${payload.reason} failed: ${err.message}`);
+  }
+}
+
+/**
+ * Everything that follows a number going live on a shop: Meta's view of it stored at once (so the
+ * panel is never empty), the free month, the log line and SHIFT's alert. Each step is best effort:
+ * the shop is connected already and none of these may undo that.
+ */
+async function afterConnect({ businessId, onboarding, actor = {}, finishEvent = null, resumedFrom = null, now = new Date() }) {
+  let business = null;
+  try {
+    business = await prisma.business.findUnique({ where: { id: businessId } });
+    if (business) {
+      const meta = await metaStatus.refresh(business);
+      if (meta?.display_phone_number && !business.wa_display_phone) business.wa_display_phone = meta.display_phone_number;
+    }
+  } catch (err) {
+    console.warn(`[embedded-signup] Meta status after connect business=${businessId}: ${err.message}`);
+  }
+  try {
+    await ensureTrialSubscription(businessId, { connectedAt: now, createdBy: actor.kind === 'shift' ? (actor.userId || 'shift') : 'system' });
+  } catch (err) {
+    console.error(`[embedded-signup] trial subscription business=${businessId} not created: ${err.message}`);
+  }
+  await eventLogger(businessId, actor)('es_connected', {
+    waba_id: onboarding.waba_id,
+    phone_number_id: onboarding.phone_number_id,
+    finish_event: finishEvent || onboarding.finish_event || null,
+    ...(resumedFrom ? { resumed_from: resumedFrom } : {}),
+  });
+  const display = business?.wa_display_phone ? `‎${business.wa_display_phone}` : 'رقمه';
+  tellShift({
+    reason: 'customer_connected',
+    businessId,
+    shopName: business?.name || '',
+    summary: `ربط واتساب ${display} — التالي: بطاقة الدفع`,
+  });
+}
+
+// ── What a failure means to the person looking at it ──────────────────────────
+
+// Arabic for the owner's and SHIFT's screens. The Graph message (English, and sometimes naming
+// ids) stays in last_error for staff; these never carry an id.
+const ERRORS_AR = Object.freeze({
+  code_expired: 'انتهت مهلة الموافقة — اضغط «أكمل الربط» وستُفتح نافذة فيسبوك من جديد.',
+  partial: 'تم الربط جزئيًا — اضغط «حاول مرة أخرى» ونكمل من حيث توقفنا.',
+  pin_mismatch: 'على رقمك رمز تحقق بخطوتين. أدخل الرمز المكوّن من 6 أرقام لنكمل الربط.',
+  number_not_verified: 'لم يكتمل التحقق من الرقم لدى Meta — أكمل التحقق ثم اضغط «حاول مرة أخرى».',
+  meta_busy: 'خدمة Meta مشغولة الآن — حاول مرة أخرى بعد دقائق.',
+  revoked: 'انفصل كرم بوت عن حسابك في Meta — البوت لا يستقبل الرسائل. اضغط «أعد الربط».',
+  needs_number: 'أنشأت حساب واتساب للأعمال دون إضافة رقم — اضغط «أضف الرقم» لتكمل.',
+  needs_operator: 'وصلتنا موافقتك لكن لم نحدد الرقم — سيُكمل فريق شِفت الربط دون أن تعيد الخطوات.',
+  coexistence: 'هذا الرقم مربوط بتطبيق واتساب للأعمال — سيتواصل معك فريق شِفت لترتيب الربط.',
+  ownership: 'هذا الرقم لا يتبع الحساب الذي دخلت به في فيسبوك.',
+  number_taken: 'هذا الرقم مربوط بحساب آخر لدى شِفت — تواصل معنا.',
+  generic: 'لم يكتمل ربط واتساب. حاول مرة أخرى، أو تواصل مع فريق شِفت.',
+});
+
+// The step that failed, from the step the row was left at (recordFailure keeps the last good one).
+const FAILED_STEP = Object.freeze({
+  code_received: 'exchange', token_exchanged: 'subscribe', subscribed: 'register', registered: 'link',
+});
+
+// Graph codes worth their own words. 133005 (two-step PIN mismatch) is assumed from Meta's
+// error-code table until G1 records a real one (spec, «Failure paths»).
+const PIN_MISMATCH_CODES = new Set([133005]);
+const BUSY_CODES = new Set([1, 2, 4, 17, 80007, 130429, 131000, 133004, 133015, 133016]);
+
+/**
+ * Arabic for a failure, from its Graph code and the step it happened in. Every exchange failure
+ * reads as an expired approval: the code is spent either way, and a new popup is the cure.
+ * @returns {{key: string, text: string, needsPin: boolean}}
+ */
+function errorAr({ code = null, step = null } = {}) {
+  const n = Number(code);
+  const pick = (key) => ({ key, text: ERRORS_AR[key], needsPin: key === 'pin_mismatch' });
+  if (step === 'exchange') return pick('code_expired');
+  if (n === 190) return pick('revoked');
+  if (PIN_MISMATCH_CODES.has(n) && step === 'register') return pick('pin_mismatch');
+  if (n === 133006) return pick('number_not_verified');
+  if (BUSY_CODES.has(n)) return pick('meta_busy');
+  if (['subscribe', 'register', 'link'].includes(step)) return pick('partial');
+  return pick('generic');
+}
+
+// recordFailure stores graphError's message, «label: message (code N/sub)».
+function graphCodeOf(lastError) {
+  const m = /\(code (\d+)/.exec(String(lastError || ''));
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * The connection in one word, for both panels (the API contract's `status`):
+ * not_started · in_progress · connected · needs_number · needs_operator · failed.
+ * A removal by Meta outranks everything; a row SHIFT has to finish outranks 'done'.
+ */
+function deriveStatus(row) {
+  if (!row) return 'not_started';
+  if (row.revoked_at) return 'failed';
+  if (row.needs_operator) return 'needs_operator';
+  if (row.step === 'done') return 'connected';
+  if (!row.phone_number_id) return 'needs_number';
+  if (row.last_error) return 'failed';
+  return 'in_progress';
+}
+
+/** What went wrong with this row, in Arabic and as the contract's flags. */
+function problemOf(row) {
+  if (!row) return { last_error_ar: null, needs_pin: false, failed_step: null };
+  if (row.revoked_at) return { last_error_ar: ERRORS_AR.revoked, needs_pin: false, failed_step: null };
+  if (row.needs_operator) {
+    const key = row.finish_event === COEXISTENCE_EVENT ? 'coexistence' : 'needs_operator';
+    return { last_error_ar: ERRORS_AR[key], needs_pin: false, failed_step: null };
+  }
+  if (row.step !== 'done' && !row.phone_number_id) return { last_error_ar: ERRORS_AR.needs_number, needs_pin: false, failed_step: null };
+  if (!row.last_error || row.step === 'done') return { last_error_ar: null, needs_pin: false, failed_step: null };
+  const step = FAILED_STEP[row.step] || null;
+  const { text, needsPin } = errorAr({ code: graphCodeOf(row.last_error), step });
+  return { last_error_ar: text, needs_pin: needsPin, failed_step: step };
+}
+
+// ── The flows the routes call ────────────────────────────────────────────────
+
+function typed(code, status, messageAr, extra = {}) {
+  return Object.assign(new Error(code), { code, status, message_ar: messageAr, ...extra });
+}
+
+/**
+ * A finished Embedded Signup, from the code to a live number (docs/panels/spec.md, connectFromCode).
+ *
+ * Order: (0) a number the browser named that another shop holds is refused from the database
+ * alone, before the code is spent; (1) exchangeCode, first, inside its 30-second life;
+ * (2) verifyGrant proves the browser's ids and finds the missing ones; (3) the number is checked
+ * free again, now that it is Meta's; (4) the shop's own row is upserted with the fresh token (a
+ * reconnect resets a done or revoked row); a number still unknown stops here as needs_number or
+ * needs_operator, with the token and WABA kept so the customer never redoes the popup;
+ * (5–6) subscribed_apps and /register (skipped for coexistence, needs_operator); (7) the Business
+ * row is linked; (8) Meta status, (9) the trial, (10) es_connected and SHIFT's alert.
+ *
+ * Every outcome is on the account's log. Throws for the route to answer: number_taken (409),
+ * es_ownership_mismatch (403), and a Graph failure with `stage` and `onboarding` attached.
+ *
+ * @param {object} p
+ * @param {string} p.businessId  from the session or the admin URL, never the browser
+ * @param {string} p.code        the 30-second code
+ * @param {string|null} [p.finishEvent]  FINISH, FINISH_ONLY_WABA, … or null when none arrived
+ * @param {{wabaId?, phoneNumberId?, metaBusinessId?, sessionId?}} [p.hints]  the browser's FINISH data
+ * @param {{kind: string, userId?: string}} [p.actor]
+ * @returns {Promise<{status: string, onboarding: object|null}>}
+ */
+async function connectFromCode({ businessId, code, finishEvent = null, hints = {}, actor = {} }) {
+  if (!businessId) throw new TypeError('connectFromCode needs the business the signup is for');
+  const event = normalizeFinishEvent(finishEvent) || null;
+  const wabaHint = hints.wabaId ? String(hints.wabaId) : null;
+  const phoneHint = hints.phoneNumberId ? String(hints.phoneNumberId) : null;
+  const portfolioHint = hints.metaBusinessId ? String(hints.metaBusinessId) : null;
+  const log = eventLogger(businessId, actor);
+
+  const own = await prisma.whatsappOnboarding.findUnique({ where: { business_id: businessId } });
+  let stage = 'exchange';
+  try {
+    if (phoneHint) await assertNumberFree(phoneHint, businessId, { onboardingId: own?.id || null, wabaId: wabaHint, actor });
+
+    const token = await exchangeCode(code);
+    stage = 'verify';
+    const grant = await verifyGrant(token, {
+      wabaId: wabaHint, phoneNumberId: phoneHint, ownPhoneNumberId: own?.phone_number_id || null,
+    });
+    stage = 'onboarding';
+
+    // The portfolio the browser named is kept only for comparison. A different one from /me is
+    // not a refusal (the token's grants are the proof), but SHIFT should look at it.
+    if (portfolioHint && grant.metaBusinessId && portfolioHint !== grant.metaBusinessId) {
+      await log('es_ownership_mismatch', { detail: 'portfolio_differs', waba_id: grant.wabaId, blocking: false });
+      tellShift({ reason: 'needs_operator', businessId, summary: 'حساب Meta الذي ربط منه يختلف عمّا أرسله المتصفح — راجِع الربط' });
+    }
+
+    const coexistence = event === COEXISTENCE_EVENT;
+    const row = await startOnboarding({
+      appId: embeddedSignupApp().appId,
+      businessId,
+      metaBusinessId: grant.metaBusinessId || portfolioHint,
+      wabaId: grant.wabaId,
+      phoneNumberId: grant.phoneNumberId,
+      sessionId: hints.sessionId ? String(hints.sessionId).slice(0, 128) : null,
+      finishEvent: event,
+      needsOperator: coexistence || grant.resolution === 'ambiguous',
+      token,
+      actor,
+    });
+
+    if (!row.phone_number_id) {
+      const status = deriveStatus(row);
+      await log('es_failed', {
+        stage: 'number', status, resolution: grant.resolution, finish_event: event, waba_id: grant.wabaId,
+      });
+      tellShift({
+        reason: 'needs_operator',
+        businessId,
+        summary: status === 'needs_number'
+          ? 'وافق في Meta لكن حساب واتساب بلا رقم — ينتظر إضافة الرقم'
+          : 'وافق في Meta وعلى حسابه أكثر من رقم — اختر الرقم من «ربط بدون رقم»',
+      });
+      return { status, onboarding: row };
+    }
+
+    stage = 'subscribe';
+    const done = await runOnboarding(row.id, { token, actor, skipRegister: coexistence, number: grant.number });
+    if (done.step !== 'done') {
+      await log('es_failed', {
+        stage: 'register', status: deriveStatus(done), reason: coexistence ? 'coexistence' : 'not_linked',
+        finish_event: event, waba_id: done.waba_id, phone_number_id: done.phone_number_id,
+      });
+      tellShift({ reason: 'needs_operator', businessId, summary: 'الرقم على تطبيق واتساب للأعمال — الربط المشترك غير مفعّل، لم نسجّله' });
+      return { status: deriveStatus(done), onboarding: done };
+    }
+    await afterConnect({ businessId, onboarding: done, actor, finishEvent: event });
+    return { status: 'connected', onboarding: await reread(done) };
+  } catch (err) {
+    // es_conflict is already on the account, and nothing was written or sent to Meta.
+    if (err.code === 'number_taken') throw Object.assign(err, { message_ar: ERRORS_AR.number_taken });
+    // Meta says the token does not cover these ids: nothing was written. SHIFT hears of it,
+    // since it is either a probe for another shop's number or a signup that went wrong.
+    if (err.code === 'es_ownership_mismatch') {
+      await log('es_ownership_mismatch', { waba_id: wabaHint, phone_number_id: phoneHint, detail: err.detail });
+      tellShift({ reason: 'needs_operator', businessId, summary: 'رقم واتساب لا يتبع حساب فيسبوك الذي دخل به الزبون' });
+      throw Object.assign(err, { message_ar: ERRORS_AR.ownership });
+    }
+    if (err.code === 'waba_unresolved') {
+      await log('es_failed', { stage: 'verify', status: 'needs_operator', reason: 'waba_unresolved', granted: err.granted });
+      tellShift({ reason: 'needs_operator', businessId, summary: 'وافق في Meta دون تحديد حساب واتساب واحد — تواصل معه' });
+      const current = await prisma.whatsappOnboarding.findUnique({ where: { business_id: businessId } }).catch(() => null);
+      return { status: 'needs_operator', onboarding: current };
+    }
+    // The step reached is on the caller's own row when there is one, so the panel can offer a
+    // resume rather than a fresh signup.
+    console.error('[embedded-signup] onboarding failed:', err.message);
+    const current = await prisma.whatsappOnboarding.findUnique({ where: { business_id: businessId } }).catch(() => null);
+    const failedStep = stage === 'subscribe' ? (FAILED_STEP[current?.step] || 'subscribe') : stage;
+    await log('es_failed', {
+      stage: failedStep,
+      step: current?.step || null,
+      error_message: err.message,
+      error_code: err.graph?.code ?? null,
+      error_subcode: err.graph?.error_subcode ?? null,
+      waba_id: wabaHint,
+      phone_number_id: phoneHint,
+    });
+    tellShift({ reason: 'connect_failed', businessId, summary: `توقف الربط عند: ${failedStep}` });
+    const ar = errorAr({ code: err.graph?.code, step: failedStep });
+    throw Object.assign(err, {
+      stage: failedStep, onboarding: current, message_ar: ar.text, needs_pin: ar.needsPin,
     });
   }
+}
 
-  return prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { step: 'done' } });
+/**
+ * Continue the shop's own signup that stopped at step 2 or 3, with the stored token.
+ *
+ * Rows that a retry cannot finish come back as they are, with no Meta call: no number yet
+ * (needs_number), one SHIFT has to finish (needs_operator) and one Meta removed (a fresh code is
+ * the only way back). Returns null when the shop has no onboarding.
+ */
+async function resumeOnboarding({ businessId, pin, actor = {} }) {
+  const row = await prisma.whatsappOnboarding.findFirst({
+    where: { business_id: businessId },
+    orderBy: { created_at: 'desc' },
+  });
+  if (!row) return null;
+  if (row.step === 'done' || row.revoked_at || row.needs_operator || !row.phone_number_id) {
+    return { status: deriveStatus(row), onboarding: row };
+  }
+
+  let done;
+  try {
+    done = await runOnboarding(row.id, { pin, actor });
+  } catch (err) {
+    if (err.code === 'number_taken') throw Object.assign(err, { message_ar: ERRORS_AR.number_taken });
+    console.error('[embedded-signup] retry failed:', err.message);
+    const current = await prisma.whatsappOnboarding.findUnique({ where: { id: row.id } }).catch(() => null);
+    const failedStep = FAILED_STEP[current?.step || row.step] || null;
+    await eventLogger(businessId, actor)('es_failed', {
+      stage: 'retry',
+      step: current?.step || row.step,
+      error_message: err.message,
+      error_code: err.graph?.code ?? null,
+      error_subcode: err.graph?.error_subcode ?? null,
+    });
+    const ar = errorAr({ code: err.graph?.code, step: failedStep });
+    throw Object.assign(err, { stage: failedStep, onboarding: current, message_ar: ar.text, needs_pin: ar.needsPin });
+  }
+  if (done.step !== 'done') return { status: deriveStatus(done), onboarding: done };
+  await afterConnect({ businessId, onboarding: done, actor, resumedFrom: row.step });
+  const fresh = await reread(done);
+  return { status: deriveStatus(fresh), onboarding: fresh };
+}
+
+/**
+ * SHIFT's «أكمل الربط»: the number for a row Meta left without one (FINISH_ONLY_WABA, several
+ * numbers, no FINISH), proven on the row's WABA with the stored token, then the usual steps.
+ * The customer does not open the popup again.
+ */
+async function completeOnboarding({ onboardingId, phoneNumberId, actor = {} }) {
+  const row = await prisma.whatsappOnboarding.findUnique({ where: { id: String(onboardingId) } });
+  if (!row) throw typed('not_found', 404, 'لا يوجد ربط بهذا المعرّف.');
+  if (row.finish_event === COEXISTENCE_EVENT) {
+    throw typed('coexistence', 409, 'هذا الرقم على تطبيق واتساب للأعمال، والربط المشترك غير مفعّل بعد.');
+  }
+  if (row.phone_number_id && !row.needs_operator) {
+    throw typed('has_number', 409, 'لهذا الربط رقم مسبقًا — استخدم «حاول مرة أخرى» من صفحة الحساب.');
+  }
+  const token = decrypt(row.access_token_enc);
+  if (!token) throw typed('no_token', 409, 'لا يوجد رمز وصول محفوظ لهذا الربط — يلزم ربط جديد من نافذة Meta.');
+
+  const phone = String(phoneNumberId);
+  const numbers = await listWabaNumbers(row.waba_id, token);
+  const number = numbers.find((n) => n.id === phone);
+  if (!number) throw typed('number_not_on_waba', 422, 'هذا الرقم ليس على حساب واتساب للأعمال الذي وافق عليه الزبون.');
+  await assertNumberFree(phone, row.business_id, { onboardingId: row.id, wabaId: row.waba_id, actor });
+
+  const sameNumber = row.phone_number_id === phone;
+  await prisma.whatsappOnboarding.update({
+    where: { id: row.id },
+    data: {
+      phone_number_id: phone,
+      needs_operator: false,
+      last_error: null,
+      last_error_at: null,
+      // A new number is registered afresh; the WABA subscription is the WABA's and stays.
+      ...(sameNumber ? {} : {
+        pin_enc: null,
+        registered_at: null,
+        step: stepIndex(row.step) > stepIndex('subscribed') ? 'subscribed' : row.step,
+      }),
+    },
+  });
+
+  let done;
+  try {
+    done = await runOnboarding(row.id, { actor, number });
+  } catch (err) {
+    if (err.code === 'number_taken') throw err;
+    const current = await prisma.whatsappOnboarding.findUnique({ where: { id: row.id } }).catch(() => null);
+    const failedStep = FAILED_STEP[current?.step] || null;
+    if (row.business_id) {
+      await eventLogger(row.business_id, actor)('es_failed', {
+        stage: 'complete', step: current?.step || null, error_message: err.message, error_code: err.graph?.code ?? null,
+      });
+    }
+    const ar = errorAr({ code: err.graph?.code, step: failedStep });
+    throw Object.assign(err, { status: 502, onboarding: current, message_ar: ar.text, needs_pin: ar.needsPin });
+  }
+  if (done.step === 'done' && done.business_id) {
+    await afterConnect({ businessId: done.business_id, onboarding: done, actor, resumedFrom: row.step });
+    done = await reread(done);
+  }
+  return { status: deriveStatus(done), onboarding: done };
+}
+
+/**
+ * SHIFT's «اربط بحساب»: an onboarding no business owns (an old admin signup, a row whose shop was
+ * detached) given to one. The number must be free for that business, and a business already
+ * connected is replaced only when SHIFT says so (`replace`), since its live number stops
+ * receiving. A row past /register is linked at once; an earlier one waits for a retry.
+ */
+async function attachOnboarding({ onboardingId, businessId, replace = false, actor = {} }) {
+  const row = await prisma.whatsappOnboarding.findUnique({ where: { id: String(onboardingId) } });
+  if (!row) throw typed('not_found', 404, 'لا يوجد ربط بهذا المعرّف.');
+  if (row.business_id) throw typed('already_attached', 409, 'هذا الربط تابع لحساب مسبقًا.');
+  const business = await prisma.business.findUnique({ where: { id: String(businessId) }, select: { id: true, wa_phone_number_id: true } });
+  if (!business) throw typed('business_not_found', 404, 'لا يوجد حساب بهذا المعرّف.');
+
+  const held = await prisma.whatsappOnboarding.findUnique({ where: { business_id: business.id } });
+  const live = (held && held.step === 'done' && !held.revoked_at) || Boolean(business.wa_phone_number_id && business.wa_phone_number_id !== row.phone_number_id);
+  if (live && !replace) {
+    throw typed('business_connected', 409, 'هذا الحساب مربوط برقم يعمل. أكّد الاستبدال إن كنت تريد نقل الحساب إلى هذا الرقم.');
+  }
+  if (row.phone_number_id) await assertNumberFree(row.phone_number_id, business.id, { onboardingId: row.id, wabaId: row.waba_id, actor });
+
+  const now = new Date();
+  let attached;
+  if (row.phone_number_id && ['registered', 'done'].includes(row.step) && !row.needs_operator) {
+    attached = await linkOnboardingToBusiness(row, { businessId: business.id, now });
+    attached = await prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { step: 'done', started_by_user_id: actor.userId || null } });
+    await afterConnect({ businessId: business.id, onboarding: attached, actor, resumedFrom: 'orphan', now });
+    attached = await reread(attached);
+  } else {
+    if (held && held.id !== row.id) {
+      await prisma.whatsappOnboarding.update({ where: { id: held.id }, data: { business_id: null, detached_at: now } });
+    }
+    attached = await prisma.whatsappOnboarding.update({
+      where: { id: row.id }, data: { business_id: business.id, detached_at: null, started_by_user_id: actor.userId || null },
+    });
+    await eventLogger(business.id, actor)('es_attached', { waba_id: row.waba_id, phone_number_id: row.phone_number_id, step: row.step });
+  }
+  return { status: deriveStatus(attached), onboarding: attached };
 }
 
 /**
@@ -448,13 +1056,16 @@ function paymentState(row) {
 }
 
 /**
- * What a browser may see: never the token, never the PIN.
+ * What a browser may see: never the token, never the PIN, never a Meta id. The number is shown
+ * the way Meta displays it (display_phone), which is what the shop and its staff recognise.
  *
- * `audience` 'owner' (the default, so a forgotten argument shows less) carries no ids and no raw
- * Graph error: the owner's screen needs the step, the number as Meta shows it and the payment
- * state. 'staff' (SHIFT's admin mirror) adds the WABA and number ids and the last Graph error,
- * which are what SHIFT needs to follow up with Meta. The payment wording comes from
- * config/metaNotices.js, the one place it is written, in the reader's own wording.
+ * The shape is the API contract's onboarding object (step, display_phone, verified_name,
+ * name_status, quality_rating, payment, last_error_ar, needs_pin, failed_step), plus the payment
+ * checklist item the current card reads. `audience` 'owner' (the default, so a forgotten argument
+ * shows less) gets Arabic only. 'staff' (SHIFT's admin mirror) also gets the raw Graph error,
+ * which is what SHIFT quotes to Meta support; the ids it follows up with are in the orphans list
+ * and the account's log. The payment wording comes from config/metaNotices.js, the one place it
+ * is written, in the reader's own wording.
  *
  * @param {object|null} row  the WhatsappOnboarding row
  * @param {object} [opts]
@@ -465,18 +1076,21 @@ function publicStatus(row, { business = null, audience = 'owner' } = {}) {
   if (!row) return null;
   const reader = audience === 'staff' ? 'staff' : 'owner';
   const payment = paymentState(row);
+  // A detached or revoked row's number is not the shop's working number; the Business row is.
   const out = {
     step: row.step,
-    connected: row.step === 'done',
+    connected: deriveStatus(row) === 'connected',
     display_phone: business?.wa_display_phone || null,
     verified_name: business?.wa_verified_name || null,
     name_status: row.meta_name_status || null,
+    quality_rating: row.meta_quality_rating || null,
     payment: {
       state: payment,
       confirmed: Boolean(row.payment_method_ok),
       claimed: Boolean(row.payment_method_claimed_at),
       blocked: Boolean(row.payment_blocked_at),
     },
+    ...problemOf(row),
     // The one thing left that only the shop can do; shown as a checklist item, not a footnote.
     // Since October 2026 Meta refuses a WABA's bot replies without a payment method, so without
     // a card the bot goes silent.
@@ -488,28 +1102,38 @@ function publicStatus(row, { business = null, audience = 'owner' } = {}) {
       title: paymentNotice(payment, reader, 'short'),
       ar: paymentNotice(payment, reader, 'long'),
     },
-    failed: Boolean(row.last_error),
+    failed: Boolean(row.last_error) || Boolean(row.revoked_at),
     updated_at: row.updated_at,
   };
-  if (reader === 'staff') {
-    out.waba_id = row.waba_id;
-    out.phone_number_id = row.phone_number_id;
-    out.last_error = row.last_error;
-  }
+  if (reader === 'staff') out.last_error = row.last_error || null;
   return out;
 }
 
 module.exports = {
+  connectFromCode,
+  resumeOnboarding,
+  completeOnboarding,
+  attachOnboarding,
+  linkOnboardingToBusiness,
+  ensureTrialSubscription,
+  afterConnect,
   runOnboarding,
   startOnboarding,
   publicStatus,
+  deriveStatus,
+  errorAr,
   paymentState,
   assertNumberFree,
   numberHolder,
   generatePin,
   exchangeCode,
   verifyGrant,
+  listWabaNumbers,
+  normalizeFinishEvent,
   subscribeApp,
   registerPhoneNumber,
   STEPS,
+  FINISH_EVENTS,
+  COEXISTENCE_EVENT,
+  ERRORS_AR,
 };
