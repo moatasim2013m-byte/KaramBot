@@ -56,18 +56,35 @@ function Totals({ totals }) {
   );
 }
 
+export function InternalFootnote({ data, showInternal, onToggle }) {
+  if (!data) return null;
+  const hidden = data.hidden_internal_count || 0;
+  if (!showInternal && hidden === 0) return null;
+  return (
+    <p className="text-[11px] text-gray-400 px-1 flex items-center gap-2">
+      {showInternal ? <span>تظهر الحسابات الداخلية (شِفت والتجريبية)</span> : <span>حسابات داخلية مخفية ({hidden})</span>}
+      <button type="button" onClick={onToggle} className="underline underline-offset-2 hover:text-gray-700">
+        {showInternal ? 'إخفاؤها' : 'إظهارها'}
+      </button>
+    </p>
+  );
+}
+
 export default function AdminOverviewPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // SHIFT's own row and the -sim test shops are hidden unless asked for: they would inflate the
+  // totals and fill the queue with our own traffic.
+  const [showInternal, setShowInternal] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/admin/overview')
+    api.get('/admin/overview', { params: showInternal ? { include_internal: 1 } : {} })
       .then((res) => { setData(res.data); setError(null); })
       .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل حالة المنصة'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [showInternal]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -149,6 +166,7 @@ export default function AdminOverviewPage() {
                       <Link to={`/admin/accounts/${a.id}`} className="font-medium text-gray-900 hover:underline">
                         {a.name}
                       </Link>
+                      {a.is_internal && <span className="mr-2 text-[10px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">داخلي</span>}
                     </td>
                     <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{LIFECYCLE_LABEL[a.lifecycle] || a.lifecycle}</td>
                     <td className="px-4 h-9 whitespace-nowrap min-w-[150px]"><ContractCell contract={a.contract} /></td>
@@ -168,10 +186,13 @@ export default function AdminOverviewPage() {
         )}
       </Panel>
 
+      {/* Hidden, but never silently: the count says what the totals leave out. */}
+      <InternalFootnote data={data} showInternal={showInternal} onToggle={() => setShowInternal((v) => !v)} />
+
       {/* Said out loud rather than shown as a healthy-looking blank. */}
       {data?.unavailable?.length > 0 && (
         <p className="text-[11px] text-gray-400 px-1">
-          غير متوفر بعد: تقييم الجودة من Meta، فئة الإرسال، ومن غيّر الإعدادات — تحتاج استدعاءات إضافية لواجهة Meta.
+          غير متوفر بعد: فئة الإرسال لدى Meta، ومن غيّر الإعدادات.
         </p>
       )}
     </div>

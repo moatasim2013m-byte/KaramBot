@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import AccountHealthTab from '../../components/admin/AccountHealthTab';
 import AccountAccessTab from '../../components/admin/AccountAccessTab';
 import AccountContractsTab from '../../components/admin/AccountContractsTab';
+import BotPauseControl from '../../components/admin/BotPauseControl';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../utils/api';
 import { Save, Smartphone, ArrowRight } from 'lucide-react';
@@ -165,6 +166,10 @@ export default function BusinessDetailPage() {
     });
   };
 
+  const botEnabled = biz?.ai_config?.enabled !== false;
+  // The pause endpoint changed only ai_config.enabled on the server; mirror just that key here.
+  const setBotEnabled = (enabled) => setBiz(prev => ({ ...prev, ai_config: { ...(prev.ai_config || {}), enabled } }));
+
   const handleSave = async (payload) => {
     setSaving(true); setSaveError('');
     try {
@@ -203,14 +208,18 @@ export default function BusinessDetailPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600">
-          <ArrowRight size={18} />
-        </Link>
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">{biz.name}</h1>
-          <p className="text-xs text-gray-400 font-mono">{biz.slug}</p>
+      <div className="flex items-start justify-between gap-4 mb-2 flex-wrap">
+        <div className="flex items-center gap-3">
+          <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600">
+            <ArrowRight size={18} />
+          </Link>
+          <div>
+            <h1 className="text-xl font-bold text-gray-800">{biz.name}</h1>
+            <p className="text-xs text-gray-400 font-mono">{biz.slug}</p>
+          </div>
         </div>
+        {/* Quick action: the pause is what an operator reaches for first when a shop's bot misbehaves. */}
+        <BotPauseControl accountId={biz.id} enabled={botEnabled} onChange={setBotEnabled} compact />
       </div>
 
       {saveError && (
@@ -284,12 +293,8 @@ export default function BusinessDetailPage() {
       {tab === 'ai' && (
         <div>
           <Section title="إعدادات الذكاء الاصطناعي">
-            <Field label="تفعيل الذكاء الاصطناعي">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={biz.ai_config?.enabled ?? true}
-                  onChange={e => set('ai_config.enabled', e.target.checked)} />
-                <span className="text-sm text-gray-600">مفعّل</span>
-              </label>
+            <Field label="حالة البوت">
+              <BotPauseControl accountId={biz.id} enabled={botEnabled} onChange={setBotEnabled} />
             </Field>
             <Field label="شخصية المساعد">
               <input value={biz.ai_config?.personality || ''} onChange={e => set('ai_config.personality', e.target.value)} className={inputClass} />
@@ -313,7 +318,9 @@ export default function BusinessDetailPage() {
             </Field>
           </Section>
           <div className="flex justify-end">
-            <SaveBtn payload={{ ai_config: biz.ai_config }} />
+            {/* Everything but `enabled`: the pause has its own switch, and a form loaded before a
+                pause must not switch the bot back on when it is saved. */}
+            <SaveBtn payload={{ ai_config: (({ enabled, ...rest }) => rest)(biz.ai_config || {}) }} />
           </div>
         </div>
       )}
@@ -348,7 +355,8 @@ export default function BusinessDetailPage() {
       )}
 
       {/* WhatsApp tab */}
-      {tab === 'health' && <AccountHealthTab accountId={biz.id} />}
+      {/* Keyed on the pause so the agent state there is re-read after the switch. */}
+      {tab === 'health' && <AccountHealthTab key={`${biz.id}-${botEnabled}`} accountId={biz.id} />}
       {tab === 'access' && <AccountAccessTab accountId={biz.id} />}
       {tab === 'contracts' && <AccountContractsTab accountId={biz.id} />}
       {tab === 'whatsapp' && <WhatsAppTab biz={biz} />}

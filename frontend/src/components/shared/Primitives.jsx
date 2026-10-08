@@ -18,6 +18,8 @@ const DOT = {
   degraded: 'bg-amber-500',
   down:     'bg-red-500',
   idle:     'bg-gray-300',
+  // A bot SHIFT or the owner paused on purpose: not healthy, not broken.
+  paused:   'bg-gray-500',
   unknown:  'bg-transparent border border-gray-400',
 };
 

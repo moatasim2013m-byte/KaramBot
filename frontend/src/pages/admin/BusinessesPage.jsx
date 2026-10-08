@@ -5,6 +5,7 @@ import api from '../../utils/api';
 import {
   Panel, StateCell, Timestamp, Num, Freshness, SkeletonRows, EmptyState,
 } from '../../components/shared/Primitives';
+import { InternalFootnote } from './AdminOverviewPage';
 
 /**
  * Customer accounts.
@@ -34,7 +35,7 @@ const LIFECYCLE_LABEL = {
   onboarding: 'قيد التوصيل', active: 'نشط', inactive: 'غير نشط', suspended: 'موقوف',
 };
 
-const TYPE_LABEL = { restaurant: 'مطعم', clinic: 'عيادة', store: 'متجر', shift: 'شِفت' };
+const TYPE_LABEL = { restaurant: 'مطعم', clinic: 'عيادة', store: 'متجر', generic: 'نشاط عام', shift: 'شِفت' };
 
 export default function BusinessesPage() {
   const navigate = useNavigate();
@@ -43,14 +44,16 @@ export default function BusinessesPage() {
   const [error, setError] = useState(null);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
+  // Same default as the overview: SHIFT's own row and the -sim shops only when asked for.
+  const [showInternal, setShowInternal] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/admin/overview')
+    api.get('/admin/overview', { params: showInternal ? { include_internal: 1 } : {} })
       .then((res) => { setData(res.data); setError(null); })
       .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل الحسابات'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [showInternal]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -143,6 +146,7 @@ export default function BusinessesPage() {
                   <tr key={a.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 h-9 whitespace-nowrap">
                       <Link to={`/admin/accounts/${a.id}`} className="font-medium text-gray-900 hover:underline">{a.name}</Link>
+                      {a.is_internal && <span className="mr-2 text-[10px] text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">داخلي</span>}
                     </td>
                     <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{TYPE_LABEL[a.business_type] || a.business_type}</td>
                     <td className="px-4 h-9 text-gray-600 whitespace-nowrap">{LIFECYCLE_LABEL[a.lifecycle] || a.lifecycle}</td>
@@ -162,6 +166,8 @@ export default function BusinessesPage() {
           </div>
         )}
       </Panel>
+
+      <InternalFootnote data={data} showInternal={showInternal} onToggle={() => setShowInternal((v) => !v)} />
     </div>
   );
 }

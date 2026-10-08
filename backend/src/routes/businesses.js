@@ -5,6 +5,20 @@ const prisma = require('../config/prisma');
 const { encrypt } = require('../utils/tokenCrypto');
 const { normalizePhone } = require('../utils/phone');
 const jsonb = require('../db/jsonb');
+const accountEvents = require('../services/accountEvents');
+
+/**
+ * «السجل» on the account page: which settings changed and who changed them. Key names only, never
+ * values: a greeting is harmless but alert numbers and policies are the shop's own data, and the
+ * log is read by more people than the settings are.
+ */
+function recordSettingsChanged(req, businessId, update, aiConfigPatch) {
+  const actorKind = req.user.role === 'platform_admin' ? 'shift' : req.user.role === 'business_owner' ? 'owner' : 'staff';
+  const data = { keys: Object.keys(update).filter((k) => k !== 'policies') };
+  if (aiConfigPatch && Object.keys(aiConfigPatch).length) data.ai_config_keys = Object.keys(aiConfigPatch);
+  if (update.policies && typeof update.policies === 'object') data.policies_keys = Object.keys(update.policies);
+  return accountEvents.record({ businessId, actorUserId: req.user.id, actorKind, type: 'settings_changed', data });
+}
 
 /** A real object: an array or a string spread into numeric keys instead of being rejected. */
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -170,6 +184,7 @@ router.patch('/:id', async (req, res) => {
         select: BUSINESS_PUBLIC_SELECT,
       });
       if (!only) return res.status(404).json({ error: 'Business not found' });
+      await recordSettingsChanged(req, req.params.id, update, aiConfigPatch);
       return res.json({ business: only });
     }
 
@@ -178,6 +193,7 @@ router.patch('/:id', async (req, res) => {
       data: update,
       select: BUSINESS_PUBLIC_SELECT,
     });
+    await recordSettingsChanged(req, req.params.id, update, aiConfigPatch);
     res.json({ business: biz });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Business not found' });
@@ -206,6 +222,11 @@ router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), asyn
     await prisma.business.update({
       where: { id: req.params.id },
       data: { wa_access_token: encryptedToken },
+    });
+    // That a token was set by hand, and by whom; never the token.
+    await accountEvents.record({
+      businessId: req.params.id, actorUserId: req.user.id,
+      actorKind: isAdmin ? 'shift' : 'owner', type: 'token_set', data: { source: 'manual' },
     });
     res.json({ success: true, message: 'Token encrypted and saved' });
   } catch (err) {
