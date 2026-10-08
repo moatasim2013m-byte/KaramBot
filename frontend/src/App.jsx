@@ -26,6 +26,7 @@ import DataDeletionPage from './pages/DataDeletionPage';
 import ActivatePage from './pages/ActivatePage';
 import JoinPage from './pages/JoinPage';
 import OnboardingBoardPage from './pages/admin/OnboardingBoardPage';
+import BillingAdminPage from './pages/admin/BillingAdminPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -137,6 +138,8 @@ export default function App() {
             {/* Read-only, audited: every visit is written to admin_access_logs. */}
             <Route path="accounts/:id/conversations" element={<AccountWorkspacePage />} />
             <Route path="onboarding" element={<OnboardingBoardPage />} />
+            {/* «الاشتراكات والدفعات»: money across all shops, recorded by hand. */}
+            <Route path="billing" element={<BillingAdminPage />} />
             <Route path="settings" element={<PlatformSettingsPage />} />
           </Route>
 

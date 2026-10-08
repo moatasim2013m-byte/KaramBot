@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom';
 import { Check, X, Minus, ExternalLink, Eye, RefreshCw } from 'lucide-react';
 import api from '../../utils/api';
 import { Panel, StateCell, Timestamp, Ltr, SkeletonRows } from '../shared/Primitives';
-import TryTheBot from '../whatsapp/TryTheBot';
-import BusinessKnowledge from '../whatsapp/BusinessKnowledge';
 import ConnectWhatsApp, { adminEndpoints } from '../whatsapp/ConnectWhatsApp';
 
 /**
@@ -196,19 +194,7 @@ export default function AccountHealthTab({ accountId }) {
         </Panel>
       )}
 
-      {onboarding && (
-        <Panel title="معرّفات Meta">
-          <div className="divide-y divide-gray-50">
-            {[['حساب واتساب للأعمال', onboarding.waba_id], ['معرّف الرقم', onboarding.phone_number_id]].map(([l, v]) => (
-              <div key={l} className="flex items-center justify-between px-4 h-10">
-                <span className="text-[13px] text-gray-600">{l}</span>
-                <Ltr className="font-mono text-xs text-gray-700">{v || '—'}</Ltr>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
-
+      {/* The ids, copyable, moved to «واتساب وMeta». */}
       <Panel title="فحص المحادثات">
         <div className="p-4">
           <p className="text-xs text-gray-500 mb-2">
@@ -219,18 +205,12 @@ export default function AccountHealthTab({ accountId }) {
             className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-800 px-3 h-8 rounded-md text-[13px] hover:border-gray-300 hover:bg-gray-50 transition-colors"
           >
             <Eye size={14} />
-            عرض مساحة العمل
+            فحص المحادثات (مُسجّل)
           </Link>
         </div>
       </Panel>
 
-      {/* Staff can fill this in during onboarding, before handing the account over. */}
-      {!['restaurant', 'clinic', 'shift'].includes(account.business_type) && (
-        <BusinessKnowledge businessId={accountId} />
-      )}
-
-      {/* Runs the account's real workflow now — the model-only check certified dead bots. */}
-      <TryTheBot endpoint={`/admin/accounts/${accountId}/test-message`} />
+      {/* Knowledge and «جرّب البوت» live on «المعرفة» now, with the menu and services. */}
     </div>
   );
 }
