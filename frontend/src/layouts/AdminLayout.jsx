@@ -1,32 +1,66 @@
-import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Building2, Settings, LogOut, Menu, X, Route as RouteIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Sun, Building2, Settings, LogOut, Menu, X, Route as RouteIcon, Receipt } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import api from '../utils/api';
+import { ATTENTION_EVENT } from '../components/admin/operatorView';
 
 /**
  * The SHIFT platform shell.
  *
  * Deliberately not the business dashboard: an admin looking after customer accounts and
  * an owner reading their own inbox were sharing one layout, which is what made the panel
- * impossible to place. This shell says whose it is in the header and carries three items
+ * impossible to place. This shell says whose it is in the header and carries five items
  * only — everything account-specific lives inside an account, not in the sidebar.
+ *
+ * «اليوم» carries the attention count, so a problem is visible from any page. «اليوم» itself
+ * announces the count when it loads (the 'shift:attention' event), so the shell only asks the
+ * server on the other pages, once a minute.
  *
  * A platform_admin who also has a business_id lands here regardless. Navigation must not
  * change because of a data accident.
  */
 
 const NAV = [
-  { to: '/admin/overview', icon: LayoutDashboard, label: 'نظرة عامة على المنصة' },
-  { to: '/admin/accounts', icon: Building2, label: 'حسابات الشركات' },
+  { to: '/admin/overview', icon: Sun, label: 'اليوم', badge: true },
+  { to: '/admin/accounts', icon: Building2, label: 'الزبائن' },
   // The October campaign board: where each invited shop is between the link and «يعمل».
   { to: '/admin/onboarding', icon: RouteIcon, label: 'الانضمام' },
+  { to: '/admin/billing', icon: Receipt, label: 'الاشتراكات والدفعات' },
   { to: '/admin/settings', icon: Settings, label: 'إعدادات المنصة' },
 ];
+
+/** The attention count for the nav badge: announced by «اليوم», asked for elsewhere. */
+function useAttentionCount() {
+  const { pathname } = useLocation();
+  const [count, setCount] = useState(null);
+  const onToday = pathname.startsWith('/admin/overview');
+
+  useEffect(() => {
+    const on = (e) => setCount(Number(e.detail) || 0);
+    window.addEventListener(ATTENTION_EVENT, on);
+    return () => window.removeEventListener(ATTENTION_EVENT, on);
+  }, []);
+
+  useEffect(() => {
+    if (onToday) return undefined;
+    let alive = true;
+    const ask = () => api.get('/admin/overview')
+      .then((res) => { if (alive) setCount((res.data?.attention || []).length); })
+      .catch(() => {}); // a missing badge is not worth an error on every page
+    ask();
+    const t = setInterval(ask, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [onToday]);
+
+  return count;
+}
 
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const attention = useAttentionCount();
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -50,7 +84,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="flex-1 py-4 overflow-y-auto">
-          {NAV.map(({ to, icon: Icon, label }) => (
+          {NAV.map(({ to, icon: Icon, label, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -63,6 +97,12 @@ export default function AdminLayout() {
             >
               <Icon size={18} />
               <span className="flex-1">{label}</span>
+              {badge && attention > 0 && (
+                <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-semibold flex items-center justify-center tabular-nums"
+                  aria-label={`يحتاج انتباهك: ${attention}`}>
+                  {attention}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -86,6 +126,12 @@ export default function AdminLayout() {
             <Menu size={22} />
           </button>
           <span className="text-sm font-semibold text-gray-700">إدارة منصة SHIFT</span>
+          {attention > 0 ? (
+            <NavLink to="/admin/overview" className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-red-600 text-white text-[11px] font-semibold flex items-center justify-center tabular-nums"
+              aria-label={`يحتاج انتباهك: ${attention}`}>
+              {attention}
+            </NavLink>
+          ) : <span className="w-[22px]" />}
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">

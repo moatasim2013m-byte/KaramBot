@@ -8,13 +8,17 @@ import { Panel, Timestamp, Num, SkeletonRows, EmptyState } from '../shared/Primi
  *
  * Payments are typed in by staff with the transfer or CliQ reference — the record a bank
  * statement is reconciled against. No gateway sits behind this on purpose.
+ *
+ * «العقد» also carries the plan's terms that the bot is held to: the monthly reply cap and the end
+ * of the free month. A free month turns «فعّال» when its first payment is recorded, and a partial
+ * payment does not move the due date a whole cycle (the server decides both).
  */
 
 const SOLUTION_LABEL = { karam_bot: 'كرم بوت', automation: 'أتمتة', website: 'موقع', custom: 'حل مخصص' };
-const STATUS_LABEL = { trial: 'تجربة', active: 'فعّال', past_due: 'متأخر', paused: 'موقوف مؤقتًا', cancelled: 'ملغي' };
+const STATUS_LABEL = { trial: 'فترة مجانية', active: 'فعّال', past_due: 'متأخر', paused: 'موقوف مؤقتًا', cancelled: 'ملغي' };
 const STATUS_CLS = { trial: 'text-gray-600', active: 'text-emerald-700', past_due: 'text-red-700', paused: 'text-amber-700', cancelled: 'text-gray-400' };
 const CYCLE_LABEL = { monthly: 'شهري', quarterly: 'ربع سنوي', yearly: 'سنوي', one_time: 'مرة واحدة' };
-const METHOD_LABEL = { bank_transfer: 'تحويل بنكي', cliq: 'CliQ', cash: 'نقدًا', card: 'بطاقة', other: 'أخرى' };
+const METHOD_LABEL = { cliq: 'كليك', bank_transfer: 'تحويل بنكي', cash: 'نقدًا', card: 'بطاقة', other: 'أخرى' };
 
 const input = 'h-8 px-3 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400';
 
@@ -59,7 +63,7 @@ function NewContract({ accountId, onDone }) {
 }
 
 function RecordPayment({ accountId, sub, onDone }) {
-  const [f, setF] = useState({ amount_jod: String(sub.amount_jod), method: 'bank_transfer', paid_at: new Date().toISOString().slice(0, 10), reference: '' });
+  const [f, setF] = useState({ amount_jod: String(sub.amount_jod), method: 'cliq', paid_at: new Date().toISOString().slice(0, 10), reference: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -85,6 +89,51 @@ function RecordPayment({ accountId, sub, onDone }) {
         {busy ? 'جارٍ...' : 'تسجيل دفعة'}
       </button>
       {error && <span className="text-[13px] text-red-700">{error}</span>}
+    </form>
+  );
+}
+
+/**
+ * The terms the cost guard reads: «ردود الشهر» (the snapshotted cap) and «نهاية الفترة المجانية».
+ * Both are on the Subscription row, so changing the platform default never rewrites a deal.
+ */
+function Terms({ accountId, sub, onDone }) {
+  const [cap, setCap] = useState(sub.ai_replies_month ?? '');
+  const [trialEnd, setTrialEnd] = useState(sub.trial_ends_at ? String(sub.trial_ends_at).slice(0, 10) : '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const save = async (e) => {
+    e.preventDefault(); setBusy(true); setError(null);
+    try {
+      const body = {};
+      if (String(cap) !== String(sub.ai_replies_month ?? '')) body.ai_replies_month = cap === '' ? null : Number(cap);
+      if (trialEnd !== (sub.trial_ends_at ? String(sub.trial_ends_at).slice(0, 10) : '')) body.trial_ends_at = trialEnd || null;
+      if (Object.keys(body).length === 0) { setBusy(false); return; }
+      await api.patch(`/admin/accounts/${accountId}/subscriptions/${sub.id}`, body);
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+      onDone();
+    } catch (err) { setError(err.response?.data?.error || 'تعذّر الحفظ'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <form onSubmit={save} className="flex flex-wrap items-center gap-2 px-4 py-2 border-t border-gray-50 text-[12px] text-gray-600">
+      <span>ردود الشهر:</span>
+      <input value={cap} onChange={(e) => setCap(e.target.value.replace(/\D/g, ''))} inputMode="numeric" dir="ltr" placeholder="الافتراضي" className={`${input} w-24`} />
+      {sub.status === 'trial' && (
+        <>
+          <span>نهاية الفترة المجانية:</span>
+          <input value={trialEnd} onChange={(e) => setTrialEnd(e.target.value)} type="date" dir="ltr" className={input} />
+        </>
+      )}
+      <button type="submit" disabled={busy} className="h-8 px-3 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+        {busy ? 'جارٍ…' : 'احفظ الشروط'}
+      </button>
+      {saved && <span className="text-emerald-700">تم</span>}
+      {error && <span className="text-red-700">{error}</span>}
+      {sub.status === 'trial' && <span className="text-gray-400">تصبح «فعّال» عند تسجيل أول دفعة.</span>}
     </form>
   );
 }
@@ -142,6 +191,7 @@ export default function AccountContractsTab({ accountId }) {
                     {sub.status !== 'cancelled' && <button onClick={() => setStatus(sub, 'cancelled')} className="text-[12px] text-red-600 underline underline-offset-2">إلغاء</button>}
                   </div>
                 </div>
+                {sub.solution === 'karam_bot' && sub.status !== 'cancelled' && <Terms accountId={accountId} sub={sub} onDone={load} />}
                 {paying === sub.id && <RecordPayment accountId={accountId} sub={sub} onDone={() => { setPaying(null); load(); }} />}
                 {sub.payments.length > 0 && (
                   <ul className="px-4 pb-3 space-y-0.5">
