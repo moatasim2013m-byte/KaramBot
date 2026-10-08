@@ -160,3 +160,4 @@ module.exports.planView = planView;
 module.exports.usageView = usageView;
 module.exports.seatsOf = seatsOf;
 module.exports.seatsUsed = seatsUsed;
+module.exports.latePolicy = latePolicy;

@@ -544,9 +544,16 @@ router.patch('/accounts/:id/bot', async (req, res) => {
 
     const wasEnabled = business.ai_config?.enabled !== false;
     // Pressing «أوقف» twice must not write two pauses into the log.
-    if (wasEnabled === enabled) return res.json({ enabled, changed: false });
+    // Except over the owner's own pause: SHIFT's pause then takes it over, or the owner's switch
+    // could lift what SHIFT just asked to stay off.
+    const takesOverOwnerPause = !enabled && business.ai_config?.paused_by === 'owner';
+    if (wasEnabled === enabled && !takesOverOwnerPause) return res.json({ enabled, changed: false });
 
-    const { ok } = await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled });
+    // paused_by marks the pause as SHIFT's, so the owner's switch on /bot cannot lift it; resuming
+    // clears it, and the owner may pause and resume their own bot again.
+    const { ok } = enabled
+      ? await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled }, { remove: ['paused_by'] })
+      : await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled, paused_by: 'shift' });
     if (!ok) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
     await shiftEvent(req, business.id, enabled ? 'bot_resumed' : 'bot_paused', reason ? { reason } : {});

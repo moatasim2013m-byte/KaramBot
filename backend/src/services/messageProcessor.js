@@ -32,6 +32,7 @@ const accountEvents = require('./accountEvents');
 const costGuard = require('./costGuard');
 const tokenHealth = require('./tokenHealth');
 const wentLive = require('./wentLive');
+const { outOfHoursMessage } = require('./openingHours');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -43,6 +44,7 @@ const BILLING_ERROR_CODE = 131042;
 const NO_ANSWER_TYPES = ['reaction', 'system', 'ephemeral', 'request_welcome'];
 const BOT_PAUSED = 'bot_paused';
 const BOT_LIMIT = 'bot_limit';
+const OUT_OF_HOURS = 'out_of_hours';
 // Sent at most once a day per conversation while the cost guard holds the bot (ai_config.limit_message
 // overrides it). It promises a person, which is true: the conversation is on the staff's attention list.
 // A «ما عرف يجاوب» row keeps the customer's question, cut so a pasted essay cannot bloat the log.
@@ -77,6 +79,8 @@ const BUSINESS_SELECT = {
   wa_app_id: true, ai_config: true, policies: true, is_internal: true,
   // went_live: read so a shop that is already live costs no query per reply (wentLive.candidate).
   went_live_at: true, connected_at: true,
+  // «أوقات الدوام» are enforced on the message path (openingHours), and the generic prompt reads them.
+  opening_hours: true, timezone: true,
 };
 
 function canSendAutoReply(business, conversation, label) {
@@ -982,6 +986,46 @@ async function holdForLimit(business, accessToken, conversation, item) {
   }
 }
 
+/**
+ * The shop is closed by its own «أوقات الدوام» and the owner wrote «رسالة خارج الدوام»: the bot takes
+ * no order and books nothing, and the customer is the team's when they open, like holdForLimit.
+ * The message goes once per conversation per Amman day (metadata.out_of_hours_notice_day), so a
+ * customer writing five times at night is told once, and stored with is_ai_generated false for the
+ * same reasons as the limit notice: not a bot answer, no cost, and the wait is not restarted.
+ */
+async function holdOutOfHours(business, accessToken, conversation, item, text) {
+  const { customerWaId } = item;
+  const flagged = await flagForStaff(conversation, OUT_OF_HOURS, item.message && item.message.created_at);
+  emitNewMessages(business, [{ conversation: flagged || conversation }]);
+
+  let claimed = false;
+  try {
+    claimed = await jsonb.claimValue('conversations', conversation.id, 'metadata', 'out_of_hours_notice_day', costGuard.ammanDay());
+  } catch (err) {
+    console.error(`[hours] notice claim failed conversation=${conversation.id}: ${err.message}`);
+  }
+  if (!claimed || !canSendAutoReply(business, conversation, 'out-of-hours message')) return;
+
+  try {
+    const metaResponse = await sendTextMessage(business.wa_phone_number_id, accessToken, customerWaId, text);
+    await prisma.message.create({
+      data: {
+        business_id: business.id,
+        conversation_id: conversation.id,
+        meta_message_id: metaResponse?.messages?.[0]?.id || null,
+        direction: 'outbound',
+        message_type: 'text',
+        text_body: text,
+        status: 'sent',
+        is_ai_generated: false,
+      },
+    });
+  } catch (err) {
+    console.error(`[hours] out-of-hours message not sent conversation=${conversation.id}: ${err.message}`);
+    await noteSendRefusal(business, conversation, err);
+  }
+}
+
 /** True when the shop may spend on this message; otherwise the conversation is held for staff. */
 async function spendAllowed(business, accessToken, conversation, item, kind) {
   const verdict = await costGuard.allow(business, kind);
@@ -1019,6 +1063,16 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   if (botPaused(business)) {
     await flagPausedWait(business, conversation, waMsg, customerWaId, item.message && item.message.created_at);
     emitNewMessages(business, [{ conversation }]);
+    return;
+  }
+
+  // Closed by the owner's own hours, with a message written for it: that message, not a reply.
+  // Before media is read or the AI asked, so a closed shop costs nothing. A reaction asks nothing,
+  // and a staff number writing in is not a customer to tell the shop is closed.
+  const closedText = outOfHoursMessage(business);
+  if (closedText && !NO_ANSWER_TYPES.includes(waMsg.type)
+    && !isStaffNumber(business, customerWaId || conversation.customer_wa_id)) {
+    await holdOutOfHours(business, accessToken, conversation, item, closedText);
     return;
   }
 

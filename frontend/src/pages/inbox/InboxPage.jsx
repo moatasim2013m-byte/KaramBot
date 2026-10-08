@@ -63,7 +63,11 @@ const KIND_TAGS = {
 const MEDIA_LABELS = { image: '📷 صورة', audio: '🎤 رسالة صوتية', video: '🎥 فيديو', document: '📄 مستند', sticker: '🌟 ملصق' };
 
 // attention_reason is a code the server writes; the banner shows its Arabic label, never the code.
-const ATTENTION_LABELS = { bot_paused: 'البوت موقوف مؤقتًا — رد على الزبون بنفسك' };
+const ATTENTION_LABELS = {
+  bot_paused: 'البوت موقوف مؤقتًا — رد على الزبون بنفسك',
+  bot_limit: 'وصل البوت حد الردود — رد على الزبون بنفسك',
+  out_of_hours: 'راسلك الزبون خارج الدوام — أُرسلت له رسالة خارج الدوام',
+};
 
 const useVisible = () => {
   const [visible, setVisible] = useState(typeof document === 'undefined' ? true : document.visibilityState === 'visible');

@@ -6,9 +6,14 @@
  */
 require('./setup');
 
-// Every table the workflows read answers empty: an empty menu and an empty service list.
+// Every table the workflows read answers empty: an empty menu and an empty service list. The
+// owner's notes (businessKnowledge) answer whatever mockKnowledge says.
+let mockKnowledge = async () => [];
 jest.mock('../src/config/prisma', () => new Proxy({}, {
-  get: () => ({ findMany: async () => [], findFirst: async () => null, findUnique: async () => null, count: async () => 0 }),
+  get: (_t, table) => ({
+    findMany: table === 'businessKnowledge' ? (...a) => mockKnowledge(...a) : async () => [],
+    findFirst: async () => null, findUnique: async () => null, count: async () => 0,
+  }),
 }));
 jest.mock('../src/ai/provider', () => ({ generateValidatedAIReply: jest.fn() }));
 
@@ -57,5 +62,30 @@ describe.each([
     const out = await run(business(type), conv(), 'مرحبا');
     expect(out.action).toBe('NONE');
     expect(out.handoff_kind).toBeUndefined();
+  });
+});
+
+// «علّم البوت الجواب» saves a BusinessKnowledge row for every shop type. A restaurant's or a
+// clinic's bot must read it, or the owner is told the bot learned something it never sees.
+describe('a taught answer reaches the restaurant and clinic prompts', () => {
+  afterEach(() => { mockKnowledge = async () => []; });
+  test.each([
+    ['restaurant', processRestaurantMessage],
+    ['clinic', processClinicMessage],
+  ])('%s', async (type, run) => {
+    mockKnowledge = async () => [{ kind: 'faq', question: 'هل عندكم توصيل لحوارة؟', content: 'نعم، بدينارين' }];
+    generateValidatedAIReply.mockResolvedValue({ reply: 'نعم', action: 'NONE' });
+    await run(business(type), conv(), 'توصلون لحوارة؟');
+    const prompt = generateValidatedAIReply.mock.calls[0][0];
+    expect(prompt).toContain('س: هل عندكم توصيل لحوارة؟');
+    expect(prompt).toContain('ج: نعم، بدينارين');
+  });
+
+  test('a failed knowledge read still answers from the menu', async () => {
+    mockKnowledge = async () => { throw new Error('db down'); };
+    generateValidatedAIReply.mockResolvedValue({ reply: 'أهلًا', action: 'NONE' });
+    const out = await processRestaurantMessage(business('restaurant'), conv(), 'مرحبا');
+    expect(out.action).toBe('NONE');
+    expect(out.reply).toBe('أهلًا');
   });
 });

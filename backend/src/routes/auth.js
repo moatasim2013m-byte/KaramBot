@@ -88,9 +88,16 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/register (platform_admin creates business users)
+//
+// SHIFT only. The owner's staff path is /api/team/invite: a seat count from the contract, a
+// user_added line in «السجل», and a link the new member opens to set their own password. Left
+// open to owners, this added active staff past the plan's seats with a password the owner typed.
 router.post('/register', authenticate, async (req, res) => {
   try {
-    if (!['platform_admin', 'business_owner'].includes(req.user.role)) {
+    if (req.user.role === 'business_owner') {
+      return res.status(403).json({ error: 'أضف أعضاء فريقك من صفحة «الفريق»', use: '/api/team/invite' });
+    }
+    if (req.user.role !== 'platform_admin') {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
@@ -218,6 +225,34 @@ async function noteJoinOpened(row, shopName = null) {
 // log by morgan AND by Cloud Run's own request log — which would undo the whole point of
 // storing only its hash. The link itself carries the token in the fragment, which browsers
 // never transmit, so it reaches this endpoint only as a body field.
+// POST /api/auth/password — {current, next}: «غيّر كلمة المرور» in «الإعدادات › حسابي».
+//
+// Without it an owner who wanted a new password had to ask SHIFT for a reset link. The current
+// password is asked again so a phone left signed in cannot be taken over. Every other session
+// ends (sessions_valid_from, as on activation); this one gets a fresh token and stays signed in.
+router.post('/password', authenticate, async (req, res) => {
+  const { current, next } = req.body || {};
+  if (!current) return res.status(400).json({ error: 'أدخل كلمة المرور الحالية' });
+  if (!next || String(next).length < 10) {
+    return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 10 أحرف على الأقل' });
+  }
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, password: true } });
+    if (!user || !user.password || !(await bcrypt.compare(String(current), user.password))) {
+      return res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+    }
+    const hashed = await bcrypt.hash(String(next), 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashed, sessions_valid_from: new Date() },
+    });
+    res.json({ ok: true, token: signToken(user.id) });
+  } catch (err) {
+    console.error(`[auth/password] failed user=${req.user.id}: ${err.message}`);
+    res.status(500).json({ error: 'تعذّر تغيير كلمة المرور، حاول مرة أخرى' });
+  }
+});
+
 router.post('/activate/lookup', async (req, res) => {
   const row = await activation.lookup((req.body || {}).token);
   if (!row) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });

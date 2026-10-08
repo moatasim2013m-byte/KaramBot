@@ -3,7 +3,7 @@ import { Copy, Check, MessageCircle, Receipt } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { Ltr } from '../components/shared/Primitives';
-import { planBanner, dateAr, countAr, daysAr, shiftWaLink, helpText } from '../components/whatsapp/panelView';
+import { planBanner, graceDaysOf, dateAr, countAr, daysAr, shiftWaLink, helpText } from '../components/whatsapp/panelView';
 
 /**
  * «الاشتراك» — what the shop pays SHIFT, what it pays Meta, and what happens if it is late.
@@ -92,7 +92,7 @@ export default function BillingPage() {
   if (!data) return <div className="text-center py-16 text-gray-400">جاري التحميل...</div>;
 
   const { plan, usage, payments = [], payment_instructions: pay = {}, late_policy: late = {}, meta_fees_line: metaFees } = data;
-  const graceDays = Number(late?.grace_days) || 7;
+  const graceDays = graceDaysOf(late);
   const banner = planBanner(plan, { graceDays });
   const hasPlan = plan && plan.status && plan.status !== 'none';
   const canPay = Boolean(pay?.cliq_alias || pay?.iban);

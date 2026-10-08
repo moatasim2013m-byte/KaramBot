@@ -71,6 +71,16 @@ export function daysLate(plan, now = Date.now()) {
  *
  * @returns {{tone: 'good'|'info'|'warn'|'bad', text: string}|null}
  */
+/**
+ * late_policy.grace_days as both pages must read it: a number of days, 0 included. `|| 7` turned a
+ * deliberate 0 into a week of grace, and the home page never passed it at all.
+ */
+export function graceDaysOf(latePolicy) {
+  const raw = latePolicy ? latePolicy.grace_days : undefined;
+  const n = raw === null || raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : 7;
+}
+
 export function planBanner(plan, { graceDays = 7, now = Date.now() } = {}) {
   if (!plan || !plan.status || plan.status === 'none') return null;
   if (plan.status === 'trial') {

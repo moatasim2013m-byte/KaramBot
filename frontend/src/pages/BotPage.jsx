@@ -80,6 +80,9 @@ function useSave(businessId, onSaved) {
 // ─── حالة البوت ────────────────────────────────────────────────────────────────
 function PauseCard({ biz, onSaved }) {
   const enabled = biz.ai_config?.enabled !== false;
+  // SHIFT's pause (late payment, wrong prices) is SHIFT's to lift: the server refuses the owner's
+  // resume with a 403, and the switch says so rather than inviting a tap that cannot work.
+  const shiftPaused = !enabled && biz.ai_config?.paused_by === 'shift';
   const { busy, error, save } = useSave(biz.id, onSaved);
   // Through PATCH /businesses/:id with ai_config.enabled: the server writes bot_paused or
   // bot_resumed with the owner as the actor, so SHIFT sees who switched it and when.
@@ -91,10 +94,12 @@ function PauseCard({ biz, onSaved }) {
         <div>
           <p className="text-[14px] font-medium text-gray-900">البوت يرد على الزبائن</p>
           <p className={`text-[12px] mt-0.5 ${enabled ? 'text-emerald-700' : 'text-amber-800'}`}>
-            {enabled ? 'يعمل ويرد على كل رسالة.' : 'موقوف مؤقتًا — الرسائل تصلك في «المحادثات».'}
+            {enabled ? 'يعمل ويرد على كل رسالة.'
+              : shiftPaused ? 'أوقف فريق شِفت البوت — تواصل معهم لإعادة تشغيله. الرسائل تصلك في «المحادثات».'
+                : 'موقوف مؤقتًا — الرسائل تصلك في «المحادثات».'}
           </p>
         </div>
-        <button type="button" role="switch" aria-checked={enabled} onClick={flip} disabled={busy}
+        <button type="button" role="switch" aria-checked={enabled} onClick={flip} disabled={busy || shiftPaused}
           className={`relative shrink-0 w-14 h-8 rounded-full transition-colors disabled:opacity-50 ${enabled ? 'bg-green-600' : 'bg-gray-300'}`}>
           <span className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow transition-all ${enabled ? 'right-7' : 'right-1'}`} />
         </button>
@@ -108,7 +113,9 @@ function PauseCard({ biz, onSaved }) {
 const DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
 
 /**
- * opening_hours is free JSON the generic workflow pastes into the prompt as is. The editor keeps
+ * opening_hours: the generic workflow pastes it into the prompt, and once the owner has written an
+ * out-of-hours message the server enforces it for every shop type (services/openingHours.js). The
+ * editor keeps
  * one row per day; rows of another shape (typed by SHIFT earlier) are kept in the day order and
  * filled with the defaults so the owner sees something editable rather than nothing.
  */
@@ -190,7 +197,8 @@ function ReplyCard({ biz, onSaved }) {
         <KeywordChips value={keywords} onChange={setKeywords} />
         <span className="block mt-1 text-[11px] text-gray-500">إذا كتب الزبون إحدى هذه الكلمات تصلك المحادثة مباشرة.</span>
       </div>
-      <Field label="رسالة خارج الدوام">
+      <Field label="رسالة خارج الدوام"
+        hint="إذا كتبتها: من يراسلك خارج أوقات الدوام أدناه تصله هذه الرسالة مرة في اليوم بدل رد البوت، وتصلك محادثته في «المحادثات». اتركها فارغة ليرد البوت في كل وقت.">
         <textarea rows={2} value={outOfHours} onChange={(e) => setOutOfHours(e.target.value)}
           placeholder="مثال: أهلًا! نحن مغلقون الآن ونرد عليك أول ما نفتح." className={`${input} resize-none`} />
       </Field>
@@ -321,8 +329,9 @@ export default function BotPage() {
   if (error) return <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!biz) return <div className="text-center py-16 text-gray-400">جاري التحميل...</div>;
 
-  // Restaurants and clinics answer from their menu or their services; the generic notes are read
-  // only by the other shops' bot, so for those two the card points at where their knowledge is.
+  // Restaurants and clinics answer from their menu or their services first, so for those two the
+  // card points at where that knowledge is. Their bots also read the notes below (the answers
+  // taught from «ما عرف يجاوب» land there), so the notes are shown for every shop.
   const catalogue = bizType === 'restaurant'
     ? { to: '/menu', Icon: UtensilsCrossed, label: menuCount != null ? `القائمة (${menuCount} صنفًا)` : 'القائمة' }
     : bizType === 'clinic'
@@ -335,7 +344,7 @@ export default function BotPage() {
 
       {owner && <PauseCard biz={biz} onSaved={onSaved} />}
 
-      {catalogue ? (
+      {catalogue && (
         <Link to={catalogue.to} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 h-14">
           <span className="flex items-center gap-2 text-[14px] font-semibold text-gray-800">
             <catalogue.Icon size={17} className="text-green-600" />
@@ -343,9 +352,9 @@ export default function BotPage() {
           </span>
           <ArrowLeft size={16} className="text-gray-400" />
         </Link>
-      ) : (
-        <KnowledgeByGroup sector={biz.sector || bizType} />
       )}
+      {/* sector from GET /businesses/:id (a pharmacy is business_type 'generic'), else /me's. */}
+      <KnowledgeByGroup sector={biz.sector || user?.sector || bizType} />
 
       <KnowledgeGaps />
 

@@ -34,6 +34,22 @@ function isPauseToggle(req) {
     && 'enabled' in body.ai_config;
 }
 
+const SHIFT_PAUSED_ERROR = 'أوقف فريق شِفت البوت — تواصل معهم لإعادة تشغيله';
+
+/**
+ * Whether the bot's current pause is SHIFT's. ai_config.paused_by is written by both pause
+ * routes; a pause from before that marker existed falls back to who wrote the latest bot_paused.
+ */
+async function pausedByShift(businessId, aiConfig) {
+  if (aiConfig?.paused_by) return aiConfig.paused_by === 'shift';
+  const last = await prisma.accountEvent.findFirst({
+    where: { business_id: businessId, type: 'bot_paused' },
+    orderBy: { created_at: 'desc' },
+    select: { actor_kind: true },
+  });
+  return last?.actor_kind === 'shift';
+}
+
 /** A real object: an array or a string spread into numeric keys instead of being rejected. */
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -42,6 +58,9 @@ const BUSINESS_PUBLIC_SELECT = {
   id: true, name: true, slug: true, business_type: true,
   logo_url: true, language_default: true, timezone: true,
   currency: true, address: true, wa_phone_number_id: true,
+  // sector picks the starter chips on /bot (a pharmacy is business_type 'generic'); city is the
+  // shop tab's «المدينة». Both were left out, so every non-restaurant shop got «other»'s chips.
+  sector: true, city: true,
   wa_business_account_id: true, opening_hours: true,
   status: true, ai_config: true, policies: true,
   created_at: true, updated_at: true,
@@ -50,7 +69,7 @@ const BUSINESS_PUBLIC_SELECT = {
 router.use(authenticate);
 
 const OWNER_ALLOWED_FIELDS = [
-  'name', 'logo_url', 'address', 'timezone', 'currency',
+  'name', 'logo_url', 'address', 'city', 'timezone', 'currency',
   'opening_hours', 'policies', 'ai_config',
 ];
 
@@ -295,9 +314,19 @@ router.patch('/:id', async (req, res) => {
       const before = await prisma.business.findUnique({ where: { id: req.params.id }, select: { ai_config: true } });
       if (!before) return res.status(404).json({ error: 'Business not found' });
       const wasEnabled = before.ai_config?.enabled !== false;
-      // Only the one key, patched in Postgres, so the shop's other settings are untouched.
-      const { ok } = await jsonb.patchJson('businesses', req.params.id, 'ai_config', { enabled });
-      if (!ok) return res.status(404).json({ error: 'Business not found' });
+      // SHIFT's pause (late payment, a bot quoting wrong prices) is SHIFT's to lift. Without this
+      // the owner's switch turned it back on with one tap, and the late policy meant nothing.
+      if (enabled && !wasEnabled && await pausedByShift(req.params.id, before.ai_config)) {
+        return res.status(403).json({ error: SHIFT_PAUSED_ERROR, paused_by: 'shift' });
+      }
+      if (wasEnabled !== enabled) {
+        // Only these keys, patched in Postgres, so the shop's other settings are untouched. A
+        // repeated pause writes nothing, so it cannot relabel SHIFT's pause as the owner's.
+        const { ok } = enabled
+          ? await jsonb.patchJson('businesses', req.params.id, 'ai_config', { enabled }, { remove: ['paused_by'] })
+          : await jsonb.patchJson('businesses', req.params.id, 'ai_config', { enabled, paused_by: 'owner' });
+        if (!ok) return res.status(404).json({ error: 'Business not found' });
+      }
       // A repeated tap changes nothing and writes nothing to the log. Who pressed it is the owner:
       // the shop's «السجل» and SHIFT's board read the same events SHIFT's own pause writes.
       if (wasEnabled !== enabled) {

@@ -7,7 +7,7 @@ import SetupGuide from '../components/whatsapp/SetupGuide';
 import KnowledgeGaps from '../components/whatsapp/KnowledgeGaps';
 import { ConnectInline } from '../components/whatsapp/OwnerSetupActions';
 import {
-  statusLine, planBanner, isConnected, ownerCanConnect, countAr, shiftWaLink, helpText,
+  statusLine, planBanner, graceDaysOf, isConnected, ownerCanConnect, countAr, shiftWaLink, helpText,
 } from '../components/whatsapp/panelView';
 
 /**
@@ -188,7 +188,8 @@ export default function OverviewPage() {
 
   const owner = role === 'business_owner' || role === 'platform_admin';
   const connected = isConnected(status);
-  const banner = planBanner(status.plan);
+  // The same grace days «الاشتراك» reads (status.late_policy), so the two banners agree.
+  const banner = planBanner(status.plan, { graceDays: graceDaysOf(status.late_policy) });
   const today = status.today || null;
   const usage = status.usage || null;
   const pct = usage?.cap ? Math.min(100, Math.round((Number(usage.ai_replies_month) / Number(usage.cap)) * 100)) : 0;

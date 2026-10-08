@@ -270,6 +270,37 @@ describe('the home page numbers (P3)', () => {
     expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({ business_id: 'b1' });
   });
 
+  // «آخر رد من البوت» in «الإعدادات» read last_outbound_at, which staff sends and stored alerts
+  // also stamp: a dead bot covered by hand read as a fresh bot reply.
+  test('the bot\'s own newest reply is returned apart from the last outbound of any kind', async () => {
+    const ai = minsAgo(300);
+    const staff = minsAgo(5);
+    setup({ inbound: minsAgo(40), outbound: staff, aiReply: ai });
+    const res = await get();
+    expect(res.body.last_ai_reply_at).toBe(ai.toISOString());
+    expect(res.body.last_outbound_at).toBe(staff.toISOString());
+  });
+
+  // The home banner counted 7 grace days whatever PlatformSetting late_policy said, while
+  // «الاشتراك» read the setting: the two pages could name different days.
+  test('the late policy is the same one /billing reads, 0 days included', async () => {
+    setup({ contract: trial({ status: 'past_due', trial_ends_at: null }) });
+    prisma.platformSetting.findMany.mockResolvedValue([{ key: 'late_policy', value: { grace_days: 3 } }]);
+    expect((await get()).body.late_policy).toEqual({ grace_days: 3 });
+    platformSettings.clearCache();
+    prisma.platformSetting.findMany.mockResolvedValue([{ key: 'late_policy', value: { grace_days: 0 } }]);
+    expect((await get()).body.late_policy).toEqual({ grace_days: 0 });
+  });
+
+  // «للدعم الفني › انسخ رمز الدعم» (spec «الإعدادات»): Meta's session id, for support to ask for.
+  test('the support code is the onboarding\'s session id, or null', async () => {
+    setup({ onboarding: { step: 'done', payment_method_ok: true, session_id: 'sess_meta_1' } });
+    expect((await get()).body.support_code).toBe('sess_meta_1');
+    expect(prisma.whatsappOnboarding.findFirst.mock.calls[0][0].select).toMatchObject({ session_id: true });
+    setup({ onboarding: null });
+    expect((await get()).body.support_code).toBeNull();
+  });
+
   test('a paid, late shop and one with no contract', async () => {
     setup({ contract: trial({ status: 'past_due', trial_ends_at: null }) });
     expect((await get()).body.plan).toMatchObject({ status: 'past_due', trial_days_left: null });

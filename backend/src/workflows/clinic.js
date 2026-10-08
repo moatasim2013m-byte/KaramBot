@@ -10,6 +10,7 @@ const { generateValidatedAIReply } = require('../ai/provider');
 const { providerIssueAlert } = require('../services/workflowAlerts');
 const prisma = require('../config/prisma');
 const { isConfirmation, isCancellation } = require('./restaurant');
+const { ownerNotesSection } = require('./generic');
 
 // Prisma CUID v1 format: starts with 'c', followed by 24+ alphanumeric chars.
 // If the ID strategy changes, update this pattern accordingly.
@@ -70,11 +71,11 @@ async function buildSlotsText(businessId, serviceId, doctorId) {
   }).join('\n');
 }
 
-function buildClinicSystemPrompt(business, context) {
+function buildClinicSystemPrompt(business, context, notes = '') {
   return `أنت مساعد حجز مواعيد ودود لعيادة "${business.name}".
 شخصيتك: ${business.ai_config?.personality || 'مساعد ودود ومحترف'}.
 
-${context}
+${context}${notes}
 
 قواعد مهمة:
 - لا تخترع أسعاراً أو أطباء أو أوقاتاً غير موجودة في القائمة.
@@ -184,7 +185,9 @@ async function processClinicMessage(business, conversation, customerMessage) {
       contextText = `الخدمات المتاحة:\n${servicesText}`;
     }
 
-    const systemPrompt = buildClinicSystemPrompt(business, contextText);
+    // The owner's taught answers («علّم البوت الجواب») sit beside the services.
+    const notes = await ownerNotesSection(business.id);
+    const systemPrompt = buildClinicSystemPrompt(business, contextText, notes);
     const aiResult = await generateValidatedAIReply(systemPrompt, customerMessage, [], {
       onProviderIssue: providerIssueAlert(business, conversation),
     });

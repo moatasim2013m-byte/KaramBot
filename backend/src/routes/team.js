@@ -6,6 +6,7 @@ const { authenticate, attachBusinessId, requireRole } = require('../middleware/a
 const activation = require('../services/activation');
 const accountEvents = require('../services/accountEvents');
 const platformSettings = require('../services/platformSettings');
+const { forDaysAr } = require('../utils/arabicDays');
 const { normalizeLoginPhone, loginTaken, LOGIN_TAKEN_ERROR } = require('../utils/login');
 const { firstName } = require('../utils/names');
 const { contractOf, seatsOf, seatsUsed } = require('./account');
@@ -67,7 +68,7 @@ async function invitePayload({ member, shopName, token, expiresAt, ttlDays }) {
   const joinUrl = `${appOrigin()}/activate#${token}`;
   const greeting = firstName(member.name) ? `مرحبًا ${firstName(member.name)}` : 'مرحبًا';
   const role = member.role === 'manager' ? 'مديرًا' : 'موظفًا';
-  const text = `${greeting}، أضفتك ${role} في كرم بوت${shopName ? ` — ${shopName}` : ''}. افتح الرابط واختر كلمة المرور: ${joinUrl} — صالح ${ttlDays === 7 ? '7 أيام' : `${ttlDays} يوم`}.`;
+  const text = `${greeting}، أضفتك ${role} في كرم بوت${shopName ? ` — ${shopName}` : ''}. افتح الرابط واختر كلمة المرور: ${joinUrl} — صالح ${forDaysAr(ttlDays)}.`;
   return {
     member_id: member.id,
     join_url: joinUrl,

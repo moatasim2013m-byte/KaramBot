@@ -152,6 +152,18 @@ describe('POST /api/team/invite', () => {
     expect((await invite('owner', { name: 'x', phone: '0795551234', role: 'platform_admin' })).status).toBe(400);
   });
 
+  // invite_ttl_days is SHIFT's setting (1–30): only 7 used to read right, «صالح 3 يوم» otherwise.
+  test.each([
+    [7, 'صالح 7 أيام.'], [1, 'صالح يومًا واحدًا.'], [2, 'صالح يومين.'], [3, 'صالح 3 أيام.'], [15, 'صالح 15 يومًا.'],
+  ])('the invite text counts %i days in Arabic', async (days, phrase) => {
+    seedShops({ contract: { seats: 10 } });
+    db.seed({ platformSettings: [{ key: 'invite_ttl_days', value: days }] });
+    const res = await invite('owner', { name: 'ليلى', phone: '0795551234', role: 'staff' });
+    expect(res.status).toBe(201);
+    expect(res.body.share_text.endsWith(phrase)).toBe(true);
+    expect(res.body.share_text).not.toMatch(/\d+ يوم\b/);
+  });
+
   test('only the owner invites', async () => {
     seedShops({ contract: { seats: 10 } });
     expect((await invite('manager', { name: 'x', phone: '0795551234', role: 'staff' })).status).toBe(403);
@@ -402,27 +414,62 @@ describe('role checks', () => {
 
 describe('PATCH /api/businesses/:id — «البوت يرد على الزبائن»', () => {
   const pause = (who, enabled, id = 'b1') => request(app).patch(`/api/businesses/${id}`).set(as(who)).send({ ai_config: { enabled } });
+  // fakeDb's jsonb patches conversations only: businesses.ai_config is merged here the same way.
+  const patchBusinesses = () => jest.spyOn(require('../src/db/jsonb'), 'patchJson').mockImplementation(async (table, id, col, patch, { remove = [] } = {}) => {
+    const b = db.store.businesses.find((x) => x.id === id);
+    const next = { ...b.ai_config };
+    for (const k of remove) delete next[k];
+    b.ai_config = { ...next, ...patch };
+    return { ok: true, count: 1 };
+  });
 
   test('the owner pauses and resumes; each change is logged once with the owner as actor', async () => {
     seedShops();
-    const jsonb = require('../src/db/jsonb');
-    const sent = jest.spyOn(jsonb, 'patchJson').mockImplementation(async (table, id, col, patch) => {
-      const b = db.store.businesses.find((x) => x.id === id);
-      b.ai_config = { ...b.ai_config, ...patch };
-      return { ok: true, count: 1 };
-    });
+    const sent = patchBusinesses();
 
     const off = await pause('owner', false);
     expect(off.status).toBe(200);
     expect(off.body).toMatchObject({ enabled: false, changed: true });
-    expect(sent).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false });
-    expect(db.store.businesses.find((b) => b.id === 'b1').ai_config).toEqual({ greeting_message: 'أهلًا', enabled: false });
+    expect(sent).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'owner' });
+    expect(db.store.businesses.find((b) => b.id === 'b1').ai_config).toEqual({ greeting_message: 'أهلًا', enabled: false, paused_by: 'owner' });
 
     expect((await pause('owner', false)).body.changed).toBe(false); // a repeated tap logs nothing
     await pause('owner', true);
     expect(db.store.accountEvents.map((e) => [e.type, e.actor_kind, e.actor_user_id])).toEqual([
       ['bot_paused', 'owner', 'owner'], ['bot_resumed', 'owner', 'owner'],
     ]);
+  });
+
+  test('SHIFT\'s pause cannot be lifted from the owner\'s switch; SHIFT\'s resume frees it again', async () => {
+    seedShops();
+    patchBusinesses();
+    const paused = await request(app).patch('/api/admin/accounts/b1/bot').set(as('admin')).send({ enabled: false, reason: 'تأخر الدفع' });
+    expect(paused.status).toBe(200);
+    const b1 = () => db.store.businesses.find((b) => b.id === 'b1');
+    expect(b1().ai_config).toMatchObject({ enabled: false, paused_by: 'shift' });
+
+    const res = await pause('owner', true);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('أوقف فريق شِفت البوت — تواصل معهم لإعادة تشغيله');
+    expect(b1().ai_config.enabled).toBe(false);
+    // A repeated pause from the owner does not relabel it as theirs.
+    await pause('owner', false);
+    expect(b1().ai_config.paused_by).toBe('shift');
+    expect((await pause('owner', true)).status).toBe(403);
+
+    await request(app).patch('/api/admin/accounts/b1/bot').set(as('admin')).send({ enabled: true });
+    expect(b1().ai_config).not.toHaveProperty('paused_by');
+    await pause('owner', false);
+    expect((await pause('owner', true)).status).toBe(200);
+    expect(b1().ai_config.enabled).toBe(true);
+  });
+
+  test('a SHIFT pause from before the marker is recognised from the log', async () => {
+    seedShops();
+    db.store.businesses.find((b) => b.id === 'b1').ai_config = { enabled: false };
+    db.seed({ accountEvents: [{ id: 'p1', business_id: 'b1', actor_kind: 'shift', type: 'bot_paused', data: { reason: 'x' }, created_at: T0 }] });
+    expect((await pause('owner', true)).status).toBe(403);
+    expect(db.store.businesses.find((b) => b.id === 'b1').ai_config.enabled).toBe(false);
   });
 
   test('a manager, staff, another shop\'s owner, or a non-boolean are refused', async () => {

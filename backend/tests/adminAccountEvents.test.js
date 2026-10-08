@@ -68,7 +68,8 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
     const res = await patch({ enabled: false, reason: 'تأخر الدفع' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ enabled: false, changed: true });
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false });
+    // paused_by marks it as SHIFT's pause, which the owner's switch on /bot may not lift.
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' });
     expect(lastEvent()).toMatchObject({
       business_id: 'b1', actor_user_id: 'admin1', actor_kind: 'shift', type: 'bot_paused', data: { reason: 'تأخر الدفع' },
     });
@@ -78,8 +79,16 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
     prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false } });
     const res = await patch({ enabled: true });
     expect(res.status).toBe(200);
-    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: true }, { remove: ['paused_by'] });
     expect(lastEvent()).toMatchObject({ type: 'bot_resumed', data: {} });
+  });
+
+  test('pausing over the owner\'s own pause makes it SHIFT\'s', async () => {
+    prisma.business.findUnique.mockResolvedValue({ id: 'b1', ai_config: { enabled: false, paused_by: 'owner' } });
+    const res = await patch({ enabled: false, reason: 'تأخر الدفع' });
+    expect(res.body).toEqual({ enabled: false, changed: true });
+    expect(jsonb.patchJson).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { enabled: false, paused_by: 'shift' });
+    expect(lastEvent()).toMatchObject({ type: 'bot_paused', actor_kind: 'shift' });
   });
 
   test('pausing a paused bot changes nothing and logs nothing', async () => {

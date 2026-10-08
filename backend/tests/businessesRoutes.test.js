@@ -217,3 +217,20 @@ describe('review 2026-10-08', () => {
     }
   });
 });
+
+describe('review of P3: what the owner\'s panel reads', () => {
+  test('GET /:id returns sector and city, so a pharmacy gets the pharmacy chips on /bot', async () => {
+    db.store.businesses[0].sector = 'pharmacy';
+    db.store.businesses[0].city = 'إربد';
+    const res = await request(app).get('/api/businesses/b1').set(as('owner'));
+    expect(res.status).toBe(200);
+    expect(res.body.business).toMatchObject({ sector: 'pharmacy', city: 'إربد', business_type: 'generic' });
+    expect(res.body.business).not.toHaveProperty('wa_access_token');
+  });
+
+  test('the owner edits «المدينة» from the shop tab', async () => {
+    const res = await request(app).patch('/api/businesses/b1').set(as('owner')).send({ city: 'الزرقاء' });
+    expect(res.status).toBe(200);
+    expect(db.store.businesses[0].city).toBe('الزرقاء');
+  });
+});

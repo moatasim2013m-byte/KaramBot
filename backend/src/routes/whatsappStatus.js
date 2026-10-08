@@ -205,6 +205,8 @@ router.get('/', async (req, res) => {
         select: {
           step: true, payment_method_ok: true, payment_method_claimed_at: true, payment_blocked_at: true,
           revoked_at: true, meta_name_status: true, meta_quality_rating: true,
+          // «للدعم الفني › انسخ رمز الدعم»: Meta's session id, what Meta support asks for.
+          session_id: true,
         },
       }),
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true } }),
@@ -237,6 +239,9 @@ router.get('/', async (req, res) => {
       payment_method_ok: onboarding ? onboarding.payment_method_ok : null,
       last_inbound_at: lastInbound,
       last_outbound_at: lastOutbound,
+      // «آخر رد من البوت» in «الإعدادات»: the bot's own newest reply. last_outbound_at above is also
+      // stamped by staff sends and stored alerts, so it read fresh while the bot was dead.
+      last_ai_reply_at: lastAiReply || null,
       contract: contract ? {
         solution: contract.solution, plan_name: contract.plan_name, status: contract.status,
         amount_jod: Number(contract.amount_jod), billing_cycle: contract.billing_cycle, next_due_at: contract.next_due_at,
@@ -265,6 +270,8 @@ router.get('/', async (req, res) => {
         lastInbound,
         ownerConnect,
       }),
+      // The one Meta value the page holds, and only to copy: [انسخ رمز الدعم] never shows it.
+      support_code: (onboarding && onboarding.session_id) || null,
       // Never the token, never the raw Meta identifiers: the customer needs the state, not the plumbing.
     });
   } catch (err) {
@@ -280,11 +287,14 @@ router.get('/', async (req, res) => {
  * for, and a failed count must not take it down, so each part answers null when it cannot be read.
  */
 async function homeNumbers(businessId) {
-  const out = { plan: null, usage: null, today: null, gaps_open: null };
+  const out = { plan: null, usage: null, today: null, gaps_open: null, late_policy: null };
   try {
     const contract = await account.contractOf(businessId);
     out.plan = account.planView(contract);
     out.usage = await account.usageView(businessId, contract);
+    // The same grace days /billing reads, so the home banner's «يتوقف الرد الآلي بعد …» and the
+    // billing page's cannot disagree when SHIFT changes PlatformSetting late_policy.
+    out.late_policy = await account.latePolicy();
   } catch (err) {
     console.error(`[whatsapp/status] plan not read business=${businessId}: ${err.message}`);
   }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Save, ExternalLink, Loader2 } from 'lucide-react';
+import { Save, ExternalLink, Loader2, Copy, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { StatusDot, Timestamp, Ltr } from '../components/shared/Primitives';
@@ -103,7 +103,9 @@ function WhatsAppTab({ user }) {
             <Row label="جودة الرقم لدى Meta"><StatusDot state={quality.state} /> {quality.label}</Row>
             <Row label="بطاقة الدفع لدى Meta"><StatusDot state={card.state} /> {card.label}</Row>
             <Row label="آخر رسالة من زبون"><Timestamp value={status.last_inbound_at} /></Row>
-            <Row label="آخر رد من البوت"><Timestamp value={status.last_outbound_at} /></Row>
+            {/* The bot's own newest reply: last_outbound_at is also stamped by staff sends and
+                stored alerts, so it read fresh while the bot was dead and the owner covered by hand. */}
+            <Row label="آخر رد من البوت"><Timestamp value={status.last_ai_reply_at} /></Row>
           </dl>
         )}
         {connected && !revoked && (card.key === 'missing' || card.key === 'blocked') && (
@@ -117,12 +119,49 @@ function WhatsAppTab({ user }) {
         )}
       </Card>
 
+      <SupportCode code={status.support_code} />
+
       <p className="text-[12px] text-gray-500 px-1">
         لتغيير رقم المحل أو أي مشكلة في الربط{' '}
         <a href={shiftWaLink(`${helpText(user)} — بخصوص رقم واتساب المحل`)} target="_blank" rel="noopener noreferrer"
           className="text-green-700 underline underline-offset-2">راسل شِفت على واتساب</a>.
       </p>
     </>
+  );
+}
+
+/**
+ * «للدعم الفني»: collapsed, one button. It copies Meta's session id — what Meta support asks for —
+ * without showing it, so no raw Meta id is ever on the owner's screen.
+ */
+function SupportCode({ code }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <details className="mb-4 rounded-xl border border-gray-200 bg-white px-4 py-3 group">
+      <summary className="flex items-center justify-between cursor-pointer list-none text-[13px] text-gray-600">
+        للدعم الفني <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-3 flex items-center gap-3">
+        {code ? (
+          <button type="button" onClick={copy}
+            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-md border border-gray-200 text-[13px] text-gray-700">
+            <Copy size={13} /> انسخ رمز الدعم
+          </button>
+        ) : (
+          <span className="text-[12px] text-gray-500">لا يوجد رمز دعم لهذا الربط بعد.</span>
+        )}
+        {copied && <span className="text-[12px] text-emerald-700">تم النسخ — أرسله لفريق الدعم</span>}
+      </div>
+    </details>
   );
 }
 
@@ -149,6 +188,7 @@ function ShopTab({ user }) {
       // No ai_config here: the bot's settings live on «البوت», and the pause is never a form field.
       await api.patch(`/businesses/${biz.id}`, {
         name: biz.name,
+        city: biz.city,
         address: biz.address,
         currency: biz.currency,
         ...(isRestaurant ? { policies: biz.policies } : {}),
@@ -184,6 +224,9 @@ function ShopTab({ user }) {
         <Field label="النوع">
           <input value={TYPE_AR[biz.business_type] || 'محل'} disabled className={`${inputClass} bg-gray-50 text-gray-500`} />
         </Field>
+        <Field label="المدينة">
+          <input value={biz.city || ''} onChange={(e) => set('city', e.target.value)} placeholder="مثال: إربد" className={inputClass} />
+        </Field>
         <Field label="العنوان">
           <input value={biz.address || ''} onChange={(e) => set('address', e.target.value)} className={inputClass} />
         </Field>
@@ -217,8 +260,65 @@ function ShopTab({ user }) {
 }
 
 // ─── حسابي ────────────────────────────────────────────────────────────────────
-// No password change here yet: the server has no endpoint for it. A forgotten password is reset
-// by SHIFT («إعادة ضبط الدخول»), so the honest offer is the WhatsApp line to them.
+/**
+ * [غيّر كلمة المرور]: POST /auth/password checks the current one, ends every other session and
+ * returns a fresh token for this one. A forgotten password is still reset by SHIFT, so that line
+ * to them stays.
+ */
+function PasswordForm() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      const res = await api.post('/auth/password', { current, next });
+      // Every older session ended with the change; this one carries on with the new token.
+      try { if (res.data?.token) localStorage.setItem('token', res.data.token); } catch { /* storage blocked */ }
+      setDone(true); setOpen(false); setCurrent(''); setNext('');
+    } catch (err) {
+      setError(err.response?.data?.error || 'تعذّر تغيير كلمة المرور، حاول مرة أخرى');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => { setOpen(true); setDone(false); }}
+          className="h-10 px-4 rounded-md border border-gray-200 text-[13px] font-medium text-gray-700">
+          غيّر كلمة المرور
+        </button>
+        {done && <span className="text-[12px] text-emerald-700">تم تغيير كلمة المرور</span>}
+      </div>
+    );
+  }
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <Field label="كلمة المرور الحالية">
+        <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className={inputClass} dir="ltr" />
+      </Field>
+      <Field label="كلمة المرور الجديدة (10 أحرف على الأقل)">
+        <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} className={inputClass} dir="ltr" />
+      </Field>
+      <div className="flex items-center gap-3">
+        <button type="submit" disabled={busy || !current || next.length < 10}
+          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-green-600 text-white text-[13px] font-medium disabled:opacity-50">
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ كلمة المرور
+        </button>
+        <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-[13px] text-gray-500">إلغاء</button>
+      </div>
+      {error && <p className="text-[12px] text-red-700">{error}</p>}
+    </form>
+  );
+}
+
 function AccountTab({ user }) {
   return (
     <Card title="حسابي">
@@ -227,8 +327,9 @@ function AccountTab({ user }) {
         {user?.phone && <Row label="الموبايل"><Ltr>{user.phone}</Ltr></Row>}
         {user?.email && <Row label="البريد الإلكتروني"><Ltr>{user.email}</Ltr></Row>}
       </dl>
+      <PasswordForm />
       <p className="text-[12px] text-gray-500">
-        نسيت كلمة المرور أو تريد تغييرها؟{' '}
+        نسيت كلمة المرور؟{' '}
         <a href={shiftWaLink(`${helpText(user)} — أريد رابطًا جديدًا لكلمة المرور`)} target="_blank" rel="noopener noreferrer"
           className="text-green-700 underline underline-offset-2">راسل شِفت على واتساب</a> ونرسل لك رابطًا جديدًا.
       </p>

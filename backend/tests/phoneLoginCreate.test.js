@@ -85,14 +85,24 @@ describe('POST /api/auth/register', () => {
   });
 
   test('a duplicate mobile or email is a 409, not a Prisma error', async () => {
-    const byPhone = await register('u_owner', { name: 'x', phone: '0791234567', password: 'long-password-1' });
+    const byPhone = await register('u_admin', { name: 'x', phone: '0791234567', password: 'long-password-1', business_id: 'b1' });
     expect(byPhone.status).toBe(409);
-    const byEmail = await register('u_owner', { name: 'x', email: 'OPS@shifts-ai.com', password: 'long-password-1' });
+    const byEmail = await register('u_admin', { name: 'x', email: 'OPS@shifts-ai.com', password: 'long-password-1', business_id: 'b1' });
     expect(byEmail.status).toBe(409);
   });
 
   test('neither email nor mobile is refused', async () => {
-    expect((await register('u_owner', { name: 'x', password: 'long-password-1' })).status).toBe(400);
+    expect((await register('u_admin', { name: 'x', password: 'long-password-1', business_id: 'b1' })).status).toBe(400);
+  });
+
+  // The owner's staff path is /api/team/invite (seats, «السجل», invite by link). Through here an
+  // owner added active staff past the plan's seats with a password they typed themselves.
+  test('a shop owner is sent to «الفريق», and no user is made', async () => {
+    const before = db.store.users.length;
+    const res = await register('u_owner', { name: 'علي', phone: '0771234567', password: 'long-password-1' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('أضف أعضاء فريقك من صفحة «الفريق»');
+    expect(db.store.users).toHaveLength(before);
   });
 });
 
@@ -122,5 +132,32 @@ describe('activation for a phone-only owner', () => {
     expect(res.status).toBe(200);
     expect(res.body.user).toMatchObject({ id: 'u_owner', email: null, phone: '962791234567' });
     expect((await login({ login: '0791234567', password: 'my-new-password' })).status).toBe(200);
+  });
+});
+
+// «غيّر كلمة المرور» in «الإعدادات › حسابي»: an owner no longer asks SHIFT for a reset link.
+describe('POST /api/auth/password', () => {
+  const change = (body, userId = 'u_owner') => request(app).post('/api/auth/password').set(as(userId)).send(body);
+
+  test('the current password is checked, the new one is set, and the new token signs in', async () => {
+    const res = await change({ current: 'correct-horse-1', next: 'new-password-22' });
+    expect(res.status).toBe(200);
+    expect(res.body.token).toEqual(expect.any(String));
+    const owner = db.store.users.find((u) => u.id === 'u_owner');
+    expect(await bcrypt.compare('new-password-22', owner.password)).toBe(true);
+    expect(owner.sessions_valid_from).toBeInstanceOf(Date);
+
+    expect((await login({ login: '0791234567', password: 'new-password-22' })).status).toBe(200);
+    expect((await login({ login: '0791234567', password: 'correct-horse-1' })).status).toBe(401);
+  });
+
+  test('a wrong current password, a short new one, or no session change nothing', async () => {
+    const before = db.store.users.find((u) => u.id === 'u_owner').password;
+    const wrong = await change({ current: 'nope', next: 'new-password-22' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error).toBe('كلمة المرور الحالية غير صحيحة');
+    expect((await change({ current: 'correct-horse-1', next: 'short' })).status).toBe(400);
+    expect((await request(app).post('/api/auth/password').send({ current: 'correct-horse-1', next: 'new-password-22' })).status).toBe(401);
+    expect(db.store.users.find((u) => u.id === 'u_owner').password).toBe(before);
   });
 });

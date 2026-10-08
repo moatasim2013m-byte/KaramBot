@@ -149,6 +149,50 @@ describe('the plan banner', () => {
     expect(view.planBanner(null)).toBeNull();
     expect(view.planBanner({ status: 'none' })).toBeNull();
   });
+
+  // `Number(grace_days) || 7` read a deliberate 0 as a week of grace.
+  test('grace days: the setting as given, 0 included; 7 only when it is missing or unreadable', () => {
+    expect(view.graceDaysOf({ grace_days: 0 })).toBe(0);
+    expect(view.graceDaysOf({ grace_days: 3 })).toBe(3);
+    expect(view.graceDaysOf({ grace_days: '5' })).toBe(5);
+    expect(view.graceDaysOf({})).toBe(7);
+    expect(view.graceDaysOf(null)).toBe(7);
+    expect(view.graceDaysOf({ grace_days: -1 })).toBe(7);
+    expect(view.graceDaysOf({ grace_days: 'x' })).toBe(7);
+  });
+});
+
+// The P3 review: pages that read the wrong field, or none. Read from source, as the contract here
+// is the field each page passes on.
+describe('page wiring', () => {
+  const page = (rel) => fs.readFileSync(path.join(FRONTEND, rel), 'utf8');
+
+  test('the home banner and «الاشتراك» read the same late policy', () => {
+    expect(page('pages/OverviewPage.jsx')).toMatch(/planBanner\(status\.plan, \{ graceDays: graceDaysOf\(status\.late_policy\) \}\)/);
+    expect(page('pages/BillingPage.jsx')).toMatch(/graceDaysOf\(late\)/);
+    expect(page('pages/BillingPage.jsx')).not.toMatch(/grace_days\) \|\| 7/);
+  });
+
+  test('«آخر رد من البوت» is the bot\'s own reply, not the last outbound of any kind', () => {
+    const src = page('pages/SettingsPage.jsx');
+    expect(src).toMatch(/آخر رد من البوت"><Timestamp value=\{status\.last_ai_reply_at\}/);
+    expect(src).not.toMatch(/آخر رد من البوت"><Timestamp value=\{status\.last_outbound_at\}/);
+  });
+
+  test('«الإعدادات» has المدينة, غيّر كلمة المرور and انسخ رمز الدعم', () => {
+    const src = page('pages/SettingsPage.jsx');
+    expect(src).toContain('label="المدينة"');
+    expect(src).toContain("api.post('/auth/password'");
+    expect(src).toContain('انسخ رمز الدعم');
+    expect(src).toContain('status.support_code');
+  });
+
+  test('the knowledge chips follow the shop\'s sector, and SHIFT\'s pause locks the owner\'s switch', () => {
+    const src = page('pages/BotPage.jsx');
+    expect(src).toMatch(/<KnowledgeByGroup sector=\{biz\.sector \|\| user\?\.sector \|\| bizType\} \/>/);
+    expect(src).toMatch(/paused_by === 'shift'/);
+    expect(src).toMatch(/disabled=\{busy \|\| shiftPaused\}/);
+  });
 });
 
 describe('navigation', () => {

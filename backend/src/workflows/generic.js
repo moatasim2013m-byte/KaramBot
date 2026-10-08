@@ -46,6 +46,23 @@ async function buildKnowledgeText(businessId) {
   return [...groups.entries()].map(([label, lines]) => `${label}:\n${lines.join('\n')}`).join('\n\n');
 }
 
+/**
+ * The owner's notes for a restaurant or a clinic, whose own knowledge is the menu or the services.
+ *
+ * «علّم البوت الجواب» saves a BusinessKnowledge row for every shop type; read only here it left a
+ * restaurant's taught answer unread while the gap card said the bot had learned it. A failed read
+ * drops the section rather than the reply: the menu still answers.
+ */
+async function ownerNotesSection(businessId) {
+  try {
+    const text = await buildKnowledgeText(businessId);
+    return text ? `\n\nمعلومات أخرى من صاحب المحل (أجب منها، ولا تخترع غيرها):\n${text}` : '';
+  } catch (err) {
+    console.warn(`[knowledge] notes not read for business ${businessId}: ${err.message}`);
+    return '';
+  }
+}
+
 function buildGenericSystemPrompt(business, knowledgeText) {
   const hours = Array.isArray(business.opening_hours) && business.opening_hours.length
     ? `\nأوقات الدوام المسجّلة: ${JSON.stringify(business.opening_hours)}` : '';
@@ -132,4 +149,4 @@ async function processGenericMessage(business, conversation, customerMessage) {
   return { reply, stateUpdate: {}, action: 'NONE' };
 }
 
-module.exports = { processGenericMessage, buildKnowledgeText };
+module.exports = { processGenericMessage, buildKnowledgeText, ownerNotesSection };
