@@ -236,6 +236,22 @@ function isQuotedFromCustomer(text, n, vctx) {
   return false;
 }
 
+/**
+ * Every number in the role-play facts, word forms included. roleplay.factNumbers reads digits only, so a
+ * fact the customer typed as «التوصيل داخل عمان دينارين» gave no 2 — and every demo reply that named the
+ * delivery price was blocked as an invented number (perfume demo «رونق», 2026-10-07: three answers in a
+ * row became «هاي المعلومة بيأكدها الموظف»).
+ */
+function rolePlayFactValues(facts) {
+  const out = roleplay.factNumbers(facts).map(roleplay.canonical);
+  for (const f of Array.isArray(facts) ? facts : []) {
+    for (const n of findNumbers(f)) {
+      if (n.value !== null && n.value !== undefined) out.push(roleplay.canonical(n.value));
+    }
+  }
+  return out;
+}
+
 /** A = customer_numbers ∪ numbers in this batch ∪ calculator estimates (∪ role-play facts and totals). */
 function allowedNumberSet(vctx = {}) {
   const set = new Set();
@@ -248,7 +264,7 @@ function allowedNumberSet(vctx = {}) {
   for (const t of vctx.batchTexts || []) for (const v of extractCustomerNumbers(t)) add(v);
   for (const e of Array.isArray(lead.site_estimates) ? lead.site_estimates : []) if (e) add(e.value);
   if (vctx.roleplayActive) {
-    for (const v of roleplay.factNumbers(vctx.roleplayFacts)) add(v);
+    for (const v of rolePlayFactValues(vctx.roleplayFacts)) set.add(v);
     // Quantities come from the whole example so far (vctx.roleplayTexts, newest first), not only this
     // batch: «أكّد» may repeat the total of an order written two turns earlier (eval #5).
     const quantityTexts = Array.isArray(vctx.roleplayTexts) && vctx.roleplayTexts.length ? vctx.roleplayTexts : vctx.batchTexts;
@@ -331,6 +347,17 @@ function isPublishedFigure(text, n) {
   return PUBLISHED_FIGURES.some((f) => roleplay.canonical(f.value) === value && f.clause.test(sentence));
 }
 
+const DEMO_SETUP_STAGES = ['sample', 'roleplay_setup', 'roleplay'];
+
+/** Every number the customer wrote in this batch, digits and words («دينارين») alike. */
+function batchNumberSet(texts) {
+  const set = new Set();
+  for (const t of Array.isArray(texts) ? texts : []) {
+    for (const n of findNumbers(t)) if (n.value !== null && n.value !== undefined) set.add(roleplay.canonical(n.value));
+  }
+  return set;
+}
+
 function checkDigits(line, vctx = {}) {
   const text = roleplay.toWesternDigits(String(line == null ? '' : line));
   const keywords = claimKeywordSpans(text, vctx);
@@ -338,6 +365,7 @@ function checkDigits(line, vctx = {}) {
   let allowed = null;
   let verbatim = null;
   let serverTimes = null;
+  let batchNumbers = null;
   const blocks = [];
   for (const n of findNumbers(text)) {
     if (isCallLength(text, n)) {
@@ -361,9 +389,17 @@ function checkDigits(line, vctx = {}) {
     if (isQuotedFromCustomer(text, n, vctx) && !affirmsOffer(text, n)) continue;
     const value = n.value === null || n.value === undefined ? null : roleplay.canonical(n.value);
     if (vctx.roleplayActive && value !== null) {
-      verbatim = verbatim || new Set(roleplay.factNumbers(vctx.roleplayFacts)
-        .concat(roleplay.quantities(vctx.batchTexts)).map(roleplay.canonical));
+      verbatim = verbatim || new Set(rolePlayFactValues(vctx.roleplayFacts)
+        .concat(roleplay.quantities(vctx.batchTexts).map(roleplay.canonical)));
       if (verbatim.has(value)) continue;
+    }
+    // Setting up the example, the bot reads the customer's own prices back to them («غوتشي غابانا 20،
+    // سوفاج 30، والتوصيل دينارين») before START_ROLEPLAY: a number the customer wrote in THIS batch is
+    // theirs, attribution or not. Without this the perfume-shop setup turn was blocked and regenerated
+    // into a canned fallback question (challenge exam, 2026-10-08).
+    if (value !== null && DEMO_SETUP_STAGES.includes(vctx.stage) && !affirmsOffer(text, n)) {
+      batchNumbers = batchNumbers || batchNumberSet(vctx.batchTexts);
+      if (batchNumbers.has(value)) continue;
     }
     allowed = allowed || allowedNumberSet(vctx);
     if (value !== null && allowed.has(value) && ATTRIBUTION_RE.test(clauseAt(text, n.start)) && !affirmsOffer(text, n)) continue;
@@ -1126,9 +1162,19 @@ function asksForEnglish(text) {
   return typeof text === 'string' && ASKS_FOR_ENGLISH_RE.test(text);
 }
 
+/**
+ * A link carries no language: Abu Mohammad sent only an Instagram reel link and got «Thanks for sharing abo
+ * Mohammad, but I can't open Instagram links» in English (2026-10-08). Links and e-mail addresses are taken
+ * out before the letters are counted.
+ */
+function withoutLinks(text) {
+  return String(text).replace(URL_RE, ' ').replace(/\S+@\S+\.\S+/g, ' ');
+}
+
 function languageOf(text) {
   if (typeof text !== 'string') return null;
   if (isAdPrefill(text)) return null;
+  text = withoutLinks(text);
   const { arabic, latin, total } = letterCounts(text);
   if (total < 3) return null;
   if (isArabizi(text)) return 'ar';
@@ -1161,7 +1207,7 @@ function expectedLanguage(batchTexts, lead, { firstContact = false } = {}) {
   // English [No] tap is not answered in Arabic (G14).
   for (let i = texts.length - 1; i >= 0; i -= 1) {
     if (typeof texts[i] !== 'string' || isAdPrefill(texts[i])) continue;
-    const { arabic, latin } = letterCounts(texts[i]);
+    const { arabic, latin } = letterCounts(withoutLinks(texts[i]));
     if (arabic) return 'ar';
     if (latin && !isArabizi(texts[i])) return 'en';
   }

@@ -177,8 +177,10 @@ function businessNameFrom(texts) {
     if (Array.from(candidate).length > SETUP_NAME_MAX) continue;
     if (!BUSINESS_HEAD_RE.test(candidate) && !led) continue;
     // A bare kind with no name («عيادة») says nothing: the example needs something to be called. The same
-    // two-word floor applies to «اسمه X» — one word after it is as likely to be a fragment as a name.
-    if (candidate.split(/\s+/).length < 2) continue;
+    // two-word floor applies to «اسمه X» — one word after it is as likely to be a fragment as a name. An
+    // explicit «اسم المتجر رونق» / «اسم المحل: رونق» is a name even in one word (perfume shop, 2026-10-07).
+    if (!led && candidate.split(/\s+/).length < 2) continue;
+    if (led && BUSINESS_HEAD_RE.test(candidate) && candidate.split(/\s+/).length < 2) continue;
     return candidate;
   }
   return '';
@@ -462,7 +464,7 @@ function roleplayBlock(roleplay, lang) { // eslint-disable-line no-unused-vars
     '<<<بيانات>>>',
     fencedJson(cleanFacts(roleplay.facts)),
     '<<<نهاية>>>',
-    `العميل يكتب كزبون. طلب أو حجز: لخّصه واطلب التأكيد ثم قل إنه سيصل للفريق/الاستقبال — لا تنفّذ ولا تؤكد وقتًا غير معطى. مجموع الطلب من أسعاره فقط، مع «حسب أسعارك». سعر أو معلومة غير معطاة: «بيأكدها الموظف». سؤال طبي: «هاد بيحدده الدكتور». الدور ${turn}/${ROLEPLAY_MAX_TURNS}. عند «خلص» أو انتهاء الأدوار: action END_ROLEPLAY، وارجع كرم شِفت. لا أزرار داخل المثال.`,
+    `العميل يكتب كزبون. طلب أو حجز: لخّصه واطلب التأكيد ثم قل إنه سيصل للفريق/الاستقبال — لا تنفّذ ولا تؤكد وقتًا غير معطى. مجموع الطلب من أسعاره فقط، مع «حسب أسعارك». سعر أو معلومة غير معطاة: «بيأكدها الموظف». سؤال طبي: «هاد بيحدده الدكتور». الدور ${turn}/${ROLEPLAY_MAX_TURNS}. عند «خلص» أو انتهاء الأدوار: action END_ROLEPLAY، وارجع كرم شِفت. سؤال عن كرم أو شِفت نفسها (سعر الاشتراك، «سعر خدمتك»، «شو إنت») أو انتقاد للمثال = خروج: END_ROLEPLAY وجاوبه ككرم شِفت. لا أزرار داخل المثال.`,
   ].join('\n');
 }
 

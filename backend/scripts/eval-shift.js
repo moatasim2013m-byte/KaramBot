@@ -57,6 +57,8 @@ const state = {
   calendarOps: [],
   calendarEvents: new Map(),
   live404: false,
+  // media id → { type, text }: what the media reader returns for that attachment (challenge exam).
+  mediaTranscripts: {},
   // Test hook: when set, the scripted Anthropic client throws this (a function returning an Error) instead
   // of answering — the failover tests use it to play «credit balance too low».
   anthropicError: null,
@@ -120,6 +122,8 @@ class FakeGoogleGenerativeAI {
  * plain Errors (the SDK's classes are not loaded in replay); src/ai/errors.js classifies those by message.
  */
 function FakeAnthropic() {
+  // The refusal-fallback opt-in is a beta, so real calls go through client.beta.messages: same queue.
+  this.beta = { messages: null };
   this.messages = {
     async create(params) {
       const userText = params && params.messages && params.messages[0] ? String(params.messages[0].content) : '';
@@ -136,6 +140,7 @@ function FakeAnthropic() {
       };
     },
   };
+  this.beta.messages = this.messages;
 }
 
 const fakeGemini = {
@@ -272,7 +277,13 @@ function waMessage(item, nowMs) {
         : { type: 'button_reply', button_reply: { id: item.tap, title } },
     };
   }
-  if (item.media) return { ...base, type: item.media, [item.media]: { id: `media_eval_${inSeq}`, mime_type: item.media === 'audio' ? 'audio/ogg' : 'image/jpeg' } };
+  if (item.media) {
+    const id = `media_eval_${inSeq}`;
+    // The challenge exam gives each attachment what the live media reader would have read from it.
+    if (typeof item.transcript === 'string') state.mediaTranscripts[id] = { type: item.media, text: item.transcript };
+    const mime = { audio: 'audio/ogg', image: 'image/jpeg', video: 'video/mp4' }[item.media] || 'image/jpeg';
+    return { ...base, type: item.media, [item.media]: { id, mime_type: mime, ...(item.caption ? { caption: item.caption } : {}) } };
+  }
   return { ...base, type: 'text', text: { body: String(item.text || '') } };
 }
 
@@ -826,8 +837,9 @@ function wrapLiveAnthropic(real) {
   class LiveAnthropic extends Base {
     constructor(...args) {
       super(...args);
-      const create = this.messages.create.bind(this.messages);
-      this.messages.create = async (params, options) => {
+      const timed = (endpoint) => {
+        const create = endpoint.create.bind(endpoint);
+        endpoint.create = async (params, options) => {
         const entry = { provider: 'anthropic', params, at: new Date().toISOString(), started: process.hrtime.bigint() };
         state.modelCalls.push(entry);
         try {
@@ -844,7 +856,11 @@ function wrapLiveAnthropic(real) {
           if (real.NotFoundError && err instanceof real.NotFoundError) state.live404 = true;
           throw err;
         }
+        };
       };
+      timed(this.messages);
+      // The refusal-fallback opt-in is a beta: the bot's calls go through client.beta.messages.
+      if (this.beta && this.beta.messages) timed(this.beta.messages);
     }
   }
   for (const k of Object.getOwnPropertyNames(Base)) {
@@ -853,9 +869,13 @@ function wrapLiveAnthropic(real) {
   return Object.assign(LiveAnthropic, { Anthropic: LiveAnthropic, default: LiveAnthropic });
 }
 
-// Claude Sonnet 5 list prices per million tokens: input $2, output $10; a cache read is 0.1× input, a
-// 5-minute cache write 1.25× input.
-const CLAUDE_PRICE = { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 };
+// List prices per million tokens (5-minute cache writes). Claude Opus 5.5: $4 / $20, cache read $0.20,
+// cache write $5. Claude Sonnet 5: $2 / $10, cache read $0.20, cache write $2.50.
+const CLAUDE_PRICES = {
+  'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+  'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+};
+const claudePrice = (model) => CLAUDE_PRICES[model] || CLAUDE_PRICES['claude-opus-5-5'];
 
 function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -870,8 +890,12 @@ function liveClaudeStats(calls) {
   const ms = ok.map((c) => c.ms).sort((a, b) => a - b);
   const sum = (k) => ok.reduce((n, c) => n + (Number(c.usage[k]) || 0), 0);
   const tokens = { input: sum('input_tokens'), output: sum('output_tokens'), cacheRead: sum('cache_read_input_tokens'), cacheWrite: sum('cache_creation_input_tokens') };
-  const cost = (tokens.input * CLAUDE_PRICE.input + tokens.output * CLAUDE_PRICE.output
-    + tokens.cacheRead * CLAUDE_PRICE.cacheRead + tokens.cacheWrite * CLAUDE_PRICE.cacheWrite) / 1e6;
+  const cost = ok.reduce((n, c) => {
+    const pr = claudePrice(c.params && c.params.model);
+    const u = c.usage;
+    return n + ((Number(u.input_tokens) || 0) * pr.input + (Number(u.output_tokens) || 0) * pr.output
+      + (Number(u.cache_read_input_tokens) || 0) * pr.cacheRead + (Number(u.cache_creation_input_tokens) || 0) * pr.cacheWrite) / 1e6;
+  }, 0);
   return {
     calls: done.length,
     failed: done.length - ok.length,
@@ -948,6 +972,7 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = {
+  installHooks,
   runScenario,
   fakes,
   state,

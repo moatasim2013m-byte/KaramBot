@@ -457,14 +457,14 @@ describe('SHIFT workflow — processShiftBatch', () => {
     expect(userTurn).toContain('الأزرار المتاحة الآن: لا أزرار');
   });
 
-  test('without deadlineAt the deadline is now + 30 s', async () => {
+  test('without deadlineAt the deadline is now + 45 s (Opus 5.5 answer + one regeneration)', async () => {
     generateValidatedAIReply.mockResolvedValue({ reply: 'هلا', action: 'NONE' });
     await processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'هلا' }], { now: MON_11 });
-    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 30000);
+    expect(generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 45000);
   });
 
   test('SHIFT_AI_DEADLINE_MS overrides the default deadline (read at module load)', async () => {
-    process.env.SHIFT_AI_DEADLINE_MS = '30000';
+    process.env.SHIFT_AI_DEADLINE_MS = '20000';
     try {
       let shift;
       let provider;
@@ -477,7 +477,7 @@ describe('SHIFT workflow — processShiftBatch', () => {
       prismaMock.message.findMany.mockResolvedValue([]);
       provider.generateValidatedAIReply.mockResolvedValue({ reply: 'هلا', action: 'NONE' });
       await shift.processShiftBatch(business, conv(), [{ id: 'm1', message_type: 'text', text_body: 'هلا' }], { now: MON_11 });
-      expect(provider.generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 30000);
+      expect(provider.generateValidatedAIReply.mock.calls[0][3].deadlineAt).toBe(MON_11.getTime() + 20000);
     } finally {
       delete process.env.SHIFT_AI_DEADLINE_MS;
     }

@@ -223,16 +223,29 @@ describe('role-play turns', () => {
     expect(rp).toMatchObject({ active: false, turns: 6, end_reason: 'turns', ended_at: MON_11.toISOString() });
   });
 
-  test('END_ROLEPLAY without the label → the end line alone', () => {
+  test('END_ROLEPLAY without the label → the example label, then the model\'s own words', () => {
     const r = toWorkflowResult(
       { reply: 'هيك كان المثال، شو رأيك؟', action: 'END_ROLEPLAY', stage: 'close', next_step: 'question' },
       ctx({ stage: 'roleplay', wd: { roleplay: liveRoleplay() }, texts: ['خلصنا من المثال'] }),
     );
     expect(r.action).toBe('END_ROLEPLAY');
-    expect(r.messages).toEqual([{ type: 'text', text: roleplay.endLine('restaurant', 'ar') }]);
+    const note = roleplay.endNote('restaurant', 'ar');
+    expect(r.messages).toEqual([{ type: 'text', text: `${note}\n\nهيك كان المثال، شو رأيك؟`, modelLine: 'هيك كان المثال، شو رأيك؟', ack: note }]);
     expect(r.stateUpdate).toEqual({ current_state: 'close' });
     expect(r.workflowDataPatch.roleplay).toMatchObject({ active: false, end_reason: 'done' });
     expect(r.leadPatch).toBeNull();
+  });
+
+  test('stepping out of the example to ask Karam\'s own price: the answer is sent, not dropped (perfume demo, 2026-10-07)', () => {
+    const answer = 'الاشتراك الأساسي لكرم 19.99 دينار بالشهر، وأول 10 محلات بإربد الشهر الأول ببلاش.';
+    const r = toWorkflowResult(
+      { reply: answer, action: 'END_ROLEPLAY', stage: 'close', next_step: 'question' },
+      ctx({ stage: 'roleplay', wd: { roleplay: liveRoleplay() }, texts: ['تمام شو سعر خدمتك'] }),
+    );
+    expect(r.action).toBe('END_ROLEPLAY');
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages[0].text).toContain('مثال توضيحي');
+    expect(r.messages[0].text).toContain('19.99');
   });
 
   test('END_ROLEPLAY with the label keeps the debrief above the end line', () => {
@@ -859,3 +872,48 @@ describe('review round 2 (results)', () => {
   });
 });
 
+
+describe('live chat review, 2026-10-08', () => {
+  test('CAPTURE_TIME with no call on the table is a plain reply: no «أي يوم ووقت بناسبك؟» (Abu Mohammad, «احنا والله»)', () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = toWorkflowResult(
+      { reply: 'تمام أبومحمد، يعني إنتو بتردوا بنفسكم. أي يوم ووقت بناسبك؟', action: 'CAPTURE_TIME', action_args: { time_text: '' }, stage: 'discovery', next_step: 'question' },
+      ctx({ stage: 'discovery', texts: ['احنا والله'] }),
+    );
+    expect(r.action).toBe('NONE');
+    const body = r.messages.map((m) => m.text).join('\n');
+    expect(body).toContain('بتردوا بنفسكم');
+    expect(body).not.toContain(acks.callTimeAsk('ar'));
+    expect(body).not.toContain('أي يوم ووقت');
+  });
+
+  test('CAPTURE_TIME after the customer asked for a call still asks the time', () => {
+    const r = toWorkflowResult(
+      { reply: 'أكيد، منرتّبلك مكالمة.', action: 'CAPTURE_TIME', action_args: { time_text: '' }, stage: 'close', next_step: 'question' },
+      ctx({ stage: 'discovery', texts: ['خلينا نتشاوف، بدي مكالمة مع الفريق'], offers: [] }),
+    );
+    // callTimeAskResult itself answers with action NONE (nothing is stored until a time is given).
+    expect(r.messages.map((m) => m.text).join('\n')).toContain(acks.callTimeAsk('ar'));
+  });
+});
+
+describe('challenge exam, 2026-10-08', () => {
+  test('a setup turn whose model line already asks for the name and priced items gets no second, fixed ask', () => {
+    const own = 'تمام أبومحمد، خلّيني أصير كرم تبع محلك. اكتبلي اسم المحل وقطعتين بأسعارهم؟';
+    const r = toWorkflowResult(
+      { reply: own, action: 'NONE', stage: 'roleplay_setup', next_step: 'question' },
+      ctx({ stage: 'fit', wd: { lead: { sector: 'store' } }, texts: ['اه ورجيني'], offers: [] }),
+    );
+    expect(r.messages).toHaveLength(1);
+    expect(r.messages[0].text).toBe(own);
+    expect(r.messages[0].text).not.toContain(roleplay.setupAsk('store', 'ar'));
+  });
+
+  test('the setup details given across earlier messages count: no fixed ask after «اسم المتجر رونق» and priced items', () => {
+    const r = toWorkflowResult(
+      { reply: 'تمام، صار عندي أسعار رونق. اكتبلي كأنك زبون.', action: 'NONE', stage: 'roleplay_setup', next_step: 'question' },
+      ctx({ stage: 'fit', wd: { lead: { sector: 'store' } }, texts: ['اسم المتجر رونق'], customerHistoryTexts: ['غوتشي غابانا سعرو 20', 'سوفاج 30 دينار'], offers: [] }),
+    );
+    expect(r.messages[0].text).not.toContain(roleplay.setupAsk('store', 'ar'));
+  });
+});

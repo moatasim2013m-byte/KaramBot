@@ -21,7 +21,9 @@ const LEGACY_TIMEOUT_MS = 15000;
 const SHIFT_MAX_OUTPUT_TOKENS = Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 2048;
 // 'minimal' measured 4.6–8.2 s with complete JSON; set GEMINI_THINKING_LEVEL=off to omit the field.
 const SHIFT_THINKING_LEVEL = process.env.GEMINI_THINKING_LEVEL || 'minimal';
-const DEFAULT_FIRST_ATTEMPT_MS = 15000;
+// Opus 5.5 thinks before every answer: ~9–10 s measured on a SHIFT turn (2026-10-08), against ~4 s for the
+// thinking-off Sonnet 5 this cap was sized for. 25 s keeps a slow-but-healthy first answer.
+const DEFAULT_FIRST_ATTEMPT_MS = Number(process.env.SHIFT_AI_FIRST_ATTEMPT_MS) || 25000;
 // A RETRY that has not answered in 10 s is hung like the attempt before it: measured over 126 real calls
 // (the two 2026-09-17 re-runs) a successful retry came back in 2.2–9.5 s, while every failure sat at the
 // cap exactly. Capping the retry lower is what makes room for a third chance inside the same deadline.
