@@ -42,6 +42,125 @@ const LIFECYCLE_LABEL = {
   suspended: 'موقوف',
 };
 
+// «ردود الشهر 0 / 1,000» per shop, from costGuard. Amber from 80%, red at the cap: during the free
+// month the cap is hard and the shop's chats go to its staff.
+function UsageCell({ usage }) {
+  if (!usage || usage.ai_replies_month === undefined || usage.ai_replies_month === null) {
+    return <span className="text-gray-300">—</span>;
+  }
+  const { ai_replies_month: used, cap, media_today: media } = usage;
+  const ratio = cap ? used / cap : 0;
+  const cls = ratio >= 1 ? 'text-red-600 font-medium' : ratio >= 0.8 ? 'text-amber-600 font-medium' : 'text-gray-700';
+  return (
+    <span className="whitespace-nowrap" title={media !== undefined && media !== null ? `وسائط قُرئت اليوم: ${media}` : undefined}>
+      <Num className={cls}>{used.toLocaleString('en-US')}</Num>
+      {cap ? <span className="text-gray-400"> / <Num>{cap.toLocaleString('en-US')}</Num></span> : null}
+    </span>
+  );
+}
+
+const ORPHAN_KIND = {
+  onboarding: 'وافق في Meta ولم يكتمل الربط',
+  partner_added: 'أضافنا في Meta بلا حساب عندنا',
+};
+
+/**
+ * «ربط بدون حساب»: Meta signups no shop owns yet. A PARTNER_ADDED webhook for a WABA we have no
+ * row for, or a signup whose number the server could not pick on its own. Kept so the customer
+ * never has to redo Meta's window: SHIFT attaches the row to the right shop, or types the number
+ * id from WhatsApp Manager. Hidden when there is nothing to match.
+ */
+function OrphanSignups({ accounts, onDone }) {
+  const [orphans, setOrphans] = useState(null);
+  const [error, setError] = useState(null);
+  const [open, setOpen] = useState(null); // {id, mode: 'attach' | 'complete'}
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    api.get('/admin/onboardings/orphans')
+      .then((res) => { setOrphans(res.data?.orphans || []); setError(null); })
+      .catch((err) => {
+        // An older server without the route has nothing to show, which is not an error.
+        if (err.response?.status === 404) setOrphans([]);
+        else setError(err.response?.data?.message || err.response?.data?.error || 'تعذّر تحميل «ربط بدون حساب»');
+      });
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async (o) => {
+    if (!open || !value) return;
+    setBusy(true); setError(null);
+    try {
+      if (open.mode === 'attach') await api.post(`/admin/onboardings/${o.id}/attach`, { business_id: value });
+      else await api.post(`/admin/onboardings/${o.id}/complete`, { phone_number_id: value.trim() });
+      setOpen(null); setValue('');
+      load();
+      if (onDone) onDone();
+    } catch (err) {
+      setError(err.response?.data?.message || err.response?.data?.error || 'تعذّر الحفظ');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!error && (!orphans || orphans.length === 0)) return null;
+
+  const pickable = [...(accounts || [])].sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar'));
+
+  return (
+    <Panel title={`ربط بدون حساب${orphans?.length ? ` · ${orphans.length}` : ''}`}>
+      {error && <p className="px-4 py-2 text-[13px] text-red-700 bg-red-50 border-b border-red-100">{error}</p>}
+      <ul className="divide-y divide-gray-100">
+        {(orphans || []).map((o) => (
+          <li key={o.id} className="px-4 py-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="text-[13px] font-medium text-gray-900">{o.verified_name || 'بدون اسم عند Meta'}</span>
+              {o.display_phone ? <Ltr className="text-[13px] text-gray-700">{o.display_phone}</Ltr>
+                : <span className="text-[12px] text-amber-700">الرقم غير محدد</span>}
+              <span className="text-[12px] text-gray-500">{ORPHAN_KIND[o.kind] || ''}</span>
+              {o.waba_id && <span className="text-[11px] text-gray-400">حساب واتساب <Ltr className="font-mono">{o.waba_id}</Ltr></span>}
+              <Timestamp value={o.created_at} className="text-[11px] text-gray-400" />
+              <span className="flex-1" />
+              <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
+                onClick={() => { setOpen({ id: o.id, mode: 'attach' }); setValue(''); }}>
+                اربطه بزبون…
+              </button>
+              {o.kind === 'onboarding' && !o.display_phone && (
+                <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
+                  onClick={() => { setOpen({ id: o.id, mode: 'complete' }); setValue(''); }}>
+                  أكمل الربط
+                </button>
+              )}
+            </div>
+            {open?.id === o.id && (
+              <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); submit(o); }}>
+                {open.mode === 'attach' ? (
+                  <select value={value} onChange={(e) => setValue(e.target.value)}
+                    className="h-8 min-w-[200px] rounded border border-gray-200 px-2 text-[13px]">
+                    <option value="">اختر الزبون</option>
+                    {pickable.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                ) : (
+                  <input value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
+                    inputMode="numeric" dir="ltr" placeholder="معرّف الرقم من WhatsApp Manager"
+                    className="h-8 w-64 rounded border border-gray-200 px-2 font-mono text-[13px]" />
+                )}
+                <button type="submit" disabled={busy || !value}
+                  className="h-8 rounded bg-gray-900 px-3 text-[12px] font-medium text-white disabled:opacity-40">
+                  {busy ? 'جارٍ…' : open.mode === 'attach' ? 'اربط' : 'أكمل'}
+                </button>
+                <button type="button" onClick={() => setOpen(null)} className="text-[12px] text-gray-500 underline">إلغاء</button>
+              </form>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
 function Totals({ totals }) {
   const order = ['onboarding', 'active', 'inactive', 'suspended'];
   return (
@@ -143,6 +262,8 @@ export default function AdminOverviewPage() {
         )}
       </Panel>
 
+      <OrphanSignups accounts={accounts} onDone={load} />
+
       <Panel title={`حسابات الشركات${accounts.length ? ` · ${accounts.length}` : ''}`}
         action={<Link to="/admin/accounts" className="text-xs text-gray-500 hover:text-gray-800 underline underline-offset-2">إدارة الحسابات</Link>}>
         {loading && !data ? (
@@ -154,7 +275,7 @@ export default function AdminOverviewPage() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-gray-500 text-[11px] border-b border-gray-100">
-                  {['الشركة', 'المرحلة', 'العقد', 'اتصال واتساب', 'الوكيل', 'محادثات مفتوحة', 'آخر رسالة واردة'].map((h) => (
+                  {['الشركة', 'المرحلة', 'العقد', 'اتصال واتساب', 'الوكيل', 'ردود الشهر', 'محادثات مفتوحة', 'آخر رسالة واردة'].map((h) => (
                     <th key={h} className="text-right font-medium px-4 h-9 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -176,6 +297,7 @@ export default function AdminOverviewPage() {
                     <td className="px-4 h-9 whitespace-nowrap min-w-[150px]">
                       <StateCell state={a.agent?.state} label={a.agent?.label} sub={a.agent?.sub} />
                     </td>
+                    <td className="px-4 h-9"><UsageCell usage={a.usage} /></td>
                     <td className="px-4 h-9"><Num className="text-gray-700">{a.open_conversations}</Num></td>
                     <td className="px-4 h-9 text-gray-500 whitespace-nowrap"><Timestamp value={a.last_inbound_at} /></td>
                   </tr>

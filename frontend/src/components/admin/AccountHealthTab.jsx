@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, X, Minus, ExternalLink, Eye, RefreshCw } from 'lucide-react';
 import api from '../../utils/api';
 import { Panel, StateCell, Timestamp, Ltr, SkeletonRows } from '../shared/Primitives';
 import TryTheBot from '../whatsapp/TryTheBot';
 import BusinessKnowledge from '../whatsapp/BusinessKnowledge';
+import ConnectWhatsApp, { adminEndpoints } from '../whatsapp/ConnectWhatsApp';
 
 /**
  * Whether this account can actually serve customers, and what is missing.
@@ -34,6 +35,11 @@ export default function AccountHealthTab({ accountId }) {
 
   useEffect(() => { load(); }, [accountId]);
 
+  // Built once per account: a new object each render would refetch the signup status.
+  const esEndpoints = useMemo(() => adminEndpoints(accountId), [accountId]);
+  // A connect, retry or PIN changes the checklist and Meta's panel below, so they reload with it.
+  const onConnectChange = useCallback(() => { load(); }, [accountId]);
+
   const refreshMeta = async () => {
     setBusy(true); setError(null);
     try { await api.post(`/admin/accounts/${accountId}/meta/refresh`); await load(); }
@@ -55,6 +61,17 @@ export default function AccountHealthTab({ accountId }) {
 
   return (
     <div className="space-y-4">
+      {/* SHIFT's attended Embedded Signup, bound to the account in the URL (the admin mirror).
+          It is the owner who logs in to Meta: the number and the WhatsApp account stay theirs. */}
+      <Panel title="ربط واتساب">
+        <ConnectWhatsApp
+          endpoints={esEndpoints}
+          framed={false}
+          onChange={onConnectChange}
+          beforeConnectNote="سلّم الشاشة لصاحب المحل: يدخل بحساب فيسبوك الخاص به. لا تطلب كلمة مروره أبدًا."
+        />
+      </Panel>
+
       <Panel title="الحالة">
         <div className="divide-y divide-gray-50">
           <div className="flex items-center justify-between px-4 h-10">
