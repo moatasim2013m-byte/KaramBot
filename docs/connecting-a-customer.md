@@ -106,8 +106,8 @@ when known and when it arrived. It has two buttons:
 
 - **اربطه بزبون…** → pick the account from the list → **اربط**. Use it when the signup is not
   linked to an account here.
-- **أكمل الربط** (rows with no number) → paste the number's id from WhatsApp Manager
-  (WhatsApp Manager ← Phone numbers ← the number) → **أكمل**.
+- **أكمل الربط** (rows of a shop with no number yet) → pick the number from the WABA's list, or,
+  when Meta cannot be asked, paste its id (WhatsApp Manager ← Phone numbers ← the number) → **أكمل**.
 
 ### 4 · The payment card — theirs, not ours
 Once connected, the panel shows an amber note: **بدون بطاقة دفع مؤكدة لدى Meta**, with the link

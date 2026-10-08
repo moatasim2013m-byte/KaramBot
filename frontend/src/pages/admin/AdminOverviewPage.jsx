@@ -76,6 +76,9 @@ function OrphanSignups({ accounts, onDone }) {
   const [open, setOpen] = useState(null); // {id, mode: 'attach' | 'complete'}
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
+  // The WABA's numbers for «أكمل الربط», read with the customer's stored token. null while
+  // loading or when Meta could not be asked; the id can then still be typed by hand.
+  const [numbers, setNumbers] = useState(null);
 
   const load = useCallback(() => {
     api.get('/admin/onboardings/orphans')
@@ -88,6 +91,13 @@ function OrphanSignups({ accounts, onDone }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const openComplete = (o) => {
+    setOpen({ id: o.id, mode: 'complete' }); setValue(''); setNumbers(null);
+    api.get(`/admin/onboardings/${o.id}/numbers`)
+      .then((res) => setNumbers(res.data?.numbers || []))
+      .catch(() => setNumbers(null));
+  };
 
   const submit = async (o) => {
     if (!open || !value) return;
@@ -119,7 +129,10 @@ function OrphanSignups({ accounts, onDone }) {
               <span className="text-[13px] font-medium text-gray-900">{o.verified_name || 'بدون اسم عند Meta'}</span>
               {o.display_phone ? <Ltr className="text-[13px] text-gray-700">{o.display_phone}</Ltr>
                 : <span className="text-[12px] text-amber-700">الرقم غير محدد</span>}
-              <span className="text-[12px] text-gray-500">{ORPHAN_KIND[o.kind] || ''}</span>
+              <span className="text-[12px] text-gray-500">
+                {o.needs === 'number' ? 'وافق في Meta ولم يُحدَّد الرقم' : (ORPHAN_KIND[o.kind] || '')}
+              </span>
+              {o.business_name && <span className="text-[12px] text-gray-700">{o.business_name}</span>}
               {o.waba_id && <span className="text-[11px] text-gray-400">حساب واتساب <Ltr className="font-mono">{o.waba_id}</Ltr></span>}
               <Timestamp value={o.created_at} className="text-[11px] text-gray-400" />
               <span className="flex-1" />
@@ -127,9 +140,12 @@ function OrphanSignups({ accounts, onDone }) {
                 onClick={() => { setOpen({ id: o.id, mode: 'attach' }); setValue(''); }}>
                 اربطه بزبون…
               </button>
-              {o.kind === 'onboarding' && !o.display_phone && (
+              {/* The server lists two kinds of onboarding rows: needs 'attach' (no shop) and needs
+                  'number' (a shop, but Meta left no number). Only the second takes /complete; an
+                  unattached row with a number is attached, not completed. */}
+              {o.kind === 'onboarding' && (o.needs ? o.needs === 'number' : !o.phone_number_id) && (
                 <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
-                  onClick={() => { setOpen({ id: o.id, mode: 'complete' }); setValue(''); }}>
+                  onClick={() => openComplete(o)}>
                   أكمل الربط
                 </button>
               )}
@@ -141,6 +157,14 @@ function OrphanSignups({ accounts, onDone }) {
                     className="h-8 min-w-[200px] rounded border border-gray-200 px-2 text-[13px]">
                     <option value="">اختر الزبون</option>
                     {pickable.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                ) : numbers && numbers.length > 0 ? (
+                  <select value={value} onChange={(e) => setValue(e.target.value)}
+                    className="h-8 min-w-[200px] rounded border border-gray-200 px-2 text-[13px]">
+                    <option value="">اختر الرقم</option>
+                    {numbers.map((n) => (
+                      <option key={n.id} value={n.id}>{[n.display_phone, n.verified_name].filter(Boolean).join(' · ') || n.id}</option>
+                    ))}
                   </select>
                 ) : (
                   <input value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
