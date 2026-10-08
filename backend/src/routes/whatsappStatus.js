@@ -137,12 +137,14 @@ router.get('/', async (req, res) => {
         ? await prisma.service.count({ where: { business_id: business.id } })
         : await prisma.businessKnowledge.count({ where: { business_id: business.id, active: true } });
 
-    // Last inbound and last reply both from Conversation, the same input the admin overview and
-    // account page read (last_outbound_at is stamped on every outbound path), so the owner's card
-    // and SHIFT's fleet row cannot disagree about whether the bot is answering.
-    const [onboarding, latest, contract] = await Promise.all([
+    // The same inputs the admin overview and account page read, so the owner's card and SHIFT's
+    // fleet row cannot disagree about whether the bot is answering. The agent is judged on its own
+    // newest reply: last_outbound_at is also stamped by staff sends and stored alerts, and an
+    // owner covering by hand for a dead bot must still see «البوت لا يرد — تواصل مع شِفت».
+    const [onboarding, latest, aiReply, contract] = await Promise.all([
       prisma.whatsappOnboarding.findFirst({ where: { business_id: business.id }, orderBy: { created_at: 'desc' }, select: { step: true, payment_method_ok: true } }),
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true } }),
+      prisma.message.aggregate({ where: { business_id: business.id, direction: 'outbound', is_ai_generated: true }, _max: { created_at: true } }),
       prisma.subscription.findFirst({
         where: { business_id: business.id, status: { not: 'cancelled' } },
         orderBy: { created_at: 'desc' },
@@ -152,10 +154,11 @@ router.get('/', async (req, res) => {
 
     const lastInbound = latest._max.last_inbound_at;
     const lastOutbound = latest._max.last_outbound_at;
+    const lastAiReply = aiReply._max.created_at;
     const connection = connectionState(business, onboarding);
     // knowledgeCount lets agentState say «بدون معلومات» for a generic shop with nothing entered;
     // without it that state could never show and the card said «يرد».
-    const agent = agentState(business, lastInbound, lastOutbound, knowledgeCount);
+    const agent = agentState(business, lastInbound, lastAiReply, knowledgeCount);
 
     res.json({
       connection,

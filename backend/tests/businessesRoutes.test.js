@@ -189,3 +189,28 @@ describe('PATCH /api/businesses/:id/token: platform_admin only', () => {
     expect(stored).not.toContain(longToken);
   });
 });
+
+describe('review 2026-10-08', () => {
+  test('creating a shop writes business_created with SHIFT as the actor', async () => {
+    const res = await create({ name: 'Cafe Log', business_type: 'generic' });
+    expect(res.status).toBe(201);
+    expect(db.store.accountEvents).toEqual([expect.objectContaining({
+      business_id: res.body.business.id, actor_kind: 'shift', actor_user_id: 'admin', type: 'business_created',
+      data: expect.objectContaining({ business_type: 'generic' }),
+    })]);
+  });
+
+  test.each(['owner', 'admin'])('PATCH /businesses never switches the bot on or off (%s): a stale form cannot undo a pause', async (who) => {
+    // The fake jsonb patches conversations only (see «the owner can»): what matters is the patch sent.
+    const jsonb = require('../src/db/jsonb');
+    const sent = jest.spyOn(jsonb, 'patchJson').mockResolvedValue({ ok: true, count: 1 });
+    const res = await request(app).patch('/api/businesses/b1').set(as(who))
+      .send({ ai_config: { greeting_message: 'مرحبا', enabled: true } });
+    expect(res.status).toBe(200);
+    expect(sent).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { greeting_message: 'مرحبا' });
+    expect(db.store.accountEvents.map((e) => e.data.ai_config_keys)).toEqual([['greeting_message']]);
+    // Alone, the flag is not a setting at all.
+    const only = await request(app).patch('/api/businesses/b1').set(as(who)).send({ ai_config: { enabled: false } });
+    expect(only.status).toBe(400);
+  });
+});

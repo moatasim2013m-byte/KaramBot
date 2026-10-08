@@ -5,7 +5,15 @@
 -- Backward compatible with the code in production (dc0ed6ee): it only adds nullable or defaulted
 -- columns, drops two NOT NULL constraints, and adds tables and indexes. Nothing is renamed or
 -- dropped, and the running code never writes NULL into the two relaxed columns, so it behaves the
--- same before and after this runs. Apply with backend/scripts/migrate-prod.sh.
+-- same before and after this runs. Apply with backend/scripts/migrate-prod.sh, then deploy the code,
+-- then run backend/scripts/backfill-last-outbound.sh once (backfill (b) again: see there).
+--
+-- Rolling the CODE back after this: safe only while no Business row has wa_phone_number_id NULL.
+-- The new code creates a shop before its number with NULL there; the old Prisma client models the
+-- column as a required String and fails (P2032) on any query that returns such a row, which takes
+-- down the old admin list and overview for every account. Before a rollback, give those rows a
+-- placeholder (UPDATE businesses SET wa_phone_number_id = 'pending:' || id WHERE wa_phone_number_id
+-- IS NULL) or delete them.
 --
 -- The SQL down to the backfills is `prisma migrate diff` from the previous schema to this one.
 
@@ -93,7 +101,9 @@ UPDATE "businesses" SET "is_internal" = true WHERE "business_type" = 'shift' OR 
 -- so the «waiting for a reply» rule built on it is right for history, not only for messages saved
 -- after the deploy. Rows that never reached the customer (failed, cancelled, or an ambiguous send
 -- the sweeper could not reconcile: shiftSweeper's UNDELIVERED_OUTBOUND) are not a reply and are
--- skipped. Only rows still NULL are touched, so running it again changes nothing.
+-- skipped. It only ever moves the column forward (like markOutbound), so it is safe to repeat, and
+-- it is repeated after the code deploy: replies the old code saved between this migration and the
+-- deploy did not stamp the column (backend/scripts/backfill-last-outbound.sql, the same statement).
 UPDATE "conversations" AS c
 SET "last_outbound_at" = m."last_out"
 FROM (
@@ -104,4 +114,11 @@ FROM (
     GROUP BY "conversation_id"
 ) AS m
 WHERE m."conversation_id" = c."id"
-  AND c."last_outbound_at" IS NULL;
+  AND (c."last_outbound_at" IS NULL OR c."last_outbound_at" < m."last_out");
+
+-- Backfill (c): the old «تفعيل الذكاء الاصطناعي» checkbox wrote ai_config.enabled, and nothing ever
+-- acted on it, so a shop (or SHIFT's own row) that unticked it still answers today. This code
+-- starts enforcing the flag; a leftover false would silence that bot on deploy with no error. The
+-- old value is dropped, so the bots answer exactly as before, and only a pause made through
+-- PATCH /api/admin/accounts/:id/bot (which logs bot_paused with a reason) stops one.
+UPDATE "businesses" SET "ai_config" = "ai_config" - 'enabled' WHERE "ai_config"->>'enabled' = 'false';

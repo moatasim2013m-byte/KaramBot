@@ -105,11 +105,26 @@ function openOwnerButton() {
   settings.clearCache();
 }
 
-// Meta answers every call: the code exchange, subscribed_apps and /register.
-function metaAccepts() {
-  axios.get.mockResolvedValue({ data: { access_token: TOKEN_NEW } });
+// Meta answers every call: the code exchange, the ownership proof (debug_token, the WABA's
+// numbers, /me), subscribed_apps and /register. `grant` is what the token covers.
+const ALL_WABAS = [WABA_A, WABA_B, WABA_C, WABA_ORPHAN];
+const ALL_PHONES = [PHONE_A, PHONE_A2, PHONE_B, PHONE_C, PHONE_ORPHAN, PHONE_SHIFT];
+function metaAccepts({ token = TOKEN_NEW, wabas = ALL_WABAS, phones = ALL_PHONES } = {}) {
+  axios.get.mockImplementation(async (url) => {
+    if (url.endsWith('/oauth/access_token')) return { data: { access_token: token } };
+    if (url.endsWith('/debug_token')) {
+      return { data: { data: { is_valid: true, granular_scopes: [
+        { scope: 'whatsapp_business_messaging', target_ids: wabas },
+        { scope: 'whatsapp_business_management', target_ids: wabas },
+      ] } } };
+    }
+    if (url.endsWith('/phone_numbers')) return { data: { data: phones.map((id) => ({ id })) } };
+    if (url.endsWith('/me')) return { data: { client_business_id: PORTFOLIO, id: '999' } };
+    throw new Error(`unexpected GET ${url}`);
+  });
   axios.post.mockResolvedValue({ data: { success: true } });
 }
+const codeExchanges = () => axios.get.mock.calls.filter(([url]) => url.endsWith('/oauth/access_token'));
 
 const metaCalls = () => axios.get.mock.calls.length + axios.post.mock.calls.length;
 // Businesses and onboardings as stored, to prove a refused request changed nothing.
@@ -391,7 +406,7 @@ describe('a clean connect binds to the caller\'s business', () => {
     await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A()).send(exchangeBody());
     const first = db.store.whatsappOnboardings.find((r) => r.business_id === 'biz_a');
 
-    axios.get.mockResolvedValue({ data: { access_token: `EAAS${'s'.repeat(40)}` } });
+    metaAccepts({ token: `EAAS${'s'.repeat(40)}` });
     const res = await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A())
       .send(exchangeBody({ phone_number_id: PHONE_A2, code: 'SECOND' }));
 
@@ -401,21 +416,20 @@ describe('a clean connect binds to the caller\'s business', () => {
     expect(rows[0].id).toBe(first.id);
     expect(rows[0]).toMatchObject({ phone_number_id: PHONE_A2, step: 'done' });
     // The new number got a fresh exchange, not the old number's token.
-    expect(axios.get.mock.calls.at(-1)[1].params.code).toBe('SECOND');
+    expect(codeExchanges().at(-1)[1].params.code).toBe('SECOND');
     expect(decrypt(rows[0].access_token_enc)).toBe(`EAAS${'s'.repeat(40)}`);
     expect(business('biz_a').wa_phone_number_id).toBe(PHONE_A2);
   });
 
-  test('a failed exchange answers with the caller\'s own row, in Arabic, and logs es_failed', async () => {
+  test('a failed exchange writes no row, answers in Arabic, and logs es_failed', async () => {
     axios.get.mockRejectedValue({ response: { status: 400, data: { error: { message: 'Invalid verification code format.', code: 100 } } } });
 
     const res = await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A()).send(exchangeBody());
 
     expect(res.status).toBe(502);
-    expect(res.body).toMatchObject({
-      error: 'onboarding_failed', error_code: 100, resumable: false,
-      onboarding: { step: 'code_received', failed: true },
-    });
+    expect(res.body).toMatchObject({ error: 'onboarding_failed', error_code: 100, resumable: false, onboarding: null });
+    // Nothing the browser named was written before Meta proved it (review 2026-10-08).
+    expect(db.store.whatsappOnboardings.filter((r) => r.business_id === 'biz_a')).toEqual([]);
     expect(res.body.message).toMatch(/[؀-ۿ]/); // the owner gets words, not the Graph message
     expect(JSON.stringify(res.body)).not.toMatch(/Invalid verification|biz_|onb_/);
     expect(axios.post).not.toHaveBeenCalled();
@@ -423,7 +437,7 @@ describe('a clean connect binds to the caller\'s business', () => {
     const [event] = eventsOf('biz_a');
     expect(event).toMatchObject({
       type: 'es_failed', actor_kind: 'owner',
-      data: { stage: 'exchange', step: 'code_received', error_code: 100, phone_number_id: PHONE_A },
+      data: { stage: 'exchange', step: null, error_code: 100, phone_number_id: PHONE_A },
     });
   });
 
@@ -547,5 +561,52 @@ describe('the rest of the app is where it was', () => {
       .query({ 'hub.mode': 'subscribe', 'hub.verify_token': process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN, 'hub.challenge': '42' });
     expect(res.status).toBe(200);
     expect(res.text).toBe('42');
+  });
+});
+
+describe('the browser\'s ids are proven by Meta before anything is written (review 2026-10-08)', () => {
+  beforeEach(openOwnerButton);
+
+  test('a bad code naming another shop\'s fresh number leaves no row holding it, and B can still connect it', async () => {
+    axios.get.mockRejectedValue({ response: { status: 400, data: { error: { message: 'Invalid code', code: 100 } } } });
+    const res = await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A())
+      .send(exchangeBody({ code: 'x', waba_id: WABA_A, phone_number_id: PHONE_A2 }));
+    expect(res.status).toBe(502);
+    expect(db.store.whatsappOnboardings.some((r) => r.phone_number_id === PHONE_A2)).toBe(false);
+
+    // The real owner of the number (SHIFT connecting C through the mirror here) is not blocked.
+    metaAccepts();
+    const ok = await request(app).post(`${adminBase('biz_c')}/exchange`).set(ADMIN())
+      .send(exchangeBody({ waba_id: WABA_C, phone_number_id: PHONE_A2 }));
+    expect(ok.status).toBe(200);
+    expect(business('biz_c').wa_phone_number_id).toBe(PHONE_A2);
+    expect(eventsOf('biz_c').map((e) => e.type)).not.toContain('es_conflict');
+  });
+
+  test.each([
+    ['a WABA the token was not granted', { wabas: [WABA_C] }, 'waba_not_granted'],
+    ['a number that is not on the granted WABA', { phones: [PHONE_C] }, 'number_not_on_waba'],
+  ])('%s: 403, nothing written, no subscribe or register, es_ownership_mismatch on the caller', async (label, grant, detail) => {
+    metaAccepts(grant);
+    const before = snapshot();
+
+    const res = await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A()).send(exchangeBody());
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'es_ownership_mismatch', message: expect.stringMatching(/[؀-ۿ]/) });
+    expect(snapshot()).toBe(before);
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(eventsOf('biz_a')).toEqual([expect.objectContaining({
+      type: 'es_ownership_mismatch', actor_kind: 'owner',
+      data: expect.objectContaining({ waba_id: WABA_A, phone_number_id: PHONE_A, detail }),
+    })]);
+  });
+
+  test('the portfolio id stored is Meta\'s /me answer, not the browser\'s', async () => {
+    metaAccepts();
+    const res = await request(app).post(`${OWNER_BASE}/exchange`).set(OWNER_A())
+      .send(exchangeBody({ meta_business_id: '300000000000777' }));
+    expect(res.status).toBe(200);
+    expect(db.store.whatsappOnboardings.find((r) => r.business_id === 'biz_a').meta_business_id).toBe(PORTFOLIO);
   });
 });

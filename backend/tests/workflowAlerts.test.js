@@ -232,6 +232,22 @@ test('the outage is recorded in provider_status for the operator panel', async (
   expect(Number.isNaN(Date.parse(row.value.last_seen))).toBe(false);
 });
 
+test('SHIFT\'s own sales bot hitting the outage first records provider_status too (review 2026-10-08)', async () => {
+  // provider.js hands the hourly issue to whichever callback hit it first; SHIFT's number is the
+  // busiest, and its callback used to write nothing here, so the outage never showed.
+  seedShift();
+  jest.spyOn(alerts, 'sendStaffAlert').mockResolvedValue({ webhook: 'skipped', whatsapp: [] });
+  const { providerIssueAlert } = require('../src/workflows/shift');
+  const shiftBiz = db.store.businesses.find((b) => b.id === 'biz_shift');
+  providerIssueAlert({ business: shiftBiz, conversation: { id: 'c1' } })({ provider: 'anthropic', kind: 'auth', summary: 'مفتاح Claude مرفوض' });
+  await settle();
+
+  const row = db.store.platformSettings.find((r) => r.key === 'provider_status');
+  expect(row.value).toEqual({ provider: 'anthropic', kind: 'auth', last_seen: expect.any(String) });
+  // Its own alert still goes as before.
+  expect(alerts.sendStaffAlert).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ai_failure' }));
+});
+
 test('end to end: the WhatsApp alert leaves from SHIFT\'s number to SHIFT staff, never to the owner', async () => {
   seedShift();
   seedBusiness();

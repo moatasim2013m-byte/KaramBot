@@ -189,3 +189,82 @@ test('a late failure report about an earlier week does not stop a series that ha
   await deliverStatus({ id: 'wamid.w1old', status: 'failed', recipient_id: CUSTOMER, errors: [{ code: 131049 }] });
   expect(db.store.conversations.find((c) => c.id === 'conv_wf2').workflow_data.weekly_followup.stopped).toBeUndefined();
 });
+
+describe('a shop\'s 131042 reaches SHIFT and turns the panels red (review 2026-10-08)', () => {
+  const TENANT_PNID = 'pnid_tenant_billing';
+  let notifyShift;
+
+  const tenantStatus = (status) => processInboundMessage({
+    changes: [{ value: { messaging_product: 'whatsapp', metadata: { phone_number_id: TENANT_PNID }, statuses: [status] } }],
+  }, { persisted: { business: null, items: [] } }).then(() => new Promise((r) => setImmediate(r)));
+
+  function seedTenant({ onboarding = true } = {}) {
+    db.seed({
+      businesses: [{
+        id: 'biz_shop', name: 'صيدلية النور', business_type: 'general', status: 'active',
+        wa_phone_number_id: TENANT_PNID, wa_access_token: encrypt('tok_shop'),
+        // A shop with no alert numbers: before, the webhook was its only channel.
+        ai_config: {},
+      }],
+      whatsappOnboardings: onboarding ? [{
+        id: 'onb_shop', business_id: 'biz_shop', app_id: 'app', waba_id: 'w1', phone_number_id: TENANT_PNID, step: 'done',
+      }] : [],
+      conversations: [
+        { id: 'conv_s1', business_id: 'biz_shop', customer_wa_id: '962790000001', status: 'open', ai_enabled: true },
+        { id: 'conv_s2', business_id: 'biz_shop', customer_wa_id: '962790000002', status: 'open', ai_enabled: true },
+      ],
+      messages: [
+        { id: 's1', business_id: 'biz_shop', conversation_id: 'conv_s1', direction: 'outbound', meta_message_id: 'wamid.s1', status: 'sent' },
+        { id: 's2', business_id: 'biz_shop', conversation_id: 'conv_s2', direction: 'outbound', meta_message_id: 'wamid.s2', status: 'sent' },
+        { id: 's3', business_id: 'biz_shop', conversation_id: 'conv_s1', direction: 'outbound', meta_message_id: 'wamid.s3', status: 'sent' },
+      ],
+    });
+  }
+
+  beforeEach(() => {
+    notifyShift = jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
+  });
+
+  test('the first refusal stamps payment_blocked_at, records the event and tells SHIFT once', async () => {
+    seedTenant();
+    await tenantStatus(failed('wamid.s1', '962790000001'));
+    await tenantStatus(failed('wamid.s2', '962790000002')); // another conversation, same block
+
+    expect(db.store.whatsappOnboardings.find((r) => r.id === 'onb_shop').payment_blocked_at).toBeTruthy();
+    expect(db.store.accountEvents.filter((e) => e.type === 'payment_blocked')).toEqual([
+      expect.objectContaining({ business_id: 'biz_shop', actor_kind: 'meta' }),
+    ]);
+    expect(notifyShift).toHaveBeenCalledTimes(1);
+    expect(notifyShift.mock.calls[0][0]).toMatchObject({ reason: 'payment_blocked', businessId: 'biz_shop' });
+    // The shop's own billing alert is still attempted, per conversation, as before.
+    expect(billingAlerts()).toHaveLength(2);
+  });
+
+  test('the next delivered status clears it, and a later refusal is news again', async () => {
+    seedTenant();
+    await tenantStatus(failed('wamid.s1', '962790000001'));
+    await tenantStatus({ id: 'wamid.s3', status: 'delivered', recipient_id: '962790000001' });
+    expect(db.store.whatsappOnboardings.find((r) => r.id === 'onb_shop').payment_blocked_at).toBeNull();
+
+    await tenantStatus(failed('wamid.s2', '962790000002'));
+    expect(notifyShift).toHaveBeenCalledTimes(2);
+  });
+
+  test('a shop wired by hand (no onboarding row) still tells SHIFT, once per conversation block', async () => {
+    seedTenant({ onboarding: false });
+    await tenantStatus(failed('wamid.s1', '962790000001'));
+    await tenantStatus(failed('wamid.s3', '962790000001'));
+    expect(notifyShift).toHaveBeenCalledTimes(1);
+    expect(db.store.accountEvents.filter((e) => e.type === 'payment_blocked')).toHaveLength(1);
+  });
+
+  test('SHIFT\'s own number keeps its old path: no notifyShift, no onboarding write', async () => {
+    db.seed({
+      conversations: [{ id: 'conv_own', business_id: 'biz_shift', customer_wa_id: CUSTOMER, status: 'open', ai_enabled: true }],
+      messages: [{ id: 'o1', business_id: 'biz_shift', conversation_id: 'conv_own', direction: 'outbound', meta_message_id: 'wamid.o1', status: 'sent' }],
+    });
+    await deliverStatus(failed('wamid.o1', CUSTOMER));
+    expect(billingAlerts()).toHaveLength(1);
+    expect(notifyShift).not.toHaveBeenCalled();
+  });
+});

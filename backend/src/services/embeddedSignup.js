@@ -73,6 +73,72 @@ async function exchangeCode(code) {
   }
 }
 
+/**
+ * The browser's ids proven against Meta, before any of them is written.
+ *
+ * The FINISH payload (waba_id, phone_number_id, business_id) comes from the browser, so on its
+ * own it proves nothing: a shop could post another shop's fresh number with any code, get it
+ * onto its own onboarding row, and leave the real owner a 409 when they connect it
+ * (docs/panels/spec.md, «Ownership proof from Meta itself»). The business token answers for what
+ * the customer actually granted:
+ *   - debug_token granular_scopes: whatsapp_business_management must list the WABA;
+ *   - GET /{waba}/phone_numbers (with that token) must list the number;
+ *   - GET /me client_business_id is the portfolio, preferred over the browser's.
+ * A mismatch throws code 'es_ownership_mismatch' (403 at the route). /me is the only read allowed
+ * to fail: the portfolio id is informational, not part of the ownership proof.
+ *
+ * @returns {Promise<{wabaId: string, phoneNumberId: string, metaBusinessId: string|null}>}
+ */
+function ownershipMismatch(detail) {
+  return Object.assign(new Error(`es_ownership_mismatch: ${detail}`), { code: 'es_ownership_mismatch', status: 403, detail });
+}
+
+async function verifyGrant(token, { wabaId, phoneNumberId } = {}) {
+  const { appId, secret } = embeddedSignupApp();
+  const waba = String(wabaId);
+  const phone = String(phoneNumberId);
+
+  let grant;
+  try {
+    ({ data: grant } = await axios.get(`${graphBase()}/debug_token`, {
+      params: { input_token: token, access_token: `${appId}|${secret}` },
+      timeout: 15000,
+    }));
+  } catch (err) {
+    throw graphError(err, 'debug_token failed');
+  }
+  const scopes = Array.isArray(grant?.data?.granular_scopes) ? grant.data.granular_scopes : [];
+  const management = scopes.find((s) => s && s.scope === 'whatsapp_business_management');
+  const targets = (management?.target_ids || []).map(String);
+  if (!targets.includes(waba)) throw ownershipMismatch('waba_not_granted');
+
+  let numbers;
+  try {
+    ({ data: numbers } = await axios.get(`${graphBase()}/${waba}/phone_numbers`, {
+      params: { fields: 'id,display_phone_number,verified_name' },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 15000,
+    }));
+  } catch (err) {
+    throw graphError(err, 'phone_numbers failed');
+  }
+  const ids = (Array.isArray(numbers?.data) ? numbers.data : []).map((n) => String(n?.id));
+  if (!ids.includes(phone)) throw ownershipMismatch('number_not_on_waba');
+
+  let metaBusinessId = null;
+  try {
+    const { data: me } = await axios.get(`${graphBase()}/me`, {
+      params: { fields: 'client_business_id' },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 15000,
+    });
+    if (me?.client_business_id && /^\d{1,32}$/.test(String(me.client_business_id))) metaBusinessId = String(me.client_business_id);
+  } catch (err) {
+    console.warn(`[embedded-signup] /me unreadable, keeping the browser's portfolio id: ${graphError(err, '/me').message}`);
+  }
+  return { wabaId: waba, phoneNumberId: phone, metaBusinessId };
+}
+
 /** Step 2 — subscribe our app to this WABA's webhooks. Idempotent at Meta: repeating it is a no-op. */
 async function subscribeApp(wabaId, token) {
   try {
@@ -264,12 +330,13 @@ async function recordFailure(id, step, err) {
 /**
  * Run the onboarding from wherever it stopped.
  *
- * `code` is only needed the first time; a resume uses the stored token, which is why
+ * `code` (or `token`, already exchanged and verified by the route) is only needed the first
+ * time; a resume uses the stored token, which is why
  * a failed step 2 or 3 does not send the customer back through Embedded Signup.
  * `actor` ({kind, userId}) is who asked, for the es_conflict event when the number turns out
  * to be taken. Returns the row as the dashboard should show it.
  */
-async function runOnboarding(onboardingId, { code, pin: suppliedPin, actor = {} } = {}) {
+async function runOnboarding(onboardingId, { code, token: exchangedToken, pin: suppliedPin, actor = {} } = {}) {
   let row = await prisma.whatsappOnboarding.findUnique({ where: { id: onboardingId } });
   if (!row) throw new Error(`onboarding ${onboardingId} not found`);
   if (row.step === 'done') return row; // already finished — nothing to repeat
@@ -282,10 +349,11 @@ async function runOnboarding(onboardingId, { code, pin: suppliedPin, actor = {} 
 
   // ── Step 1: token ──────────────────────────────────────────────────────────
   if (stepIndex(row.step) < stepIndex('token_exchanged')) {
-    if (!code) throw new Error('resume needs a new signup: no code and no stored token');
-    let token;
+    if (!code && !exchangedToken) throw new Error('resume needs a new signup: no code and no stored token');
+    let token = exchangedToken;
     try {
-      token = await exchangeCode(code);
+      // The exchange route spends the code itself, before verifyGrant, and passes the token in.
+      if (!token) token = await exchangeCode(code);
     } catch (err) {
       await recordFailure(row.id, 'code_received', err);
       throw err;
@@ -440,6 +508,7 @@ module.exports = {
   numberHolder,
   generatePin,
   exchangeCode,
+  verifyGrant,
   subscribeApp,
   registerPhoneNumber,
   STEPS,

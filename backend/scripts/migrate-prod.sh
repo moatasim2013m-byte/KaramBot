@@ -14,3 +14,6 @@ cd "$(dirname "$0")/.."
 
 DATABASE_URL="$(gcloud secrets versions access latest --secret=DATABASE_URL --project=karam-bot)" \
   npx prisma migrate deploy
+
+# After 20261008090000_panels_foundation: once the new code is live, run
+# scripts/backfill-last-outbound.sh (the column's backfill again, for replies saved in between).

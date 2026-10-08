@@ -7,6 +7,7 @@ import ConnectWhatsApp from '../components/whatsapp/ConnectWhatsApp';
 import WhatsAppStatusCard from '../components/whatsapp/WhatsAppStatusCard';
 import TryTheBot from '../components/whatsapp/TryTheBot';
 import BusinessKnowledge from '../components/whatsapp/BusinessKnowledge';
+import BotPauseControl from '../components/admin/BotPauseControl';
 
 function Section({ title, children }) {
   return (
@@ -151,10 +152,14 @@ export default function SettingsPage() {
     try {
       // Save without leaving the alert-numbers field must not lose what was typed: blur happening
       // before click is browser behaviour, not a guarantee worth depending on.
-      const aiConfig = alertNumbersText === null ? biz.ai_config : {
+      const aiConfig = alertNumbersText === null ? { ...(biz.ai_config || {}) } : {
         ...biz.ai_config,
         alert_wa_numbers: alertNumbersText.split(',').map(s => s.trim()).filter(Boolean),
       };
+      // The pause is not a form field: it has its own route (PATCH /admin/accounts/:id/bot) that
+      // logs bot_paused/bot_resumed with a reason. A form opened before a pause would otherwise
+      // switch the bot back on when the greeting is saved, with nothing in the log.
+      delete aiConfig.enabled;
       await api.patch(`/businesses/${biz.id}`, {
         name: biz.name,
         address: biz.address,
@@ -259,12 +264,17 @@ export default function SettingsPage() {
           </Section>
 
           <Section title="إعدادات الذكاء الاصطناعي">
-            <Field label="تفعيل الذكاء الاصطناعي">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={biz.ai_config?.enabled ?? true}
-                  onChange={e => set('ai_config.enabled', e.target.checked)} />
-                <span className="text-sm text-gray-600">مفعّل</span>
-              </label>
+            <Field label="حالة البوت">
+              {user?.role === 'platform_admin' ? (
+                <BotPauseControl accountId={biz.id} enabled={biz.ai_config?.enabled !== false}
+                  onChange={enabled => setBiz(prev => ({ ...prev, ai_config: { ...(prev.ai_config || {}), enabled } }))} />
+              ) : (
+                <p className="text-sm text-gray-600">
+                  {biz.ai_config?.enabled === false
+                    ? 'البوت موقوف مؤقتًا. تواصل مع فريق شِفت لإعادة تشغيله.'
+                    : 'البوت يعمل ويرد على العملاء.'}
+                </p>
+              )}
             </Field>
             <Field label="شخصية المساعد">
               <input value={biz.ai_config?.personality || ''} onChange={e => set('ai_config.personality', e.target.value)} className={inputClass} />

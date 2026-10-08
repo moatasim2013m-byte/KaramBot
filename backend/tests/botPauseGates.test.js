@@ -477,3 +477,70 @@ describe('markOutbound', () => {
     expect(db.store.conversations.find((c) => c.id === staffConv.id).last_outbound_at).toEqual(stored.created_at);
   });
 });
+
+// ─── review 2026-10-08 ───────────────────────────────────────────────────────
+
+describe('a paused bot, what the P0 review found', () => {
+  // A staff member on alert_wa_numbers writing to the shop's number (replying to an alert keeps
+  // their 24 h window open for the free-text alerts).
+  async function deliverFrom(from, waMsg) {
+    seq += 1;
+    const e = {
+      changes: [{
+        value: {
+          messaging_product: 'whatsapp',
+          metadata: { phone_number_id: PNID },
+          contacts: [{ wa_id: from, profile: { name: 'الموظف' } }],
+          messages: [{ id: `wamid.s${seq}`, from, timestamp: '1', type: 'text', ...waMsg }],
+        },
+      }],
+    };
+    const persisted = await persistInbound(e);
+    await processInboundMessage(e, { persisted });
+    await alertsSettled();
+  }
+  const threadOf = (waId) => db.store.conversations.find((c) => c.customer_wa_id === waId);
+
+  test.each(['generic', 'shift'])('a staff number writing in is not flagged as a waiting customer (%s)', async (type) => {
+    seedShop({ business_type: type, ai_config: { enabled: false } });
+    await deliverFrom(OWNER, text('تمام، شفت التنبيه'));
+    expect(threadOf(OWNER).needs_attention).toBe(false);
+    // A real customer of the same paused shop still is.
+    await deliver(text('مرحبا'));
+    expect(conversation()).toMatchObject({ needs_attention: true, attention_reason: 'bot_paused' });
+  });
+
+  test('an external-mode shop that is paused forwards nothing; the customer waits for the team', async () => {
+    const axios = require('axios');
+    seedShop({ ai_config: { enabled: false, reply_mode: 'external', forward_url: 'https://hook.example.test/fwd' } });
+    await deliver(text('hi'));
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(inboundRows()[0].status).toBe('delivered');
+    expect(conversation()).toMatchObject({ needs_attention: true, attention_reason: 'bot_paused' });
+    expect(alertReasons()).toEqual(['new_message']);
+  });
+
+  test('reprocessStuckInbound does not forward a paused external shop\'s stuck row either', async () => {
+    const axios = require('axios');
+    const biz = seedShop({ ai_config: { enabled: false, reply_mode: 'external', forward_url: 'https://hook.example.test/fwd' } });
+    const [conv] = db.seed({ conversations: [{ business_id: biz.id, customer_wa_id: CUSTOMER, last_inbound_at: T0 }] }).conversations;
+    const [stuck] = db.seed({
+      messages: [{
+        business_id: biz.id, conversation_id: conv.id, direction: 'inbound', status: 'processing', message_type: 'text',
+        text_body: 'وينكم؟', sender_wa_id: CUSTOMER, meta_message_id: 'wamid.stuckx', created_at: new Date(T0.getTime() - 3 * MIN),
+      }],
+    }).messages;
+    await reprocessStuckInbound({ olderThanMs: 0, now: new Date(T0.getTime() + 10 * MIN) });
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(db.store.messages.find((m) => m.id === stuck.id).status).toBe('delivered');
+  });
+
+  test('an external-mode shop that is not paused still forwards, exactly as before', async () => {
+    const axios = require('axios');
+    axios.post.mockResolvedValue({ data: {} });
+    seedShop({ ai_config: { reply_mode: 'external', forward_url: 'https://hook.example.test/fwd' } });
+    await deliver(text('hi'));
+    expect(axios.post).toHaveBeenCalledWith('https://hook.example.test/fwd', expect.objectContaining({ messages: expect.any(Array) }), expect.anything());
+    expect(conversation().needs_attention).toBe(false);
+  });
+});

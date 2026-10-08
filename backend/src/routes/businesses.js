@@ -47,8 +47,11 @@ const ADMIN_ALLOWED_FIELDS = [
   'wa_phone_number_id', 'wa_business_account_id',
 ];
 
+// No 'enabled': the bot's pause has its own route (PATCH /api/admin/accounts/:id/bot), which logs
+// bot_paused/bot_resumed with a reason. Accepted here, a settings form opened before a pause
+// switched the bot back on when the greeting was saved, and the log said only settings_changed.
 const OWNER_AI_CONFIG_ALLOWED = [
-  'enabled', 'provider', 'personality', 'greeting_message',
+  'provider', 'personality', 'greeting_message',
   'fallback_message', 'handoff_keywords', 'out_of_hours_message',
   'confidence_threshold',
   // Where the bot reaches a human. Without a number here the staff alerts — a customer asking
@@ -232,6 +235,11 @@ router.post('/', requireRole('platform_admin'), async (req, res) => {
         data: { ...data, slug: nextSlug(base, attempt) },
       });
       void _tok;
+      // The first line of the shop's «السجل»: who opened the account, and as what.
+      await accountEvents.record({
+        businessId: biz.id, actorUserId: req.user.id, actorKind: 'shift', type: 'business_created',
+        data: { business_type: biz.business_type, source: biz.source || 'operator' },
+      });
       return res.status(201).json({ business: biz });
     } catch (err) {
       const field = uniqueField(err);

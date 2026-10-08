@@ -81,7 +81,20 @@ function groupConversations(rows, { where, _max, _count, _sum }) {
   });
 }
 
-function mockDb({ businesses, onboardings = [], conversations = [], subs = [], knowledge = [], hidden = 0 }) {
+// aiReplies: the newest AI-generated outbound per business. Unless a test says otherwise, every
+// conversation's last_outbound_at is taken to be the bot's own reply.
+function mockDb({ businesses, onboardings = [], conversations = [], subs = [], knowledge = [], hidden = 0, aiReplies = null }) {
+  const ai = aiReplies || conversations.filter((c) => c.last_outbound_at).map((c) => ({ business_id: c.business_id, created_at: c.last_outbound_at }));
+  prisma.message.groupBy.mockImplementation(({ where }) => {
+    const ids = where?.business_id?.in;
+    const byBiz = new Map();
+    for (const m of ai) {
+      if (ids && !ids.includes(m.business_id)) continue;
+      const t = new Date(m.created_at);
+      if (!byBiz.has(m.business_id) || byBiz.get(m.business_id) < t) byBiz.set(m.business_id, t);
+    }
+    return Promise.resolve([...byBiz].map(([business_id, created_at]) => ({ business_id, _max: { created_at } })));
+  });
   prisma.business.findMany.mockImplementation(({ where = {} } = {}) =>
     Promise.resolve(businesses.filter((b) => matches(b, where))));
   prisma.business.count.mockResolvedValue(hidden);
@@ -130,14 +143,26 @@ test('a healthy account is active, connected and answering', async () => {
   expect(res.body.attention).toEqual([]);   // nothing to do is the normal case
 });
 
-test('the agent state is read from Conversation.last_outbound_at, not a scan of every message', async () => {
+test('the agent state is read from the bot\'s own replies, scoped to the accounts shown', async () => {
   const replied = minsAgo(4);
   mockDb({ businesses: [biz()], onboardings: ready(), conversations: [conversation({ last_inbound_at: minsAgo(5), last_outbound_at: replied })] });
   const res = await get();
-  expect(prisma.message.groupBy).not.toHaveBeenCalled();
   expect(res.body.accounts[0].last_outbound_at).toBe(replied.toISOString());
-  const aggregate = prisma.conversation.groupBy.mock.calls.find(([a]) => a._max)[0];
-  expect(aggregate._max.last_outbound_at).toBe(true);
+  expect(res.body.accounts[0].last_ai_reply_at).toBe(replied.toISOString());
+  const [call] = prisma.message.groupBy.mock.calls[0];
+  expect(call.where).toEqual({ business_id: { in: ['b1'] }, direction: 'outbound', is_ai_generated: true });
+});
+
+test('a staff reply or a stored alert after the customer does not make a dead bot read «يرد» (review 2026-10-08)', async () => {
+  // The customer wrote 30 min ago; the bot's last reply was 2 h ago; the owner (or the handoff
+  // alert stored on the staff thread) stamped last_outbound_at after the customer.
+  mockDb({
+    businesses: [biz()], onboardings: ready(),
+    conversations: [conversation({ last_inbound_at: minsAgo(30), last_outbound_at: minsAgo(29) })],
+    aiReplies: [{ business_id: 'b1', created_at: minsAgo(120) }],
+  });
+  const res = await get();
+  expect(res.body.accounts[0].agent.state).toBe('down');
 });
 
 test('an account with no messages yet reads as unknown, never healthy', async () => {

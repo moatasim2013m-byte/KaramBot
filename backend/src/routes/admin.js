@@ -94,6 +94,18 @@ router.get('/overview', async (req, res) => {
     });
     const convByBusiness = new Map(convAgg.map((c) => [c.business_id, c]));
 
+    // Whether the AGENT answers is read from the agent's own replies, not from last_outbound_at:
+    // staff inbox sends, /ingest and stored staff alerts stamp that column too, so a dead bot
+    // whose owner covers by hand (or whose handoff alert was just stored) would read «يرد»
+    // (review 2026-10-08). last_outbound_at stays what the per-conversation waiting rules read.
+    // Served by the (business_id, created_at) index.
+    const aiReplyAgg = await prisma.message.groupBy({
+      by: ['business_id'],
+      where: { ...inShown, direction: 'outbound', is_ai_generated: true },
+      _max: { created_at: true },
+    });
+    const aiReplyByBusiness = new Map(aiReplyAgg.map((m) => [m.business_id, m._max.created_at]));
+
     // A per-business maximum hides a single neglected thread behind a busy one, so waiting
     // customers are counted per conversation. Bounded by the 24-hour window and a row cap, and
     // only the four columns the rule reads; the comparison of two columns is done here because
@@ -163,6 +175,7 @@ router.get('/overview', async (req, res) => {
       const conv = convByBusiness.get(b.id) || null;
       const lastInbound = conv?._max?.last_inbound_at || null;
       const lastOutbound = conv?._max?.last_outbound_at || null;
+      const lastAiReply = aiReplyByBusiness.get(b.id) || null;
       const lastActivity = conv?._max?.last_message_at || null;
       const waiting = waitingByBusiness.get(b.id) || { count: 0, oldest: null };
       const handoff = handoffByBusiness.get(b.id) || { count: 0, oldest: null };
@@ -172,7 +185,7 @@ router.get('/overview', async (req, res) => {
       totals[bucket] += 1;
 
       const connection = connectionState(b, onboarding);
-      const agent = agentState(b, lastInbound, lastOutbound, knowledgeCount);
+      const agent = agentState(b, lastInbound, lastAiReply, knowledgeCount);
 
       const contract = contractByBusiness.get(b.id) || null;
       const dueInDays = contract?.next_due_at ? Math.ceil((new Date(contract.next_due_at) - Date.now()) / 86400000) : null;
@@ -203,6 +216,7 @@ router.get('/overview', async (req, res) => {
         unread: conv?._sum?.unread_count || 0,
         last_inbound_at: lastInbound,
         last_outbound_at: lastOutbound,
+        last_ai_reply_at: lastAiReply,
         last_activity_at: lastActivity,
         meta: onboarding ? {
           quality_rating: onboarding.meta_quality_rating,
@@ -352,17 +366,22 @@ router.get('/accounts/:id', async (req, res) => {
       select: { id: true },
     });
 
-    // The same input the overview reads (Conversation.last_outbound_at), so the fleet row and
-    // this page cannot show two different agent states for one shop.
-    const [latest, conversations] = await Promise.all([
+    // The same inputs the overview reads, so the fleet row and this page cannot show two
+    // different agent states for one shop: the agent's state from its own newest reply, never
+    // from last_outbound_at, which staff sends and stored alerts also stamp.
+    const [latest, aiReply, conversations] = await Promise.all([
       prisma.conversation.aggregate({
         where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true },
+      }),
+      prisma.message.aggregate({
+        where: { business_id: business.id, direction: 'outbound', is_ai_generated: true }, _max: { created_at: true },
       }),
       prisma.conversation.count({ where: { business_id: business.id } }),
     ]);
 
     const lastInbound = latest._max.last_inbound_at;
     const lastOutbound = latest._max.last_outbound_at;
+    const lastAiReply = aiReply._max.created_at;
     const knowledgeCount = await prisma.businessKnowledge.count({ where: { business_id: business.id, active: true } });
 
     // The checklist is derived, never stored: a stored "done" drifts from reality the moment
@@ -381,7 +400,7 @@ router.get('/accounts/:id', async (req, res) => {
       { step: 'owner_login', label: 'حساب دخول لصاحب المنشأة', done: Boolean(anyOwner) },
       { step: 'owner_signed_in', label: 'صاحب المنشأة دخل فعليًا', done: Boolean(signedInOwner) },
       { step: 'first_message', label: 'أول رسالة واردة', done: Boolean(lastInbound) },
-      { step: 'first_reply', label: 'أول رد من الوكيل', done: Boolean(lastOutbound) },
+      { step: 'first_reply', label: 'أول رد من الوكيل', done: Boolean(lastAiReply) },
     ];
 
     res.json({
@@ -391,12 +410,13 @@ router.get('/accounts/:id', async (req, res) => {
         wa_access_token: undefined,
         has_token: Boolean(business.wa_access_token),
         connection: connectionState(business, onboarding),
-        agent: agentState(business, lastInbound, lastOutbound, knowledgeCount),
+        agent: agentState(business, lastInbound, lastAiReply, knowledgeCount),
         knowledge_count: knowledgeCount,
         bot_enabled: business.ai_config?.enabled !== false,
         lifecycle: lifecycle(business, onboarding),
         last_inbound_at: lastInbound,
         last_outbound_at: lastOutbound,
+        last_ai_reply_at: lastAiReply,
         conversations,
       },
       onboarding: onboarding ? {

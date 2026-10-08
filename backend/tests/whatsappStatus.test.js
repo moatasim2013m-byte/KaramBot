@@ -9,6 +9,7 @@ jest.mock('../src/config/prisma', () => ({
   business: { findUnique: jest.fn() },
   whatsappOnboarding: { findFirst: jest.fn() },
   conversation: { aggregate: jest.fn() },
+  message: { aggregate: jest.fn() },
   subscription: { findFirst: jest.fn() },
   menuItem: { count: jest.fn() },
   service: { count: jest.fn() },
@@ -30,7 +31,9 @@ const biz = (over = {}) => ({
   wa_phone_number_id: 'PN', wa_business_account_id: 'WABA', wa_access_token: 'enc', ai_config: {}, ...over,
 });
 
-function setup({ business = biz(), onboarding = { step: 'done', payment_method_ok: true }, inbound = null, outbound = null, contract = null, knowledge = 0 } = {}) {
+// aiReply: the bot's own newest reply; unless a test says otherwise, the last outbound was the bot's.
+function setup({ business = biz(), onboarding = { step: 'done', payment_method_ok: true }, inbound = null, outbound = null, aiReply, contract = null, knowledge = 0 } = {}) {
+  prisma.message.aggregate.mockResolvedValue({ _max: { created_at: aiReply === undefined ? outbound : aiReply } });
   prisma.user.findUnique.mockResolvedValue(OWNER);
   prisma.business.findUnique.mockResolvedValue(business);
   prisma.whatsappOnboarding.findFirst.mockResolvedValue(onboarding);
@@ -107,11 +110,19 @@ test('a bot SHIFT paused says so, and tells the owner to answer by hand', async 
   expect(res.body.explain).toMatchObject({ tone: 'warn', title: 'البوت موقوف مؤقتًا', action: 'contact' });
 });
 
-test('the last reply is read from Conversation.last_outbound_at, as the admin overview does', async () => {
+test('the agent is judged on its own replies, as the admin overview does', async () => {
   setup({ inbound: minsAgo(40), outbound: minsAgo(30) });
   const res = await get();
   expect(res.body.agent.state).toBe('ok');
-  expect(prisma.conversation.aggregate.mock.calls[0][0]._max).toEqual({ last_inbound_at: true, last_outbound_at: true });
+  expect(prisma.message.aggregate.mock.calls[0][0].where).toEqual({ business_id: 'b1', direction: 'outbound', is_ai_generated: true });
+});
+
+test('an owner covering by hand for a dead bot still sees «البوت لا يرد» (review 2026-10-08)', async () => {
+  // The owner (or a stored alert) answered after the customer; the bot has not replied since before.
+  setup({ inbound: minsAgo(40), outbound: minsAgo(30), aiReply: minsAgo(300) });
+  const res = await get();
+  expect(res.body.agent.state).toBe('down');
+  expect(res.body.explain).toMatchObject({ tone: 'bad', action: 'contact' });
 });
 
 test('a generic shop with knowledge answering is good news', async () => {

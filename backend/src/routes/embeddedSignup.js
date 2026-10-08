@@ -5,7 +5,9 @@ const { authenticate, requireRole, attachBusinessId } = require('../middleware/a
 const { requireSetting } = require('../services/platformSettings');
 const accountEvents = require('../services/accountEvents');
 const { embeddedSignupAppId } = require('../utils/metaSecrets');
-const { startOnboarding, runOnboarding, publicStatus } = require('../services/embeddedSignup');
+const {
+  startOnboarding, runOnboarding, publicStatus, exchangeCode, verifyGrant, assertNumberFree,
+} = require('../services/embeddedSignup');
 
 /**
  * Embedded Signup (v4) endpoints: the shop owner's own.
@@ -27,6 +29,7 @@ const MESSAGES = {
   businessIdRefused: 'الحساب يُحدَّد من الجلسة أو من الرابط، لا من الطلب.',
   missingFields: 'بيانات الربط من Meta ناقصة أو غير صالحة: يلزم code و waba_id و phone_number_id.',
   numberTaken: 'هذا الرقم مربوط بحساب آخر على شِفت. تواصل مع فريق شِفت لحل المشكلة.',
+  ownershipMismatch: 'هذا الرقم لا يتبع الحساب الذي دخلت به في فيسبوك.',
   failed: 'لم يكتمل ربط واتساب. حاول مرة أخرى، أو تواصل مع فريق شِفت.',
   badPin: 'رمز التحقق بخطوتين يجب أن يكون 6 أرقام.',
   noOnboarding: 'لم يبدأ ربط واتساب لهذا الحساب بعد.',
@@ -116,6 +119,12 @@ function config(req, res) {
  *
  * The exchange runs inline, not on a queue: the code expires 30 seconds after the
  * flow closes, and a queue hop can cost more than that.
+ *
+ * Order (docs/panels/spec.md P0/P1, connectFromCode): a cheap number-conflict check, then the
+ * code exchange, then verifyGrant, and only then the onboarding row. The browser's ids prove
+ * nothing until Meta has confirmed them with the token: the previous order wrote them first, so
+ * a bogus code naming another shop's fresh number left that number on the caller's row (the
+ * failure path keeps the row) and the real owner got 409 number_taken when they connected it.
  */
 async function exchange(req, res) {
   const scope = req.es;
@@ -129,18 +138,29 @@ async function exchange(req, res) {
     return res.status(400).json({ error: 'missing_fields', message: MESSAGES.missingFields });
   }
 
+  let stage = 'exchange';
   try {
+    // Before the code is spent: a number another shop holds is refused without calling Meta.
+    // startOnboarding checks again after the proof, against a row created in between.
+    const own = await prisma.whatsappOnboarding.findUnique({ where: { business_id: scope.businessId } });
+    await assertNumberFree(phoneNumberId, scope.businessId, { onboardingId: own?.id || null, wabaId, actor: actorOf(scope) });
+
+    const token = await exchangeCode(code);
+    stage = 'verify';
+    const grant = await verifyGrant(token, { wabaId, phoneNumberId });
+    stage = 'exchange';
+
     const row = await startOnboarding({
       appId: embeddedSignupAppId(),
       businessId: scope.businessId,
-      metaBusinessId,
-      wabaId,
-      phoneNumberId,
+      metaBusinessId: grant.metaBusinessId || metaBusinessId,
+      wabaId: grant.wabaId,
+      phoneNumberId: grant.phoneNumberId,
       sessionId: shortString(body.session_id, 128),
       actor: actorOf(scope),
     });
 
-    const done = await runOnboarding(row.id, { code, actor: actorOf(scope) });
+    const done = await runOnboarding(row.id, { token, actor: actorOf(scope) });
     await record(scope, 'es_connected', { waba_id: wabaId, phone_number_id: phoneNumberId });
     return res.json({ status: 'connected', onboarding: await statusFor(scope, done) });
   } catch (err) {
@@ -148,11 +168,25 @@ async function exchange(req, res) {
     if (err.code === 'number_taken') {
       return res.status(409).json({ error: 'number_taken', message: MESSAGES.numberTaken });
     }
-    // The step reached is already on the row, so the dashboard can offer a resume
-    // rather than a fresh signup. Read by business: the phone id came from the browser.
+    // Meta says the token does not cover these ids: nothing was written. SHIFT hears of it,
+    // since it is either a probe for another shop's number or a signup that went wrong.
+    if (err.code === 'es_ownership_mismatch') {
+      await record(scope, 'es_ownership_mismatch', { waba_id: wabaId, phone_number_id: phoneNumberId, detail: err.detail });
+      try {
+        const alerts = require('../services/alerts');
+        Promise.resolve(alerts.notifyShift({
+          reason: 'needs_operator', businessId: scope.businessId, summary: 'رقم واتساب لا يتبع حساب فيسبوك الذي دخل به الزبون',
+        })).catch(() => {});
+      } catch (alertErr) {
+        console.error(`[embedded-signup] ownership alert failed: ${alertErr.message}`);
+      }
+      return res.status(403).json({ error: 'es_ownership_mismatch', message: MESSAGES.ownershipMismatch });
+    }
+    // The step reached is on the caller's own row when there is one, so the dashboard can offer
+    // a resume rather than a fresh signup. Read by business: the phone id came from the browser.
     console.error('[embedded-signup] onboarding failed:', err.message);
     const row = await prisma.whatsappOnboarding.findUnique({ where: { business_id: scope.businessId } }).catch(() => null);
-    await record(scope, 'es_failed', failureData(err, 'exchange', {
+    await record(scope, 'es_failed', failureData(err, stage, {
       step: row?.step || null, waba_id: wabaId, phone_number_id: phoneNumberId,
     }));
     return res.status(502).json({

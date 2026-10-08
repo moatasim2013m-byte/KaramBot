@@ -112,7 +112,7 @@ describe('PATCH /api/admin/accounts/:id/bot', () => {
 });
 
 describe('the account page reads the same input as the overview', () => {
-  test('agent state from Conversation.last_outbound_at, the pause and the shared payment wording', async () => {
+  test('agent state from the bot\'s own replies, the pause and the shared payment wording', async () => {
     const { PAYMENT_NOTICES } = require('../src/config/metaNotices');
     prisma.business.findUnique.mockResolvedValue({
       id: 'b1', name: 'x', business_type: 'restaurant', status: 'active', wa_phone_number_id: 'P',
@@ -121,12 +121,15 @@ describe('the account page reads the same input as the overview', () => {
     prisma.whatsappOnboarding.findFirst.mockResolvedValue({ id: 'o1', step: 'done', payment_method_ok: false, payment_method_claimed_at: null });
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.conversation.aggregate.mockResolvedValue({ _max: { last_inbound_at: new Date(), last_outbound_at: new Date() } });
+    prisma.message.aggregate.mockResolvedValue({ _max: { created_at: null } });
     prisma.conversation.count.mockResolvedValue(3);
     prisma.businessKnowledge.count.mockResolvedValue(0);
 
     const res = await request(app).get('/api/admin/accounts/b1').set(auth());
     expect(res.status).toBe(200);
-    expect(prisma.message.aggregate).not.toHaveBeenCalled();
+    // last_outbound_at is also stamped by staff sends and stored alerts: the agent is judged on
+    // its own replies (review 2026-10-08).
+    expect(prisma.message.aggregate.mock.calls[0][0].where).toEqual({ business_id: 'b1', direction: 'outbound', is_ai_generated: true });
     expect(prisma.conversation.aggregate.mock.calls[0][0]._max).toEqual({ last_inbound_at: true, last_outbound_at: true });
     expect(res.body.account.agent).toMatchObject({ state: 'paused', label: 'موقوف مؤقتًا' });
     expect(res.body.account.bot_enabled).toBe(false);

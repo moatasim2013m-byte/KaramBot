@@ -60,17 +60,28 @@ function providerIssueAlert(business, conversation) {
     } catch (err) {
       console.error(`[workflowAlerts] provider_down failed: ${err && err.message}`);
     }
-    try {
-      const settings = require('./platformSettings');
-      Promise.resolve(settings.set('provider_status', {
-        provider: provider || null,
-        kind: kind || null,
-        last_seen: new Date().toISOString(),
-      }, null, { actorKind: 'system' })).catch((err) => console.error(`[workflowAlerts] provider_status not saved: ${err && err.message}`));
-    } catch (err) {
-      console.error(`[workflowAlerts] provider_status not saved: ${err && err.message}`);
-    }
+    recordProviderStatus({ provider, kind });
   };
 }
 
-module.exports = { notifyWorkflowAlert, providerIssueAlert };
+/**
+ * PlatformSetting provider_status {provider, kind, last_seen}, which the operator panel reads to
+ * show an AI outage. Shared by every onProviderIssue callback: provider.js hands the hourly issue
+ * to whichever caller hit it first, and that is usually SHIFT's own sales bot (the busiest
+ * number), whose callback used to send its ai_failure alert and write nothing here, so the outage
+ * never showed (review 2026-10-08). Fire-and-forget, never throws.
+ */
+function recordProviderStatus({ provider, kind } = {}) {
+  try {
+    const settings = require('./platformSettings');
+    Promise.resolve(settings.set('provider_status', {
+      provider: provider || null,
+      kind: kind || null,
+      last_seen: new Date().toISOString(),
+    }, null, { actorKind: 'system' })).catch((err) => console.error(`[workflowAlerts] provider_status not saved: ${err && err.message}`));
+  } catch (err) {
+    console.error(`[workflowAlerts] provider_status not saved: ${err && err.message}`);
+  }
+}
+
+module.exports = { notifyWorkflowAlert, providerIssueAlert, recordProviderStatus };

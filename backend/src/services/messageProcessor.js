@@ -28,6 +28,7 @@ const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
 const { markOutbound } = require('./lastOutbound');
+const accountEvents = require('./accountEvents');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -238,6 +239,18 @@ async function flagForStaff(conversation, reason, at) {
     console.error(`[inbound] attention flag not set conversation=${conversation.id}: ${err.message}`);
     return conversation;
   }
+}
+
+/**
+ * A paused bot leaves this customer to the shop's team: flag the conversation, unless it is not a
+ * customer waiting. Reactions and system notices ask nothing. A staff number (alert_wa_numbers)
+ * writing in is staff, often just replying to an alert to keep its 24 h window open for the free
+ * ones, and its thread must not sit in «بانتظارك» beside real customers (review 2026-10-08).
+ */
+async function flagPausedWait(business, conversation, waMsg, customerWaId, at) {
+  if (NO_ANSWER_TYPES.includes(waMsg && waMsg.type)) return;
+  if (isStaffNumber(business, customerWaId || conversation.customer_wa_id)) return;
+  await flagForStaff(conversation, BOT_PAUSED, at);
 }
 
 // The inbox refreshes the thread and the list as soon as a message is stored.
@@ -528,6 +541,48 @@ async function failIntent(intent, status, now) {
 }
 
 /**
+ * A shop's WABA can no longer pay Meta (131042): stamp WhatsappOnboarding.payment_blocked_at and
+ * tell SHIFT, once per block.
+ *
+ * The shop's own alert (reason 'billing') goes out from the shop's own number, which Meta is
+ * refusing for this very reason, and the webhook is SHIFT's private channel that no longer carries
+ * tenant reasons. Without this, nobody heard that the bot had gone silent, and the panels'
+ * payment_blocked state (admin.js, accountHealth.js) had no writer and could never turn red.
+ * notifyShift sends from SHIFT's own number and the webhook.
+ *
+ * The gate is the onboarding row itself: updateMany WHERE payment_blocked_at IS NULL wins once, so
+ * two webhook deliveries racing make one alert. Returns true when the onboarding row decided
+ * (whether or not this call was first), false when the shop has no onboarding row (a number wired
+ * by hand), so the caller falls back to the conversation's own first-block gate.
+ */
+async function markPaymentBlocked(biz, now) {
+  const onb = await prisma.whatsappOnboarding.findUnique({ where: { business_id: biz.id }, select: { id: true } });
+  if (!onb) return false;
+  const stamped = await prisma.whatsappOnboarding.updateMany({
+    where: { id: onb.id, payment_blocked_at: null },
+    data: { payment_blocked_at: now },
+  });
+  if (stamped.count > 0) await reportPaymentBlocked(biz);
+  return true;
+}
+
+async function reportPaymentBlocked(biz) {
+  await accountEvents.record({ businessId: biz.id, actorKind: 'meta', type: 'payment_blocked', data: { error_code: BILLING_ERROR_CODE } });
+  Promise.resolve(alerts.notifyShift({
+    reason: 'payment_blocked', businessId: biz.id, shopName: biz.name || '',
+    summary: 'واتساب رفض ردود البوت (131042) — لازم الزبون يضيف طريقة دفع في WhatsApp Manager',
+  })).catch(() => {});
+}
+
+/** A delivered message proves Meta is sending again: the red payment state ends (spec, payment_blocked). */
+async function clearPaymentBlocked(biz) {
+  await prisma.whatsappOnboarding.updateMany({
+    where: { business_id: biz.id, payment_blocked_at: { not: null } },
+    data: { payment_blocked_at: null },
+  });
+}
+
+/**
  * Delivery statuses (D17/D19). A bot intent is confirmed through replyBatcher.applyIntentStatus (never
  * moves backwards, answers its rows); a failed one goes through failIntent. Every other row (staff sends,
  * restaurant/clinic replies) is updated by its exact wamid as before. A status that matches nothing is
@@ -548,10 +603,17 @@ async function handleStatuses(phoneNumberId, statuses) {
     return business || null;
   };
 
+  let paymentCleared = false;
   for (const status of statuses) {
     try {
       const now = new Date();
       const found = await findStatusRow(status);
+      // Once per webhook call: a delivered send of this number lifts a 131042 block.
+      if (!paymentCleared && status.status === 'delivered' && found && found.direction === 'outbound') {
+        paymentCleared = true;
+        const biz = await statusBusiness();
+        if (biz && biz.business_type !== 'shift') await clearPaymentBlocked(biz);
+      }
       if (isBotIntent(found) && CONFIRMED_STATUSES.includes(status.status)) {
         await replyBatcher.applyIntentStatus({ intentId: found.id, wamid: status.id || null, status: status.status });
       } else if (isBotIntent(found) && status.status === 'failed') {
@@ -586,6 +648,11 @@ async function handleStatuses(phoneNumberId, statuses) {
       if (found?.raw_payload?.kind === 'staff_alert') continue;
       const biz = await statusBusiness();
       if (!biz) continue;
+      // A shop's block is reported to SHIFT here, before the conversation lookups below can skip:
+      // the shop's own alert cannot get out of a number Meta is refusing. SHIFT's own number keeps
+      // its webhook, so it needs none of this.
+      const tenant = biz.business_type !== 'shift';
+      const onboardingDecided = tenant ? await markPaymentBlocked(biz, now) : true;
       // The banner belongs to the conversation of the failed send; the recipient only locates a
       // conversation for a status whose row is unknown — it never marks any message.
       const conv = found
@@ -602,6 +669,8 @@ async function handleStatuses(phoneNumberId, statuses) {
       // racing on the same conversation make exactly one winner.
       const firstBlock = await jsonb.claimFlag('conversations', conv.id, 'metadata', ['billing_blocked_at']);
       if (!firstBlock) continue;
+      // A shop with no onboarding row (wired by hand): the conversation's first block tells SHIFT.
+      if (!onboardingDecided) await reportPaymentBlocked(biz);
       Promise.resolve(alerts.sendStaffAlert({
         reason: 'billing', business: biz, conversation: conv, summary: 'واتساب رفض رسالة — لازم تنضاف طريقة دفع',
       })).catch(() => {});
@@ -650,8 +719,8 @@ async function processShiftItem(business, accessToken, item) {
     await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
     // A paused bot is save-only too (isShiftReplyAllowed), but unlike the test-number mode a customer
     // is now waiting for the team. A conversation staff already hold needs no flag.
-    if (botPaused(business) && !NO_ANSWER_TYPES.includes(waMsg.type) && !staffHolds(conv, now)) {
-      await flagForStaff(conv, BOT_PAUSED, msg.created_at);
+    if (botPaused(business) && !staffHolds(conv, now)) {
+      await flagPausedWait(business, conv, waMsg, customerWaId, msg.created_at);
     }
     return;
   }
@@ -732,6 +801,21 @@ async function markDelivered(ids) {
 async function forwardExternal(business, value, items) {
   const claimed = items.filter(needsProcessing);
   emitNewMessages(business, claimed);
+
+  // «أوقف البوت مؤقتًا» covers the outside automation too: it is this shop's bot, and the panels
+  // show it as paused. Nothing is forwarded; the messages are stored and the customers wait for
+  // the team, as with a paused workflow. Both callers (the webhook and reprocessStuckInbound) pass
+  // here, so neither can forward around the pause.
+  if (botPaused(business)) {
+    const now = new Date();
+    for (const item of claimed) {
+      if (item.conversation && !staffHolds(item.conversation, now)) {
+        await flagPausedWait(business, item.conversation, item.waMsg, item.customerWaId, item.message && item.message.created_at);
+      }
+    }
+    await markDelivered(claimed.map((item) => item.message.id));
+    return;
+  }
 
   const forwardUrl = business.ai_config?.forward_url;
   if (claimed.length && forwardUrl) {
@@ -820,9 +904,7 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   // read or asked of the AI (both cost money). The message is already stored; the customer now waits
   // for the shop's staff, so the conversation goes to their attention list.
   if (botPaused(business)) {
-    if (!NO_ANSWER_TYPES.includes(waMsg.type)) {
-      await flagForStaff(conversation, BOT_PAUSED, item.message && item.message.created_at);
-    }
+    await flagPausedWait(business, conversation, waMsg, customerWaId, item.message && item.message.created_at);
     emitNewMessages(business, [{ conversation }]);
     return;
   }
