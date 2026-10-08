@@ -4,6 +4,7 @@ const prisma = require('../config/prisma');
 const { authenticate, requireRole, attachBusinessId } = require('../middleware/auth');
 const { requireSetting } = require('../services/platformSettings');
 const accountEvents = require('../services/accountEvents');
+const alerts = require('../services/alerts');
 const { embeddedSignupAppId } = require('../utils/metaSecrets');
 const {
   connectFromCode, resumeOnboarding, publicStatus, deriveStatus, normalizeFinishEvent, ERRORS_AR,
@@ -265,6 +266,47 @@ async function status(req, res) {
 }
 
 /**
+ * «لا، ليس هذا الرقم» on /join (spec step 7): the owner says the number Meta's window connected is
+ * not their shop's. It sets needs_operator on the shop's onboarding, writes AccountEvent
+ * wrong_number (the board's «بحاجة لشِفت») and alerts SHIFT, which is what the screen promises
+ * («سيتواصل معك فريق شِفت»). Nothing is rolled back automatically: SHIFT checks it with the owner.
+ * Owner only, on their own account; pressing again does not alert twice while the first is open.
+ */
+async function wrongNumber(req, res) {
+  const scope = req.es;
+  const row = await prisma.whatsappOnboarding.findFirst({
+    where: { business_id: scope.businessId },
+    orderBy: { created_at: 'desc' },
+    select: { id: true, needs_operator: true, phone_number_id: true },
+  });
+  if (!row) return res.status(404).json({ error: 'no_onboarding', message: MESSAGES.noOnboarding });
+  if (!row.needs_operator) {
+    await prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { needs_operator: true } });
+  }
+  const open = await prisma.accountEvent.findFirst({
+    where: { business_id: scope.businessId, type: 'wrong_number', resolved_at: null },
+    select: { id: true },
+  });
+  if (!open) {
+    const business = await prisma.business.findUnique({
+      where: { id: scope.businessId }, select: { name: true, wa_display_phone: true },
+    }).catch(() => null);
+    await record(scope, 'wrong_number', { onboarding_id: row.id, display_phone: business?.wa_display_phone || null });
+    try {
+      await alerts.notifyShift({
+        reason: 'needs_operator',
+        businessId: scope.businessId,
+        shopName: business?.name || '',
+        summary: `قال صاحب المحل إن الرقم المربوط${business?.wa_display_phone ? ` ${business.wa_display_phone}` : ''} ليس رقم محله — تواصل معه`,
+      });
+    } catch (err) {
+      console.error(`[embedded-signup] wrong_number alert failed business=${scope.businessId}: ${err.message}`);
+    }
+  }
+  return res.json({ ok: true, status: 'needs_operator' });
+}
+
+/**
  * The account-scoped routes, identical for the owner and the admin mirror. The router that
  * mounts them must set req.es = {businessId, actorKind, actorUserId, audience} first, from the
  * session or the URL, never from the request's body or query.
@@ -290,6 +332,8 @@ router.use(
 );
 
 router.get('/config', config);
+// The owner's answer to «هل هذا رقم محلك؟»; SHIFT's attended connect has no such question.
+router.post('/wrong-number', wrap(wrongNumber));
 mountAccountRoutes(router);
 
 module.exports = router;

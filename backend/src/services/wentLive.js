@@ -13,6 +13,9 @@
  *
  * Business.went_live_at is set once (updateMany where it is still null), so two replies at once,
  * or two instances, record it once, and only that winner writes the event and alerts SHIFT.
+ * Shops that were answering customers before this column existed got it from their first AI
+ * reply in migration 20261008150000_went_live_backfill; without that, each of them would «go
+ * live» again on its next reply after the deploy and alert SHIFT for a shop working for months.
  * Never throws: it runs right after a reply went out, which must not be undone or failed by it.
  */
 
@@ -61,9 +64,10 @@ async function startTrialClock(business, firstReplyAt) {
   });
   if (sub.trial_ends_at && new Date(sub.trial_ends_at) <= ends) return sub.trial_ends_at;
   // The first payment falls due when the free month ends, so the due date follows it while it
-  // still equals the old end (nobody set it by hand).
-  const followDue = !sub.next_due_at || !sub.trial_ends_at
-    || new Date(sub.next_due_at).getTime() === new Date(sub.trial_ends_at).getTime();
+  // still equals the old end (nobody set it by hand). A contract with no end date but a due date
+  // is one SHIFT made by hand before trial_ends_at existed: that due date is SHIFT's, not ours.
+  const followDue = !sub.next_due_at
+    || (Boolean(sub.trial_ends_at) && new Date(sub.next_due_at).getTime() === new Date(sub.trial_ends_at).getTime());
   await prisma.subscription.update({
     where: { id: sub.id },
     data: { trial_ends_at: ends, ...(followDue ? { next_due_at: ends } : {}) },

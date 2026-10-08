@@ -32,7 +32,7 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
   'new_message',
   // Platform alerts: about SHIFT's customers (the shops), sent only to SHIFT by notifyShift.
   'join_opened', 'customer_connected', 'connect_failed', 'needs_operator', 'went_live', 'partner_removed',
-  'payment_blocked', 'provider_down', 'cap_80', 'cap_reached', 'platform_ceiling', 'trial_ending',
+  'payment_blocked', 'provider_down', 'cap_80', 'cap_reached', 'platform_ceiling', 'trial_ending', 'payment_claimed',
   // To a shop's owner, from the shop's own number: their free month is ending (shiftSweeper daily).
   'trial_reminder'];
 
@@ -41,7 +41,7 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
 // STAFF_ALERT_WEBHOOK_URL (SHIFT's private channel).
 const PLATFORM_REASONS = Object.freeze(['join_opened', 'customer_connected', 'connect_failed', 'needs_operator',
   'went_live', 'partner_removed', 'payment_blocked', 'provider_down', 'cap_80', 'cap_reached', 'platform_ceiling',
-  'trial_ending']);
+  'trial_ending', 'payment_claimed']);
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -82,6 +82,7 @@ const ALERT_LABELS = {
   cap_reached: 'زبون وصل حد ردود الشهر',
   platform_ceiling: 'وصلنا سقف ردود اليوم لكل المنصة',
   trial_ending: 'الفترة المجانية لزبون قاربت تنتهي',
+  payment_claimed: 'زبون قال إنه أضاف بطاقة الدفع لدى Meta — بانتظار تأكيدك',
   trial_reminder: 'تذكير بالفترة المجانية لكرم بوت',
 };
 

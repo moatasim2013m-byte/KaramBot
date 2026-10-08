@@ -199,13 +199,24 @@ async function submitAfterConnect(businessId, { now = new Date() } = {}) {
  * The daily sweep's poll: every shop with a submitted owner_alert that Meta has not decided on yet
  * is asked again, and an approved one is named in alert_template. One shop's failure does not stop
  * the rest. Resolves with counts.
+ *
+ * It runs inside the sweep's `running` flag, one Graph read (up to 15 s) per shop, so the sweep
+ * bounds it like its other daily Graph work: past `deadline` (on `clock`) the remaining shops are
+ * left for the next minute's sweep (`deferred`), at least one shop is polled per call so the day
+ * always finishes, and the shops already polled are skipped through `done` (this instance) and
+ * checked_at on or after `since` (any instance). Without these options every pending shop is
+ * polled, as before.
  */
-async function pollPending({ now = new Date() } = {}) {
-  const out = { checked: 0, approved: 0, errors: 0 };
+async function pollPending({
+  now = new Date(), deadline = null, clock = Date.now, done = null, since = null,
+} = {}) {
+  const out = { checked: 0, approved: 0, errors: 0, deferred: 0 };
   let shops = [];
   try {
     shops = await prisma.business.findMany({
-      where: { is_internal: false, business_type: { not: 'shift' }, wa_access_token: { not: null } },
+      where: {
+        is_internal: false, business_type: { not: 'shift' }, status: { not: 'closed' }, wa_access_token: { not: null },
+      },
       select: {
         id: true, business_type: true, is_internal: true, ai_config: true,
         wa_business_account_id: true, wa_access_token: true,
@@ -220,9 +231,16 @@ async function pollPending({ now = new Date() } = {}) {
     const state = shop.ai_config && shop.ai_config[CONFIG_KEY];
     if (!state || hasAlertTemplate(shop)) continue;
     if (FINAL_STATUSES.has(String(state.status || '').toUpperCase()) && state.status !== 'APPROVED') continue;
+    if (done && done.has(shop.id)) continue;
+    if (since && state.checked_at && new Date(state.checked_at) >= new Date(since)) continue;
     const creds = credentials(shop);
     if (!creds) continue;
+    if (deadline !== null && out.checked > 0 && clock() >= deadline) {
+      out.deferred += 1;
+      continue;
+    }
     out.checked += 1;
+    if (done) done.add(shop.id);
     try {
       const found = await fetchStatus(creds, { name: state.name, language: state.language });
       const status = found?.status || state.status || null;

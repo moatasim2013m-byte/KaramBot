@@ -160,6 +160,42 @@ describe('the free month', () => {
     expect(staffAlert).not.toHaveBeenCalled();
   });
 
+  test('two instances running the chores the same minute send each reminder once (P2 review)', async () => {
+    seedTrial({ connectedDaysAgo: 15, endsInDays: 2 });
+    db.seed({
+      users: [{ id: 'o1', role: 'business_owner', business_id: 'b1', active: false }],
+      userActivations: [{ id: 'a1', user_id: 'o1', token_hash: 'h1', expires_at: at(-0.5), created_by: 'x' }],
+    });
+    // Both read the AccountEvent rows before either writes one: the claim is what stops the second.
+    await Promise.all([runAccountsDaily(NOW), runAccountsDaily(NOW)]);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(staffAlert).toHaveBeenCalledTimes(1);
+    expect(events('trial_reminder')).toHaveLength(1);
+    expect(events('trial_started')).toHaveLength(1);
+    expect(events('invite_expired')).toHaveLength(1);
+  });
+
+  test('no payment reminder in the night: they wait for 09:00 Amman (P2 review)', async () => {
+    seedTrial({ endsInDays: 0.6 });
+    const night = new Date('2026-10-14T21:30:00Z'); // 00:30 Amman, the day the free month ends
+    const out = await runAccountsDaily(night);
+    expect(out.trial_reminders).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    expect(staffAlert).not.toHaveBeenCalled();
+
+    // The sweep: the midnight run leaves them, the first sweep from 09:00 sends them, once.
+    await sweepDaily(night);
+    expect(notify).not.toHaveBeenCalled();
+    await sweepDaily(new Date('2026-10-15T05:59:00Z')); // 08:59
+    expect(notify).not.toHaveBeenCalled();
+    const morning = await sweepDaily(new Date('2026-10-15T06:00:00Z')); // 09:00
+    expect(morning.accounts).toMatchObject({ trial_reminders: 1 });
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(staffAlert).toHaveBeenCalledTimes(1);
+    await sweepDaily(new Date('2026-10-15T06:01:00Z'));
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
   test('reminderKind counts Amman calendar days', () => {
     // 23:30 Amman the night before the end at 01:00: «today» is tomorrow, so this is the 3-day one.
     const late = new Date('2026-10-15T20:30:00Z');

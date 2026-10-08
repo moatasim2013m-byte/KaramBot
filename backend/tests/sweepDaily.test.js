@@ -23,6 +23,7 @@ const db = require('./helpers/fakeDb').getFakeDb();
 const metaStatus = require('../src/services/metaStatus');
 const alerts = require('../src/services/alerts');
 const { sweepDaily, resetDaily, runSweep } = require('../src/services/shiftSweeper');
+const { encrypt } = require('../src/utils/tokenCrypto');
 
 // 2026-10-15 00:05 in Amman.
 const NOW = new Date('2026-10-14T21:05:00Z');
@@ -74,7 +75,10 @@ test('runs once per Amman day', async () => {
   seed();
   await sweepDaily(NOW);
   expect(await sweepDaily(new Date(NOW.getTime() + 60 * 1000))).toBeNull();
-  expect(await sweepDaily(new Date('2026-10-15T20:59:00Z'))).toBeNull(); // 23:59 the same day
+  // 23:59 the same day: only the free-month reminders, which wait for the morning, run (once).
+  const evening = await sweepDaily(new Date('2026-10-15T20:59:00Z'));
+  expect(evening).toMatchObject({ shops: 0, accounts: { trial_reminders: 0 } });
+  expect(await sweepDaily(new Date('2026-10-15T20:59:30Z'))).toBeNull();
 
   const next = await sweepDaily(new Date('2026-10-15T21:01:00Z')); // 00:01 the next day
   expect(next).toMatchObject({ date: '2026-10-16' });
@@ -106,7 +110,7 @@ test('runSweep carries the step in its report, and a failed shop list is retried
   const findMany = db.prisma.business.findMany.bind(db.prisma.business);
   let failed = false;
   jest.spyOn(db.prisma.business, 'findMany').mockImplementation(async (args) => {
-    if (!failed && args?.where?.is_internal === false) { failed = true; throw new Error('db down'); }
+    if (!failed && args?.where?.wa_phone_number_id) { failed = true; throw new Error('db down'); }
     return findMany(args);
   });
   const first = await runSweep({ now: NOW });
@@ -152,6 +156,35 @@ describe('the daily step never holds up the SHIFT steps (P1 review)', () => {
 
     // Then the day is done.
     expect(await sweepDaily(new Date(NOW.getTime() + 120 * 1000))).toBeNull();
+  });
+
+  test('the owner_alert template poll is on the same budget: a slow Graph leaves the rest for the next sweep (P2 review)', async () => {
+    const pending = { owner_alert_template: { name: 'owner_alert', language: 'ar', status: 'PENDING' } };
+    db.seed({
+      businesses: ['t1', 't2', 't3'].map((id) => ({
+        id, name: id, business_type: 'generic', wa_phone_number_id: null, wa_access_token: encrypt('tok'),
+        wa_business_account_id: `W_${id}`, ai_config: pending,
+      })),
+    });
+    let t = 0;
+    const clock = () => t;
+    axios.get.mockImplementation(async (url) => {
+      t += 15 * 1000; // each template read takes its whole timeout
+      return { data: { data: url.includes('message_templates') ? [{ id: 'T', name: 'owner_alert', language: 'ar', status: 'PENDING' }] : { is_valid: true } } };
+    });
+    const templateReads = () => axios.get.mock.calls.filter(([url]) => url.includes('message_templates')).length;
+
+    const first = await sweepDaily(NOW, { budgetMs: 20 * 1000, clock });
+    expect(first.templates).toMatchObject({ checked: 2, deferred: 1 });
+    expect(templateReads()).toBe(2);
+
+    const second = await sweepDaily(new Date(NOW.getTime() + 60 * 1000), { budgetMs: 20 * 1000, clock });
+    expect(second.templates).toMatchObject({ checked: 1, deferred: 0 });
+    expect(templateReads()).toBe(3);
+
+    // Each shop polled once today, and then the poll is done for the day.
+    await sweepDaily(new Date(NOW.getTime() + 120 * 1000), { budgetMs: 20 * 1000, clock });
+    expect(templateReads()).toBe(3);
   });
 
   test('a shop with no onboarding row (no token_checked_at) is not checked twice when the day is split', async () => {

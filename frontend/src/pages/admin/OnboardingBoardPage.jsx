@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Copy, MessageCircle, Plus, Send, XCircle } from 'lucide-react';
+import { AlertTriangle, Copy, CreditCard, Link2, MessageCircle, Plus, Send, XCircle } from 'lucide-react';
 import api from '../../utils/api';
 import { EmptyState, Freshness, Ltr, Panel, SkeletonRows, Timestamp, relativeTime } from '../../components/shared/Primitives';
+import { cardActions, cardBadges, cardLines } from './boardCardView';
 
 /**
  * «الانضمام» — /admin/onboarding, the October campaign board (docs/panels/spec.md, «Operator
@@ -62,8 +63,18 @@ function ownerWaLink(card) {
   return `https://wa.me/${digits}?text=${encodeURIComponent(`${hi}معك شِفت بخصوص تفعيل كرم بوت لـ${card.name}.`)}`;
 }
 
-function StageCard({ card, stage, busy, onResend, onRevoke }) {
+const BADGE_CLS = {
+  needs_operator: 'bg-amber-100 text-amber-800',
+  payment_claimed: 'bg-violet-50 text-violet-700',
+  opened: 'bg-blue-50 text-blue-700',
+};
+const BTN = 'inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 h-8 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-50';
+
+function StageCard({ card, stage, busy, onResend, onRevoke, onConfirmCard }) {
   const wa = ownerWaLink(card);
+  const lines = cardLines(card);
+  const badges = cardBadges(card, stage);
+  const actions = cardActions(card, stage);
   return (
     <li className={`rounded-lg border bg-white p-3 ${card.stuck ? 'border-red-200 border-r-4 border-r-red-500' : 'border-gray-200'}`}>
       <div className="flex items-start justify-between gap-2">
@@ -74,50 +85,55 @@ function StageCard({ card, stage, busy, onResend, onRevoke }) {
           </p>
         </Link>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          {card.needs_operator && (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">بحاجة لشِفت</span>
-          )}
-          {stage === 'invite_sent' && card.opened && (
-            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">فتحه</span>
-          )}
+          {badges.map((b) => (
+            <span key={b.kind} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${BADGE_CLS[b.kind] || 'bg-gray-100 text-gray-700'}`}>{b.label}</span>
+          ))}
         </div>
       </div>
 
-      {card.last_es_step_ar && (
-        <p className="mt-1.5 text-[12px] text-gray-700">توقف عند: {card.last_es_step_ar}</p>
-      )}
-      {card.stuck && card.reason_ar && (
+      {/* The server's line already says «توقف عند: …» or «فشل عند: …». */}
+      {lines.step && <p className="mt-1.5 text-[12px] text-gray-700">{lines.step}</p>}
+      {lines.reason && (
         <p className="mt-1 flex items-start gap-1 text-[12px] text-red-700">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {card.reason_ar}
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {lines.reason}
         </p>
       )}
 
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {wa ? (
-          <a href={wa} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 h-8 text-[12px] text-gray-700 hover:bg-gray-50">
-            <MessageCircle size={12} /> راسله
-          </a>
-        ) : (
-          <Link to={`/admin/accounts/${card.account_id}`}
-            className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 h-8 text-[12px] text-gray-700 hover:bg-gray-50">
-            <MessageCircle size={12} /> راسله
-          </Link>
-        )}
-        {/* A link can be reissued or withdrawn only before the owner signs in: after that the
-            server answers 409, so the buttons are not offered past the first column. */}
-        {stage === 'invite_sent' && (
-          <>
-            <button type="button" disabled={busy} onClick={() => onResend(card)}
-              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 h-8 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-              <Send size={12} /> أعد إرسال الرابط
-            </button>
-            <button type="button" disabled={busy} onClick={() => onRevoke(card)}
-              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 h-8 text-[12px] text-red-700 hover:bg-red-50 disabled:opacity-50">
-              <XCircle size={12} /> ألغِ الدعوة
-            </button>
-          </>
-        )}
+        {actions.map((a) => {
+          if (a.kind === 'message') {
+            return wa ? (
+              <a key={a.kind} href={wa} target="_blank" rel="noopener noreferrer" className={BTN}>
+                <MessageCircle size={12} /> {a.label}
+              </a>
+            ) : (
+              <Link key={a.kind} to={`/admin/accounts/${card.account_id}`} className={BTN}>
+                <MessageCircle size={12} /> {a.label}
+              </Link>
+            );
+          }
+          // A link can be reissued or withdrawn only before the owner signs in: after that the
+          // server answers 409, so these are offered in the first column only (cardActions).
+          if (a.kind === 'resend') {
+            return <button key={a.kind} type="button" disabled={busy} onClick={() => onResend(card)} className={BTN}><Send size={12} /> {a.label}</button>;
+          }
+          if (a.kind === 'revoke') {
+            return (
+              <button key={a.kind} type="button" disabled={busy} onClick={() => onRevoke(card)}
+                className={`${BTN} text-red-700 hover:bg-red-50`}><XCircle size={12} /> {a.label}</button>
+            );
+          }
+          if (a.kind === 'connect_with') {
+            return <Link key={a.kind} to={a.to} className={BTN}><Link2 size={12} /> {a.label}</Link>;
+          }
+          if (a.kind === 'confirm_card') {
+            return (
+              <button key={a.kind} type="button" disabled={busy} onClick={() => onConfirmCard(card)}
+                className={`${BTN} text-emerald-800 hover:bg-emerald-50`}><CreditCard size={12} /> {a.label}</button>
+            );
+          }
+          return null;
+        })}
       </div>
     </li>
   );
@@ -189,6 +205,21 @@ export default function OnboardingBoardPage() {
     }
   };
 
+  // «رأيت البطاقة — أكّد»: the same confirmation as the account's «الحالة» tab, from the board.
+  const confirmCard = async (card) => {
+    if (!window.confirm(`هل رأيت بطاقة الدفع لـ${card.name} في WhatsApp Manager؟`)) return;
+    setBusyId(card.account_id); setNotice(null);
+    try {
+      await api.patch(`/admin/accounts/${card.account_id}/payment-method`, { payment_method_ok: true });
+      setNotice({ tone: 'ok', text: `أُكّدت بطاقة الدفع لـ${card.name}.` });
+      load();
+    } catch (err) {
+      setNotice({ tone: 'error', text: err.response?.data?.error || 'تعذّر تأكيد البطاقة' });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const byStage = Object.fromEntries((data?.columns || []).map((c) => [c.stage, c]));
   const columns = STAGES.map(([stage, label]) => ({
     stage,
@@ -249,7 +280,7 @@ export default function OnboardingBoardPage() {
                 <ul className="space-y-2">
                   {col.cards.map((card) => (
                     <StageCard key={card.account_id} card={card} stage={col.stage}
-                      busy={busyId === card.account_id} onResend={resend} onRevoke={revoke} />
+                      busy={busyId === card.account_id} onResend={resend} onRevoke={revoke} onConfirmCard={confirmCard} />
                   ))}
                 </ul>
               )}

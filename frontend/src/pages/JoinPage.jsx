@@ -364,6 +364,21 @@ function ConnectStep({ info, onConnected, onSkip, onAlreadyConnected }) {
 }
 
 function ConfirmStep({ onb, onYes, onNo }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  // The next screen promises «سيتواصل معك فريق شِفت», so SHIFT has to hear it before it shows.
+  const no = async () => {
+    setBusy(true); setError(null);
+    try {
+      await api.post(OWNER_ENDPOINTS.wrongNumber);
+      onNo();
+    } catch (err) {
+      setError(err.response?.data?.message || err.response?.data?.error || 'تعذّر الإرسال، حاول مرة أخرى أو راسل شِفت');
+      setBusy(false);
+    }
+  };
+
   return (
     <Card>
       <div className="flex items-center gap-2 text-[13px] text-green-700"><Check size={16} /> ربطنا واتساب بكرم بوت</div>
@@ -377,9 +392,12 @@ function ConfirmStep({ onb, onYes, onNo }) {
         </p>
       )}
       <div className="mt-5 space-y-2">
-        <button type="button" onClick={onYes} className={btnPrimary}>نعم، أكمل</button>
-        <button type="button" onClick={onNo} className={btnSecondary}>لا، ليس هذا الرقم</button>
+        <button type="button" onClick={onYes} disabled={busy} className={btnPrimary}>نعم، أكمل</button>
+        <button type="button" onClick={no} disabled={busy} className={btnSecondary}>
+          {busy ? <Loader2 size={16} className="animate-spin" /> : null} لا، ليس هذا الرقم
+        </button>
       </div>
+      {error && <p className="mt-2 text-[13px] text-red-600">{error}</p>}
     </Card>
   );
 }

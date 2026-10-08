@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../config/prisma');
 const { authenticate, attachBusinessId, requireRole } = require('../middleware/auth');
 const accountEvents = require('../services/accountEvents');
+const alerts = require('../services/alerts');
 const platformSettings = require('../services/platformSettings');
 const { connectionState, agentState, lifecycle } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
@@ -203,6 +204,10 @@ router.get('/', async (req, res) => {
     ]);
 
     const ownerConnect = await ownerConnectEnabled();
+    // A shop wired by hand has no onboarding row: its owner's «أضفت البطاقة» is kept as the event.
+    const paymentClaimed = onboarding
+      ? Boolean(onboarding.payment_method_claimed_at)
+      : Boolean(business.wa_phone_number_id) && await handWiredClaim(business.id);
     const lastInbound = latest._max.last_inbound_at;
     const lastOutbound = latest._max.last_outbound_at;
     const lastAiReply = aiReply._max.created_at;
@@ -222,13 +227,13 @@ router.get('/', async (req, res) => {
         solution: contract.solution, plan_name: contract.plan_name, status: contract.status,
         amount_jod: Number(contract.amount_jod), billing_cycle: contract.billing_cycle, next_due_at: contract.next_due_at,
       } : null,
-      payment_method_claimed: Boolean(onboarding && onboarding.payment_method_claimed_at),
+      payment_method_claimed: paymentClaimed,
       explain: explain(connection, agent, onboarding, contract, { ownerConnect, hasNumber: Boolean(business.wa_phone_number_id) }),
       setup: buildSetup({
         business,
         connection,
         paymentOk: onboarding ? onboarding.payment_method_ok : null,
-        paymentClaimed: Boolean(onboarding && onboarding.payment_method_claimed_at),
+        paymentClaimed,
         knowledgeCount,
         lastInbound,
         ownerConnect,
@@ -240,6 +245,17 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/** Whether the owner of a shop with no onboarding row said «أضفت البطاقة». False when unreadable. */
+async function handWiredClaim(businessId) {
+  try {
+    return Boolean(await prisma.accountEvent.findFirst({
+      where: { business_id: businessId, type: 'payment_claimed' }, select: { id: true },
+    }));
+  } catch (err) {
+    return false;
+  }
+}
 
 /**
  * «جرّب البوت»: the customer types what a customer would, and sees what the bot would say —
@@ -281,7 +297,35 @@ router.post('/payment-method-claim', requireRole('business_owner'), async (req, 
       orderBy: { created_at: 'desc' },
       select: { id: true, payment_method_ok: true, payment_method_claimed_at: true },
     });
-    if (!onboarding) return res.status(409).json({ error: 'اربط واتساب أولًا، ثم أضف بطاقة الدفع لدى Meta.' });
+    if (!onboarding) {
+      // A shop SHIFT wired by hand («متقدم», typed ids) has a live number and no onboarding row to
+      // hold the claim. Its owner is still right to say it: the claim is kept as the event, and
+      // SHIFT is told, instead of answering «اربط واتساب أولًا» for a bot already answering.
+      const business = await prisma.business.findUnique({
+        where: { id: req.businessId }, select: { name: true, wa_phone_number_id: true },
+      });
+      if (!business || !business.wa_phone_number_id) {
+        return res.status(409).json({ error: 'اربط واتساب أولًا، ثم أضف بطاقة الدفع لدى Meta.' });
+      }
+      const earlier = await prisma.accountEvent.findFirst({
+        where: { business_id: req.businessId, type: 'payment_claimed' },
+        orderBy: { created_at: 'asc' },
+        select: { created_at: true },
+      });
+      let claimedAt = earlier ? earlier.created_at : null;
+      if (!claimedAt) {
+        claimedAt = new Date();
+        await accountEvents.record({
+          businessId: req.businessId, actorUserId: req.user.id, actorKind: 'owner', type: 'payment_claimed', data: { no_onboarding: true },
+        });
+        await tellShiftClaimed(req.businessId, business.name);
+      }
+      return res.json({
+        payment_method_claimed_at: claimedAt,
+        payment_method_ok: false,
+        notice: paymentNotice('claimed', 'owner', 'short'),
+      });
+    }
 
     let claimedAt = onboarding.payment_method_claimed_at;
     if (!claimedAt) {
@@ -295,6 +339,7 @@ router.post('/payment-method-claim', requireRole('business_owner'), async (req, 
         await accountEvents.record({
           businessId: req.businessId, actorUserId: req.user.id, actorKind: 'owner', type: 'payment_claimed', data: {},
         });
+        if (!onboarding.payment_method_ok) await tellShiftClaimed(req.businessId);
       }
     }
     const state = onboarding.payment_method_ok ? null : 'claimed';
@@ -309,4 +354,24 @@ router.post('/payment-method-claim', requireRole('business_owner'), async (req, 
   }
 });
 
+/**
+ * SHIFT is the one who confirms a claimed card (it looks in WhatsApp Manager), so a new claim is
+ * an alert, not something to find by opening each account. Best effort: the claim is saved.
+ */
+async function tellShiftClaimed(businessId, shopName = '') {
+  try {
+    await alerts.notifyShift({
+      reason: 'payment_claimed',
+      businessId,
+      shopName,
+      summary: 'قال صاحب المحل إنه أضاف بطاقة الدفع لدى Meta — راجعها في WhatsApp Manager ثم اضغط «رأيت البطاقة — أكّد»',
+    });
+  } catch (err) {
+    console.error(`[whatsapp/status/payment-method-claim] SHIFT alert failed business=${businessId}: ${err.message}`);
+  }
+}
+
 module.exports = router;
+// For the panel contract tests (setupControlsContract.test.js): the checklist and the card's words.
+module.exports.buildSetup = buildSetup;
+module.exports.explain = explain;

@@ -36,6 +36,8 @@ export function adminEndpoints(accountId) {
 export const OWNER_ENDPOINTS = {
   config: '/whatsapp/embedded-signup/config',
   base: '/whatsapp/embedded-signup',
+  // «لا، ليس هذا الرقم» on /join: tells SHIFT (needs_operator, wrong_number, an alert).
+  wrongNumber: '/whatsapp/embedded-signup/wrong-number',
   audience: 'owner',
 };
 

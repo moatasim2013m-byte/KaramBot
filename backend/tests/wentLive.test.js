@@ -167,3 +167,24 @@ test('a paying shop\'s dates are not touched, and a trial already ending earlier
   await deliver(CUSTOMER);
   expect(db.store.subscriptions[0].trial_ends_at).toEqual(early);
 });
+
+test('a contract SHIFT made by hand before trial_ends_at existed keeps its due date', async () => {
+  // P2 review: a NULL trial_ends_at used to count as «nobody set the due date», so the first reply
+  // overwrote the date SHIFT had typed.
+  seedShop();
+  const handSet = new Date(T0.getTime() + 9 * DAY);
+  db.store.subscriptions[0].trial_ends_at = null;
+  db.store.subscriptions[0].next_due_at = handSet;
+  await deliver(CUSTOMER);
+  expect(db.store.subscriptions[0].trial_ends_at).toBeInstanceOf(Date);
+  expect(db.store.subscriptions[0].next_due_at).toEqual(handSet);
+});
+
+test('a shop already live before the deploy (went_live_at backfilled) does not alert SHIFT again', async () => {
+  seedShop({ went_live_at: new Date(T0.getTime() - 60 * DAY) });
+  await deliver(CUSTOMER);
+  expect(repliesTo(CUSTOMER)).toHaveLength(1);
+  expect(db.store.accountEvents.filter((e) => e.type === 'went_live')).toHaveLength(0);
+  expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ reason: 'went_live' }));
+  expect(db.store.subscriptions[0].trial_ends_at.getTime()).toBe(CONNECTED.getTime() + 44 * DAY);
+});

@@ -119,14 +119,14 @@ test('the daily poll names it once Meta approves, and leaves rejected ones alone
     }],
   });
   axios.get.mockResolvedValueOnce({ data: { data: [{ id: 'T1', name: 'owner_alert', language: 'ar', status: 'PENDING' }] } });
-  expect(await oat.pollPending()).toEqual({ checked: 1, approved: 0, errors: 0 });
+  expect(await oat.pollPending()).toEqual({ checked: 1, approved: 0, errors: 0, deferred: 0 });
   expect(shop().ai_config.alert_template).toBeUndefined();
 
   axios.get.mockResolvedValueOnce({ data: { data: [{ id: 'T1', name: 'owner_alert', language: 'ar', status: 'APPROVED' }] } });
-  expect(await oat.pollPending()).toEqual({ checked: 1, approved: 1, errors: 0 });
+  expect(await oat.pollPending()).toEqual({ checked: 1, approved: 1, errors: 0, deferred: 0 });
   expect(shop().ai_config.alert_template).toEqual({ name: 'owner_alert', language: 'ar' });
   expect(axios.get.mock.calls.every(([url]) => url.includes('/WABA1/'))).toBe(true);
 
   // Named now: nothing left to poll.
-  expect(await oat.pollPending()).toEqual({ checked: 0, approved: 0, errors: 0 });
+  expect(await oat.pollPending()).toEqual({ checked: 0, approved: 0, errors: 0, deferred: 0 });
 });
