@@ -167,7 +167,8 @@ function notifyNewMessages(business, items, { now = new Date() } = {}) {
   let list;
   let cfg;
   try {
-    if (!business || business.status !== 'active') return Promise.resolve([]);
+    // Every status but a closed account (P0): a suspended or paused shop still hears from its customers.
+    if (!business || business.status === 'closed') return Promise.resolve([]);
     cfg = newMessageConfig(business);
     if (!cfg.enabled) return Promise.resolve([]);
     list = candidates(items, cfg);

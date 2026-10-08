@@ -11,6 +11,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../config/prisma');
 const sseEmitter = require('../utils/sseEmitter');
+const { markOutbound } = require('../services/lastOutbound');
 
 function requireIngestKey(req, res, next) {
   const configured = process.env.INGEST_API_KEY;
@@ -81,6 +82,8 @@ router.post('/outbound', requireIngestKey, async (req, res) => {
       where: { id: conversation.id },
       data: { last_message_at: new Date() },
     });
+    // The outside automation answered: the customer is not waiting any more.
+    await markOutbound(conversation.id, message.created_at);
 
     // Order tracking: the external bot signals a confirmed order with a
     // keyword in its reply (Voiceflow uses "طلبك اتأكد"). Configurable per

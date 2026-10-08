@@ -408,10 +408,30 @@ describe('inbound path', () => {
     replyBatcher.cancel(conv.id);
   });
 
-  test('inactive business → no alert', async () => {
-    seedBusiness({}, { status: 'inactive' });
+  // P0: a suspended or inactive shop still hears from its customers (the bot does not answer them).
+  // Until now it was neither stored nor alerted. Only a closed account is silent.
+  test('inactive or suspended business → the message is stored and alerted, never answered', async () => {
+    const send = jest.spyOn(alerts, 'sendStaffAlert').mockResolvedValue({ webhook: 'skipped', whatsapp: [] });
+    const spy = jest.spyOn(newMessageAlert, 'notifyNewMessages');
+    for (const status of ['inactive', 'suspended']) {
+      db.reset();
+      send.mockClear();
+      spy.mockClear();
+      seedBusiness({}, { status });
+      await processInboundMessage(entry([text('مرحبا')]));
+      await expect(notifyPromise(spy)).resolves.toEqual(['alerted']);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(db.store.messages.filter((m) => m.direction === 'inbound')).toHaveLength(1);
+      expect(db.store.messages.filter((m) => m.direction === 'outbound')).toHaveLength(0);
+    }
+  });
+
+  test('closed account → stored, no alert', async () => {
+    const business = seedBusiness({}, { status: 'closed' });
     const send = jest.spyOn(alerts, 'sendStaffAlert');
-    await processInboundMessage(entry([text('مرحبا')]));
+    const { items } = await persistInbound(entry([text('مرحبا')]));
+    expect(items).toHaveLength(1);
+    await expect(notifyNewMessages(business, items, { now: db.clock.now() })).resolves.toEqual([]);
     expect(send).not.toHaveBeenCalled();
   });
 });

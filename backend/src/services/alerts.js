@@ -15,6 +15,7 @@ const prisma = require('../config/prisma');
 const { sendText, sendTemplate } = require('./whatsapp');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
+const { markOutbound } = require('./lastOutbound');
 
 const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure', 'reply_failures', 'billing', 'sla_breached',
   'awaiting_staff', 'ambiguous_send', 'inbound_without_outbound', 'window_closing', 'hot_lead', 'unsent_reply',
@@ -159,7 +160,7 @@ function alertChannelConfigured(business) {
 
 async function storeAlert(business, conversationId, number, row) {
   try {
-    await prisma.message.create({
+    const stored = await prisma.message.create({
       data: {
         business_id: business.id,
         conversation_id: conversationId,
@@ -169,6 +170,7 @@ async function storeAlert(business, conversationId, number, row) {
         ...row,
       },
     });
+    await markOutbound(conversationId, stored && stored.created_at);
   } catch (err) {
     console.error(`[alerts] wa alert to ${number} sent but not stored: ${err.message}`);
   }

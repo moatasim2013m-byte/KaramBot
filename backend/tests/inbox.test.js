@@ -766,3 +766,65 @@ describe('POST /api/inbox/conversations/:id/send — quoted reply', () => {
     expect(whatsapp.sendTextMessage.mock.calls[0]).toHaveLength(4); // a plain send, no quote
   });
 });
+
+// P0: «waiting for a reply» is last_inbound_at newer than last_outbound_at, so every staff send stamps it.
+// The classic inbox posts plain text; the new one (pages/inbox) posts to the same route, with a quote.
+describe('POST /api/inbox/conversations/:id/send — last_outbound_at', () => {
+  beforeEach(() => {
+    seedWorld({
+      businessType: 'restaurant',
+      conversations: [{ id: 'c_lo', customer_wa_id: '962700000088' }],
+      messages: [
+        { business_id: 'biz_shift', conversation_id: 'c_lo', direction: 'inbound', status: 'delivered', text_body: 'وين طلبي؟', meta_message_id: 'wamid.lo1' },
+      ],
+    });
+  });
+
+  test('a plain send (classic inbox) stamps the message time', async () => {
+    expect(conversationRow('c_lo').last_outbound_at).toBeNull();
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_lo/send').set('Authorization', tokenFor('u_sara'))
+      .send({ text: 'بالطريق، عشر دقائق' });
+    expect(res.status).toBe(200);
+    const sent = db.store.messages.find((m) => m.direction === 'outbound' && m.conversation_id === 'c_lo');
+    expect(conversationRow('c_lo').last_outbound_at).toEqual(sent.created_at);
+  });
+
+  test('a quoted send (new inbox) stamps it too', async () => {
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_lo/send').set('Authorization', tokenFor('u_omar'))
+      .send({ text: 'بالطريق', reply_to_message_id: 'wamid.lo1' });
+    expect(res.status).toBe(200);
+    const sent = db.store.messages.find((m) => m.direction === 'outbound' && m.conversation_id === 'c_lo');
+    expect(sent.reply_to_message_id).toBe('wamid.lo1');
+    expect(conversationRow('c_lo').last_outbound_at).toEqual(sent.created_at);
+  });
+
+  test('a send WhatsApp refused stamps nothing', async () => {
+    whatsapp.sendTextMessage.mockRejectedValueOnce(new Error('Graph 400'));
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_lo/send').set('Authorization', tokenFor('u_sara'))
+      .send({ text: 'مرحبا' });
+    expect(res.status).toBe(500);
+    expect(conversationRow('c_lo').last_outbound_at).toBeNull();
+  });
+
+  test('a later send never moves it back', async () => {
+    const later = new Date(Date.now() + 60 * MINUTE);
+    conversationRow('c_lo').last_outbound_at = later;
+    await request(inboxApp).post('/api/inbox/conversations/c_lo/send').set('Authorization', tokenFor('u_sara')).send({ text: 'تم' });
+    expect(conversationRow('c_lo').last_outbound_at).toEqual(later);
+  });
+});
+
+describe('POST /api/inbox/conversations/:id/claim — last_outbound_at', () => {
+  test('the claim ack (a send through the batcher) stamps it', async () => {
+    seedWorld({
+      conversations: [{
+        id: 'c_claim_lo', customer_wa_id: '962700000089', status: 'pending', current_state: 'handoff', ai_enabled: true,
+        workflow_data: { needs_team: { reason: 'person', summary: 'بدو حدا', at: '2026-09-14T08:00:00.000Z', resolved_at: null } },
+      }],
+    });
+    const res = await request(inboxApp).post('/api/inbox/conversations/c_claim_lo/claim').set('Authorization', tokenFor('u_sara'));
+    expect(res.status).toBe(200);
+    expect(res.body.ack).toBe('sent');
+    expect(conversationRow('c_claim_lo').last_outbound_at).toBeInstanceOf(Date);
+  });
+});
