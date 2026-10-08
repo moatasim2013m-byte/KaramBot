@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Building2, Settings, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Building2, Settings, LogOut, Menu, X, Route as RouteIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 /**
@@ -18,6 +18,8 @@ import { useAuth } from '../context/AuthContext';
 const NAV = [
   { to: '/admin/overview', icon: LayoutDashboard, label: 'نظرة عامة على المنصة' },
   { to: '/admin/accounts', icon: Building2, label: 'حسابات الشركات' },
+  // The October campaign board: where each invited shop is between the link and «يعمل».
+  { to: '/admin/onboarding', icon: RouteIcon, label: 'الانضمام' },
   { to: '/admin/settings', icon: Settings, label: 'إعدادات المنصة' },
 ];
 

@@ -29,10 +29,18 @@ export default function ActivatePage() {
   useEffect(() => {
     if (!token) { setError('الرابط غير مكتمل. اطلب رابطًا جديدًا من شِفت.'); setChecking(false); return; }
     api.post('/auth/activate/lookup', { token })
-      .then((res) => setInvite(res.data))
+      .then((res) => {
+        // A shop owner's link belongs to the join wizard (password, then WhatsApp, then the bot);
+        // this page stays for staff and managers. Older owner links pointing here still work.
+        if (res.data?.role === 'business_owner') {
+          navigate(`/join#${token}`, { replace: true });
+          return;
+        }
+        setInvite({ ...res.data, business_name: res.data?.shop_name || res.data?.business_name });
+      })
       .catch(() => setError('الرابط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من شِفت.'))
       .finally(() => setChecking(false));
-  }, [token]);
+  }, [token, navigate]);
 
   const submit = async (e) => {
     e.preventDefault();
