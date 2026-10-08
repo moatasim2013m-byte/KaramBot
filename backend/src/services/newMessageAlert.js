@@ -30,7 +30,7 @@ const AD_TITLE_MAX = 80;
 const CLAIM_KEY = 'new_message_alert_after';
 const FIRST_MESSAGE = 'first';
 // Not something the customer wrote: never alerts, and never breaks the silence either.
-const SKIP_TYPES = ['reaction', 'system', 'ephemeral', 'request_welcome'];
+const SKIP_TYPES = ['reaction', 'system', 'ephemeral', 'request_welcome', 'auto_reply'];
 
 const TYPE_LABELS = {
   image: 'صورة',

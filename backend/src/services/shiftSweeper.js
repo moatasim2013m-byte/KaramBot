@@ -68,7 +68,8 @@ const ROLEPLAY_STALE_LOOKBACK_MS = 48 * HOUR_MS;
 const STAFF_TASKS_CAP = 20;
 // Outbound rows that never reached the customer do not make "the newest message is ours" true.
 const UNDELIVERED_OUTBOUND = ['failed', 'cancelled', 'ambiguous_unreconciled'];
-const SKIPPED_INBOUND_TYPES = ['reaction', 'system', 'ephemeral'];
+// `auto_reply`: the customer's own WhatsApp away message (services/autoReply.js) — never «they wrote».
+const SKIPPED_INBOUND_TYPES = ['reaction', 'system', 'ephemeral', 'auto_reply'];
 const WINDOW_TASK_SUMMARY = 'النافذة مسكّرة — اتصل';
 // Bookings are at most ~5 team days ahead; a reschedule can push one further. Conversations with a message in
 // this span are scanned (workflow_data has no JSON-path filter in Prisma).
@@ -163,7 +164,7 @@ async function langFor(conv) {
   const lead = workflowData(conv).lead || {};
   if (lead.language) return pickLanguage(lead, '');
   const newest = await prisma.message.findFirst({
-    where: { conversation_id: conv.id, direction: 'inbound', text_body: { not: null } },
+    where: { conversation_id: conv.id, direction: 'inbound', text_body: { not: null }, message_type: { not: 'auto_reply' } },
     orderBy: { created_at: 'desc' },
   });
   return pickLanguage(lead, (newest && newest.text_body) || '');
@@ -574,7 +575,7 @@ async function sweepUnanswered(business, now, report) {
   });
   await each(report, `unanswered ${business.id}`, convs, async (conv) => {
     const inb = await prisma.message.findFirst({
-      where: { conversation_id: conv.id, direction: 'inbound' },
+      where: { conversation_id: conv.id, direction: 'inbound', message_type: { not: 'auto_reply' } },
       orderBy: { created_at: 'desc' },
     });
     // Reactions need no answer; awaiting_staff has its own note and alert.
@@ -1042,8 +1043,9 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
   });
   await each(report, `weekly_followups ${business.id}`, convs, async (conv) => {
     if (!notesAllowed(business, conv)) return;
+    // An away message answering the template is not the lead replying: it must not end the series.
     const lastInbound = await prisma.message.findFirst({
-      where: { conversation_id: conv.id, direction: 'inbound' },
+      where: { conversation_id: conv.id, direction: 'inbound', message_type: { not: 'auto_reply' } },
       orderBy: { created_at: 'desc' },
     });
     const decision = weeklyFollowup.plan({ conversation: conv, lastInbound, now, staffNumbers, placesLeft });
@@ -1066,7 +1068,7 @@ async function sweepWeeklyFollowups(business, teamHours, now, report) {
     // and this week is not sent (the claim stays, so it is not retried either).
     // Compared by time, not id: two inbounds in the same millisecond must not read as a new reply.
     const newer = await prisma.message.findFirst({
-      where: { conversation_id: conv.id, direction: 'inbound', created_at: { gt: lastInbound.created_at } },
+      where: { conversation_id: conv.id, direction: 'inbound', message_type: { not: 'auto_reply' }, created_at: { gt: lastInbound.created_at } },
       select: { id: true },
     });
     if (newer) {
