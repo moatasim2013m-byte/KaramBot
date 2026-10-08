@@ -55,7 +55,8 @@ describe('eval replay on Claude (AI_PROVIDER=anthropic)', () => {
     // Every model call went to Claude, with the cached static prompt and no forbidden parameter.
     for (const call of evalShift.state.modelCalls) {
       expect(call.provider).toBe('anthropic');
-      expect(call.params.model).toBe('claude-sonnet-5');
+      expect(call.params.model).toBe('claude-opus-5-5');
+      expect(call.params.thinking).toEqual({ type: 'adaptive' });
       expect(call.params.system[0].cache_control).toEqual({ type: 'ephemeral' });
       expect(call.params).not.toHaveProperty('temperature');
       expect(call.params.messages.map((m) => m.role)).toEqual(['user']);

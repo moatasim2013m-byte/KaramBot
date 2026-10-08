@@ -698,7 +698,7 @@ describe('runBatch', () => {
     await batcher.runBatch(conv.id);
     await settle();
     // 30 s: 15 s for attempt 1 and a full 15 s for a retry after it hangs (round-2 review #3).
-    expect(budgetMs).toBe(30000);
+    expect(budgetMs).toBe(45000);
     expect(whatsapp.markAsRead).toHaveBeenCalledWith('pnid_shift', 'plain_test_token', a.meta_message_id, { typing: true });
   });
 });

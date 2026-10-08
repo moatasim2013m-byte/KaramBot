@@ -42,7 +42,8 @@ const RETRY_HISTORY = 6;
 // 30 s: attempt 1 is capped at 15 s, so 25 s left a hung first attempt only 10 s for the retry and two
 // of the six 2026-09-17 sims spent the whole budget on two aborts and answered «تأخر ردّي». 30 s gives
 // the retry a full 15 s (on a shrunk turn). Healthy calls are unaffected — p50 5.3 s, p90 12.1 s.
-const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 30000;
+// 45 s: room for one Opus 5.5 answer plus a validator regeneration (~10 s each), inside the 60 s lease.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 45000;
 // Attempt B only when a whole model call still fits before the batch deadline (§10.1 step 10).
 const MIN_REGENERATE_MS = 4000;
 const VALIDATOR_BLOCKS_MAX = 20;
@@ -358,6 +359,36 @@ function toTextPart(part) {
  * whose server line comes first (the role-play start line) keeps that line alone — a second, generic
  * line after it would read as part of the example.
  */
+// Blocks a sentence carries: dropping the sentence removes the problem. Language, length, markdown and the
+// like concern the whole reply and are left to the fallback.
+const REPAIRABLE_CODES = ['digits', 'guarantee', 'overclaim', 'claimed_action', 'human_claim', 'link', 'links'];
+const REPAIR_MIN_CHARS = 20;
+
+/** The model's reply without the sentences that hold what the validators blocked, if it then passes. */
+function repairedResult(base, blocks, ctx, history) {
+  const list = Array.isArray(blocks) ? blocks : [];
+  const details = list
+    .filter((b) => b && REPAIRABLE_CODES.includes(b.code) && typeof b.detail === 'string' && b.detail.trim())
+    .map((b) => b.detail.trim());
+  if (!details.length || details.length !== list.length) return null;
+  let dropped = 0;
+  let ok = true;
+  const messages = (base.messages || []).map((part) => {
+    if (!part || !part.modelLine) return part;
+    const sentences = String(part.modelLine).split(/(?<=[.!؟?\n])/);
+    const kept = sentences.filter((s) => !details.some((d) => s.includes(d)));
+    dropped += sentences.length - kept.length;
+    const line = kept.join('').trim();
+    if (Array.from(line).length < REPAIR_MIN_CHARS) ok = false;
+    const text = String(part.text || '');
+    return { ...part, text: text.includes(part.modelLine) ? text.replace(part.modelLine, line).trim() : text, modelLine: line };
+  });
+  if (!ok || !dropped) return null;
+  const candidate = { ...base, messages };
+  const v = validators.validateResult(candidate, buildVctx(candidate, ctx, { attempt: 2, history, ai: null }));
+  return v.verdict === 'ok' ? { result: v.result, dropped } : null;
+}
+
 function fallbackResult(r, ctx, stage) {
   const wd = ctx.conversation.workflow_data || {};
   const disclosed = !!(wd.disclosed_at || (r.workflowDataPatch && r.workflowDataPatch.disclosed_at));
@@ -599,6 +630,7 @@ async function answerInner(ctx, history, { deadlineAt, onRetry } = {}) {
   if (v.verdict === 'ok') return withBlocks(syncCapture(v.result, r), entries, wd);
 
   let base = r;
+  let lastBlocks = v.blocks || [];
   const remaining = deadline - Date.now();
   if (v.verdict === 'regenerate' && remaining >= MIN_REGENERATE_MS) {
     console.warn(`[shift] regenerating conversation=${conversation.id} codes=${(v.hint || '').split('\n').length}`);
@@ -611,7 +643,10 @@ async function answerInner(ctx, history, { deadlineAt, onRetry } = {}) {
       const v2 = validators.validateResult(r2, buildVctx(r2, ctx, { attempt: 2, history, ai: ai2 }));
       entries.push(blockEntry(v2, 2, now));
       if (v2.verdict === 'ok') return withBlocks(syncCapture(v2.result, r2), entries, wd);
-      if (r2.action === r.action) base = r2;
+      if (r2.action === r.action) {
+        base = r2;
+        lastBlocks = v2.blocks || [];
+      }
     }
   }
 
@@ -625,6 +660,16 @@ async function answerInner(ctx, history, { deadlineAt, onRetry } = {}) {
       console.warn(`[shift] invented appointment replaced by the real slots conversation=${conversation.id}`);
       return withBlocks(offer, entries, wd);
     }
+  }
+
+  // Repair before replacing (challenge exam, 2026-10-08): the canned stage line («مين بيرد على رسائل
+  // واتساب عندكم؟») answered an English clinic owner's price question because one sentence held a number
+  // the check did not know. Drop only the sentences holding what was blocked; if what is left passes and
+  // still says something, it goes out instead of the canned line.
+  const repaired = repairedResult(base, lastBlocks, ctx, history);
+  if (repaired) {
+    console.warn(`[shift] validator repair conversation=${conversation.id} dropped=${repaired.dropped}`);
+    return withBlocks(syncCapture(repaired.result, base), entries, wd);
   }
 
   // Never silent (G4): the result keeps its state, acks and alerts; only the model's line goes.

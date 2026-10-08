@@ -536,7 +536,7 @@ describe('review round 2: the identity answer and the invented diary', () => {
 });
 
 describe('review round 2, code review follow-ups', () => {
-  test('a third unanswered ask escalates even after the move-on line replaced the second', async () => {
+  test('a third repeat of a non-time question is dropped again, and never hands the thread to the team', async () => {
     const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
     const ask = { reply: 'شو مجال شغلك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
 
@@ -544,12 +544,17 @@ describe('review round 2, code review follow-ups', () => {
     await turn(conv, ['مرحبا']);
     script(ask, ask);
     const t2 = await turn(conv, ['طيب']);
-    expect(t2.parts.map(bodyOf).join('\n')).toContain(acks.askMovedOn('ar'));
+    // A question-only reply goes as written: no canned call offer in its place (challenge exam, 2026-10-08).
+    expect(t2.parts.map(bodyOf).join('\n')).not.toContain(acks.askMovedOn('ar'));
     script(ask, ask);
     const t3 = await turn(conv, ['هاه']);
 
-    expect(t3.parts.map(bodyOf).join('\n')).toContain(acks.askHandover('ar'));
-    expect(convRow(conv.id).status).toBe('pending');
+    // Mohannad / Abu Mohammad (2026-10-07/08): a question the model asked twice is not a customer asking
+    // for the team.
+    const body3 = t3.parts.map(bodyOf).join('\n');
+    expect(body3).not.toContain(acks.askHandover('ar'));
+    expect(body3).not.toContain(acks.askMovedOn('ar'));
+    expect(convRow(conv.id).status).not.toBe('pending');
   });
 
   test('«خليني احكي مع إنسان، إنت بوت ولا لأ؟» is transferred AND answered', async () => {
@@ -596,11 +601,13 @@ describe('review round 2 #7 — one discovery question, not three', () => {
     const t2 = await turn(conv, ['طيب']);
 
     const body = t2.parts.map(bodyOf).join('\n');
+    // The repeated question is dropped and the model's own statement stays; nothing canned is added.
     expect(body).not.toContain('شو مجال شغلك');
-    expect(body).toContain(acks.askMovedOn('ar'));
+    expect(body).not.toContain(acks.askMovedOn('ar'));
+    expect(body.trim().length).toBeGreaterThan(0);
   });
 
-  test('a third unanswered ask hands the thread to the team', async () => {
+  test('a third unanswered non-time ask stays with the bot (no team hand-off)', async () => {
     const { conv } = seedShift({
       current_state: 'discovery',
       workflow_data: {
@@ -615,8 +622,10 @@ describe('review round 2 #7 — one discovery question, not three', () => {
 
     const { parts } = await turn(conv, ['طيب']);
 
-    expect(parts.map(bodyOf).join('\n')).toContain(acks.askHandover('ar'));
-    expect(convRow(conv.id).status).toBe('pending');
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).not.toContain(acks.askHandover('ar'));
+    expect(body).not.toContain(acks.askMovedOn('ar'));
+    expect(convRow(conv.id).status).not.toBe('pending');
   });
 });
 
@@ -923,3 +932,27 @@ describe('review round 2 (pipeline)', () => {
   });
 });
 
+
+describe('challenge exam, 2026-10-08: repair before the canned line', () => {
+  test('an answer blocked twice for one sentence goes out without that sentence, not as the canned stage line', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const bad = { reply: 'الاشتراك الأساسي 19.99 دينار بالشهر. وعنا 500 عيادة شغالة معنا. شو نوع عيادتك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(bad, bad);
+
+    const { parts } = await turn(conv, ['كم السعر؟']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('19.99');
+    expect(body).not.toContain('500');
+    expect(body).not.toContain('مين بيرد على رسائل واتساب');
+  });
+
+  test('when nothing useful is left, the canned line still goes (never silent)', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const bad = { reply: 'عنا 500 عيادة.', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(bad, bad);
+    const { parts } = await turn(conv, ['شو عندكم؟']);
+    expect(parts.map(bodyOf).join('\n')).not.toContain('500');
+    expect(parts.length).toBeGreaterThan(0);
+  });
+});

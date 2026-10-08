@@ -51,7 +51,8 @@ const LEASE_TTL_MS = 60000;
 // 30 s: attempt 1 is capped at 15 s, so 25 s left a hung first attempt only 10 s for the retry and two
 // of the six 2026-09-17 sims spent the whole budget on two aborts and answered «تأخر ردّي». 30 s gives
 // the retry a full 15 s (on a shrunk turn). Healthy calls are unaffected — p50 5.3 s, p90 12.1 s.
-const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 30000;
+// 45 s: room for one Opus 5.5 answer plus a validator regeneration (~10 s each), inside the 60 s lease.
+const AI_DEADLINE_MS = Number(process.env.SHIFT_AI_DEADLINE_MS) || 45000;
 const HUMAN_ACTIVE_MS = 30 * 60 * 1000;
 const MAX_BATCH = 20;
 const MAX_REPLY_FAILURES = 3;
