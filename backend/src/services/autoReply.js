@@ -1,38 +1,70 @@
 'use strict';
 
 /**
- * A WhatsApp Business away/greeting message is not a customer talking (owner, 2026-10-08: Laraca's phone
- * answered staff's «hi» four seconds later with «Thank you for your message. We're unavailable right now,
- * but will respond as soon as possible.»). Answering it — with the bot's reply, the «waiting for the team»
- * note, or a staff alert — talks to a machine, and the machine may answer back: a loop on two paid numbers.
+ * A customer's own WhatsApp Business away message is not the customer talking (owner, 2026-10-08: staff
+ * wrote «hi» to Laraca and four seconds later their phone answered «Thank you for your message. We're
+ * unavailable right now, but will respond as soon as possible.»). Answering it — with a bot reply, the
+ * «waiting for the team» note or a staff alert — talks to a machine that may answer back.
  *
- * Such a row is kept (staff see it in the Inbox) but marked `skipped` with raw_payload.auto_reply, so no
- * reply, note, alert or follow-up sweep ever acts on it.
+ * Two conditions, both required (an adversarial review showed wording alone silences real people:
+ * «ليش ما حدا رد الي؟», «بدي رد تلقائي لمحلي», a shop owner describing their own hours):
+ *   1. TIMING — it arrives within AWAY_WINDOW_MS of a message we sent (staff, bot or template). WhatsApp
+ *      sends an away message within seconds; a person rarely answers that fast with this shape.
+ *   2. SHAPE — it says that "we" are unavailable / it is automatic / the message was received, AND that a
+ *      reply will come later. A mention of «رد آلي» or "auto reply" on its own never counts.
  *
- * Deliberately narrow: a real customer's «شكرا» or «thanks, I'll get back to you» must never be silenced.
- * A message counts only when it says BOTH that nobody is available (or that it is automatic) AND that a
- * reply will come later — the shape every away message has and a person writing to a sales bot does not.
+ * Such a row is stored as message_type `auto_reply`, status `skipped`: staff see it in the Inbox, and no
+ * reply, note, alert, nudge, follow-up or language choice ever treats it as the customer writing.
  */
 
-// It says it is automatic.
-const AUTOMATIC_RE = /\bauto(?:matic|mated)?[- ]?(?:reply|response|message)\b|\bthis is an automated\b|رد\s*(?:آلي|الي|تلقائي)|رسالة\s*(?:آلية|الية|تلقائية)|هذه رسالة تلقائية/i;
-// Nobody is there right now.
-const UNAVAILABLE_RE = /\b(?:we(?:'|’)?re|we are|i(?:'|’)?m|i am|currently)\s+(?:currently\s+)?(?:unavailable|away|closed|offline|out of (?:the )?office|not available)\b|\bout of office\b|\boutside (?:our )?(?:business|working|office) hours\b|\bour (?:business|working|office) hours are\b|غير متاح(?:ين|ون)?|غير متواجد(?:ين|ون)?|مش متواجد(?:ين)?|خارج (?:أوقات|اوقات|ساعات) (?:الدوام|العمل)|مغلق(?:ين)? (?:حال(?:ي)?ا|الآن|هلأ)|مسكرين هلأ|نحن في إجازة|في عطلة/i;
-// A reply will come later.
-const LATER_RE = /\b(?:will|we'll|we’ll|i'll|i’ll)\s+(?:respond|reply|get back|be in touch|contact you|answer)\b|\bas soon as (?:possible|we can)\b|\bat the earliest\b|\bshortly\b|سنرد|سوف نرد|سيتم الرد|سنقوم بالرد|سنتواصل|سنعاود|منرد عليك|بنرد عليك|رح نرد|بأقرب وقت|في أقرب وقت|باقرب وقت|في اقرب وقت|حال تواجدنا|عند عودتنا/i;
-// The thank-you opening most templates start with («شكراً لتواصلك…», "Thanks for your message").
-const THANKS_RE = /\bthank(?:s| you)\s+for\s+(?:your message|contacting|reaching out|messaging|getting in touch)\b|شكرا?ً?\s*(?:لك\s*)?(?:لتواصلك|على تواصلك|لرسالتك|على رسالتك|لاتصالك|لتواصلكم|على تواصلكم)/i;
+const AWAY_WINDOW_MS = 30 * 1000;
+const MAX_LEN = 1200;
 
-const MAX_LEN = 600;
+// Tashkeel and tatweel vary by keyboard («شكرًا» vs «شكراً», «شكـــراً»): stripped before matching.
+const DIACRITICS_RE = /[ً-ْٰـ]/g;
 
-/** True only for the away/greeting shape; never throws. */
-function isAutoReply(text) {
+// "We" are not there. A first-person "I" is a person, not a business's away setting.
+const UNAVAILABLE_RE = new RegExp([
+  "\\b(?:we(?:'|’)?re|we are|our (?:team|office|shop|store|clinic) (?:is|are))\\s+(?:currently\\s+|now\\s+)?(?:unavailable|away|closed|offline|out of (?:the )?office|not available|on (?:a )?(?:holiday|vacation|leave))\\b",
+  '\\b(?:the )?(?:office|shop|store|clinic) is (?:currently )?closed\\b',
+  '\\boutside (?:our )?(?:business|working|office) hours\\b',
+  'غير متاحين', 'غير متوفرين', 'غير متواجدين', 'مش متواجدين', 'مش موجودين', 'مش متاحين', 'مو متواجدين',
+  'خارج (?:أوقات|اوقات|ساعات) (?:الدوام|العمل)', 'المحل مسكر', 'المكتب مغلق', 'المحل مغلق', 'العيادة مغلقة',
+  'نحن مغلقون', 'نحن مغلقين', 'احنا مسكرين', 'احنا قافلين', 'ما في حدا متواجد', 'لا يوجد احد متاح',
+  'نحن في (?:إجازة|اجازة|عطلة)', 'احنا (?:بإجازة|باجازة|بعطلة)',
+].join('|'), 'i');
+
+// Explicitly automatic or "received" — only ever counted together with a "later" phrase.
+const AUTOMATIC_RE = /\b(?:this is an )?auto(?:matic|mated)? (?:reply|response|message)\b|\bwe (?:have )?received your message\b|رسالة (?:آلية|تلقائية)|رد (?:آلي|تلقائي)|تم استلام رسالتك|وصلتنا رسالتك/i;
+
+// A thank-you opening for the message (business voice).
+const THANKS_RE = /\bthanks? (?:you )?for (?:your message|contacting us|reaching out|messaging us|getting in touch)\b|شكرا (?:لك )?(?:لتواصلك|على تواصلك|لرسالتك|على رسالتك|لتواصلكم|على تواصلكم|لتواصل حضرتك)|نشكرك(?:م)? (?:على|ل)/i;
+
+// "We" will reply later.
+const LATER_RE = new RegExp([
+  "\\b(?:we will|we(?:'|’)ll|our team will|someone will|one of our [a-z]+ will)\\s+(?:respond|reply|get back|be in touch|contact you|answer)\\b",
+  '\\bas soon as (?:possible|we can|we(?:\'|’)re back)\\b', '\\bat the earliest\\b',
+  // «…out of the office and will get back to you shortly»: the "we" is dropped after «and».
+  '\\band will (?:respond|reply|get back|be in touch|contact you|answer)\\b',
+  'سنرد', 'سوف نرد', 'سيتم الرد', 'سنقوم بالرد', 'سنتواصل', 'سيتم التواصل', 'سنعاود', 'سيقوم (?:أحد|احد|فريقنا)',
+  'منرد عليك', 'بنرد عليك', 'رح نرد', 'هنرد', 'رح نرجعلك', 'بنرجعلك', 'منرجعلك', 'بنتواصل معك',
+  '(?:في|ب)(?:أ|ا)قرب وقت', '(?:في|ب)(?:أ|ا)سرع وقت', 'حال (?:تواجدنا|عودتنا)', 'عند عودتنا', 'أول ما نفتح', 'اول ما نفتح',
+].join('|'), 'i');
+
+/** The away-message SHAPE (condition 2). Never throws. */
+function looksLikeAwayText(text) {
   if (typeof text !== 'string') return false;
-  const s = text.trim();
+  const s = text.replace(DIACRITICS_RE, '').trim();
   if (!s || s.length > MAX_LEN) return false;
-  if (AUTOMATIC_RE.test(s)) return true;
-  if (UNAVAILABLE_RE.test(s) && (LATER_RE.test(s) || THANKS_RE.test(s))) return true;
-  return THANKS_RE.test(s) && LATER_RE.test(s) && /\b(?:we|our|team)\b|سنرد|سيتم الرد|سنتواصل|منرد|بنرد/i.test(s);
+  if (!LATER_RE.test(s)) return false;
+  return UNAVAILABLE_RE.test(s) || AUTOMATIC_RE.test(s) || THANKS_RE.test(s);
 }
 
-module.exports = { isAutoReply };
+/** Condition 1: sent within the window after our last message (clock skew of a few seconds allowed). */
+function withinAwayWindow(inboundAtMs, lastOutboundAtMs) {
+  if (!Number.isFinite(inboundAtMs) || !Number.isFinite(lastOutboundAtMs)) return false;
+  const gap = inboundAtMs - lastOutboundAtMs;
+  return gap >= -5000 && gap <= AWAY_WINDOW_MS;
+}
+
+module.exports = { looksLikeAwayText, withinAwayWindow, AWAY_WINDOW_MS };

@@ -163,15 +163,52 @@ function inboundData(businessId, conversationId, waMsg, senderWaId, status, { ca
  * `received` / `processing` and a sweep recovers it.
  * @returns {Promise<{created: boolean, msg: object|null, conversation: object|null}>}
  */
+/**
+ * The customer's own WhatsApp away message (services/autoReply.js): its shape, AND sent within seconds of
+ * our last message. Decided before the row exists, so no path — batcher, sweeper, recovery — ever sees it
+ * as `received`. A failed lookup is "not an away message": the row goes the normal way.
+ */
+async function isAwayMessage(conversationId, waMsg) {
+  if (!waMsg || waMsg.type !== 'text' || !autoReply.looksLikeAwayText(waMsg.text && waMsg.text.body)) return false;
+  try {
+    const last = await prisma.message.findFirst({
+      where: { conversation_id: conversationId, direction: 'outbound' },
+      orderBy: { created_at: 'desc' },
+      select: { created_at: true },
+    });
+    if (!last) return false;
+    const sentAt = Number(waMsg.timestamp) > 0 ? Number(waMsg.timestamp) * 1000 : Date.now();
+    return autoReply.withinAwayWindow(sentAt, new Date(last.created_at).getTime());
+  } catch (err) {
+    console.error(`[inbound] away-message check failed conversation=${conversationId}: ${err.message}`);
+    return false;
+  }
+}
+
 async function insertInbound(businessId, conversationId, waMsg, senderWaId, status, options) {
   if (waMsg?.id) {
     const existing = await prisma.message.findUnique({ where: { meta_message_id: waMsg.id } });
     if (existing) return { created: false, msg: existing, conversation: null };
   }
+  const away = await isAwayMessage(conversationId, waMsg);
   try {
     return await prisma.$transaction(async (tx) => {
-      const msg = await tx.message.create({ data: inboundData(businessId, conversationId, waMsg, senderWaId, status, options) });
+      const data = inboundData(businessId, conversationId, waMsg, senderWaId, status, options);
+      if (away) {
+        // Kept for staff, answered by nobody (Laraca, 2026-10-08).
+        data.message_type = 'auto_reply';
+        data.status = 'skipped';
+        data.raw_payload = { ...(data.raw_payload || {}), auto_reply: true };
+      }
+      const msg = await tx.message.create({ data });
       const at = msg.created_at ? new Date(msg.created_at) : new Date();
+      if (away) {
+        // Not the customer writing: last_inbound_at (the window, «they replied», nudges) and the unread
+        // count stay as they were.
+        console.log(`[inbound] away message not answered conversation=${conversationId} message=${msg.id}`);
+        const conversation = await tx.conversation.update({ where: { id: conversationId }, data: { last_message_at: at } });
+        return { created: true, msg, conversation, away: true };
+      }
       // Never move last_inbound_at backwards: the deliveries of a burst can commit out of order.
       await tx.conversation.updateMany({
         where: { id: conversationId, OR: [{ last_inbound_at: null }, { last_inbound_at: { lt: at } }] },
@@ -347,8 +384,13 @@ async function persistInbound(entry, { servesApp, endpoint } = {}) {
       const customerWaId = normalizePhone(waMsg.from);
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
 
-      const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
+      const { created, msg, conversation, away } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
         { captions: shiftQueue });
+      if (away) {
+        // Stored for staff and shown live in the Inbox, but not an item to answer, alert on or forward.
+        sseEmitter.emit(`business:${business.id}`, { type: 'new_message', conversationId: found.id, businessId: business.id });
+        continue;
+      }
       items.push({
         waMsg, contact, customerWaId, conversation: conversation || found, message: msg, created, recovered: false, claimed: created,
       });
@@ -899,27 +941,6 @@ function decryptBusinessToken(business) {
   }
 }
 
-/** Marks the away/greeting replies in this delivery `skipped` (raw_payload.auto_reply); returns their ids. */
-async function markAutoReplies(items) {
-  const ids = new Set();
-  for (const item of Array.isArray(items) ? items : []) {
-    const row = item && item.message;
-    if (!row || !needsProcessing(item) || row.message_type !== 'text' || !autoReply.isAutoReply(row.text_body)) continue;
-    try {
-      await prisma.message.update({
-        where: { id: row.id },
-        data: { status: 'skipped', raw_payload: { ...(row.raw_payload && typeof row.raw_payload === 'object' ? row.raw_payload : {}), auto_reply: true } },
-      });
-      ids.add(row.id);
-      console.log(`[inbound] auto-reply not answered message=${row.id} conversation=${row.conversation_id}`);
-    } catch (err) {
-      // Not marked: it goes through the normal path, as before this guard existed.
-      console.error(`[inbound] auto-reply mark failed message=${row.id}: ${err.message}`);
-    }
-  }
-  return ids;
-}
-
 async function processInboundMessage(entry, { persisted, servesApp, endpoint } = {}) {
   try {
     const changes = entry?.changes?.[0];
@@ -958,14 +979,8 @@ async function processInboundMessage(entry, { persisted, servesApp, endpoint } =
     if (!messages.length) return;
 
     // Legacy callers (scripts, tests) did not persist first.
-    const { business, items: persistedItems } = persisted || await persistInbound(entry, { servesApp, endpoint });
+    const { business, items } = persisted || await persistInbound(entry, { servesApp, endpoint });
     if (!business || business.status !== 'active') return;
-
-    // A customer's own WhatsApp away message is kept for staff but answered by nobody: no reply, no
-    // alert, no «waiting for the team» note (Laraca, 2026-10-08).
-    const autoIds = await markAutoReplies(persistedItems);
-    const items = autoIds.size ? persistedItems.filter((i) => !autoIds.has(i.message && i.message.id)) : persistedItems;
-    if (!items.length) return;
 
     // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path
     // below neither waits for it nor fails with it.
