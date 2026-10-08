@@ -68,7 +68,17 @@ async function lookup(token) {
 
   const row = await prisma.userActivation.findUnique({
     where: { token_hash: hash(token) },
-    include: { user: { select: { id: true, name: true, email: true, active: true, business_id: true } } },
+    // role and the business name ride along so the activation page can greet the shop by name and
+    // the session minted on redeem is complete (role, business_type, business_name) from the
+    // first screen, instead of a half-filled user that the nav cannot route.
+    include: {
+      user: {
+        select: {
+          id: true, name: true, email: true, role: true, active: true, business_id: true,
+          business: { select: { name: true, business_type: true } },
+        },
+      },
+    },
   });
 
   if (!row) return null;

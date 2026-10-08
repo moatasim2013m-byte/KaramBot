@@ -226,9 +226,10 @@ function issueSummary(provider, kind, next) {
 }
 
 /**
- * A billing / auth / model failure the owner must hear about before the other provider runs out too:
- * logged every time, and handed to opts.onProviderIssue (the SHIFT workflow turns it into an ai_failure
- * staff alert) at most once per hour per provider.
+ * A billing / auth / model failure SHIFT must hear about before the other provider runs out too:
+ * logged every time, and handed to opts.onProviderIssue at most once per hour per provider. The map is
+ * process-wide, not per shop, on purpose: every callback now alerts SHIFT (the sales bot's ai_failure,
+ * the tenant workflows' notifyShift provider_down), so one outage is one alert an hour, not one per shop.
  */
 function reportProviderIssue(provider, kind, next, err, opts) {
   const summary = issueSummary(provider, kind, next);

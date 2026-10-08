@@ -11,6 +11,28 @@ function signToken(userId) {
   });
 }
 
+/**
+ * The business half of a session: its type (which picks the nav: menu, clinic or neither) and its
+ * name (the brand line «كرم بوت · {اسم المحل}»). Every way of getting a session — login, /me and
+ * activation — answers with both, so the first screen after any of them is already complete.
+ * A failed lookup answers nulls rather than failing the sign-in: the nav degrades, the login works.
+ */
+async function businessInfo(user) {
+  if (!user || !user.business_id) return { business_type: null, business_name: null };
+  if (user.business && typeof user.business === 'object') {
+    return { business_type: user.business.business_type ?? null, business_name: user.business.name ?? null };
+  }
+  try {
+    const business = await prisma.business.findUnique({
+      where: { id: user.business_id },
+      select: { business_type: true, name: true },
+    });
+    return { business_type: business ? business.business_type : null, business_name: business ? business.name : null };
+  } catch (e) {
+    return { business_type: null, business_name: null };
+  }
+}
+
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
@@ -38,18 +60,7 @@ router.post('/login', async (req, res) => {
 
     const token = signToken(user.id);
 
-    let business_type = null;
-    if (user.business_id) {
-      try {
-        const business = await prisma.business.findUnique({
-          where: { id: user.business_id },
-          select: { business_type: true },
-        });
-        business_type = business ? business.business_type : null;
-      } catch (e) {
-        business_type = null;
-      }
-    }
+    const { business_type, business_name } = await businessInfo(user);
 
     res.json({
       token,
@@ -60,6 +71,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
         business_id: user.business_id,
         business_type,
+        business_name,
       },
     });
   } catch (err) {
@@ -107,7 +119,10 @@ router.post('/register', authenticate, async (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', authenticate, (req, res) => {
+router.get('/me', authenticate, async (req, res) => {
+  // authenticate() already resolved business_type; the name is looked up here only, so the
+  // middleware on every other request stays one query lighter.
+  const { business_name } = await businessInfo({ business_id: req.user.business_id });
   res.json({
     id: req.user.id,
     name: req.user.name,
@@ -115,6 +130,7 @@ router.get('/me', authenticate, (req, res) => {
     role: req.user.role,
     business_id: req.user.business_id,
     business_type: req.user.business_type,
+    business_name,
   });
 });
 
@@ -136,7 +152,17 @@ const activation = require('../services/activation');
 router.post('/activate/lookup', async (req, res) => {
   const row = await activation.lookup((req.body || {}).token);
   if (!row) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
-  res.json({ name: row.user.name, email: row.user.email, expires_at: row.expires_at });
+  // The page leads with the shop's name, which is what the owner recognises; the email is kept
+  // for the staff and manager invites that still sign in with one. Nothing here names a business
+  // the link was not issued for, so a valid link still reveals only its own account.
+  const { business_name } = await businessInfo(row.user);
+  res.json({
+    name: row.user.name,
+    email: row.user.email,
+    role: row.user.role || null,
+    business_name,
+    expires_at: row.expires_at,
+  });
 });
 
 router.post('/activate', async (req, res) => {
@@ -151,10 +177,22 @@ router.post('/activate', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'الرابط غير صالح أو انتهت صلاحيته' });
 
     // Signed straight in: a customer who has just chosen a password should not be asked for it.
+    // The user carries everything login returns: without role and business_type the first
+    // session rendered the wrong nav (no menu for a restaurant, owner links for staff) until a
+    // reload fetched /me.
     const jwtToken = signToken(user.id);
+    const { business_type, business_name } = await businessInfo(user);
     res.json({
       token: jwtToken,
-      user: { id: user.id, name: user.name, email: user.email, business_id: user.business_id },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        business_id: user.business_id,
+        business_type,
+        business_name,
+      },
     });
   } catch (err) {
     // The race guard in consume() throws when two tabs redeem the same link at once.

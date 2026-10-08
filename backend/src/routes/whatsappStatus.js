@@ -4,6 +4,9 @@ const prisma = require('../config/prisma');
 const { authenticate, attachBusinessId } = require('../middleware/auth');
 const { connectionState, agentState, lifecycle } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
+// The payment wording lives in one place (no dates: the «30 أيلول» copies read as a missed
+// deadline once October came).
+const { PAYMENT_METHOD_OWNER_SHORT, PAYMENT_METHOD_OWNER_LONG, WHATSAPP_MANAGER_URL } = require('../config/metaNotices');
 
 /**
  * What is left before this account's bot is genuinely working, in the order it has to happen.
@@ -32,11 +35,11 @@ function buildSetup({ business, connection, paymentOk, knowledgeCount, lastInbou
     },
     {
       key: 'payment',
-      label: 'أضف طريقة دفع في WhatsApp Manager',
+      label: PAYMENT_METHOD_OWNER_SHORT,
       done: paymentOk === true,
       owner: 'you',
-      hint: 'من 1 تشرين الأول تتوقف Meta عن تسليم ردود البوت لأي حساب بلا طريقة دفع.',
-      url: 'https://business.facebook.com/wa/manage/home/',
+      hint: PAYMENT_METHOD_OWNER_LONG,
+      url: WHATSAPP_MANAGER_URL,
     },
     {
       ...knowledgeStep,
@@ -87,6 +90,11 @@ function explain(connection, agent, onboarding, contract) {
   if (connection.state === 'ok' && agent.state === 'unknown') {
     return { tone: 'good', title: 'واتساب موصول — بانتظار أول رسالة', body: 'الرقم مربوط والبوت جاهز. لم يراسلك أحد بعد؛ أول محادثة ستظهر في «المحادثات».', action: null };
   }
+  // A generic shop with nothing entered answers every question with its greeting: connected and
+  // "working", yet useless. agentState marks it down; the fix is theirs, not SHIFT's.
+  if (connection.state === 'ok' && agent.state === 'down' && agent.label === 'بدون معلومات') {
+    return { tone: 'warn', title: 'البوت بدون معلومات', body: 'البوت يرد بالترحيب فقط لأنه لا يعرف شيئًا عن منشأتك بعد. أضف الدوام وأهم الأسئلة وأجوبتها.', action: 'knowledge' };
+  }
   if (connection.state === 'ok' && agent.state === 'down') {
     return { tone: 'bad', title: 'واتساب موصول لكن البوت لا يرد', body: `آخر رسالة من زبون لم يُرد عليها${agent.sub ? ` منذ ${agent.sub}` : ''}. تواصل مع شِفت الآن.`, action: 'contact' };
   }
@@ -94,7 +102,7 @@ function explain(connection, agent, onboarding, contract) {
     return { tone: 'warn', title: 'الوكيل موقوف', body: 'الرد الآلي متوقف يدويًا. الرسائل تصل لكن لا يجيب عليها أحد إلا فريقك.', action: null };
   }
   if (onboarding && onboarding.step === 'done' && !onboarding.payment_method_ok) {
-    return { tone: 'warn', title: 'واتساب موصول — تبقّى طريقة الدفع', body: 'أضف طريقة دفع في WhatsApp Manager قبل 30 أيلول، وإلا يتوقف البوت عن الرد على زبائنك من 1 تشرين الأول. هذه خطوة عندك أنت لا عند شِفت.', action: 'payment' };
+    return { tone: 'warn', title: 'واتساب موصول — تبقّى طريقة الدفع', body: PAYMENT_METHOD_OWNER_LONG, action: 'payment' };
   }
   if (connection.state === 'degraded' || connection.state === 'down' || connection.state === 'unknown') {
     return { tone: 'warn', title: 'واتساب غير موصول بعد', body: 'فريق شِفت يعمل على ربط رقمك. لن يصل البوت أي رسالة حتى يكتمل الربط — ستجد الحالة هنا «موصول» عندما يتم.', action: 'contact' };
@@ -135,7 +143,9 @@ router.get('/', async (req, res) => {
     const lastInbound = inbound._max.last_inbound_at;
     const lastOutbound = outbound._max.created_at;
     const connection = connectionState(business, onboarding);
-    const agent = agentState(business, lastInbound, lastOutbound);
+    // knowledgeCount lets agentState say «بدون معلومات» for a generic shop with nothing entered;
+    // without it that state could never show and the card said «يرد».
+    const agent = agentState(business, lastInbound, lastOutbound, knowledgeCount);
 
     res.json({
       connection,
