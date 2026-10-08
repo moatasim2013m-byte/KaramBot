@@ -523,6 +523,8 @@ function deriveCard({
       account_id: business.id,
       name: business.name,
       owner_first_name: firstName(owner && owner.name),
+      // «راسله» on the board opens wa.me to this; SHIFT is the only reader of this route.
+      owner_phone: business.owner_phone || null,
       since: sinceDate,
       stuck: stage !== 'live' && Boolean(sinceDate) && now.getTime() - sinceDate.getTime() > STUCK_MS,
       reason_ar: reason,
@@ -580,7 +582,7 @@ boardRouter.get('/', guard, async (req, res) => {
       where: { is_internal: false, business_type: { not: 'shift' }, status: { not: 'closed' } },
       select: {
         id: true, name: true, business_type: true, created_at: true, wa_phone_number_id: true,
-        connected_at: true, went_live_at: true,
+        connected_at: true, went_live_at: true, owner_phone: true,
       },
       orderBy: { created_at: 'asc' },
     });

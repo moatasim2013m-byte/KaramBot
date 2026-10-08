@@ -151,7 +151,7 @@ describe('redeeming a link', () => {
       // (phoneLoginCreate.test.js).
       phone_masked: null,
       // P2 /join: the greeting, the starter cards and whether the connect step is already done.
-      shop_name: 'عيادة النور', owner_first_name: 'د. أحمد', sector: null, connected: false,
+      shop_name: 'عيادة النور', owner_first_name: 'د. أحمد', sector: null, business_type: 'clinic', connected: false,
     });
     // The lookup asks for the shop through the user's own relation, never by an id from the request.
     const include = prisma.userActivation.findUnique.mock.calls[0][0].include;

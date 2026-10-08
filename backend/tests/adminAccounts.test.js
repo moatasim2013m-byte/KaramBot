@@ -167,7 +167,7 @@ describe('the owner opens the link', () => {
     const res = await request(app).post('/api/auth/activate/lookup').send({ token });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      shop_name: 'مطعم الشام', owner_first_name: 'أبو خالد', sector: 'restaurant',
+      shop_name: 'مطعم الشام', owner_first_name: 'أبو خالد', sector: 'restaurant', business_type: 'restaurant',
       phone_masked: '+962 7•• ••• 567', role: 'business_owner', connected: false,
     });
     expect(JSON.stringify(res.body)).not.toContain('791234567');
@@ -277,7 +277,7 @@ describe('GET /api/admin/onboarding', () => {
     db.seed({
       businesses: [
         // Link created two days ago, shared, never opened: stuck.
-        { id: 'b_sent', name: 'محل جود', business_type: 'generic', wa_phone_number_id: null, created_at: ago(2 * DAY) },
+        { id: 'b_sent', name: 'محل جود', business_type: 'generic', wa_phone_number_id: null, owner_phone: '962790000001', created_at: ago(2 * DAY) },
         // Owner signed in yesterday; closed Meta's window at the number check.
         { id: 'b_conn', name: 'صالون ريم', business_type: 'generic', wa_phone_number_id: null, created_at: ago(3 * DAY) },
         // Connected, no card.
@@ -336,7 +336,7 @@ describe('GET /api/admin/onboarding', () => {
     expect(res.body.columns.map((c) => c.label_ar)).toEqual(['أُرسل الرابط', 'يربط واتساب', 'بانتظار البطاقة', 'يعلّم البوت', 'بانتظار أول زبون', 'يعمل']);
 
     const card = (id) => res.body.columns.flatMap((c) => c.cards).find((c) => c.account_id === id);
-    expect(card('b_sent')).toMatchObject({ owner_first_name: 'سامر', stuck: true, reason_ar: 'لم يفتح الرابط بعد', opened: false });
+    expect(card('b_sent')).toMatchObject({ owner_first_name: 'سامر', owner_phone: '962790000001', stuck: true, reason_ar: 'لم يفتح الرابط بعد', opened: false });
     expect(card('b_conn')).toMatchObject({
       owner_first_name: 'أم ريم', stuck: true, reason_ar: 'توقف عند: التحقق من الرقم', last_es_step_ar: 'توقف عند: التحقق من الرقم',
     });

@@ -224,7 +224,7 @@ router.post('/activate/lookup', async (req, res) => {
   // The page leads with the shop's name, which is what the owner recognises; the email is kept
   // for the staff and manager invites that still sign in with one. Nothing here names a business
   // the link was not issued for, so a valid link still reveals only its own account.
-  const { business_name } = await businessInfo(row.user);
+  const { business_name, business_type } = await businessInfo(row.user);
   const business = await joinBusiness(row.user);
   // Not awaited: SHIFT's alert must not hold up the owner's first screen, and noteJoinOpened
   // never throws.
@@ -241,6 +241,9 @@ router.post('/activate/lookup', async (req, res) => {
     shop_name: business_name,
     owner_first_name: firstName(row.user.name),
     sector: business ? business.sector ?? null : null,
+    // /join's teach step picks menu, services or facts by this; a shop made before sectors
+    // existed has a business_type and no sector.
+    business_type: business_type || null,
     connected: Boolean(business && business.wa_phone_number_id),
     expires_at: row.expires_at,
   });

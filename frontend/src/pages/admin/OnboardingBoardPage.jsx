@@ -34,6 +34,7 @@ const RESULT_AR = {
   cancelled: 'أُلغي',
   canceled: 'أُلغي',
   error: 'خطأ',
+  failed: 'خطأ',
   conflict: 'تعارض رقم',
   number_taken: 'تعارض رقم',
   needs_operator: 'بحاجة لشِفت',
@@ -278,7 +279,7 @@ export default function OnboardingBoardPage() {
               </thead>
               <tbody>
                 {attempts.map((a, i) => {
-                  const result = resultLabel(a.result);
+                  const result = resultLabel(a.result_ar || a.result);
                   return (
                     <tr key={`${a.account_id}-${a.at}-${i}`} className="border-b border-gray-50 align-top">
                       <td className="px-4 py-2 whitespace-nowrap text-gray-600"><Timestamp value={a.at} /></td>
