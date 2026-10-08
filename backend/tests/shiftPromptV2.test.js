@@ -97,7 +97,8 @@ describe('sector-trimmed knowledge', () => {
     expect(lines[0]).toBe('أسئلة تشغيلية:');
     expect(lines.slice(1)).toHaveLength(5);
     for (const l of lines.slice(1)) expect(l).toMatch(/^- «.+» → «.+»$/);
-    expect(promptV2.OPERATIONAL_FAQ).toContain('هاي بتتحدد بالعرض حسب الإعداد — بحطها بأسئلة الفريق');
+    // Voice notes, photos and videos are read since 2026-10-08 (SHIFT_MEDIA=1): the answer says so.
+    expect(promptV2.OPERATIONAL_FAQ).toContain('أي، كرم بيسمع الرسائل الصوتية وبيشوف الصور والفيديو، وبيرد على محتواها');
     expect(promptV2.knowledgeFor('clinic').endsWith(promptV2.OPERATIONAL_FAQ)).toBe(true);
   });
 });

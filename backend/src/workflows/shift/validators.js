@@ -336,7 +336,7 @@ function clauseAt(text, index) {
  */
 const PUBLISHED_FIGURES = [
   { value: 19.99, clause: /دينار|دنانير|JD|JOD|اشتراك|شهر|month/i },
-  { value: 10, clause: /محلات|محل|shops?|businesses/i },
+  { value: 10, clause: /محلات|محل|عيادات|مطاعم|متاجر|منشآت|منشات|أماكن|اماكن|مكان|shops?|businesses|clinics|restaurants|stores|places|spots/i },
 ];
 
 function isPublishedFigure(text, n) {

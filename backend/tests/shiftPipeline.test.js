@@ -932,3 +932,27 @@ describe('review round 2 (pipeline)', () => {
   });
 });
 
+
+describe('challenge exam, 2026-10-08: repair before the canned line', () => {
+  test('an answer blocked twice for one sentence goes out without that sentence, not as the canned stage line', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const bad = { reply: 'الاشتراك الأساسي 19.99 دينار بالشهر. وعنا 500 عيادة شغالة معنا. شو نوع عيادتك؟', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(bad, bad);
+
+    const { parts } = await turn(conv, ['كم السعر؟']);
+
+    const body = parts.map(bodyOf).join('\n');
+    expect(body).toContain('19.99');
+    expect(body).not.toContain('500');
+    expect(body).not.toContain('مين بيرد على رسائل واتساب');
+  });
+
+  test('when nothing useful is left, the canned line still goes (never silent)', async () => {
+    const { conv } = seedShift({ current_state: 'discovery', workflow_data: { lead: { version: 1 }, bot_turns: 1, disclosed_at: START.toISOString() } });
+    const bad = { reply: 'عنا 500 عيادة.', action: 'NONE', stage: 'discovery', next_step: 'question' };
+    script(bad, bad);
+    const { parts } = await turn(conv, ['شو عندكم؟']);
+    expect(parts.map(bodyOf).join('\n')).not.toContain('500');
+    expect(parts.length).toBeGreaterThan(0);
+  });
+});
