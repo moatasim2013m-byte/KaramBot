@@ -26,6 +26,7 @@ const { dryRun } = require('../services/dryRun');
 const { refresh: refreshMetaStatus, metaAttention } = require('../services/metaStatus');
 const { paymentNotice, WHATSAPP_MANAGER_URL } = require('../config/metaNotices');
 const accountEvents = require('../services/accountEvents');
+const costGuard = require('../services/costGuard');
 const jsonb = require('../db/jsonb');
 
 // The waiting and handoff lists are read row by row; this caps a pathological day rather than
@@ -74,11 +75,20 @@ router.get('/overview', async (req, res) => {
     const subs = await prisma.subscription.findMany({
       where: { status: { not: 'cancelled' }, ...inShown },
       orderBy: { created_at: 'desc' },
-      select: { business_id: true, solution: true, plan_name: true, status: true, amount_jod: true, billing_cycle: true, next_due_at: true, starts_at: true },
+      select: { business_id: true, solution: true, plan_name: true, status: true, amount_jod: true, billing_cycle: true, next_due_at: true, starts_at: true, ai_replies_month: true },
     });
     const contractByBusiness = new Map();
     for (const sub of subs) if (!contractByBusiness.has(sub.business_id)) contractByBusiness.set(sub.business_id, sub);
     const DUE_SOON_DAYS = 7;
+
+    // «ردود الشهر»: the cost guard's own counts and caps (services/costGuard.js), so the number on
+    // this screen is the one the bot is held to. Unreadable usage is left out, not shown as zero.
+    let usageByBusiness = new Map();
+    try {
+      usageByBusiness = await costGuard.fleetUsage(businessIds, { contracts: contractByBusiness });
+    } catch (err) {
+      console.error('[admin/overview] usage not read:', err.message);
+    }
 
     // One grouped query rather than a query per account: this screen is opened often.
     // last_message_at moves on ANY message, including the customer's own, so it cannot tell "the
@@ -209,6 +219,7 @@ router.get('/overview', async (req, res) => {
         connection,
         agent,
         bot_enabled: b.ai_config?.enabled !== false,
+        usage: usageByBusiness.get(b.id) || null,
         conversations: conv?._count?._all || 0,
         unanswered_conversations: waiting.count,
         handoff_waiting: handoff.count,
@@ -281,6 +292,20 @@ router.get('/overview', async (req, res) => {
       }
       // Meta's own view of the account, from the last refresh.
       for (const m of metaAttention(onboarding)) push(m.severity, m.category, m.message, onboarding.meta_checked_at);
+
+      // ── Monthly reply cap ──────────────────────────────────────────────────
+      // SHIFT's own rows are never capped, so they never earn these.
+      const usage = usageByBusiness.get(b.id);
+      if (usage && usage.cap > 0 && !costGuard.isExempt(b)) {
+        const shown = `(${usage.ai_replies_month.toLocaleString('en-US')} / ${usage.cap.toLocaleString('en-US')})`;
+        if (usage.ai_replies_month >= usage.cap) {
+          push('warning', 'cap_reached', contract?.status === 'trial'
+            ? `وصل حد ردود الشهر ${shown} — البوت يحوّل الزبائن للفريق`
+            : `وصل حد ردود الشهر ${shown} — اشتراك مدفوع، البوت مستمر`, null);
+        } else if (usage.ai_replies_month >= Math.ceil(usage.cap * costGuard.WARN_RATIO)) {
+          push('warning', 'cap_80', `استهلك 80% من ردود الشهر ${shown}`, null);
+        }
+      }
 
       // ── Money ──────────────────────────────────────────────────────────────
       if (contract?.status === 'past_due') {

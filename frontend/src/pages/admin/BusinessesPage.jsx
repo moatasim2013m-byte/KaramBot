@@ -31,6 +31,30 @@ function ContractCell({ contract }) {
   );
 }
 
+const fmtCount = (n) => Number(n || 0).toLocaleString('en-US');
+
+/**
+ * «ردود الشهر»: the bot's replies this month against the shop's cap, as the cost guard counts
+ * them. Amber from 80%, red at the cap (a free-month shop's bot stops there; a paying shop's
+ * carries on and SHIFT is told). Numbers are Latin digits like the rest of the table.
+ */
+function UsageCell({ usage }) {
+  if (!usage || !usage.cap) return <span className="text-gray-400">—</span>;
+  const ratio = usage.ai_replies_month / usage.cap;
+  const bar = ratio >= 1 ? 'bg-red-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-gray-400';
+  const text = ratio >= 1 ? 'text-red-700' : ratio >= 0.8 ? 'text-amber-700' : 'text-gray-700';
+  return (
+    <div className="min-w-[96px]" title={`صور وصوتيات اليوم: ${fmtCount(usage.media_today)}`}>
+      <span dir="ltr" className={`tabular-nums text-[12px] ${text}`}>
+        {fmtCount(usage.ai_replies_month)} / {fmtCount(usage.cap)}
+      </span>
+      <div className="mt-1 h-1 w-full rounded-full bg-gray-100 overflow-hidden">
+        <div className={`h-full rounded-full ${bar}`} style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }} />
+      </div>
+    </div>
+  );
+}
+
 const LIFECYCLE_LABEL = {
   onboarding: 'قيد التوصيل', active: 'نشط', inactive: 'غير نشط', suspended: 'موقوف',
 };
@@ -136,7 +160,7 @@ export default function BusinessesPage() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="text-gray-500 text-[11px] border-b border-gray-100">
-                  {['الشركة', 'النوع', 'المرحلة', 'العقد', 'اتصال واتساب', 'الوكيل', 'محادثات', 'آخر وارد'].map((h) => (
+                  {['الشركة', 'النوع', 'المرحلة', 'العقد', 'اتصال واتساب', 'الوكيل', 'ردود الشهر', 'محادثات', 'آخر وارد'].map((h) => (
                     <th key={h} className="text-right font-medium px-4 h-9 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -157,6 +181,7 @@ export default function BusinessesPage() {
                     <td className="px-4 h-9 whitespace-nowrap min-w-[150px]">
                       <StateCell state={a.agent?.state} label={a.agent?.label} sub={a.agent?.sub} />
                     </td>
+                    <td className="px-4 py-1.5 whitespace-nowrap"><UsageCell usage={a.usage} /></td>
                     <td className="px-4 h-9"><Num className="text-gray-700">{a.conversations}</Num></td>
                     <td className="px-4 h-9 text-gray-500 whitespace-nowrap"><Timestamp value={a.last_inbound_at} /></td>
                   </tr>

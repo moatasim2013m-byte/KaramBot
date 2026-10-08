@@ -36,6 +36,9 @@ const { expectedLanguage } = require('../workflows/shift/validators');
 const booking = require('../workflows/shift/booking');
 // Calendly bookings seen on the sales calendar (owner decision 2026-09-19).
 const calendlySync = require('./calendlySync');
+const costGuard = require('./costGuard');
+const tokenHealth = require('./tokenHealth');
+const metaStatus = require('./metaStatus');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -87,7 +90,10 @@ function emptyReport() {
     roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
     reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
     calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
-    weekly_followups_sent: 0, weekly_followups_failed: 0, errors: [],
+    weekly_followups_sent: 0, weekly_followups_failed: 0,
+    // The once-a-day step (sweepDaily): null on every other sweep of the day.
+    daily: null,
+    errors: [],
   };
 }
 
@@ -1139,6 +1145,84 @@ const STEPS = [
   ['weekly_followups', sweepWeeklyFollowups],
 ];
 
+// The Amman day the daily step last started on this instance. Another instance may run it too;
+// token_checked_at on each onboarding row keeps a shop from being checked twice the same day.
+let dailyRanFor = null;
+
+/**
+ * Once a day (the first sweep after midnight, Amman time), for every connected customer shop:
+ * Meta's view of the number (metaStatus.refresh: quality, number and name status) and whether the
+ * stored token still works (tokenHealth.check, debug_token is_valid). A customer who removed SHIFT
+ * from their Meta account, or whose number Meta restricted, shows up on the panels by morning
+ * instead of when the owner asks why the bot went quiet. No new Cloud Scheduler job: it rides the
+ * minute sweep, guarded by the date.
+ *
+ * Connected means a number and a token. SHIFT's own number and the internal rows are left out, and
+ * a closed account is nobody's to check. One shop's failure is counted and the rest carry on.
+ */
+async function sweepDaily(now) {
+  const today = costGuard.ammanDay(now);
+  if (dailyRanFor === today) return null;
+  const out = { date: today, shops: 0, skipped: 0, meta_refreshed: 0, token_valid: 0, token_invalid: 0, token_unknown: 0, errors: 0 };
+
+  const shops = (await prisma.business.findMany({
+    where: {
+      is_internal: false, business_type: { not: 'shift' }, status: { not: 'closed' },
+      wa_phone_number_id: { not: null }, wa_access_token: { not: null },
+    },
+    select: {
+      id: true, name: true, business_type: true, is_internal: true, status: true, wa_app_id: true,
+      wa_phone_number_id: true, wa_business_account_id: true, wa_access_token: true,
+    },
+  })).filter((b) => !costGuard.isExempt(b) && b.wa_phone_number_id && b.wa_access_token && b.status !== 'closed');
+  // Marked only once the list is read: a failed read is retried by the next minute's sweep.
+  dailyRanFor = today;
+  if (!shops.length) return out;
+
+  const since = costGuard.dayStart(now);
+  const onboardings = await prisma.whatsappOnboarding.findMany({
+    where: { business_id: { in: shops.map((b) => b.id) } },
+    select: { business_id: true, token_checked_at: true },
+  }).catch((err) => {
+    // Without the stamps every shop is checked; a second check in a day costs one Graph call.
+    console.warn(`[sweep] daily: token_checked_at not read: ${err.message}`);
+    return [];
+  });
+  const checkedToday = new Set(onboardings
+    .filter((o) => o.token_checked_at && new Date(o.token_checked_at) >= since)
+    .map((o) => o.business_id));
+
+  for (const shop of shops) {
+    if (checkedToday.has(shop.id)) {
+      out.skipped += 1;
+      continue;
+    }
+    out.shops += 1;
+    if (shop.wa_business_account_id) {
+      try {
+        await metaStatus.refresh(shop);
+        out.meta_refreshed += 1;
+      } catch (err) {
+        out.errors += 1;
+        console.warn(`[sweep] daily Meta refresh failed for ${shop.id}: ${err.message}`);
+      }
+    }
+    try {
+      const { status } = await tokenHealth.check(shop, { now });
+      out[`token_${status}`] = (out[`token_${status}`] || 0) + 1;
+    } catch (err) {
+      out.errors += 1;
+      console.warn(`[sweep] daily token check failed for ${shop.id}: ${err.message}`);
+    }
+  }
+  return out;
+}
+
+/** Tests: let the daily step run again in the same process. */
+function resetDaily() {
+  dailyRanFor = null;
+}
+
 /**
  * D24: restaurant, clinic and external-mode rows claimed as `processing` whose forward/workflow never
  * finished. Not per SHIFT business: those tenants have no SHIFT row. Required lazily: the processor
@@ -1160,6 +1244,13 @@ async function runSweep({ now = new Date() } = {}) {
     } catch (err) {
       report.errors.push(`stuck_inbound: ${err.message}`);
       console.error('[sweep] stuck_inbound failed:', err.message);
+    }
+
+    try {
+      report.daily = await sweepDaily(now);
+    } catch (err) {
+      report.errors.push(`daily: ${err.message}`);
+      console.error('[sweep] daily step failed:', err.message);
     }
 
     let businesses = [];
@@ -1287,4 +1378,4 @@ async function getShiftStatus({ now = new Date() } = {}) {
   };
 }
 
-module.exports = { runSweep, getShiftStatus, lastSweep, isCloser, STEPS };
+module.exports = { runSweep, getShiftStatus, lastSweep, isCloser, STEPS, sweepDaily, resetDaily };

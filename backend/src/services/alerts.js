@@ -32,13 +32,13 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
   'new_message',
   // Platform alerts: about SHIFT's customers (the shops), sent only to SHIFT by notifyShift.
   'join_opened', 'customer_connected', 'connect_failed', 'needs_operator', 'went_live', 'partner_removed',
-  'payment_blocked', 'provider_down', 'cap_80', 'platform_ceiling'];
+  'payment_blocked', 'provider_down', 'cap_80', 'cap_reached', 'platform_ceiling'];
 
 // The reasons notifyShift sends. They describe a shop or the platform, never an end customer's
 // conversation, so they are the only ones besides SHIFT's own sales bot that may reach
 // STAFF_ALERT_WEBHOOK_URL (SHIFT's private channel).
 const PLATFORM_REASONS = Object.freeze(['join_opened', 'customer_connected', 'connect_failed', 'needs_operator',
-  'went_live', 'partner_removed', 'payment_blocked', 'provider_down', 'cap_80', 'platform_ceiling']);
+  'went_live', 'partner_removed', 'payment_blocked', 'provider_down', 'cap_80', 'cap_reached', 'platform_ceiling']);
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -76,6 +76,7 @@ const ALERT_LABELS = {
   payment_blocked: 'Meta رفضت ردود البوت — طريقة الدفع',
   provider_down: 'مزوّد الذكاء الاصطناعي متعطّل',
   cap_80: 'زبون وصل 80% من ردود الشهر',
+  cap_reached: 'زبون وصل حد ردود الشهر',
   platform_ceiling: 'وصلنا سقف ردود اليوم لكل المنصة',
 };
 

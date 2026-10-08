@@ -149,7 +149,8 @@ test('the agent state is read from the bot\'s own replies, scoped to the account
   const res = await get();
   expect(res.body.accounts[0].last_outbound_at).toBe(replied.toISOString());
   expect(res.body.accounts[0].last_ai_reply_at).toBe(replied.toISOString());
-  const [call] = prisma.message.groupBy.mock.calls[0];
+  // The newest-reply query (the cost guard's month counts are grouped reads of their own).
+  const [call] = prisma.message.groupBy.mock.calls.find(([args]) => args._max);
   expect(call.where).toEqual({ business_id: { in: ['b1'] }, direction: 'outbound', is_ai_generated: true });
 });
 
@@ -525,5 +526,66 @@ describe('accountHealth.isWaiting, the rule itself', () => {
   test('a handoff answered after it was raised is done', () => {
     expect(isHandoffWaiting(conversation({ needs_attention: true, attention_at: at(90), last_outbound_at: at(80) }), NOW)).toBe(false);
     expect(isHandoffWaiting(conversation({ needs_attention: true, attention_at: at(90), last_outbound_at: at(100) }), NOW)).toBe(true);
+  });
+});
+
+describe('«ردود الشهر»: usage from the cost guard', () => {
+  // The two counts costGuard.fleetUsage asks for, answered per business; the _max query keeps the
+  // mock's own answer.
+  function mockUsage({ replies = {}, media = {} }) {
+    const base = prisma.message.groupBy.getMockImplementation();
+    prisma.message.groupBy.mockImplementation((args) => {
+      if (!args._count) return base(args);
+      const source = args.where.direction === 'outbound' ? replies : media;
+      return Promise.resolve(Object.entries(source).map(([business_id, n]) => ({ business_id, _count: { _all: n } })));
+    });
+  }
+
+  beforeEach(() => jest.spyOn(console, 'error').mockImplementation(() => {}));
+  afterEach(() => console.error.mockRestore());
+
+  test('each row carries the month\'s replies, the contract\'s cap and today\'s media', async () => {
+    mockDb({
+      businesses: [biz(), biz({ id: 'b2', name: 'صيدلية' })],
+      onboardings: ready(),
+      subs: [{ business_id: 'b1', solution: 'karam_bot', status: 'trial', amount_jod: 19.99, ai_replies_month: 500 }],
+    });
+    mockUsage({ replies: { b1: 312, b2: 4 }, media: { b1: 7 } });
+    const res = await get();
+    const row = (id) => res.body.accounts.find((a) => a.id === id);
+    expect(row('b1').usage).toEqual({ ai_replies_month: 312, cap: 500, media_today: 7 });
+    // No contract: the platform default (PlatformSetting ai_limits, 1,000 out of the box).
+    expect(row('b2').usage).toEqual({ ai_replies_month: 4, cap: 1000, media_today: 0 });
+
+    // The month counted from Amman's 1st, only the bot's own replies.
+    const call = prisma.message.groupBy.mock.calls.find(([a]) => a._count && a.where.direction === 'outbound')[0];
+    expect(call.where).toMatchObject({ is_ai_generated: true, business_id: { in: ['b1', 'b2'] } });
+    expect(call.where.created_at.gte).toBeInstanceOf(Date);
+  });
+
+  test('80% and the cap reach the attention queue; a free-month shop at the cap is told it stops', async () => {
+    mockDb({
+      businesses: [biz(), biz({ id: 'b2', name: 'صيدلية' })],
+      onboardings: ready(),
+      subs: [
+        { business_id: 'b1', solution: 'karam_bot', status: 'trial', amount_jod: 19.99, ai_replies_month: 1000 },
+        { business_id: 'b2', solution: 'karam_bot', status: 'active', amount_jod: 19.99, ai_replies_month: 1000 },
+      ],
+    });
+    mockUsage({ replies: { b1: 1000, b2: 800 } });
+    const res = await get();
+    const items = res.body.attention.filter((a) => ['cap_80', 'cap_reached'].includes(a.category));
+    expect(items.map((a) => [a.business_id, a.category])).toEqual(expect.arrayContaining([['b1', 'cap_reached'], ['b2', 'cap_80']]));
+    expect(items.find((a) => a.business_id === 'b1').message).toBe('وصل حد ردود الشهر (1,000 / 1,000) — البوت يحوّل الزبائن للفريق');
+    expect(items.find((a) => a.business_id === 'b2').message).toBe('استهلك 80% من ردود الشهر (800 / 1,000)');
+  });
+
+  test('usage that cannot be read is left out, and the overview still answers', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready() });
+    const base = prisma.message.groupBy.getMockImplementation();
+    prisma.message.groupBy.mockImplementation((args) => (args._count ? Promise.reject(new Error('db down')) : base(args)));
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(res.body.accounts[0].usage).toBeNull();
   });
 });
