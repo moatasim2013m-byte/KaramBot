@@ -1208,6 +1208,8 @@ function publicSubscription(row) {
     starts_at: row.starts_at,
     ends_at: row.ends_at,
     next_due_at: row.next_due_at,
+    trial_ends_at: row.trial_ends_at || null,
+    ai_replies_month: row.ai_replies_month ?? null,
     cancelled_at: row.cancelled_at,
     notes: row.notes,
     total_paid_jod: Math.round(paid * 100) / 100,
@@ -1294,11 +1296,34 @@ router.patch('/accounts/:id/subscriptions/:sid', async (req, res) => {
   if (b.next_due_at !== undefined) data.next_due_at = dateOrNull(b.next_due_at);
   if (b.ends_at !== undefined) data.ends_at = dateOrNull(b.ends_at);
   if (b.notes !== undefined) data.notes = b.notes ? String(b.notes).slice(0, 2000) : null;
+  // «الحد الشهري للردود» and «نهاية الشهر المجاني» on the contract tab. null on the cap means the
+  // platform default (costGuard reads Subscription.ai_replies_month first, then ai_limits).
+  if (b.ai_replies_month !== undefined) {
+    const cap = b.ai_replies_month === null || b.ai_replies_month === '' ? null : Number(b.ai_replies_month);
+    if (cap !== null && (!Number.isInteger(cap) || cap < 1 || cap > 1000000)) {
+      return res.status(400).json({ error: 'الحد الشهري للردود يجب أن يكون رقمًا صحيحًا موجبًا' });
+    }
+    data.ai_replies_month = cap;
+  }
+  if (b.trial_ends_at !== undefined) {
+    const ends = dateOrNull(b.trial_ends_at);
+    if (ends && !validDate(ends)) return res.status(400).json({ error: 'تاريخ نهاية الشهر المجاني غير صالح' });
+    data.trial_ends_at = ends;
+  }
 
   try {
     // Scoped to the account in the URL: a subscription id from another tenant is not found.
-    const existing = await prisma.subscription.findFirst({ where: { id: req.params.sid, business_id: req.params.id }, select: { id: true } });
+    const existing = await prisma.subscription.findFirst({
+      where: { id: req.params.sid, business_id: req.params.id },
+      select: { id: true, trial_ends_at: true, next_due_at: true },
+    });
     if (!existing) return res.status(404).json({ error: 'لا يوجد اشتراك بهذا المعرّف في هذا الحساب' });
+    // A free month's first payment is due when it ends; when the due date was following the old
+    // end (as wentLive sets it), it follows the new one, unless a due date was sent with it.
+    if (data.trial_ends_at && b.next_due_at === undefined && existing.trial_ends_at && existing.next_due_at
+      && new Date(existing.next_due_at).getTime() === new Date(existing.trial_ends_at).getTime()) {
+      data.next_due_at = data.trial_ends_at;
+    }
 
     const row = await prisma.subscription.update({ where: { id: existing.id }, data, include: { payments: { orderBy: { paid_at: 'desc' } } } });
     await shiftEvent(req, req.params.id, 'contract_updated', {

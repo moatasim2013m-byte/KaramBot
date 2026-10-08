@@ -8,7 +8,7 @@ import {
 import { InternalFootnote } from './AdminOverviewPage';
 import {
   FLEET_FILTERS, STAGE_TONE, attentionItem, fleetRow, matchesFilter, matchesSearch, sortRows,
-  ownerLoginLabel, usageTone, waLine, waLink, worstByAccount, stageLabel,
+  ownerLoginLabel, usageTone, waLine, waLink, worstByAccount, stageLabel, stageMatches,
 } from '../../components/admin/operatorView';
 
 /**
@@ -155,7 +155,7 @@ export default function BusinessesPage() {
   ), [all, attentionIds]);
 
   const rows = useMemo(() => {
-    const shown = all.filter((r) => (!stage || r.stage === stage || (stage === 'paused' && r.stage === 'suspended'))
+    const shown = all.filter((r) => stageMatches(r.stage, stage)
       && matchesFilter(r, filter, attentionIds)
       && matchesSearch(r, q));
     return sort.key ? sortRows(shown, sort.key, sort.dir) : shown;

@@ -112,4 +112,39 @@ describe('changing a contract', () => {
     expect(prisma.subscription.findFirst.mock.calls[0][0].where).toMatchObject({ id: 's1', business_id: 'b1' });
     expect(prisma.subscription.update.mock.calls[0][0].data.cancelled_at).toBeInstanceOf(Date);
   });
+
+  // «الحد الشهري للردود» and «نهاية الشهر المجاني» on the contract tab (P4): sent by the panel,
+  // so they must be saved, and read back so the form starts from what is stored.
+  test('the monthly reply cap and the free-month end are saved and read back', async () => {
+    const ends = '2026-10-20T00:00:00.000Z';
+    prisma.subscription.findFirst.mockResolvedValue({ id: 's1', trial_ends_at: new Date('2026-10-15'), next_due_at: new Date('2026-10-15') });
+    prisma.subscription.update.mockImplementation(({ data }) => Promise.resolve({
+      id: 's1', business_id: 'b1', status: 'trial', amount_jod: 19.99, payments: [], ...data,
+    }));
+    const res = await request(app).patch('/api/admin/accounts/b1/subscriptions/s1').set(auth())
+      .send({ ai_replies_month: 2000, trial_ends_at: ends });
+    expect(res.status).toBe(200);
+    const data = prisma.subscription.update.mock.calls[0][0].data;
+    expect(data.ai_replies_month).toBe(2000);
+    expect(data.trial_ends_at.toISOString()).toBe(ends);
+    // The first due date was following the free month's end, so it moves with it.
+    expect(data.next_due_at.toISOString()).toBe(ends);
+    expect(res.body.subscription).toMatchObject({ ai_replies_month: 2000 });
+    expect(new Date(res.body.subscription.trial_ends_at).toISOString()).toBe(ends);
+  });
+
+  test('null cap restores the default; a bad cap or date changes nothing', async () => {
+    prisma.subscription.findFirst.mockResolvedValue({ id: 's1', trial_ends_at: null, next_due_at: new Date('2026-11-01') });
+    prisma.subscription.update.mockImplementation(({ data }) => Promise.resolve({ id: 's1', business_id: 'b1', status: 'active', amount_jod: 19.99, payments: [], ...data }));
+    let res = await request(app).patch('/api/admin/accounts/b1/subscriptions/s1').set(auth()).send({ ai_replies_month: null });
+    expect(res.status).toBe(200);
+    expect(prisma.subscription.update.mock.calls[0][0].data).toEqual({ ai_replies_month: null });
+
+    prisma.subscription.update.mockClear();
+    res = await request(app).patch('/api/admin/accounts/b1/subscriptions/s1').set(auth()).send({ ai_replies_month: -5 });
+    expect(res.status).toBe(400);
+    res = await request(app).patch('/api/admin/accounts/b1/subscriptions/s1').set(auth()).send({ trial_ends_at: 'soon' });
+    expect(res.status).toBe(400);
+    expect(prisma.subscription.update).not.toHaveBeenCalled();
+  });
 });

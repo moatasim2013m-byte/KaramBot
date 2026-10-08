@@ -77,10 +77,25 @@ describe('attention rules → one fix button each', () => {
     expect(v.fixFor({ rule: 'something_new', account_id: null })).toBeNull();
   });
 
-  test('the server may name the fix; an action this file does not know is ignored', () => {
-    expect(v.fixFor({ rule: 'quiet', account_id: 'b1', action: 'pause_bot' }).kind).toBe('pause_bot');
-    expect(v.fixFor({ rule: 'quiet', account_id: 'b1', action: { kind: 'confirm_card' } }).kind).toBe('confirm_card');
-    expect(v.fixFor({ rule: 'quiet', account_id: 'b1', action: 'drop_database' }).kind).toBe('message');
+  test('the server names the fix only for a rule this file does not know; unknown actions are ignored', () => {
+    expect(v.fixFor({ rule: 'something_new', account_id: 'b1', action: 'pause_bot' }).kind).toBe('pause_bot');
+    expect(v.fixFor({ rule: 'something_new', account_id: 'b1', action: { kind: 'confirm_card' } }).kind).toBe('confirm_card');
+    expect(v.fixFor({ rule: 'something_new', account_id: 'b1', action: { kind: 'connect' } }).kind).toBe('connect_with');
+    expect(v.fixFor({ rule: 'something_new', account_id: 'b1', action: 'drop_database' }).kind).toBe('message');
+    expect(v.fixFor({ rule: 'quiet', account_id: 'b1', action: { kind: 'confirm_card' } }).kind).toBe('message');
+  });
+
+  // The seam between the slices: the overview sends {rule, action: {kind}} from the backend's own
+  // map (config/eventLabels.js), in another vocabulary. Each known rule must still draw its fix.
+  test('items as the backend builds them draw the same fix as the rule alone', () => {
+    const labels = require('../src/config/eventLabels');
+    for (const rule of SPEC_RULES) {
+      const accountId = ['provider_down', 'platform_ceiling', 'orphan_connection'].includes(rule) ? null : 'b1';
+      const server = v.fixFor({ rule, account_id: accountId, action: labels.actionFor(rule) });
+      const alone = v.fixFor({ rule, account_id: accountId });
+      expect([rule, server && server.kind]).toEqual([rule, alone && alone.kind]);
+    }
+    expect(v.fixFor({ rule: 'needs_operator', account_id: 'b1', action: labels.actionFor('needs_operator') }).kind).toBe('connect_with');
   });
 
   test('the older overview shape (category, message, business_id) reads the same', () => {
@@ -171,6 +186,55 @@ describe('the fleet row', () => {
     expect(r).toMatchObject({ sector_ar: 'مطعم', stage_ar: '—', wa: { state: 'down', label: 'مفصول' } });
     expect(r.sub.label).toBe('بدون عقد');
     expect(v.sectorLabel({ business_type: 'generic' })).toBe('نشاط عام');
+  });
+
+  // The seam between the slices: /admin/overview builds these columns with accountHealth, whose
+  // states (connected, removed, answering…) and {state, label_ar} subscription are not the
+  // panel's words. Filters, dots and the sort must still work on what the server really sends.
+  test('rows as the backend builds them: states, filters and the subscription sort', () => {
+    const health = require('../src/services/accountHealth');
+    const now = Date.now();
+    const contract = { status: 'past_due', amount_jod: 19.99, next_due_at: new Date(now - 4 * DAY), trial_ends_at: null };
+    const live = { wa_phone_number_id: 'p1', wa_access_token: 't' };
+    const late = v.fleetRow({
+      id: 'b3', name: 'محل', stage: 'live',
+      whatsapp: health.whatsappColumn(live, { step: 'done', payment_method_ok: true }),
+      bot: health.botColumn({ state: 'paused' }),
+      subscription: health.subscriptionColumn(contract, { connected: true, now }),
+      contract: { ...contract, next_due_at: contract.next_due_at.toISOString() },
+    });
+    expect(late.wa.state).toBe('ok');
+    expect(late.bot.state).toBe('paused');
+    expect(late.sub).toMatchObject({ status: 'past_due', tone: 'bad', label: 'متأخر 4 أيام' });
+    expect(v.matchesFilter(late, 'late', new Set())).toBe(true);
+    expect(v.FLEET_SORT.subscription(late)).toBe(-4);
+
+    const trialContract = { status: 'trial', trial_ends_at: new Date(now + 5 * DAY + 3600000), next_due_at: null };
+    const trial = v.fleetRow({
+      id: 'b4', name: 'عيادة', stage: 'live',
+      whatsapp: health.whatsappColumn(live, { revoked_at: new Date() }),
+      bot: health.botColumn({ state: 'unknown' }),
+      subscription: health.subscriptionColumn(trialContract, { connected: true, now }),
+      contract: { ...trialContract, trial_ends_at: trialContract.trial_ends_at.toISOString() },
+    });
+    expect(trial.wa.state).toBe('down');
+    expect(trial.bot.state).toBe('idle');
+    expect(v.matchesFilter(trial, 'trial', new Set())).toBe(true);
+    expect(v.FLEET_SORT.subscription(trial)).toBe(6);
+
+    const none = v.fleetRow({ id: 'b5', name: 'جديد', subscription: health.subscriptionColumn(null, { connected: false }), contract: null });
+    expect(none.sub.label).toBe('لم يبدأ');
+    expect(v.matchesFilter(none, 'trial', new Set())).toBe(false);
+  });
+
+  test('every stage the overview sends has a label here, and a funnel chip lists what it counted', () => {
+    const labels = require('../src/config/eventLabels');
+    for (const stage of Object.keys(labels.STAGE_AR)) expect([stage, v.STAGE_AR[stage]]).toEqual([stage, labels.STAGE_AR[stage]]);
+    expect(v.stageMatches('invite_opened', 'invite_sent')).toBe(true);
+    expect(v.stageMatches('invite_expired', 'invite_sent')).toBe(true);
+    expect(v.stageMatches('suspended', 'paused')).toBe(true);
+    expect(v.stageMatches('live', 'paused')).toBe(false);
+    expect(v.matchesFilter({ stage: 'invite_opened', sub: {} }, 'joining', new Set())).toBe(true);
   });
 
   test('subscription words', () => {

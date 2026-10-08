@@ -20,7 +20,7 @@ export const ATTENTION_EVENT = 'shift:attention';
 // Derived on the server from stored data (adminAccounts.js deriveCard), never stored.
 export const STAGE_AR = {
   invite_sent: 'أُرسل الرابط',
-  join_opened: 'فتح الرابط',
+  invite_opened: 'فتح الرابط',
   connecting: 'يربط واتساب',
   awaiting_card: 'بانتظار البطاقة',
   teaching: 'يعلّم البوت',
@@ -42,8 +42,17 @@ export const FUNNEL = [
   ['paused', 'موقوف'],
 ];
 
-const JOINING = ['invite_sent', 'join_opened', 'connecting', 'awaiting_card', 'teaching', 'awaiting_first_customer'];
+const JOINING = ['invite_sent', 'invite_opened', 'connecting', 'awaiting_card', 'teaching', 'awaiting_first_customer'];
 const STOPPED = ['paused', 'suspended'];
+
+// The funnel counts some stages under another chip (admin.js FUNNEL_OF): an opened or expired
+// invite is still «أُرسل الرابط», a suspended shop is «موقوف». The chip's ?stage= link must list
+// the same shops it counted.
+const FUNNEL_OF = { invite_opened: 'invite_sent', invite_expired: 'invite_sent', suspended: 'paused' };
+export function stageMatches(rowStage, stage) {
+  if (!stage) return true;
+  return rowStage === stage || FUNNEL_OF[rowStage] === stage;
+}
 
 export const STAGE_TONE = {
   live: 'bg-emerald-50 text-emerald-800',
@@ -118,12 +127,21 @@ export const RULES = {
 
 const FIX_KINDS = Object.keys(FIX_AR);
 
-// The server may name the fix itself ({action: 'confirm_card'} or {action: {kind}}); otherwise
-// the rule decides. An action this file does not know is ignored rather than drawn as raw text.
+// The server names a fix too ({action: {kind}}, config/eventLabels.js ACTIONS), in its own words.
+// Those are translated here; the rest (open_inbox, open_account…) have no button of their own.
+const SERVER_FIX = {
+  message_owner: 'message', connect: 'connect_with', open_settings: 'platform_settings',
+};
+
+// A rule this file knows keeps its own fix: the server's map was written separately and differs
+// on purpose-built rows (needs_operator is «اربط معه» on the shop, not the onboarding board;
+// meta_quality_red is «أوقف البوت مؤقتًا»). The server's choice only decides for a rule added
+// later. An action nobody knows is ignored rather than drawn as raw text.
 export function fixFor(item) {
   const rule = item?.rule || item?.category;
-  const sent = item?.action && typeof item.action === 'object' ? item.action.kind : item?.action;
-  const kind = FIX_KINDS.includes(sent) ? sent : (RULES[rule] ? RULES[rule].fix : 'message');
+  const raw = item?.action && typeof item.action === 'object' ? item.action.kind : item?.action;
+  const sent = SERVER_FIX[raw] || raw;
+  const kind = RULES[rule] ? RULES[rule].fix : (FIX_KINDS.includes(sent) ? sent : 'message');
   if (!kind) return null;
   // A rule that is about a shop needs one; a platform row cannot be «راسله».
   const accountId = item?.account_id || item?.business_id || null;
@@ -259,10 +277,23 @@ const firstWord = (s) => (s ? String(s).trim().split(/\s+/)[0] : null);
  * (stage, whatsapp, bot, subscription, owner) win; the older ones (connection, agent, contract)
  * fill in until the server sends them.
  */
+// The P4 columns (accountHealth.whatsappColumn/botColumn) name their own states — connected,
+// removed, answering… — with a tone. The dots, chips and sort here speak ok/degraded/down/…, so
+// the tone decides; a grey bot is «paused» only when it was paused, otherwise just quiet.
+const TONE_STATE = { green: 'ok', amber: 'degraded', red: 'down' };
+function columnState(col, quiet) {
+  if (!col || !col.state) return 'unknown';
+  if (!col.tone) return col.state;
+  if (col.state === 'paused') return 'paused';
+  return TONE_STATE[col.tone] || quiet;
+}
+
 export function fleetRow(a) {
   const wa = a.whatsapp || a.connection || {};
   const bot = a.bot || a.agent || {};
-  const subSrc = a.subscription || a.contract || null;
+  // The P4 `subscription` column is only {state, label_ar}; the status and dates the filters and
+  // the sort need stay on `contract`, which the server still sends next to it.
+  const subSrc = (a.subscription || a.contract) ? { ...(a.subscription || {}), ...(a.contract || {}) } : null;
   const sub = subSrc ? {
     status: subSrc.status || null,
     trial_ends_at: subSrc.trial_ends_at || a.trial_ends_at || null,
@@ -285,8 +316,8 @@ export function fleetRow(a) {
     is_internal: Boolean(a.is_internal),
     stage: a.stage || null,
     stage_ar: a.stage_ar || stageLabel(a.stage),
-    wa: { state: wa.state || 'unknown', label: wa.label_ar || wa.label || '—' },
-    bot: { state: bot.state || 'unknown', label: bot.label_ar || bot.label || '—' },
+    wa: { state: columnState(wa, 'unknown'), label: wa.label_ar || wa.label || '—' },
+    bot: { state: columnState(bot, 'idle'), label: bot.label_ar || bot.label || '—' },
     bot_enabled: a.bot_enabled !== false,
     usage: a.usage && a.usage.ai_replies_month !== undefined && a.usage.ai_replies_month !== null ? a.usage : null,
     conversations_7d: a.conversations_7d ?? null,
