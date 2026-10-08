@@ -18,9 +18,9 @@ const { authenticate, requireRole } = require('../middleware/auth');
 router.use(authenticate, requireRole('platform_admin'));
 
 const {
-  connectionState, agentState, lifecycle, minutesSince, isWaiting, isHandoffWaiting, shortDuration,
-  QUIET_HOURS, UNANSWERED_MINUTES, UNANSWERED_MAX_HOURS, HANDOFF_MINUTES, PAYMENT_UNCONFIRMED_HOURS,
-  WORKFLOW_TYPES,
+  connectionState, agentState, lifecycle, isWaiting, isHandoffWaiting,
+  UNANSWERED_MINUTES, UNANSWERED_MAX_HOURS, HANDOFF_MINUTES,
+  whatsappColumn, botColumn, subscriptionColumn, shopAttention, platformAttention, providerDown, sortAttention,
 } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
 const { refresh: refreshMetaStatus, metaAttention } = require('../services/metaStatus');
@@ -28,6 +28,11 @@ const { paymentNotice, WHATSAPP_MANAGER_URL } = require('../config/metaNotices')
 const accountEvents = require('../services/accountEvents');
 const costGuard = require('../services/costGuard');
 const jsonb = require('../db/jsonb');
+const platformSettings = require('../services/platformSettings');
+const labels = require('../config/eventLabels');
+const { firstName } = require('../utils/names');
+const adminAccounts = require('./adminAccounts');
+const latePolicy = require('../services/latePolicy');
 
 // The waiting and handoff lists are read row by row; this caps a pathological day rather than
 // shaping a normal one (ten shops have tens of open threads, not thousands).
@@ -37,70 +42,175 @@ const WAITING_SCAN_LIMIT = 2000;
 const shiftEvent = (req, businessId, type, data = {}) =>
   accountEvents.record({ businessId, actorUserId: req.user?.id || null, actorKind: 'shift', type, data });
 
+/**
+ * A signal the overview can live without. The screen is opened every morning; one unreadable
+ * signal (a new table missing on a stale database, a slow count) must cost that signal, not the
+ * whole page, and the log says which one.
+ */
+async function soft(label, read, fallback) {
+  try {
+    return await read();
+  } catch (err) {
+    console.warn(`[admin/overview] ${label} not read: ${err.message}`);
+    return fallback;
+  }
+}
+
+// Event types the overview's rules read beyond the board's own (adminAccounts.BOARD_TYPES).
+const OVERVIEW_EVENT_TYPES = ['meta_restriction', 'went_live', 'partner_removed'];
+const RECENT_EVENTS = 15;
+const EMPTY_STAGE_INPUTS = { ownerOf: new Map(), inviteOf: new Map(), eventsOf: new Map(), knowledgeOf: new Map(), ownerConnect: false };
+// The «مسار الانضمام» strip, in the board's order, plus the paused shops.
+const FUNNEL = ['invite_sent', 'connecting', 'awaiting_card', 'teaching', 'awaiting_first_customer', 'live', 'paused'];
+const FUNNEL_OF = { invite_opened: 'invite_sent', invite_expired: 'invite_sent', suspended: 'paused' };
+
+/**
+ * The fleet table's stage: the board's stage (adminAccounts.deriveCard, the same derivation), with
+ * what the board does not show as a column: a paused bot or a suspended account, and an invite
+ * that was opened or ran out.
+ */
+function fleetStage(business, board, invite, now) {
+  if (business.status === 'suspended') return 'suspended';
+  if (business.wa_phone_number_id && business.ai_config?.enabled === false) return 'paused';
+  if (board.stage === 'invite_sent') {
+    if (invite && new Date(invite.expires_at).getTime() < now) return 'invite_expired';
+    if (board.card.opened) return 'invite_opened';
+  }
+  return board.stage;
+}
+
+/** «صاحب المحل»: first name, mobile and whether they can get in. */
+function ownerColumn(business, owner, invite, now) {
+  if (!owner) return null;
+  const signedIn = Boolean(owner.last_login);
+  let state = 'no_invite';
+  let label = 'لا توجد دعوة';
+  if (signedIn && owner.active) { state = 'signed_in'; label = '✓ دخل'; }
+  else if (signedIn && !owner.active) { state = 'disabled'; label = 'معطّل'; }
+  else if (invite && new Date(invite.expires_at).getTime() < now) { state = 'invite_expired'; label = 'انتهت الدعوة'; }
+  else if (invite) {
+    const left = Math.max(1, Math.ceil((new Date(invite.expires_at).getTime() - now) / 86400000));
+    state = 'invited';
+    label = `الدعوة تنتهي بعد ${labels.days(left)}`;
+  }
+  return {
+    first_name: firstName(owner.name),
+    phone: owner.phone || business.owner_phone || null,
+    signed_in: signedIn,
+    active: Boolean(owner.active),
+    invite_expires_at: invite && !signedIn ? invite.expires_at : null,
+    state,
+    label_ar: label,
+  };
+}
+
+/** {rule, …} from accountHealth → the item the panel renders, with the fix button. */
+function attentionItem(i, business, owner) {
+  const action = labels.actionFor(i.rule);
+  const phone = (owner && owner.phone) || (business && business.owner_phone) || null;
+  if (action.kind === 'message_owner' && phone) {
+    action.url = `https://wa.me/${phone}?text=${encodeURIComponent(labels.ownerLine(i.rule, owner && owner.first_name))}`;
+  }
+  return {
+    rule: i.rule,
+    severity: i.severity,
+    account_id: business ? business.id : null,
+    name: business ? business.name : 'المنصة',
+    text_ar: i.text_ar,
+    since: i.since || null,
+    action,
+    ...(i.ref ? { ref: i.ref } : {}),
+    // The names this list had before the spec's (the account page's own list still reads them).
+    business_id: business ? business.id : null,
+    business_name: business ? business.name : 'المنصة',
+    category: i.category || i.rule,
+    message: i.text_ar,
+  };
+}
+
+/** An AccountEvent as «آخر ما حصل» and «السجل» show it. */
+function eventRow(e, { businessName, actorName }) {
+  return {
+    id: e.id,
+    at: e.created_at,
+    business_id: e.business_id || null,
+    business_name: businessName || null,
+    actor_ar: labels.actorText(e.actor_kind, actorName ? firstName(actorName) : null),
+    type: e.type,
+    text_ar: labels.eventText(e),
+  };
+}
+
+async function namesOf(userIds) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+  const rows = await soft('actor names', () => prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }), []);
+  return new Map(rows.map((u) => [u.id, u.name]));
+}
+
 router.get('/overview', async (req, res) => {
   try {
     // SHIFT's own number and the -sim test shops are real rows that would otherwise inflate the
     // totals and fill the queue with our own traffic. Hidden by default, and said so.
     const includeInternal = ['1', 'true'].includes(String(req.query.include_internal || ''));
     const businessWhere = includeInternal ? {} : { is_internal: false };
+    const nowDate = new Date();
+    const now = nowDate.getTime();
 
-    const [businesses, onboardings, hiddenInternal] = await Promise.all([
+    const [businesses, hiddenInternal] = await Promise.all([
       prisma.business.findMany({
         where: businessWhere,
         select: {
           id: true, name: true, status: true, business_type: true, is_internal: true,
-          wa_phone_number_id: true, wa_business_account_id: true, connected_at: true,
+          wa_phone_number_id: true, wa_business_account_id: true, connected_at: true, went_live_at: true,
           wa_access_token: true, ai_config: true, created_at: true, updated_at: true,
+          sector: true, city: true, owner_phone: true, wa_display_phone: true, wa_verified_name: true,
         },
         orderBy: { created_at: 'asc' },
-      }),
-      prisma.whatsappOnboarding.findMany({
-        select: {
-          business_id: true, step: true, payment_method_ok: true,
-          payment_method_claimed_at: true, payment_blocked_at: true, registered_at: true,
-          last_error: true, last_error_at: true, updated_at: true,
-          meta_quality_rating: true, meta_throughput: true, meta_number_status: true,
-          meta_name_status: true, meta_review_status: true, meta_checked_at: true,
-        },
       }),
       includeInternal ? 0 : prisma.business.count({ where: { is_internal: true } }),
     ]);
 
     const businessIds = businesses.map((b) => b.id);
     const inShown = { business_id: { in: businessIds } };
-    const onboardingByBusiness = new Map(onboardings.filter((o) => o.business_id).map((o) => [o.business_id, o]));
+    const onboardings = await prisma.whatsappOnboarding.findMany({
+      where: { business_id: { in: businessIds } },
+      select: {
+        id: true, business_id: true, step: true, payment_method_ok: true, payment_method_marked_at: true,
+        payment_method_claimed_at: true, payment_blocked_at: true, registered_at: true,
+        needs_operator: true, revoked_at: true, revoked_reason: true, detached_at: true,
+        last_error: true, last_error_at: true, updated_at: true,
+        meta_quality_rating: true, meta_throughput: true, meta_number_status: true,
+        meta_name_status: true, meta_review_status: true, meta_checked_at: true,
+      },
+    });
+    const onboardingByBusiness = new Map();
+    for (const o of onboardings) if (o.business_id && businessIds.includes(o.business_id)) onboardingByBusiness.set(o.business_id, o);
 
-    // The live contract per account: what they bought and whether it is paid. A cancelled one
-    // is not "the contract" any more, so the newest non-cancelled row wins.
+    // The live contract per account: the newest non-cancelled row.
     const subs = await prisma.subscription.findMany({
       where: { status: { not: 'cancelled' }, ...inShown },
       orderBy: { created_at: 'desc' },
-      select: { business_id: true, solution: true, plan_name: true, status: true, amount_jod: true, billing_cycle: true, next_due_at: true, starts_at: true, ai_replies_month: true },
+      select: {
+        id: true, business_id: true, solution: true, plan_name: true, status: true, amount_jod: true, billing_cycle: true,
+        next_due_at: true, starts_at: true, trial_ends_at: true, ai_replies_month: true,
+      },
     });
     const contractByBusiness = new Map();
     for (const sub of subs) if (!contractByBusiness.has(sub.business_id)) contractByBusiness.set(sub.business_id, sub);
-    // The cap and its wording follow the Karam Bot contract alone (costGuard.contractFor): a newer
-    // website or automation contract says nothing about the bot's free month.
+    // The cap and the free month follow the Karam Bot contract alone (costGuard.contractFor).
     const botContractByBusiness = new Map();
     for (const sub of subs) {
       if (sub.solution === costGuard.BOT_SOLUTION && !botContractByBusiness.has(sub.business_id)) botContractByBusiness.set(sub.business_id, sub);
     }
-    const DUE_SOON_DAYS = 7;
+    const trialSubIds = [...botContractByBusiness.values()].filter((s) => s.status === 'trial').map((s) => s.id).filter(Boolean);
 
-    // «ردود الشهر»: the cost guard's own counts and caps (services/costGuard.js), so the number on
-    // this screen is the one the bot is held to. Unreadable usage is left out, not shown as zero.
-    let usageByBusiness = new Map();
-    try {
-      usageByBusiness = await costGuard.fleetUsage(businessIds, { contracts: botContractByBusiness });
-    } catch (err) {
-      console.error('[admin/overview] usage not read:', err.message);
-    }
+    // «ردود الشهر»: the cost guard's own counts and caps, so the number here is the one the bot is
+    // held to. Unreadable usage is left out, not shown as zero.
+    const usageByBusiness = await soft('usage', () => costGuard.fleetUsage(businessIds, { contracts: botContractByBusiness }), new Map());
 
-    // One grouped query rather than a query per account: this screen is opened often.
-    // last_message_at moves on ANY message, including the customer's own, so it cannot tell "the
-    // agent replied" from "the customer wrote". The newest reply is the per-business maximum of
-    // Conversation.last_outbound_at — the same column the account page reads, so the two screens
-    // can no longer disagree. It replaces a groupBy over the whole messages table.
+    // One grouped query rather than a query per account. The newest reply is the per-business
+    // maximum of Conversation.last_outbound_at, which replaced a groupBy over the messages table.
     const convAgg = await prisma.conversation.groupBy({
       by: ['business_id'],
       where: inShown,
@@ -110,11 +220,8 @@ router.get('/overview', async (req, res) => {
     });
     const convByBusiness = new Map(convAgg.map((c) => [c.business_id, c]));
 
-    // Whether the AGENT answers is read from the agent's own replies, not from last_outbound_at:
-    // staff inbox sends, /ingest and stored staff alerts stamp that column too, so a dead bot
-    // whose owner covers by hand (or whose handoff alert was just stored) would read «يرد»
-    // (review 2026-10-08). last_outbound_at stays what the per-conversation waiting rules read.
-    // Served by the (business_id, created_at) index.
+    // Whether the AGENT answers is read from the agent's own replies: staff sends and stored
+    // alerts stamp last_outbound_at too (review 2026-10-08). Served by (business_id, created_at).
     const aiReplyAgg = await prisma.message.groupBy({
       by: ['business_id'],
       where: { ...inShown, direction: 'outbound', is_ai_generated: true },
@@ -122,11 +229,8 @@ router.get('/overview', async (req, res) => {
     });
     const aiReplyByBusiness = new Map(aiReplyAgg.map((m) => [m.business_id, m._max.created_at]));
 
-    // A per-business maximum hides a single neglected thread behind a busy one, so waiting
-    // customers are counted per conversation. Bounded by the 24-hour window and a row cap, and
-    // only the four columns the rule reads; the comparison of two columns is done here because
-    // Prisma cannot express coalesce(last_outbound_at, epoch) in a where.
-    const now = Date.now();
+    // A per-business maximum hides a neglected thread behind a busy one, so waiting customers are
+    // counted per conversation, bounded by the 24-hour window and a row cap.
     const waitingRows = await prisma.conversation.findMany({
       where: {
         ...inShown,
@@ -149,7 +253,6 @@ router.get('/overview', async (req, res) => {
       waitingByBusiness.set(c.business_id, w);
     }
 
-    // Handed to the shop's team and left there.
     const handoffRows = await prisma.conversation.findMany({
       where: {
         ...inShown,
@@ -169,7 +272,6 @@ router.get('/overview', async (req, res) => {
       handoffByBusiness.set(c.business_id, h);
     }
 
-    // A generic account with no knowledge entered greets and stops; the fleet view should say so.
     const knowledgeAgg = await prisma.businessKnowledge.groupBy({
       by: ['business_id'], where: { active: true, ...inShown }, _count: { _all: true },
     });
@@ -182,9 +284,47 @@ router.get('/overview', async (req, res) => {
     });
     const openByBusiness = new Map(openAgg.map((c) => [c.business_id, c._count._all]));
 
+    // ── The P4 signals: one query each, for every shop at once ─────────────
+    // The board's own inputs (owners, links, events, knowledge), so «مسار الانضمام» and the board
+    // put a shop in the same stage.
+    const campaignShops = businesses.filter((b) => !b.is_internal && b.business_type !== 'shift' && b.status !== 'closed');
+    const [stageInputs, settings, repliesToday, conv7Agg, lastEventAgg, trialPayments, recentRaw, orphanRows, unmatchedRows] = await Promise.all([
+      soft('stage inputs', () => adminAccounts.loadStageInputs(businesses, { extraTypes: OVERVIEW_EVENT_TYPES }), EMPTY_STAGE_INPUTS),
+      soft('platform settings', () => platformSettings.getAll(), {}),
+      soft('replies today', () => costGuard.platformAiRepliesToday({ now: nowDate }), null),
+      // «محادثات 7 أيام»: conversations with a customer message in the last week.
+      soft('conversations 7d', () => prisma.conversation.groupBy({
+        by: ['business_id'], where: { ...inShown, last_inbound_at: { gte: new Date(now - 7 * 86400000) } }, _count: { _all: true },
+      }), []),
+      soft('last event', () => prisma.accountEvent.groupBy({ by: ['business_id'], where: inShown, _max: { created_at: true } }), []),
+      // trial_ending: «لا دفعة مسجّلة» on the free-month contract.
+      trialSubIds.length ? soft('trial payments', () => prisma.payment.groupBy({
+        by: ['subscription_id'], where: { subscription_id: { in: trialSubIds } }, _count: { _all: true },
+      }), []) : [],
+      soft('recent events', () => prisma.accountEvent.findMany({
+        where: inShown, orderBy: [{ created_at: 'desc' }, { id: 'desc' }], take: RECENT_EVENTS,
+      }), []),
+      // Connections that belong to nobody: an onboarding row with no shop, not detached on purpose.
+      soft('orphans', () => prisma.whatsappOnboarding.findMany({
+        where: { business_id: null, detached_at: null }, select: { id: true, business_id: true, detached_at: true, created_at: true }, take: 50,
+      }), []),
+      soft('unmatched partners', () => prisma.accountEvent.findMany({
+        where: { business_id: null, type: 'partner_added_unmatched', resolved_at: null },
+        select: { id: true, business_id: true, type: true, resolved_at: true, created_at: true }, take: 50,
+      }), []),
+    ]);
+    const conv7ByBusiness = new Map((conv7Agg || []).map((c) => [c.business_id, (c._count && c._count._all) || 0]));
+    const lastEventByBusiness = new Map((lastEventAgg || []).map((e) => [e.business_id, e._max && e._max.created_at]));
+    const paidSubs = new Set((trialPayments || []).filter((p) => (p._count && p._count._all) > 0).map((p) => p.subscription_id));
+
     const totals = { onboarding: 0, active: 0, inactive: 0, suspended: 0 };
+    const funnel = Object.fromEntries(FUNNEL.map((s) => [s, 0]));
+    const money = { trial: 0, paid: 0, unstarted: 0, due_this_week_jod: 0, overdue_jod: 0 };
     const attention = [];
     const accounts = [];
+    const cents = (v) => Math.round(Number(v || 0) * 100);
+    let dueWeekCents = 0;
+    let overdueCents = 0;
 
     for (const b of businesses) {
       const onboarding = onboardingByBusiness.get(b.id) || null;
@@ -192,26 +332,64 @@ router.get('/overview', async (req, res) => {
       const lastInbound = conv?._max?.last_inbound_at || null;
       const lastOutbound = conv?._max?.last_outbound_at || null;
       const lastAiReply = aiReplyByBusiness.get(b.id) || null;
-      const lastActivity = conv?._max?.last_message_at || null;
+      const lastMessage = conv?._max?.last_message_at || null;
+      const lastEvent = lastEventByBusiness.get(b.id) || null;
+      const lastActivity = [lastMessage, lastEvent].filter(Boolean).sort((x, y) => new Date(y) - new Date(x))[0] || null;
       const waiting = waitingByBusiness.get(b.id) || { count: 0, oldest: null };
       const handoff = handoffByBusiness.get(b.id) || { count: 0, oldest: null };
       const knowledgeCount = knowledgeByBusiness.get(b.id) || 0;
+      const events = stageInputs.eventsOf.get(b.id) || [];
+      const ownerRow = stageInputs.ownerOf.get(b.id) || null;
+      const invite = ownerRow ? stageInputs.inviteOf.get(b.id) || null : null;
 
       const bucket = lifecycle(b, onboarding);
       totals[bucket] += 1;
 
       const connection = connectionState(b, onboarding);
       const agent = agentState(b, lastInbound, lastAiReply, knowledgeCount);
-
       const contract = contractByBusiness.get(b.id) || null;
-      const dueInDays = contract?.next_due_at ? Math.ceil((new Date(contract.next_due_at) - Date.now()) / 86400000) : null;
+      const botContract = botContractByBusiness.get(b.id) || null;
+      const usage = usageByBusiness.get(b.id) || null;
+      const dueInDays = contract?.next_due_at ? Math.ceil((new Date(contract.next_due_at) - now) / 86400000) : null;
+
+      const board = adminAccounts.stageOf(b, onboarding, stageInputs, nowDate);
+      const stage = fleetStage(b, board, invite, now);
+      const owner = ownerColumn(b, ownerRow, invite, now);
+      const isCampaign = campaignShops.includes(b);
+      if (isCampaign) funnel[FUNNEL_OF[stage] || stage] += 1;
+
+      // Money counts customers only, whatever the internal toggle shows.
+      if (!b.is_internal) {
+        if (!contract) money.unstarted += 1;
+        else if (contract.status === 'trial') money.trial += 1;
+        else if (contract.status === 'active') money.paid += 1;
+        if (contract && ['trial', 'active', 'past_due'].includes(contract.status) && contract.next_due_at) {
+          const due = new Date(contract.next_due_at).getTime();
+          if (contract.status === 'past_due' || due < now) overdueCents += cents(contract.amount_jod);
+          else if (due - now <= 7 * 86400000) dueWeekCents += cents(contract.amount_jod);
+        } else if (contract && contract.status === 'past_due') {
+          overdueCents += cents(contract.amount_jod);
+        }
+      }
 
       accounts.push({
         id: b.id,
         name: b.name,
         business_type: b.business_type,
+        sector: b.sector || null,
+        city: b.city || null,
+        display_phone: b.wa_display_phone || null,
+        verified_name: b.wa_verified_name || null,
         is_internal: Boolean(b.is_internal),
         lifecycle: bucket,
+        stage,
+        stage_ar: labels.STAGE_AR[stage],
+        stage_since: board.card.since,
+        whatsapp: whatsappColumn(b, onboarding, events),
+        bot: botColumn(agent, { usage, trial: botContract?.status === 'trial' }),
+        subscription: subscriptionColumn(contract, { connected: Boolean(b.wa_phone_number_id), now }),
+        trial_ends_at: botContract?.trial_ends_at || null,
+        owner,
         contract: contract ? {
           solution: contract.solution,
           plan_name: contract.plan_name,
@@ -219,14 +397,16 @@ router.get('/overview', async (req, res) => {
           amount_jod: Number(contract.amount_jod),
           billing_cycle: contract.billing_cycle,
           next_due_at: contract.next_due_at,
+          trial_ends_at: contract.trial_ends_at || null,
           due_in_days: dueInDays,
         } : null,
         status: b.status,
         connection,
         agent,
         bot_enabled: b.ai_config?.enabled !== false,
-        usage: usageByBusiness.get(b.id) || null,
+        usage,
         conversations: conv?._count?._all || 0,
+        conversations_7d: b.wa_phone_number_id ? conv7ByBusiness.get(b.id) || 0 : null,
         unanswered_conversations: waiting.count,
         handoff_waiting: handoff.count,
         open_conversations: openByBusiness.get(b.id) || 0,
@@ -247,99 +427,76 @@ router.get('/overview', async (req, res) => {
         created_at: b.created_at,
       });
 
-      // ── Attention queue ────────────────────────────────────────────────────
-      // Only rules we can actually evaluate. A queue padded with signals we cannot
-      // measure would be noise, and noise in this position is worse than an empty list.
-      const push = (severity, category, message, since) =>
-        attention.push({ business_id: b.id, business_name: b.name, severity, category, message, since });
-
-      if (onboarding?.last_error) {
-        push('critical', 'onboarding_error', `تعثّر التوصيل: ${onboarding.last_error}`.slice(0, 160), onboarding.last_error_at);
-      }
-      // A paused bot is silent on purpose: its waiting customers are the shop team's to answer,
-      // and the pause itself is visible on the account.
-      if (waiting.count > 0 && agent.state !== 'paused') {
-        const since = shortDuration(minutesSince(waiting.oldest));
-        push('critical', 'unanswered', waiting.count === 1
-          ? `زبون ينتظر ردًا منذ ${since}`
-          : `${waiting.count} زبائن ينتظرون ردًا — أقدمهم منذ ${since}`, waiting.oldest);
-      }
-      if (handoff.count > 0) {
-        push('warning', 'handoff_waiting', handoff.count === 1
-          ? 'محادثة محوّلة لفريق المحل بلا رد منذ أكثر من ساعة'
-          : `${handoff.count} محادثات محوّلة لفريق المحل بلا رد منذ أكثر من ساعة`, handoff.oldest);
-      }
-      // Softened: before a number is connected there is nothing for the bot to answer yet, so an
-      // empty knowledge base is a setup step, not an incident.
-      if (b.wa_phone_number_id && !WORKFLOW_TYPES.includes(b.business_type) && knowledgeCount === 0) {
-        push('warning', 'no_knowledge', 'لم تُدخل معلومات المحل — البوت يرحّب فقط', b.connected_at || b.created_at);
-      }
-      if (connection.state === 'down' && !b.wa_access_token) {
-        push('critical', 'connection', 'الحساب بدون رمز وصول — لن تصل الرسائل', b.updated_at);
-      }
-      if (onboarding && onboarding.step !== 'done') {
-        push('warning', 'onboarding_incomplete', `التوصيل لم يكتمل — ${onboarding.step}`, onboarding.updated_at);
-      }
-      // ── Payment method at Meta ────────────────────────────────────────────
-      // Meta refusing a send with 131042 is the only evidence there is; everything short of that
-      // is a confirmation nobody has made yet, and it waits 48 h after connecting before nagging.
-      // The wording is config/metaNotices.js, shared with the account page and the owner's panel.
-      if (onboarding?.payment_blocked_at) {
-        push('critical', 'payment_blocked', paymentNotice('blocked', 'staff', 'short'), onboarding.payment_blocked_at);
-      } else if (onboarding && onboarding.step === 'done' && !onboarding.payment_method_ok) {
-        // connected_at is new (Migration 1); a shop connected before it has the onboarding times.
-        const connectedAt = b.connected_at || onboarding.registered_at || onboarding.updated_at;
-        if (connectedAt && minutesSince(connectedAt) > PAYMENT_UNCONFIRMED_HOURS * 60) {
-          const claimed = Boolean(onboarding.payment_method_claimed_at);
-          push('warning', 'payment_unconfirmed',
-            `${paymentNotice(claimed ? 'claimed' : 'missing', 'staff', 'short')} — منذ ${shortDuration(minutesSince(connectedAt))}`,
-            connectedAt);
-        }
-      }
-      // Meta's own view of the account, from the last refresh.
-      for (const m of metaAttention(onboarding)) push(m.severity, m.category, m.message, onboarding.meta_checked_at);
-
-      // ── Monthly reply cap ──────────────────────────────────────────────────
-      // SHIFT's own rows are never capped, so they never earn these.
-      const usage = usageByBusiness.get(b.id);
-      if (usage && usage.cap > 0 && !costGuard.isExempt(b)) {
-        const shown = `(${usage.ai_replies_month.toLocaleString('en-US')} / ${usage.cap.toLocaleString('en-US')})`;
-        if (usage.ai_replies_month >= usage.cap) {
-          push('warning', 'cap_reached', botContractByBusiness.get(b.id)?.status === 'trial'
-            ? `وصل حد ردود الشهر ${shown} — البوت يحوّل الزبائن للفريق`
-            : `وصل حد ردود الشهر ${shown} — اشتراك مدفوع، البوت مستمر`, null);
-        } else if (usage.ai_replies_month >= Math.ceil(usage.cap * costGuard.WARN_RATIO)) {
-          push('warning', 'cap_80', `استهلك 80% من ردود الشهر ${shown}`, null);
-        }
-      }
-
-      // ── Money ──────────────────────────────────────────────────────────────
-      if (contract?.status === 'past_due') {
-        push('critical', 'past_due', `دفعة متأخرة — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
-      } else if (contract && dueInDays !== null && dueInDays < 0) {
-        push('warning', 'overdue', `تجاوز موعد الدفع بـ ${Math.abs(dueInDays)} يوم — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
-      } else if (contract && dueInDays !== null && dueInDays <= DUE_SOON_DAYS) {
-        push('info', 'due_soon', `دفعة مستحقة خلال ${dueInDays} يوم — ${Number(contract.amount_jod)} د.أ`, contract.next_due_at);
-      }
-      // An active, connected account with nothing sold against it is either a trial nobody
-      // recorded or revenue nobody is collecting; both are worth a look, neither is an alarm.
-      // Internal rows (SHIFT's own, the -sim shops) never have a contract and never will.
-      if (!contract && bucket === 'active' && !b.is_internal) {
-        push('info', 'no_contract', 'لا يوجد عقد مسجّل لهذا الحساب', b.created_at);
-      }
-
-      if (bucket === 'active' && lastActivity && minutesSince(lastActivity) > QUIET_HOURS * 60) {
-        push('info', 'quiet', `لا نشاط منذ ${Math.round(minutesSince(lastActivity) / 60 / 24)} يوم`, lastActivity);
-      }
+      // ── Attention queue: only rules we can evaluate (services/accountHealth.shopAttention) ──
+      const items = shopAttention({
+        business: b,
+        onboarding,
+        events,
+        owner: ownerRow,
+        invite,
+        agent,
+        bucket,
+        waiting,
+        handoff,
+        knowledgeCount,
+        usage,
+        contract,
+        botContract,
+        trialPaid: Boolean(botContract && paidSubs.has(botContract.id)),
+        metaItems: metaAttention(onboarding),
+        lastActivity: lastMessage,
+        exempt: costGuard.isExempt(b),
+        paymentText: (state) => paymentNotice(state, 'staff', 'short'),
+        now,
+      });
+      for (const i of items) attention.push(attentionItem(i, b, owner));
     }
 
-    const RANK = { critical: 0, warning: 1, info: 2 };
-    attention.sort((a, b) => (RANK[a.severity] - RANK[b.severity]) || (new Date(a.since || 0) - new Date(b.since || 0)));
+    // ── The platform ───────────────────────────────────────────────────────
+    const aiLimits = settings.ai_limits || {};
+    const ceiling = Number(aiLimits.platform_day_ceiling) > 0 ? Number(aiLimits.platform_day_ceiling) : null;
+    const provider = settings.provider_status || null;
+    const down = providerDown(provider, now);
+    const unattached = (orphanRows || []).filter((o) => !o.business_id && !o.detached_at);
+    const unmatched = (unmatchedRows || []).filter((e) => !e.business_id && !e.resolved_at);
+    for (const i of platformAttention({
+      providerStatus: provider,
+      repliesToday,
+      ceiling,
+      orphans: [...unattached.map((o) => ({ id: o.id, created_at: o.created_at })), ...unmatched.map((e) => ({ id: e.id, created_at: e.created_at }))],
+      now,
+    })) attention.push(attentionItem(i, null, null));
+    sortAttention(attention);
+
+    money.due_this_week_jod = dueWeekCents / 100;
+    money.overdue_jod = overdueCents / 100;
+
+    // «آخر ما حصل»: the 15 newest events across the shops shown, in Arabic.
+    const nameOf = new Map(businesses.map((b) => [b.id, b.name]));
+    const actorNames = await namesOf((recentRaw || []).map((e) => e.actor_user_id));
+    const recentEvents = (recentRaw || []).map((e) => eventRow(e, {
+      businessName: nameOf.get(e.business_id), actorName: actorNames.get(e.actor_user_id),
+    }));
 
     res.json({
-      generated_at: new Date().toISOString(),
+      generated_at: nowDate.toISOString(),
+      platform: {
+        provider: {
+          ok: !down,
+          kind: down ? provider.kind || null : null,
+          provider: provider ? provider.provider || null : null,
+          since: down ? provider.last_seen : null,
+        },
+        replies_today: Number.isFinite(repliesToday) ? repliesToday : null,
+        ceiling,
+        ceiling_ratio: ceiling && Number.isFinite(repliesToday) ? Math.round((repliesToday / ceiling) * 100) / 100 : null,
+        self_connect: platformSettings.isOn(settings.es_owner_enabled) ? 'invite' : 'closed',
+      },
+      funnel,
+      money,
       totals,
       attention,
+      recent_events: recentEvents,
       accounts,
       include_internal: includeInternal,
       hidden_internal_count: hiddenInternal,
@@ -352,7 +509,7 @@ router.get('/overview', async (req, res) => {
     });
   } catch (err) {
     console.error('[admin/overview] failed:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'تعذّر تحميل «اليوم»' });
   }
 });
 
@@ -550,9 +707,9 @@ router.patch('/accounts/:id/bot', async (req, res) => {
     if (wasEnabled === enabled && !takesOverOwnerPause) return res.json({ enabled, changed: false });
 
     // paused_by marks the pause as SHIFT's, so the owner's switch on /bot cannot lift it; resuming
-    // clears it, and the owner may pause and resume their own bot again.
+    // clears it (and the late policy's pause_reason), and the owner may pause and resume again.
     const { ok } = enabled
-      ? await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled }, { remove: ['paused_by'] })
+      ? await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled }, { remove: ['paused_by', 'pause_reason'] })
       : await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled, paused_by: 'shift' });
     if (!ok) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
@@ -592,6 +749,44 @@ async function recordAccess(req, businessId, action, conversationId = null) {
   }
 }
 
+// The thread view shows the newest messages, oldest first: the recent wrong answer is the reason
+// anyone opens it (it used to show the oldest 200, so that answer could be missing).
+const THREAD_LIMIT = 200;
+const LIST_LIMIT = 30;
+const SEARCH_LIMIT = 50;
+const MEDIA_LABEL = {
+  audio: '[رسالة صوتية]', voice: '[رسالة صوتية]', image: '[صورة]', video: '[فيديو]',
+  document: '[ملف]', sticker: '[ملصق]', location: '[موقع]', contacts: '[جهة اتصال]',
+};
+
+/**
+ * What a message said, for a reader: its text, or for a voice note, photo or video the transcript
+ * the bot read it with (messageProcessor.readTenantMedia stores it in raw_payload.shift_media), or
+ * its label when it was never read. The raw webhook payload itself never leaves this function.
+ */
+function inspectedMessage(m) {
+  const media = m.raw_payload && typeof m.raw_payload === 'object' ? m.raw_payload.shift_media : null;
+  const transcript = media && typeof media.text === 'string' && media.text.trim() ? media.text.trim() : null;
+  const label = MEDIA_LABEL[m.message_type] || null;
+  let author = 'customer';
+  if (m.direction === 'outbound') author = m.is_ai_generated ? 'bot' : 'staff';
+  return {
+    id: m.id,
+    direction: m.direction,
+    message_type: m.message_type,
+    text_body: m.text_body,
+    display_text: transcript ? `${label || '[مرفق]'} ${transcript}` : (m.text_body || label || ''),
+    transcript,
+    status: m.status,
+    created_at: m.created_at,
+    sender_wa_id: m.sender_wa_id,
+    // Whether the agent or a human wrote it is the whole question when a reply looks wrong.
+    is_ai_generated: m.is_ai_generated,
+    author,
+    author_ar: { customer: 'الزبون', bot: 'البوت', staff: 'موظف' }[author],
+  };
+}
+
 router.get('/accounts/:id/conversations', async (req, res) => {
   try {
     const business = await prisma.business.findUnique({
@@ -600,22 +795,35 @@ router.get('/accounts/:id/conversations', async (req, res) => {
     });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
-    await recordAccess(req, business.id, 'workspace_list');
+    // «ابحث برقم الزبون أو اسمه». Digits are matched against the number in any form typed
+    // (‎+962 7…, 07…); anything else against the WhatsApp profile name.
+    const search = String(req.query.search || '').trim().slice(0, 60);
+    const where = { business_id: business.id };
+    if (search) {
+      const digits = search.replace(/[^\d٠-٩]/g, '').replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+      const local = digits.startsWith('0') ? digits.slice(1) : digits;
+      where.OR = [
+        { profile_name: { contains: search, mode: 'insensitive' } },
+        ...(local.length >= 3 ? [{ customer_wa_id: { contains: local } }] : []),
+      ];
+    }
+
+    await recordAccess(req, business.id, search ? 'workspace_search' : 'workspace_list');
 
     const conversations = await prisma.conversation.findMany({
-      where: { business_id: business.id },
+      where,
       orderBy: { last_message_at: 'desc' },
-      take: 30,
+      take: search ? SEARCH_LIMIT : LIST_LIMIT,
       select: {
         id: true, customer_wa_id: true, profile_name: true, status: true,
         last_message_at: true, last_inbound_at: true, unread_count: true, ai_enabled: true,
       },
     });
 
-    res.json({ business, conversations, read_only: true });
+    res.json({ business, conversations, search: search || null, read_only: true });
   } catch (err) {
     console.error('[admin/workspace] failed:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'تعذّر تحميل المحادثات' });
   }
 });
 
@@ -629,22 +837,22 @@ router.get('/accounts/:id/conversations/:conversationId', async (req, res) => {
 
     await recordAccess(req, req.params.id, 'workspace_thread', conversation.id);
 
-    const messages = await prisma.message.findMany({
+    // Newest 200, then put back in reading order.
+    const newest = await prisma.message.findMany({
       where: { conversation_id: conversation.id },
-      orderBy: { created_at: 'asc' },
-      take: 200,
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: THREAD_LIMIT,
       select: {
         id: true, direction: true, message_type: true, text_body: true,
-        status: true, created_at: true, sender_wa_id: true,
-        // Whether the agent or a human wrote it is the whole question when a reply looks wrong.
-        is_ai_generated: true,
+        status: true, created_at: true, sender_wa_id: true, is_ai_generated: true, raw_payload: true,
       },
     });
+    const messages = [...newest].reverse().map(inspectedMessage);
 
-    res.json({ conversation, messages, read_only: true });
+    res.json({ conversation, messages, truncated: newest.length >= THREAD_LIMIT, read_only: true });
   } catch (err) {
     console.error('[admin/workspace-thread] failed:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'تعذّر تحميل المحادثة' });
   }
 });
 
@@ -776,6 +984,184 @@ router.post('/accounts/:id/users/:userId/invite', async (req, res) => {
   } catch (err) {
     console.error('[admin/reinvite] failed:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * «الدخول»: switch a login off or on, or change its role.
+ *
+ * Mirrors the owner's own team route (routes/team.js PATCH /:id) with SHIFT as the actor, minus
+ * the seat limit: SHIFT may lend a seat. Switching a login off takes its outstanding link with it
+ * and ends its sessions, or whoever holds either walks straight back in. A login that never chose
+ * a password cannot be switched on (it would read «فعّال» and still be unable to sign in); its
+ * way in is a new link. The shop's only owner keeps the owner role: demoting them would leave a
+ * shop nobody can run. Deactivating them is allowed, because it is the first step of a reset.
+ */
+router.patch('/accounts/:id/users/:userId', async (req, res) => {
+  const body = req.body || {};
+  const data = {};
+  if (body.role !== undefined) {
+    if (!CUSTOMER_ROLES.includes(body.role)) return res.status(400).json({ error: 'صلاحية غير مسموحة' });
+    data.role = body.role;
+  }
+  if (body.active !== undefined) {
+    if (typeof body.active !== 'boolean') return res.status(400).json({ error: 'حدّد هل الدخول فعّال أم معطّل' });
+    data.active = body.active;
+  }
+  if (!Object.keys(data).length) return res.status(400).json({ error: 'لا يوجد تغيير' });
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: { id: req.params.userId, business_id: req.params.id },
+      select: { id: true, name: true, role: true, active: true, last_login: true },
+    });
+    if (!user) return res.status(404).json({ error: 'لا يوجد مستخدم بهذا المعرّف في هذا الحساب' });
+
+    if (data.active === true && !user.active && !user.last_login) {
+      return res.status(409).json({ error: 'لم يختر هذا المستخدم كلمة مرور بعد — أرسل له رابطًا جديدًا بدل التفعيل' });
+    }
+    if (data.role && data.role !== 'business_owner' && user.role === 'business_owner') {
+      const otherOwners = await prisma.user.count({
+        where: { business_id: req.params.id, role: 'business_owner', active: true, id: { not: user.id } },
+      });
+      if (!otherOwners) return res.status(409).json({ error: 'هذا صاحب المحل الوحيد — عيّن صاحبًا آخر قبل تغيير دوره' });
+    }
+
+    await recordAccess(req, req.params.id, 'user_updated');
+    const row = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: user.id },
+        data: data.active === false ? { ...data, sessions_valid_from: new Date() } : data,
+        select: { id: true, name: true, phone: true, email: true, role: true, active: true, last_login: true },
+      });
+      if (data.active === false) await activation.revoke(user.id, tx);
+      const actor = { businessId: req.params.id, actorUserId: req.user.id, actorKind: 'shift' };
+      if (data.role && data.role !== user.role) {
+        await tx.accountEvent.create({ data: accountEvents.toRow({ ...actor, type: 'role_changed', data: { user_id: user.id, from: user.role, to: data.role } }) });
+      }
+      if (typeof data.active === 'boolean' && data.active !== user.active) {
+        await tx.accountEvent.create({ data: accountEvents.toRow({ ...actor, type: data.active ? 'user_reactivated' : 'user_deactivated', data: { user_id: user.id } }) });
+      }
+      return updated;
+    });
+    res.json({ user: row });
+  } catch (err) {
+    console.error('[admin/users/update] failed:', err.message);
+    res.status(500).json({ error: 'تعذّر تعديل المستخدم' });
+  }
+});
+
+/**
+ * «إعادة ضبط الدخول»: a locked-out owner (lost phone, forgotten password, a login someone else
+ * got hold of). In one transaction: the login is switched off, every session it holds ends, its
+ * old links die and a new one is made. It opens on /join for an owner and /activate for the
+ * team, like their first invitation. Audited twice: the access log (who at SHIFT did it) and the
+ * shop's own «السجل» (login_reset). The link is returned once, for SHIFT to send, and never stored
+ * or logged: the token in it is a password.
+ */
+router.post('/accounts/:id/users/:userId/reset', async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true, owner_phone: true } });
+    if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
+    const user = await prisma.user.findFirst({
+      where: { id: req.params.userId, business_id: business.id },
+      select: { id: true, name: true, phone: true, role: true, active: true },
+    });
+    if (!user) return res.status(404).json({ error: 'لا يوجد مستخدم بهذا المعرّف في هذا الحساب' });
+    if (!CUSTOMER_ROLES.includes(user.role)) return res.status(403).json({ error: 'لا يمكن إعادة ضبط هذا الحساب من هنا' });
+
+    // The record comes first: if it cannot be written, the reset does not happen.
+    await recordAccess(req, business.id, 'user_reset');
+    const ttlDays = await adminAccounts.inviteTtlDays();
+    const link = await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { active: false, sessions_valid_from: new Date() } });
+      const revoked = await activation.revoke(user.id, tx);
+      const issued = await activation.issue(user.id, req.user.id, { ttlHours: ttlDays * 24, client: tx });
+      await tx.accountEvent.create({
+        data: accountEvents.toRow({
+          businessId: business.id, actorUserId: req.user.id, actorKind: 'shift', type: 'login_reset',
+          data: { user_id: user.id, role: user.role, revoked, was_active: user.active, expires_at: issued.expires_at },
+        }),
+      });
+      return issued;
+    });
+
+    const path = user.role === 'business_owner' ? 'join' : 'activate';
+    const joinUrl = `${adminAccounts.appOrigin()}/${path}#${link.token}`;
+    const greeting = firstName(user.name) ? `مرحبًا ${firstName(user.name)}` : 'مرحبًا';
+    const text = `${greeting}، هذا رابط جديد للدخول إلى كرم بوت ${adminAccounts.forShop(business.name)}: ${joinUrl} — `
+      + `صالح ${labels.days(ttlDays)}. اختر منه كلمة مرور جديدة. الرابط القديم لم يعد يعمل.`;
+    const phone = user.phone || (user.role === 'business_owner' ? business.owner_phone : null);
+    res.json({
+      user: { id: user.id, name: user.name, role: user.role, active: false },
+      join_url: joinUrl,
+      wa_share_url: phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : null,
+      share_text: text,
+      expires_at: link.expires_at,
+    });
+  } catch (err) {
+    console.error('[admin/users/reset] failed:', err.message);
+    res.status(500).json({ error: 'تعذّر إعادة ضبط الدخول' });
+  }
+});
+
+/**
+ * «السجل» and «آخر ما حصل»: AccountEvents newest first, in Arabic. With business_id, one shop's
+ * log, with SHIFT's reads of its conversations (admin_access_logs) merged in, so every look at a
+ * shop's data shows up next to what changed. Without it, the fleet's feed (customer shops only:
+ * the internal rows stay hidden, as everywhere on this panel). `before` pages by time.
+ */
+router.get('/events', async (req, res) => {
+  const businessId = req.query.business_id ? String(req.query.business_id) : null;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  const beforeRaw = req.query.before ? new Date(String(req.query.before)) : null;
+  const before = beforeRaw && !Number.isNaN(beforeRaw.getTime()) ? beforeRaw : null;
+  const timeWhere = before ? { created_at: { lt: before } } : {};
+
+  try {
+    let scope;
+    if (businessId) {
+      scope = { business_id: businessId };
+    } else {
+      const shops = await prisma.business.findMany({ where: { is_internal: false }, select: { id: true } });
+      scope = { business_id: { in: shops.map((b) => b.id) } };
+    }
+    const [events, access] = await Promise.all([
+      prisma.accountEvent.findMany({
+        where: { ...scope, ...timeWhere },
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        take: limit,
+      }),
+      businessId ? prisma.adminAccessLog.findMany({
+        where: { business_id: businessId, ...timeWhere },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+      }) : [],
+    ]);
+
+    const businessIds = [...new Set([...events.map((e) => e.business_id), ...access.map((a) => a.business_id)].filter(Boolean))];
+    const nameOf = new Map(businessIds.length
+      ? (await prisma.business.findMany({ where: { id: { in: businessIds } }, select: { id: true, name: true } })).map((b) => [b.id, b.name])
+      : []);
+    const actorNames = await namesOf([...events.map((e) => e.actor_user_id), ...access.map((a) => a.admin_user_id)]);
+
+    const rows = [
+      ...events.map((e) => eventRow(e, { businessName: nameOf.get(e.business_id), actorName: actorNames.get(e.actor_user_id) })),
+      ...access.map((a) => ({
+        id: `access_${a.id}`,
+        at: a.created_at,
+        business_id: a.business_id,
+        business_name: nameOf.get(a.business_id) || null,
+        actor_ar: labels.actorText('shift', actorNames.get(a.admin_user_id) ? firstName(actorNames.get(a.admin_user_id)) : null),
+        type: 'admin_access',
+        text_ar: labels.accessText(a.action),
+      })),
+    ].sort((x, y) => new Date(y.at) - new Date(x.at)).slice(0, limit);
+
+    res.json({ events: rows, next_before: rows.length === limit ? rows[rows.length - 1].at : null });
+  } catch (err) {
+    console.error('[admin/events] failed:', err.message);
+    res.status(500).json({ error: 'تعذّر تحميل السجل' });
   }
 });
 
@@ -918,14 +1304,47 @@ router.patch('/accounts/:id/subscriptions/:sid', async (req, res) => {
     await shiftEvent(req, req.params.id, 'contract_updated', {
       subscription_id: existing.id, changed: Object.keys(data), status: row.status,
     });
-    res.json({ subscription: publicSubscription(row) });
+    // Set back to active by hand (a payment arranged outside the panel): the late pause goes too.
+    const botResumed = data.status === 'active'
+      ? await latePolicy.liftLatePause(req.params.id, { actorUserId: req.user.id, reason: 'contract_active' })
+      : false;
+    res.json({ subscription: publicSubscription(row), bot_resumed: botResumed });
   } catch (err) {
     console.error('[admin/subscriptions/update] failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-/** Record a payment. A past_due subscription that gets paid returns to active and its due date advances. */
+/**
+ * How many whole billing cycles a payment completes, in cents so 19.99 + 19.99 is exactly two.
+ *
+ * Every payment on a contract counts toward one running total, and the due date moves one cycle
+ * each time that total crosses another multiple of the price. A partial payment (10 of 19.99)
+ * therefore moves nothing; the rest of it (9.99) moves the date one cycle; 40 at once moves two.
+ * The old rule advanced a full cycle on any amount, so 5 JD bought a month (admin.js:712-748).
+ */
+function cyclesCompleted(priorPaid, amount, price) {
+  const cents = (v) => Math.round(Number(v || 0) * 100);
+  const p = cents(price);
+  if (p <= 0) return 0;
+  return Math.floor((cents(priorPaid) + cents(amount)) / p) - Math.floor(cents(priorPaid) / p);
+}
+
+/** Advance a due date by `n` billing cycles. */
+function advanceDue(from, cycle, n) {
+  let d = from;
+  for (let i = 0; i < n && d; i += 1) d = nextDue(d, cycle);
+  return d;
+}
+
+/**
+ * Record a payment.
+ *
+ * A free-month contract becomes «فعّال» with its first payment, whatever the amount: the shop has
+ * started paying. A past_due one becomes active once the late cycle is fully paid. The due date
+ * moves only by the cycles the running total completes (cyclesCompleted). A bot the late policy
+ * paused comes back on when the contract is no longer past_due (services/latePolicy.js).
+ */
 router.post('/accounts/:id/subscriptions/:sid/payments', async (req, res) => {
   const b = req.body || {};
   const amount = money(b.amount_jod);
@@ -936,8 +1355,14 @@ router.post('/accounts/:id/subscriptions/:sid/payments', async (req, res) => {
   if (!validDate(paidAt)) return res.status(400).json({ error: 'تاريخ الدفع غير صالح' });
 
   try {
-    const sub = await prisma.subscription.findFirst({ where: { id: req.params.sid, business_id: req.params.id } });
+    const sub = await prisma.subscription.findFirst({
+      where: { id: req.params.sid, business_id: req.params.id },
+      include: { payments: { select: { amount_jod: true } } },
+    });
     if (!sub) return res.status(404).json({ error: 'لا يوجد اشتراك بهذا المعرّف في هذا الحساب' });
+
+    const priorPaid = (sub.payments || []).reduce((sum, p) => sum + Number(p.amount_jod || 0), 0);
+    const cycles = sub.billing_cycle === 'one_time' ? 0 : cyclesCompleted(priorPaid, amount, sub.amount_jod);
 
     const row = await prisma.$transaction(async (tx) => {
       await tx.payment.create({
@@ -953,8 +1378,9 @@ router.post('/accounts/:id/subscriptions/:sid/payments', async (req, res) => {
         },
       });
       const advance = {};
-      if (sub.status === 'past_due') advance.status = 'active';
-      if (sub.billing_cycle !== 'one_time') advance.next_due_at = nextDue(sub.next_due_at || paidAt, sub.billing_cycle);
+      if (sub.status === 'trial') advance.status = 'active';
+      else if (sub.status === 'past_due' && cycles > 0) advance.status = 'active';
+      if (cycles > 0) advance.next_due_at = advanceDue(sub.next_due_at || paidAt, sub.billing_cycle, cycles);
       return tx.subscription.update({ where: { id: sub.id }, data: advance, include: { payments: { orderBy: { paid_at: 'desc' } } } });
     });
     // After the commit rather than inside it: a failed log write inside a Postgres transaction
@@ -962,11 +1388,15 @@ router.post('/accounts/:id/subscriptions/:sid/payments', async (req, res) => {
     await shiftEvent(req, sub.business_id, 'payment_recorded', {
       subscription_id: sub.id, amount_jod: amount, method, paid_at: paidAt.toISOString(),
       reference: b.reference ? String(b.reference).slice(0, 120) : null,
+      cycles, partial: cycles === 0 && sub.billing_cycle !== 'one_time',
     });
-    res.status(201).json({ subscription: publicSubscription(row) });
+    const botResumed = row && row.status !== 'past_due'
+      ? await latePolicy.liftLatePause(sub.business_id, { actorUserId: req.user.id, reason: 'payment_recorded' })
+      : false;
+    res.status(201).json({ subscription: publicSubscription(row), cycles_paid: cycles, bot_resumed: botResumed });
   } catch (err) {
     console.error('[admin/payments] failed:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'تعذّر تسجيل الدفعة' });
   }
 });
 
@@ -1023,3 +1453,6 @@ router.patch('/accounts/:id/payment-method', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.cyclesCompleted = cyclesCompleted;
+module.exports.attentionItem = attentionItem;
+module.exports.fleetStage = fleetStage;

@@ -360,20 +360,8 @@ const BOARD_TYPES = [
   'payment_claimed', 'payment_confirmed', ...ES_TYPES,
 ];
 
-// Meta's current_step names are not documented; they are read by keyword so nobody sees an
-// English constant (the same reading as frontend ConnectWhatsApp.jsx metaStepLabel).
-function metaStepLabel(step) {
-  const s = String(step || '').toUpperCase();
-  if (!s) return null;
-  if (s.includes('VERIF') || s.includes('OTP') || s.includes('CODE')) return 'التحقق من الرقم';
-  if (s.includes('PHONE') || s.includes('NUMBER')) return 'إدخال الرقم';
-  if (s.includes('PROFILE') || s.includes('NAME')) return 'اسم النشاط';
-  if (s.includes('WABA') || s.includes('WHATSAPP')) return 'حساب واتساب للأعمال';
-  if (s.includes('BUSINESS') || s.includes('PORTFOLIO')) return 'اختيار حساب الأعمال';
-  if (s.includes('LOGIN') || s.includes('AUTH')) return 'تسجيل الدخول إلى فيسبوك';
-  if (s.includes('PERMISSION') || s.includes('CONSENT')) return 'الموافقة على الصلاحيات';
-  return 'إحدى خطوات Meta';
-}
+// Meta's popup step names, in Arabic (shared with the overview's es_cancelled rule).
+const { metaStepLabel } = require('../config/eventLabels');
 
 // Our own steps after Meta's window closed (services/embeddedSignup.js, es_failed data.stage).
 const SERVER_STAGE_AR = {
@@ -572,6 +560,78 @@ const groupBy = (rows, key) => {
   return m;
 };
 
+// The onboarding columns the stage reads.
+const ONBOARDING_STAGE_SELECT = {
+  business_id: true, step: true, needs_operator: true, payment_method_ok: true,
+  payment_method_claimed_at: true, payment_method_marked_at: true, revoked_at: true, registered_at: true,
+};
+
+/**
+ * What deriveCard needs for many shops at once, one query per signal (never per shop): the
+ * owners, their newest unused links, the board's events, the knowledge each kind of shop uses,
+ * and whether the owner's connect button is open. Shared by the board and the operator overview's
+ * «مسار الانضمام», so a shop is in the same stage on both screens.
+ *
+ * `extraTypes` adds event types the caller needs from the same read (the overview's rules).
+ */
+async function loadStageInputs(businesses, { extraTypes = [] } = {}) {
+  const ids = businesses.map((b) => b.id);
+  const idsOf = (pred) => businesses.filter(pred).map((b) => b.id);
+  const types = [...new Set([...BOARD_TYPES, ...extraTypes])];
+  const [owners, events, facts, menu, services, ownerConnect] = await Promise.all([
+    ids.length ? prisma.user.findMany({
+      where: { business_id: { in: ids }, role: 'business_owner' },
+      select: { id: true, name: true, phone: true, business_id: true, active: true, last_login: true, created_at: true },
+      orderBy: { created_at: 'asc' },
+    }) : [],
+    ids.length ? prisma.accountEvent.findMany({
+      where: { business_id: { in: ids }, type: { in: types } },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: EVENT_SCAN_LIMIT,
+    }) : [],
+    knowledgeRows('businessKnowledge', idsOf((b) => !['restaurant', 'clinic'].includes(b.business_type)), { active: true }),
+    knowledgeRows('menuItem', idsOf((b) => b.business_type === 'restaurant')),
+    knowledgeRows('service', idsOf((b) => b.business_type === 'clinic')),
+    platformSettings.get('es_owner_enabled').then(platformSettings.isOn).catch(() => false),
+  ]);
+
+  const ownerOf = new Map();
+  for (const o of owners) if (!ownerOf.has(o.business_id)) ownerOf.set(o.business_id, o);
+  const ownerIds = [...ownerOf.values()].map((o) => o.id);
+  // The owner's newest unused link, expired or not: an expired one is the card's reason.
+  const invites = ownerIds.length ? await prisma.userActivation.findMany({
+    where: { user_id: { in: ownerIds }, used_at: null },
+    select: { user_id: true, expires_at: true, created_at: true },
+    orderBy: { created_at: 'desc' },
+  }) : [];
+  const inviteOfUser = new Map();
+  for (const i of invites) if (!inviteOfUser.has(i.user_id)) inviteOfUser.set(i.user_id, i);
+  const inviteOf = new Map();
+  for (const [businessId, o] of ownerOf) if (inviteOfUser.has(o.id)) inviteOf.set(businessId, inviteOfUser.get(o.id));
+  return {
+    ownerOf,
+    inviteOf,
+    eventsOf: groupBy(events, 'business_id'),
+    knowledgeOf: groupBy([...facts, ...menu, ...services], 'business_id'),
+    ownerConnect,
+  };
+}
+
+/** One shop's board stage and card, from loadStageInputs. */
+function stageOf(business, onboarding, inputs, now = new Date()) {
+  const owner = inputs.ownerOf.get(business.id) || null;
+  return deriveCard({
+    business,
+    owner,
+    invite: owner ? inputs.inviteOf.get(business.id) || null : null,
+    onboarding: onboarding || null,
+    knowledge: inputs.knowledgeOf.get(business.id) || [],
+    events: inputs.eventsOf.get(business.id) || [],
+    now,
+    ownerConnect: inputs.ownerConnect,
+  });
+}
+
 const boardRouter = express.Router();
 
 boardRouter.get('/', guard, async (req, res) => {
@@ -586,62 +646,17 @@ boardRouter.get('/', guard, async (req, res) => {
       },
       orderBy: { created_at: 'asc' },
     });
-    const ids = businesses.map((b) => b.id);
-    const idsOf = (pred) => businesses.filter(pred).map((b) => b.id);
-
-    const [owners, onboardings, events, facts, menu, services, ownerConnect] = await Promise.all([
-      ids.length ? prisma.user.findMany({
-        where: { business_id: { in: ids }, role: 'business_owner' },
-        select: { id: true, name: true, business_id: true, active: true, last_login: true, created_at: true },
-        orderBy: { created_at: 'asc' },
-      }) : [],
-      ids.length ? prisma.whatsappOnboarding.findMany({
-        where: { business_id: { in: ids } },
-        select: {
-          business_id: true, step: true, needs_operator: true, payment_method_ok: true,
-          payment_method_claimed_at: true, payment_method_marked_at: true, revoked_at: true, registered_at: true,
-        },
-      }) : [],
-      ids.length ? prisma.accountEvent.findMany({
-        where: { business_id: { in: ids }, type: { in: BOARD_TYPES } },
-        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-        take: EVENT_SCAN_LIMIT,
-      }) : [],
-      knowledgeRows('businessKnowledge', idsOf((b) => !['restaurant', 'clinic'].includes(b.business_type)), { active: true }),
-      knowledgeRows('menuItem', idsOf((b) => b.business_type === 'restaurant')),
-      knowledgeRows('service', idsOf((b) => b.business_type === 'clinic')),
-      platformSettings.get('es_owner_enabled').then(platformSettings.isOn).catch(() => false),
-    ]);
-
-    const ownerOfBiz = new Map();
-    for (const o of owners) if (!ownerOfBiz.has(o.business_id)) ownerOfBiz.set(o.business_id, o);
-    const ownerIds = [...ownerOfBiz.values()].map((o) => o.id);
-    // The owner's newest unused link, expired or not: an expired one is the card's reason.
-    const invites = ownerIds.length ? await prisma.userActivation.findMany({
-      where: { user_id: { in: ownerIds }, used_at: null },
-      select: { user_id: true, expires_at: true, created_at: true },
-      orderBy: { created_at: 'desc' },
+    const onboardings = businesses.length ? await prisma.whatsappOnboarding.findMany({
+      where: { business_id: { in: businesses.map((b) => b.id) } },
+      select: ONBOARDING_STAGE_SELECT,
     }) : [];
-    const inviteOf = new Map();
-    for (const i of invites) if (!inviteOf.has(i.user_id)) inviteOf.set(i.user_id, i);
     const onboardingOf = new Map(onboardings.map((o) => [o.business_id, o]));
-    const eventsOf = groupBy(events, 'business_id');
-    const knowledgeOf = groupBy([...facts, ...menu, ...services], 'business_id');
+    const inputs = await loadStageInputs(businesses);
 
     const columns = STAGES.map((s) => ({ ...s, cards: [] }));
     const columnOf = new Map(columns.map((c) => [c.stage, c]));
     for (const business of businesses) {
-      const owner = ownerOfBiz.get(business.id) || null;
-      const { stage, card } = deriveCard({
-        business,
-        owner,
-        invite: owner ? inviteOf.get(owner.id) || null : null,
-        onboarding: onboardingOf.get(business.id) || null,
-        knowledge: knowledgeOf.get(business.id) || [],
-        events: eventsOf.get(business.id) || [],
-        now,
-        ownerConnect,
-      });
+      const { stage, card } = stageOf(business, onboardingOf.get(business.id) || null, inputs, now);
       columnOf.get(stage).cards.push(card);
     }
     // Longest in its stage first: that is the one to call.
@@ -689,4 +704,5 @@ boardRouter.get('/', guard, async (req, res) => {
 
 module.exports = {
   accountsRouter, boardRouter, SECTORS, STAGES, deriveCard, invitePayload, firstName, forShop, metaStepLabel,
+  loadStageInputs, stageOf, ONBOARDING_STAGE_SELECT, ES_TYPES, BOARD_TYPES, ownerOf, appOrigin, inviteTtlDays,
 };

@@ -57,6 +57,12 @@ router.post('/', async (req, res) => {
         position: count,
       },
     });
+    // Who taught the bot what, for the shop's «السجل» and SHIFT's «آخر ما حصل»: an edit SHIFT makes
+    // through ?businessId= reads as SHIFT's, not the owner's. Never throws.
+    await accountEvents.record({
+      businessId: req.businessId, actorUserId: req.user.id, actorKind: actorKindOf(req),
+      type: 'knowledge_added', data: { knowledge_id: item.id, kind },
+    });
     res.status(201).json({ item });
   } catch (err) {
     console.error('[knowledge] create failed:', err.message);
