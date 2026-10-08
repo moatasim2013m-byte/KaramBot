@@ -7,6 +7,9 @@
  * number — it goes out as the approved utility template in ai_config.alert_template ({name, language});
  * with no template configured, or one Meta refuses (not approved yet, paused), it is skipped and logged.
  *
+ * The webhook is SHIFT's private channel: it carries SHIFT's own sales-bot alerts and the platform
+ * reasons (notifyShift) only. A tenant's alerts go to that tenant's numbers and nowhere else.
+ *
  * Alerts are best effort: they are called from the reply path and must never throw into it.
  */
 
@@ -26,7 +29,16 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
   // Calendly bookings the sweep could not tie to a conversation by phone.
   'calendly_check', 'calendly_unmatched',
   // A customer wrote (first message, or after a quiet gap) — services/newMessageAlert.js.
-  'new_message'];
+  'new_message',
+  // Platform alerts: about SHIFT's customers (the shops), sent only to SHIFT by notifyShift.
+  'join_opened', 'customer_connected', 'connect_failed', 'needs_operator', 'went_live', 'partner_removed',
+  'payment_blocked', 'provider_down', 'cap_80', 'platform_ceiling'];
+
+// The reasons notifyShift sends. They describe a shop or the platform, never an end customer's
+// conversation, so they are the only ones besides SHIFT's own sales bot that may reach
+// STAFF_ALERT_WEBHOOK_URL (SHIFT's private channel).
+const PLATFORM_REASONS = Object.freeze(['join_opened', 'customer_connected', 'connect_failed', 'needs_operator',
+  'went_live', 'partner_removed', 'payment_blocked', 'provider_down', 'cap_80', 'platform_ceiling']);
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -55,6 +67,16 @@ const ALERT_LABELS = {
   calendly_check: 'حجز Calendly بحاجة تأكيد — مطابقة بالاسم فقط',
   calendly_unmatched: 'حجز Calendly بدون محادثة واتساب',
   new_message: 'رسالة جديدة من عميل',
+  join_opened: 'زبون فتح رابط الانضمام',
+  customer_connected: 'زبون ربط واتساب',
+  connect_failed: 'ربط واتساب ما زبط',
+  needs_operator: 'ربط واتساب يحتاج تدخّل شِفت',
+  went_live: 'البوت ردّ على أول زبون',
+  partner_removed: 'زبون فصل شِفت من حساب Meta',
+  payment_blocked: 'Meta رفضت ردود البوت — طريقة الدفع',
+  provider_down: 'مزوّد الذكاء الاصطناعي متعطّل',
+  cap_80: 'زبون وصل 80% من ردود الشهر',
+  platform_ceiling: 'وصلنا سقف ردود اليوم لكل المنصة',
 };
 
 const WEBHOOK_TIMEOUT_MS = 5000;
@@ -94,13 +116,17 @@ function escapeForWebhook(value) {
 // alert still carries the id in the server log beside it (`[alerts] reason=… conversation=…`).
 //
 // `link` is ours, never customer text, and adds an «Inbox: …» line when a destination is known.
+//
+// The webhook copy also names the business: SHIFT's channel hears about its own sales bot and about
+// the platform (notifyShift), and a line that does not say which account it is about is useless there.
 function formatAlertText({ reason, business, conversation, summary, link }, { forWebhook = false } = {}) {
   const conv = conversation || {};
   const label = ALERT_LABELS[reason] || reason;
   const safe = (v) => (forWebhook ? escapeForWebhook(v) : v);
   const lines = [
     `🔔 SHIFT bot — ${label}`,
-    `العميل: ${safe(conv.profile_name || '-')} (+${conv.customer_wa_id})`,
+    forWebhook && business?.name ? `الحساب: ${safe(business.name)}` : '',
+    `العميل: ${safe(conv.profile_name || '-')}${conv.customer_wa_id ? ` (+${conv.customer_wa_id})` : ''}`,
     safe(summary || ''),
     link ? `Inbox: ${link}` : '',
   ];
@@ -154,8 +180,23 @@ function alertNumbers(business) {
   return list.map((n) => String(n ?? '').replace(/\D/g, '')).filter(Boolean);
 }
 
+function isShiftBusiness(business) {
+  return business?.business_type === 'shift';
+}
+
+/**
+ * Whether this alert may go to STAFF_ALERT_WEBHOOK_URL. That channel is SHIFT's own: it used to
+ * receive every tenant's handoffs and new-message alerts too, so a shop's customer names, numbers
+ * and words landed in SHIFT's Slack. Now only SHIFT's own sales bot and the platform reasons go.
+ */
+function webhookAllowed(business, reason) {
+  return isShiftBusiness(business) || PLATFORM_REASONS.includes(reason);
+}
+
+// A tenant's own channel is its alert numbers; the webhook counts only where it may be used.
 function alertChannelConfigured(business) {
-  return !!(process.env.STAFF_ALERT_WEBHOOK_URL || '').trim() || alertNumbers(business).length > 0;
+  const webhook = !!(process.env.STAFF_ALERT_WEBHOOK_URL || '').trim() && (!business || isShiftBusiness(business));
+  return webhook || alertNumbers(business).length > 0;
 }
 
 async function storeAlert(business, conversationId, number, row) {
@@ -273,7 +314,7 @@ async function sendStaffAlert({ reason, business, conversation, summary = '', li
     const text = formatAlertText({ reason, business, conversation, summary, link });
 
     const url = (process.env.STAFF_ALERT_WEBHOOK_URL || '').trim();
-    if (url) {
+    if (url && webhookAllowed(business, reason)) {
       try {
         await axios.post(url, {
           text: formatAlertText({ reason, business, conversation, summary, link }, { forWebhook: true }),
@@ -310,8 +351,86 @@ async function sendStaffAlert({ reason, business, conversation, summary = '', li
   return report;
 }
 
+// ─── alerts to SHIFT about its customers ────────────────────────────────────
+
+const SHIFT_SUMMARY_MAX = 200;
+
+/**
+ * SHIFT's own Business row: the sales bot's number, which is what alerts SHIFT staff. A '-sim'
+ * test row can share business_type 'shift', so the real one (not a '-sim' slug) is preferred.
+ */
+async function shiftBusiness() {
+  const rows = await prisma.business.findMany({
+    where: { business_type: 'shift', status: 'active' },
+    orderBy: { created_at: 'asc' },
+  });
+  const usable = (rows || []).filter((b) => b.wa_phone_number_id && b.wa_access_token);
+  return usable.find((b) => !String(b.slug || '').endsWith('-sim')) || usable[0] || null;
+}
+
+/**
+ * Tell SHIFT about one of its customers (a shop) or about the platform: a connect, a first live
+ * reply, an AI provider outage. Sent from SHIFT's own row through the same staff-alert machinery
+ * (free text inside the staff number's 24 h window, the approved staff_alert template outside it),
+ * to PlatformSetting shift_alert_numbers, or SHIFT's own ai_config.alert_wa_numbers when that
+ * setting is empty, and to STAFF_ALERT_WEBHOOK_URL.
+ *
+ * It takes no conversation and no message: the "customer" in the alert is the shop (its name and
+ * owner phone), and the summary is the caller's own wording. An end customer's text has no field
+ * to arrive through, and anything else passed in is ignored.
+ *
+ * Never throws; resolves with sendStaffAlert's report, or null when there is no SHIFT row.
+ */
+async function notifyShift({ reason, businessId = null, shopName = '', phone = '', summary = '', now = new Date() } = {}) {
+  try {
+    const shift = await shiftBusiness();
+    if (!shift) {
+      console.error(`[alerts] notifyShift reason=${reason} business=${businessId}: no active SHIFT business row`);
+      return null;
+    }
+
+    let name = String(shopName || '').trim();
+    let ownerPhone = String(phone || '').replace(/\D/g, '');
+    if (businessId && (!name || !ownerPhone)) {
+      try {
+        const shop = await prisma.business.findUnique({ where: { id: businessId }, select: { name: true, owner_phone: true } });
+        if (shop) {
+          name = name || shop.name || '';
+          ownerPhone = ownerPhone || String(shop.owner_phone || '').replace(/\D/g, '');
+        }
+      } catch (err) {
+        console.warn(`[alerts] notifyShift could not read business=${businessId}: ${err.message}`);
+      }
+    }
+
+    let numbers = [];
+    try {
+      const settings = require('./platformSettings');
+      numbers = alertNumbers({ ai_config: { alert_wa_numbers: await settings.get('shift_alert_numbers') } });
+    } catch (err) {
+      console.warn(`[alerts] notifyShift could not read shift_alert_numbers: ${err.message}`);
+    }
+    if (!numbers.length) numbers = alertNumbers(shift);
+
+    return await sendStaffAlert({
+      reason,
+      business: { ...shift, ai_config: { ...(shift.ai_config || {}), alert_wa_numbers: numbers } },
+      // Not a conversation: the shop, in the slot the template calls «العميل».
+      conversation: { id: null, profile_name: name || '-', customer_wa_id: ownerPhone || null },
+      summary: summary ? templateVar(summary, SHIFT_SUMMARY_MAX) : '',
+      now,
+    });
+  } catch (err) {
+    console.error(`[alerts] notifyShift failed reason=${reason}: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   ALERT_REASONS,
+  PLATFORM_REASONS,
+  notifyShift,
+  webhookAllowed,
   ALERT_LABELS,
   ALERT_TEMPLATE_NAME,
   ALERT_TEMPLATE_LANGUAGE,

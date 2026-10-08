@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ExternalLink, MessageCircle, RefreshCw } from 'lucide-react';
 import api from '../../utils/api';
 import { StatusDot, Timestamp } from '../shared/Primitives';
@@ -11,7 +12,7 @@ import { StatusDot, Timestamp } from '../shared/Primitives';
  * from the same functions SHIFT staff see in the fleet view, so both sides read one truth.
  *
  * Read-only by design. Connecting and retrying stay with SHIFT; what the customer can do
- * themselves — add a payment method — is the one action offered.
+ * themselves — add a payment method, or tell the bot about the shop — is what is offered.
  */
 
 const TONE = {
@@ -39,7 +40,9 @@ export default function WhatsAppStatusCard({ compact = false }) {
   if (error) return <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!data) return <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 animate-pulse"><div className="h-3 w-1/3 bg-gray-100 rounded" /></div>;
 
-  const { connection, agent, explain, last_inbound_at, last_outbound_at } = data;
+  const { connection, agent, explain, last_inbound_at, last_outbound_at, setup } = data;
+  // The page that holds this shop's knowledge (menu, services or facts), from the setup steps.
+  const knowledgeWhere = setup?.steps?.find((s) => ['knowledge', 'menu', 'services'].includes(s.key))?.where || '/settings';
 
   // On the overview, one honest line where four zeros used to leave the customer guessing.
   if (compact) {
@@ -79,6 +82,11 @@ export default function WhatsAppStatusCard({ compact = false }) {
               className="inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-900 underline underline-offset-2">
               افتح WhatsApp Manager وأضف طريقة دفع <ExternalLink size={12} />
             </a>
+          ) : explain.action === 'knowledge' ? (
+            <Link to={knowledgeWhere}
+              className="inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-900 underline underline-offset-2">
+              أضف معلومات منشأتك
+            </Link>
           ) : (
             <a href={SUPPORT_WA} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-[13px] font-medium text-gray-900 underline underline-offset-2">

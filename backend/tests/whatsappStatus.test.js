@@ -20,6 +20,7 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const prisma = require('../src/config/prisma');
 const app = require('../src/app');
+const { PAYMENT_METHOD_OWNER_LONG, PAYMENT_METHOD_OWNER_SHORT, WHATSAPP_MANAGER_URL } = require('../src/config/metaNotices');
 
 const OWNER = { id: 'u1', name: 'O', email: 'o@clinic.jo', role: 'business_owner', business_id: 'b1', active: true };
 const auth = () => ({ Authorization: `Bearer ${jwt.sign({ id: 'u1' }, process.env.JWT_SECRET)}` });
@@ -82,7 +83,29 @@ test('a missing payment method is the one action the customer can take themselve
   const res = await get();
   expect(res.body.connection.state).toBe('degraded');
   expect(res.body.explain.action).toBe('payment');
-  expect(res.body.explain.body).toContain('30 أيلول');
+  // One wording, from config/metaNotices.js, with no deadline in it: «قبل 30 أيلول» read as a
+  // missed date once October came.
+  expect(res.body.explain.body).toBe(PAYMENT_METHOD_OWNER_LONG);
+  const step = res.body.setup.steps.find((x) => x.key === 'payment');
+  expect(step).toMatchObject({ label: PAYMENT_METHOD_OWNER_SHORT, hint: PAYMENT_METHOD_OWNER_LONG, url: WHATSAPP_MANAGER_URL });
+  // This route's own copy. (connection.label comes from services/accountHealth.js.)
+  expect(JSON.stringify([res.body.explain, res.body.setup])).not.toMatch(/أيلول|تشرين/);
+});
+
+test('a generic shop with nothing entered reads «بدون معلومات», and the fix is theirs', async () => {
+  // knowledgeCount now reaches agentState; before, this state could never show and the card
+  // said the bot was answering while it only ever sent the greeting.
+  setup({ business: biz({ business_type: 'generic' }), knowledge: 0, inbound: minsAgo(3), outbound: minsAgo(2) });
+  const res = await get();
+  expect(res.body.agent).toMatchObject({ state: 'down', label: 'بدون معلومات' });
+  expect(res.body.explain).toMatchObject({ tone: 'warn', action: 'knowledge' });
+});
+
+test('a generic shop with knowledge answering is good news', async () => {
+  setup({ business: biz({ business_type: 'generic' }), knowledge: 4, inbound: minsAgo(3), outbound: minsAgo(2) });
+  const res = await get();
+  expect(res.body.agent.state).toBe('ok');
+  expect(res.body.explain.tone).toBe('good');
 });
 
 test('not connected yet says SHIFT is on it, and that no message will arrive until then', async () => {

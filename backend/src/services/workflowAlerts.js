@@ -35,13 +35,42 @@ function notifyWorkflowAlert({ reason, business, conversation, summary = '' }) {
 
 /**
  * The callback ai/provider.js calls when a provider is out of credits, has a rejected key or a
- * missing model. provider.js throttles it to once an hour per provider, so this cannot flood the
- * owner's phone. The turn itself continues on the fallback provider.
+ * missing model. provider.js throttles it to once an hour per provider, across every shop.
+ *
+ * It goes to SHIFT, not to this shop: the credits and keys are SHIFT's, and the one hourly alert
+ * used to land on whichever shop's message happened to hit the outage first — a random owner was
+ * told SHIFT's Gemini balance had run out, and SHIFT heard nothing. The shop itself still sees the
+ * effect where it matters: when no provider answers, its conversation is handed to staff and that
+ * handover alert (handoff, ai_failure from the workflow's result) reaches its numbers as before.
+ *
+ * provider_status is written so the operator panel can show the outage without a log search.
+ * Both halves are fire-and-forget, like every alert here.
  */
 function providerIssueAlert(business, conversation) {
-  return ({ summary }) => notifyWorkflowAlert({
-    reason: 'ai_failure', business, conversation, summary,
-  });
+  void conversation; // the conversation is the shop's customer's: nothing of it goes to SHIFT
+  return ({ provider, kind, summary } = {}) => {
+    try {
+      const alerts = require('./alerts');
+      Promise.resolve(alerts.notifyShift({
+        reason: 'provider_down',
+        businessId: business?.id || null,
+        shopName: business?.name || '',
+        summary: String(summary || '').slice(0, ALERT_SUMMARY_MAX),
+      })).catch((err) => console.error(`[workflowAlerts] provider_down failed: ${err && err.message}`));
+    } catch (err) {
+      console.error(`[workflowAlerts] provider_down failed: ${err && err.message}`);
+    }
+    try {
+      const settings = require('./platformSettings');
+      Promise.resolve(settings.set('provider_status', {
+        provider: provider || null,
+        kind: kind || null,
+        last_seen: new Date().toISOString(),
+      }, null, { actorKind: 'system' })).catch((err) => console.error(`[workflowAlerts] provider_status not saved: ${err && err.message}`));
+    } catch (err) {
+      console.error(`[workflowAlerts] provider_status not saved: ${err && err.message}`);
+    }
+  };
 }
 
 module.exports = { notifyWorkflowAlert, providerIssueAlert };

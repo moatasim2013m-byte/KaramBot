@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
@@ -116,19 +117,136 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/businesses — platform_admin only
-router.post('/', requireRole('platform_admin'), async (req, res) => {
-  try {
-    if ('wa_access_token' in req.body) {
-      return res.status(400).json({ error: 'Set WhatsApp token via PATCH /api/businesses/:id/token' });
+// ─── creating a shop ────────────────────────────────────────────────────────
+
+// What an operator may set when creating a row. Not the raw body: Prisma would otherwise accept
+// any column, wa_access_token and id included, and its own error text named the column that
+// broke — English, with internals, shown to an operator as is.
+const CREATE_ALLOWED_FIELDS = [
+  'name', 'slug', 'business_type', 'language_default', 'timezone', 'currency', 'address', 'logo_url',
+  'wa_phone_number_id', 'wa_business_account_id', 'opening_hours', 'ai_config', 'policies',
+  'sector', 'city', 'owner_phone', 'is_internal',
+];
+const SLUG_RE = /^[a-z0-9-]{1,60}$/;
+const SLUG_ATTEMPTS = 5;
+
+const CREATE_ERRORS = {
+  name: 'اسم الحساب مطلوب',
+  slug: 'الرابط المختصر: أحرف إنجليزية صغيرة وأرقام وشرطات فقط',
+  number_taken: 'هذا الرقم مربوط بحساب آخر',
+  type: 'نوع النشاط غير معروف',
+  failed: 'تعذّر إنشاء الحساب',
+};
+// The workflows that exist (messageProcessor picks one by business_type). The schema default is
+// 'restaurant', which would hand a pharmacy created with just a name the restaurant menu bot.
+const BUSINESS_TYPES = ['generic', 'restaurant', 'clinic', 'shift'];
+
+function randomLetters(n) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const bytes = crypto.randomBytes(n);
+  let out = '';
+  for (let i = 0; i < n; i += 1) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+/**
+ * A slug from the shop's name: its Latin letters and digits, lowercased and joined by dashes.
+ * Most of SHIFT's shops have Arabic-only names («صيدلية النور»), which leave nothing Latin, so
+ * those get 'shop-' and six random letters. The slug is an internal handle nobody types, so a
+ * readable one is a bonus, never a requirement the operator has to meet.
+ */
+function slugFromName(name) {
+  const latin = String(name || '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return latin.length >= 2 ? latin : `shop-${randomLetters(6)}`;
+}
+
+/** The candidate for a retry after a slug collision: a fresh random one, or the base plus a suffix. */
+function nextSlug(base, attempt) {
+  if (attempt === 0) return base;
+  if (/^shop-[a-z]{6}$/.test(base)) return `shop-${randomLetters(6)}`;
+  return `${base.slice(0, 50)}-${randomLetters(4)}`;
+}
+
+// Prisma reports the column of a unique violation in meta.target (an array, or the index name in
+// some versions); the fake DB and older drivers only put it in the message. Both are checked.
+function uniqueField(err) {
+  if (!err || err.code !== 'P2002') return null;
+  const target = err.meta && err.meta.target;
+  const text = `${Array.isArray(target) ? target.join(',') : (target || '')} ${err.message || ''}`;
+  if (text.includes('wa_phone_number_id')) return 'wa_phone_number_id';
+  if (text.includes('slug')) return 'slug';
+  return 'other';
+}
+
+function cleanCreateBody(body) {
+  const data = pickAllowed(body || {}, CREATE_ALLOWED_FIELDS);
+  // An empty form field is "not given", never ''. An empty wa_phone_number_id in particular
+  // used to be stored as '', and the second shop created without a number then collided with
+  // the first on the unique index.
+  for (const [k, v] of Object.entries(data)) {
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t) data[k] = t; else delete data[k];
     }
-    const { wa_access_token: _tok, ...biz } = await prisma.business.create({ data: req.body });
-    void _tok;
-    res.status(201).json({ business: biz });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
   }
+  // Stated, not left to the column default, so "no number yet" is NULL everywhere it is read.
+  if (!data.wa_phone_number_id) data.wa_phone_number_id = null;
+  if ('owner_phone' in data) data.owner_phone = normalizePhone(data.owner_phone) || null;
+  if ('is_internal' in data) data.is_internal = data.is_internal === true;
+  for (const k of ['ai_config', 'policies']) {
+    if (k in data && !isPlainObject(data[k])) delete data[k];
+  }
+  if ('opening_hours' in data && !Array.isArray(data.opening_hours)) delete data.opening_hours;
+  return data;
+}
+
+// POST /api/businesses — platform_admin only. A name (and normally a type) is enough: the slug
+// is generated here, and the WhatsApp number comes later, when the shop connects.
+router.post('/', requireRole('platform_admin'), async (req, res) => {
+  if (req.body && 'wa_access_token' in req.body) {
+    return res.status(400).json({ error: 'رمز واتساب يُضبط من صفحة الحساب، لا عند الإنشاء' });
+  }
+  const data = cleanCreateBody(req.body);
+  if (!data.name) return res.status(400).json({ error: CREATE_ERRORS.name });
+  if (!data.business_type) data.business_type = 'generic';
+  if (!BUSINESS_TYPES.includes(data.business_type)) return res.status(400).json({ error: CREATE_ERRORS.type });
+
+  let base;
+  if (data.slug) {
+    const given = data.slug.toLowerCase();
+    if (!SLUG_RE.test(given)) return res.status(400).json({ error: CREATE_ERRORS.slug });
+    base = given;
+  } else {
+    base = slugFromName(data.name);
+  }
+
+  for (let attempt = 0; attempt < SLUG_ATTEMPTS; attempt += 1) {
+    try {
+      const { wa_access_token: _tok, ...biz } = await prisma.business.create({
+        data: { ...data, slug: nextSlug(base, attempt) },
+      });
+      void _tok;
+      return res.status(201).json({ business: biz });
+    } catch (err) {
+      const field = uniqueField(err);
+      if (field === 'slug') continue; // someone has it: try the next candidate
+      if (field === 'wa_phone_number_id') return res.status(409).json({ error: CREATE_ERRORS.number_taken });
+      // Never err.message: it is Prisma's English, with column names and internals in it.
+      console.error(`[businesses] create failed: ${err.code || ''} ${err.message}`);
+      return res.status(400).json({ error: CREATE_ERRORS.failed });
+    }
+  }
+  console.error(`[businesses] create failed: no free slug after ${SLUG_ATTEMPTS} attempts from "${base}"`);
+  return res.status(409).json({ error: CREATE_ERRORS.failed });
 });
+
+const SETTINGS_ROLES = ['business_owner', 'platform_admin'];
 
 // PATCH /api/businesses/:id — allowlisted fields per role
 router.patch('/:id', async (req, res) => {
@@ -139,6 +257,12 @@ router.patch('/:id', async (req, res) => {
     }
     if ('wa_access_token' in req.body) {
       return res.status(400).json({ error: 'Use PATCH /api/businesses/:id/token to update the WhatsApp token' });
+    }
+    // What the bot says and does, and the shop's policies, are the owner's decision. A manager
+    // or staff member could otherwise switch the bot off, change its greeting or the alert
+    // numbers that tell the owner something went wrong.
+    if (('ai_config' in req.body || 'policies' in req.body) && !SETTINGS_ROLES.includes(req.user.role)) {
+      return res.status(403).json({ error: 'إعدادات البوت والسياسات لصاحب الحساب فقط' });
     }
 
     const allowedKeys = isAdmin ? ADMIN_ALLOWED_FIELDS : OWNER_ALLOWED_FIELDS;
@@ -201,13 +325,11 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// PATCH /api/businesses/:id/token — encrypt and store WhatsApp token
-router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), async (req, res) => {
+// PATCH /api/businesses/:id/token — encrypt and store WhatsApp token. platform_admin only: the
+// token comes from Embedded Signup or from SHIFT's own setup, never from a customer pasting one
+// into a box, and a wrong token pasted by an owner silently stopped their bot.
+router.patch('/:id/token', requireRole('platform_admin'), async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'platform_admin';
-    if (!isAdmin && req.user.business_id !== req.params.id) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
     const { wa_access_token } = req.body;
     if (!wa_access_token || wa_access_token.trim().length < 10) {
       return res.status(400).json({ error: 'Valid wa_access_token is required' });

@@ -23,8 +23,10 @@ const DEFAULTS = {
   wa_phone_number_id: '', wa_business_account_id: '',
 };
 
+// The server generates the slug when this is left empty (an Arabic-only name gives «shop-…»),
+// so the field is optional and only checked when the operator types one.
 function toSlug(str) {
-  return str.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  return str.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+|-+$/g, '');
 }
 
 export default function CreateBusinessPage() {
@@ -43,20 +45,24 @@ export default function CreateBusinessPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim())             { setError('الاسم مطلوب'); return; }
-    if (!form.slug.trim())             { setError('Slug مطلوب'); return; }
-    if (!/^[a-z0-9-]+$/.test(form.slug)) { setError('Slug: أحرف إنجليزية صغيرة وأرقام وشرطات فقط'); return; }
+    if (!form.name.trim()) { setError('اسم الحساب مطلوب'); return; }
+    if (form.slug.trim() && !/^[a-z0-9-]+$/.test(form.slug.trim())) {
+      setError('الرابط المختصر: أحرف إنجليزية صغيرة وأرقام وشرطات فقط'); return;
+    }
 
     setSubmitting(true);
     setError('');
     try {
+      // Empty fields are left out: the number in particular is optional (it is linked when the
+      // shop connects WhatsApp), and the server stores a missing one as null, never ''.
       const body = Object.fromEntries(
-        Object.entries(form).filter(([, v]) => v !== '')
+        Object.entries(form).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]).filter(([, v]) => v !== '')
       );
       const res = await api.post('/businesses', body);
       navigate(`/admin/accounts/${res.data.business.id}`);
     } catch (err) {
-      setError(err.response?.data?.error || 'حدث خطأ أثناء الإنشاء');
+      // The server answers in Arabic («هذا الرقم مربوط بحساب آخر», «تعذّر إنشاء الحساب»).
+      setError(err.response?.data?.error || 'تعذّر إنشاء الحساب');
     } finally {
       setSubmitting(false);
     }
@@ -69,7 +75,7 @@ export default function CreateBusinessPage() {
         <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600">
           <ArrowRight size={18} />
         </Link>
-        <h1 className="text-xl font-bold text-gray-800">إضافة عمل جديد</h1>
+        <h1 className="text-xl font-bold text-gray-800">إضافة حساب شركة</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
@@ -81,7 +87,7 @@ export default function CreateBusinessPage() {
 
         {/* Basic info */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="اسم العمل" required>
+          <Field label="اسم الحساب" required>
             <input
               value={form.name}
               onChange={e => handleNameChange(e.target.value)}
@@ -90,7 +96,7 @@ export default function CreateBusinessPage() {
             />
           </Field>
 
-          <Field label="Slug" required hint="أحرف إنجليزية صغيرة وأرقام وشرطات فقط">
+          <Field label="الرابط المختصر (اختياري)" hint="اتركه فارغًا ويُنشأ تلقائيًا. أحرف إنجليزية صغيرة وأرقام وشرطات فقط">
             <input
               value={form.slug}
               onChange={e => { setSlugTouched(true); set('slug', e.target.value); }}
@@ -102,7 +108,7 @@ export default function CreateBusinessPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Field label="نوع العمل" required>
+          <Field label="نوع النشاط" required>
             <select value={form.business_type} onChange={e => set('business_type', e.target.value)} className={inputClass}>
               <option value="restaurant">مطعم</option>
               <option value="clinic">عيادة</option>
@@ -135,7 +141,7 @@ export default function CreateBusinessPage() {
         <div className="pt-2 border-t border-gray-100">
           <p className="text-xs font-semibold text-gray-500 uppercase mb-3">معرّفات واتساب (اختياري)</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Phone Number ID">
+            <Field label="Phone Number ID" hint="اختياري — يُربط عند ربط واتساب">
               <input value={form.wa_phone_number_id} onChange={e => set('wa_phone_number_id', e.target.value)} className={`${inputClass} font-mono`} dir="ltr" placeholder="123456789012345" />
             </Field>
             <Field label="Business Account ID">
@@ -151,7 +157,7 @@ export default function CreateBusinessPage() {
             className="flex items-center gap-2 bg-green-500 text-white px-6 py-2 rounded-lg text-sm hover:bg-green-600 disabled:opacity-50"
           >
             <Save size={15} />
-            {submitting ? 'جاري الإنشاء...' : 'إنشاء العمل'}
+            {submitting ? 'جاري الإنشاء...' : 'إنشاء الحساب'}
           </button>
         </div>
       </form>

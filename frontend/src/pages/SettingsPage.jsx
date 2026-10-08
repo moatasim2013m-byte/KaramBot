@@ -41,11 +41,6 @@ function WhatsAppTab({ biz, role }) {
   const [savedIds, setSavedIds]     = useState(false);
   const [idsError, setIdsError]     = useState('');
 
-  const [token, setToken]               = useState('');
-  const [savingToken, setSavingToken]   = useState(false);
-  const [savedToken, setSavedToken]     = useState(false);
-  const [tokenError, setTokenError]     = useState('');
-
   const handleSaveIds = async () => {
     if (!phoneId.trim()) { setIdsError('Phone Number ID مطلوب'); return; }
     setSavingIds(true);
@@ -61,22 +56,6 @@ function WhatsAppTab({ biz, role }) {
       setIdsError(err.response?.data?.error || 'حدث خطأ أثناء الحفظ');
     } finally {
       setSavingIds(false);
-    }
-  };
-
-  const handleSaveToken = async () => {
-    if (!token.trim()) { setTokenError('أدخل قيمة التوكن'); return; }
-    setSavingToken(true);
-    setTokenError('');
-    try {
-      await api.patch(`/businesses/${biz.id}/token`, { wa_access_token: token.trim() });
-      setToken(''); // clear after save — value must never persist in UI
-      setSavedToken(true);
-      setTimeout(() => setSavedToken(false), 3000);
-    } catch (err) {
-      setTokenError(err.response?.data?.error || 'حدث خطأ أثناء حفظ التوكن');
-    } finally {
-      setSavingToken(false);
     }
   };
 
@@ -131,34 +110,8 @@ function WhatsAppTab({ biz, role }) {
         )}
       </Section>
 
-      <Section title="Access Token (مشفّر)">
-        <Field label="Token الجديد">
-          <input
-            type="password"
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            className={inputClass}
-            dir="ltr"
-            autoComplete="new-password"
-            placeholder="أدخل التوكن هنا"
-          />
-        </Field>
-        <p className="text-xs text-gray-400">
-          القيمة الحالية لا تُعرض أبداً. الإدخال هنا يستبدل التوكن المحفوظ وتُخزَّن مشفّرة.
-        </p>
-        {savedToken && (
-          <p className="text-green-600 text-sm font-medium">✅ تم حفظ التوكن (مشفّر)</p>
-        )}
-        {tokenError && <p className="text-red-500 text-xs">{tokenError}</p>}
-        <button
-          onClick={handleSaveToken}
-          disabled={savingToken || !token.trim()}
-          className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-600 disabled:opacity-50"
-        >
-          <Save size={15} />
-          {savingToken ? 'جاري الحفظ...' : 'حفظ Token'}
-        </button>
-      </Section>
+      {/* No token box here: a WhatsApp token is set by SHIFT (admin account page, or Embedded
+          Signup), and PATCH /businesses/:id/token is platform_admin only. */}
     </div>
   );
 }

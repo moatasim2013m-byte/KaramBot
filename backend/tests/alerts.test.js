@@ -8,6 +8,9 @@ jest.mock('axios');
 jest.mock('../src/config/prisma', () => ({
   conversation: { findFirst: jest.fn(), create: jest.fn() },
   message: { create: jest.fn() },
+  business: { findMany: jest.fn(), findUnique: jest.fn() },
+  platformSetting: { findMany: jest.fn() },
+  accountEvent: { create: jest.fn() },
 }));
 jest.mock('../src/services/whatsapp', () => ({ sendText: jest.fn(), sendTemplate: jest.fn() }));
 
@@ -17,22 +20,37 @@ const { sendText, sendTemplate } = require('../src/services/whatsapp');
 const { encrypt } = require('../src/utils/tokenCrypto');
 const {
   sendStaffAlert, alertChannelConfigured, formatAlertText, ALERT_REASONS, ALERT_TEMPLATE_BODY,
-  templateVar, alertTemplateParams, alertTemplate, renderAlertTemplate,
+  templateVar, alertTemplateParams, alertTemplate, renderAlertTemplate, notifyShift, PLATFORM_REASONS,
 } = require('../src/services/alerts');
+const platformSettings = require('../src/services/platformSettings');
 
 const NOW = new Date('2026-09-14T10:00:00Z');
 const hoursAgo = (h) => new Date(NOW.getTime() - h * 60 * 60 * 1000);
 
 const conversation = { id: 'conv_1', customer_wa_id: '962791111111', profile_name: 'محمد' };
+// SHIFT's own row: the one whose alerts may also go to STAFF_ALERT_WEBHOOK_URL.
 const business = (aiConfig = {}) => ({
   id: 'biz_shift',
+  name: 'شِفت',
+  business_type: 'shift',
   wa_phone_number_id: 'PNID',
   wa_access_token: encrypt('plain_token'),
   ai_config: aiConfig,
 });
 
+// A customer's shop: its alerts go to its own numbers only.
+const tenant = (aiConfig = {}) => ({
+  id: 'biz_tenant',
+  name: 'صيدلية النور',
+  business_type: 'generic',
+  wa_phone_number_id: 'PNID_TENANT',
+  wa_access_token: encrypt('tenant_token'),
+  ai_config: aiConfig,
+});
+
 beforeEach(() => {
   jest.resetAllMocks();
+  platformSettings.clearCache();
   delete process.env.STAFF_ALERT_WEBHOOK_URL;
   jest.spyOn(console, 'error').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -79,7 +97,7 @@ describe('webhook channel', () => {
 
     expect(report).toEqual({ webhook: 'sent', whatsapp: [] });
     expect(axios.post).toHaveBeenCalledWith('https://hooks.example.test/alert', {
-      text: formatAlertText({ reason: 'handoff', conversation, summary: 'بدو يحكي مع حدا' }, { forWebhook: true }),
+      text: formatAlertText({ reason: 'handoff', business: business(), conversation, summary: 'بدو يحكي مع حدا' }, { forWebhook: true }),
       reason: 'handoff',
       conversationId: 'conv_1',
       businessId: 'biz_shift',
@@ -183,6 +201,137 @@ describe('alertChannelConfigured', () => {
     process.env.STAFF_ALERT_WEBHOOK_URL = 'https://hooks.example.test/alert';
     expect(alertChannelConfigured(business())).toBe(true);
     expect(alertChannelConfigured(null)).toBe(true);
+    // The webhook is SHIFT's channel, so it is no alert channel for a shop.
+    expect(alertChannelConfigured(tenant())).toBe(false);
+    expect(alertChannelConfigured(tenant({ alert_wa_numbers: ['962792222222'] }))).toBe(true);
+  });
+});
+
+describe('STAFF_ALERT_WEBHOOK_URL is SHIFT\'s channel only (the leak)', () => {
+  beforeEach(() => {
+    process.env.STAFF_ALERT_WEBHOOK_URL = 'https://hooks.example.test/alert';
+    axios.post.mockResolvedValue({ status: 200 });
+  });
+
+  test('a shop\'s handoff, with its customer\'s words, never reaches SHIFT\'s webhook', async () => {
+    const report = await sendStaffAlert({
+      reason: 'handoff', business: tenant(), conversation, summary: 'بدي دوا للضغط', now: NOW,
+    });
+    expect(report.webhook).toBe('skipped');
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('the shop\'s own numbers still get it', async () => {
+    prisma.conversation.findFirst.mockResolvedValue({ id: 'staff_conv', last_inbound_at: hoursAgo(1) });
+    sendText.mockResolvedValue({ ok: true, id: 'wamid.t' });
+    const report = await sendStaffAlert({
+      reason: 'new_message', business: tenant({ alert_wa_numbers: ['962793333333'] }), conversation, summary: '«مرحبا»', now: NOW,
+    });
+    expect(report).toEqual({ webhook: 'skipped', whatsapp: [{ to: '962793333333', status: 'sent' }] });
+    expect(sendText.mock.calls[0][0]).toBe('PNID_TENANT');
+  });
+
+  test('a platform reason about a shop does reach it, and the text names the shop', async () => {
+    const report = await sendStaffAlert({ reason: 'customer_connected', business: tenant(), conversation: null, now: NOW });
+    expect(report.webhook).toBe('sent');
+    expect(axios.post.mock.calls[0][1].text).toContain('الحساب: صيدلية النور');
+  });
+
+  test('SHIFT\'s own sales-bot alerts still reach it, naming SHIFT', async () => {
+    const report = await sendStaffAlert({ reason: 'hot_lead', business: business(), conversation, now: NOW });
+    expect(report.webhook).toBe('sent');
+    expect(axios.post.mock.calls[0][1].text).toContain('الحساب: شِفت');
+  });
+
+  test('the WhatsApp copy is unchanged: no business line', () => {
+    expect(formatAlertText({ reason: 'quote', business: business(), conversation, summary: 'x' })).not.toContain('الحساب:');
+  });
+});
+
+describe('notifyShift', () => {
+  const shiftRow = (aiConfig = {}) => ({ ...business(aiConfig), slug: 'shift', status: 'active' });
+
+  beforeEach(() => {
+    prisma.business.findMany.mockResolvedValue([shiftRow({ alert_wa_numbers: ['962790000009'] })]);
+    prisma.business.findUnique.mockResolvedValue({ name: 'صيدلية النور', owner_phone: '962795555555' });
+    prisma.platformSetting.findMany.mockResolvedValue([]);
+    // notifyShift runs on the real clock (its callers pass no `now`), so the window is real time too.
+    prisma.conversation.findFirst.mockResolvedValue({ id: 'shift_staff', last_inbound_at: new Date(Date.now() - 3600 * 1000) });
+    sendText.mockResolvedValue({ ok: true, id: 'wamid.s' });
+  });
+
+  test('sends from SHIFT\'s own number to shift_alert_numbers, about the shop', async () => {
+    prisma.platformSetting.findMany.mockResolvedValue([{ key: 'shift_alert_numbers', value: ['0791234567'] }]);
+
+    const report = await notifyShift({ reason: 'went_live', businessId: 'biz_tenant', summary: 'أول رد للبوت' });
+
+    expect(report.whatsapp).toEqual([{ to: '0791234567'.replace(/\D/g, ''), status: 'sent' }]);
+    const [pnid, , to, text] = sendText.mock.calls[0];
+    expect(pnid).toBe('PNID');
+    expect(to).toBe('0791234567');
+    expect(text).toContain('صيدلية النور');
+    expect(text).toContain('+962795555555');
+    expect(text).toContain('أول رد للبوت');
+    // The shop is looked up by the id given, and nothing else.
+    expect(prisma.business.findUnique.mock.calls[0][0].where).toEqual({ id: 'biz_tenant' });
+  });
+
+  test('falls back to SHIFT\'s own alert numbers when the setting is empty', async () => {
+    const report = await notifyShift({ reason: 'customer_connected', shopName: 'مطعم الشام', phone: '962791110000' });
+    expect(report.whatsapp).toEqual([{ to: '962790000009', status: 'sent' }]);
+    expect(prisma.business.findUnique).not.toHaveBeenCalled(); // name and phone were given
+  });
+
+  test('prefers the real SHIFT row over a -sim test row', async () => {
+    prisma.business.findMany.mockResolvedValue([
+      { ...shiftRow({ alert_wa_numbers: ['962790000001'] }), id: 'sim', slug: 'shift-sim', wa_phone_number_id: 'PNID_SIM' },
+      shiftRow({ alert_wa_numbers: ['962790000009'] }),
+    ]);
+    await notifyShift({ reason: 'went_live', shopName: 'x', phone: '962790000000' });
+    expect(sendText.mock.calls[0][0]).toBe('PNID');
+  });
+
+  test('never carries an end customer\'s message text, whatever is passed in', async () => {
+    const secret = 'بدي دوا للضغط ورقمي السري ٩٩٩';
+    await notifyShift({
+      reason: 'provider_down', businessId: 'biz_tenant', summary: 'رصيد Gemini خلص',
+      // None of these are notifyShift parameters; a careless caller must not leak through them.
+      conversation: { id: 'c1', customer_wa_id: '962791111111', profile_name: 'محمد' },
+      text: secret, message: { text_body: secret }, customerMessage: secret,
+    });
+    const sentText = sendText.mock.calls.map((c) => c[3]).join('\n');
+    expect(sentText).not.toContain(secret);
+    expect(sentText).not.toContain('962791111111');
+    expect(sentText).not.toContain('محمد');
+    expect(prisma.message.create.mock.calls[0][0].data.text_body).not.toContain(secret);
+  });
+
+  test('a long summary is cut and flattened to one line', async () => {
+    await notifyShift({ reason: 'connect_failed', shopName: 'x', phone: '1', summary: `${'أ'.repeat(500)}\nسطر ثاني` });
+    const text = sendText.mock.calls[0][3];
+    expect(text).not.toContain('\nسطر ثاني');
+    expect(Array.from(text).length).toBeLessThan(400);
+  });
+
+  test('goes to the webhook too (a platform reason)', async () => {
+    process.env.STAFF_ALERT_WEBHOOK_URL = 'https://hooks.example.test/alert';
+    axios.post.mockResolvedValue({ status: 200 });
+    const report = await notifyShift({ reason: 'provider_down', shopName: 'صيدلية النور', phone: '1', summary: 'رصيد خلص' });
+    expect(report.webhook).toBe('sent');
+  });
+
+  test('no SHIFT row: logged, resolves null, never throws', async () => {
+    prisma.business.findMany.mockResolvedValue([]);
+    await expect(notifyShift({ reason: 'went_live' })).resolves.toBeNull();
+    prisma.business.findMany.mockRejectedValue(new Error('db down'));
+    await expect(notifyShift({ reason: 'went_live' })).resolves.toBeNull();
+  });
+
+  test('every platform reason has an Arabic label', () => {
+    for (const reason of PLATFORM_REASONS) {
+      expect(ALERT_REASONS).toContain(reason);
+      expect(formatAlertText({ reason, conversation: null })).not.toContain(`— ${reason}`);
+    }
   });
 });
 
