@@ -42,6 +42,49 @@ const isId = (v) => typeof v === 'string' && v.trim().length > 0 && v.length <= 
 const isMetaId = (v) => v !== undefined && v !== null && /^\d{1,32}$/.test(String(v).trim());
 const actorOf = (req) => ({ kind: 'shift', userId: req.user.id });
 
+// Meta reads per panel load, at most: the panel is opened often and each read can take seconds.
+const MAX_NUMBER_LOOKUPS = 10;
+
+/**
+ * The number an unattached row stands for, as Meta displays it, so SHIFT matches the row by the
+ * shop's +962 number instead of a WABA id. A Business row that still carries the number (a
+ * hand-wired copy) answers without Meta; otherwise the row's own stored token lists its WABA's
+ * numbers. Best effort: whatever cannot be read stays null and the row still lists.
+ * @returns {Promise<Map<string, {display_phone: string|null, verified_name: string|null}>>} by phone_number_id
+ */
+async function knownNumbers(rows) {
+  const out = new Map();
+  const phones = [...new Set(rows.map((r) => r.phone_number_id).filter(Boolean))];
+  if (!phones.length) return out;
+  const stored = await prisma.business.findMany({
+    where: { wa_phone_number_id: { in: phones } },
+    select: { wa_phone_number_id: true, wa_display_phone: true, wa_verified_name: true },
+  }).catch(() => []);
+  for (const b of stored) {
+    if (b.wa_display_phone) out.set(b.wa_phone_number_id, { display_phone: b.wa_display_phone, verified_name: b.wa_verified_name || null });
+  }
+
+  const byWaba = new Map();
+  for (const r of rows) {
+    if (!r.phone_number_id || out.has(r.phone_number_id) || !r.waba_id || !r.access_token_enc) continue;
+    if (!byWaba.has(r.waba_id)) byWaba.set(r.waba_id, r.access_token_enc);
+  }
+  await Promise.all([...byWaba.entries()].slice(0, MAX_NUMBER_LOOKUPS).map(async ([waba, enc]) => {
+    const token = decrypt(enc);
+    if (!token) return;
+    try {
+      for (const n of await listWabaNumbers(waba, token)) {
+        if (phones.includes(n.id) && !out.has(n.id) && n.display_phone_number) {
+          out.set(n.id, { display_phone: n.display_phone_number, verified_name: n.verified_name || null });
+        }
+      }
+    } catch (err) {
+      console.warn(`[admin/onboardings] numbers of WABA ${waba} not read: ${err.message}`);
+    }
+  }));
+  return out;
+}
+
 async function businessView(businessId) {
   if (!businessId) return null;
   return prisma.business.findUnique({
@@ -71,14 +114,14 @@ router.get('/orphans', wrap(async (req, res) => {
     ? await prisma.business.findMany({ where: { id: { in: businessIds } }, select: { id: true, name: true } })
     : [];
   const nameOf = new Map(businesses.map((b) => [b.id, b.name]));
+  // A numberless row has none to show; an unattached one usually has, read here.
+  const numbersOf = await knownNumbers(unattached);
 
   const fromRow = (row, needs) => ({
     id: row.id,
     kind: 'onboarding',
-    // A row holds no display number of its own: an orphan's shop is unknown, and a numberless
-    // row has none yet.
-    display_phone: null,
-    verified_name: null,
+    display_phone: numbersOf.get(row.phone_number_id)?.display_phone || null,
+    verified_name: numbersOf.get(row.phone_number_id)?.verified_name || null,
     waba_id: row.waba_id,
     phone_number_id: row.phone_number_id || null,
     created_at: row.created_at,

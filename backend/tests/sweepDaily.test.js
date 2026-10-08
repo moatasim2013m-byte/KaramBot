@@ -102,11 +102,66 @@ test('an invalid token is recorded; a failed Meta refresh does not stop the toke
 
 test('runSweep carries the step in its report, and a failed shop list is retried next minute', async () => {
   seed();
-  db.failNext('business.findMany', new Error('db down'));
+  // The daily step's own shop list fails (it runs after the SHIFT steps, which read theirs first).
+  const findMany = db.prisma.business.findMany.bind(db.prisma.business);
+  let failed = false;
+  jest.spyOn(db.prisma.business, 'findMany').mockImplementation(async (args) => {
+    if (!failed && args?.where?.is_internal === false) { failed = true; throw new Error('db down'); }
+    return findMany(args);
+  });
   const first = await runSweep({ now: NOW });
   expect(first.errors.some((e) => e.startsWith('daily: db down'))).toBe(true);
   expect(first.daily).toBeNull();
 
   const second = await runSweep({ now: new Date(NOW.getTime() + 60 * 1000) });
   expect(second.daily).toMatchObject({ shops: 2 });
+});
+
+describe('the daily step never holds up the SHIFT steps (P1 review)', () => {
+  test('runSweep reads SHIFT\'s own rows and runs its steps before any customer-shop Graph read', async () => {
+    seed();
+    const order = [];
+    const findMany = db.prisma.business.findMany.bind(db.prisma.business);
+    jest.spyOn(db.prisma.business, 'findMany').mockImplementation(async (args) => {
+      if (args?.where?.business_type === 'shift') order.push('shift_steps');
+      return findMany(args);
+    });
+    metaStatus.refresh.mockImplementation(async () => { order.push('meta'); return {}; });
+    axios.get.mockImplementation(async () => { order.push('token'); return { data: { data: { is_valid: true } } }; });
+
+    const report = await runSweep({ now: NOW });
+    expect(report.daily).toMatchObject({ shops: 2 });
+    expect(order[0]).toBe('shift_steps');
+    expect(order.indexOf('meta')).toBeGreaterThan(order.indexOf('shift_steps'));
+  });
+
+  test('past its time budget the step leaves the other shops for the next sweep, and finishes the day there', async () => {
+    seed();
+    let t = 0;
+    const clock = () => t;
+    metaStatus.refresh.mockImplementation(async () => { t += 60 * 1000; return {}; }); // one slow Graph read
+
+    const first = await sweepDaily(NOW, { budgetMs: 30 * 1000, clock });
+    expect(first).toMatchObject({ shops: 1, deferred: 1 });
+    expect(checkedTokens()).toEqual(['tok1']);
+
+    // The next minute's sweep checks the shop left over, not the one already done.
+    const second = await sweepDaily(new Date(NOW.getTime() + 60 * 1000), { budgetMs: 30 * 1000, clock });
+    expect(second).toMatchObject({ shops: 1, deferred: 0, skipped: 1 });
+    expect(checkedTokens()).toEqual(['tok1', 'tok2']);
+
+    // Then the day is done.
+    expect(await sweepDaily(new Date(NOW.getTime() + 120 * 1000))).toBeNull();
+  });
+
+  test('a shop with no onboarding row (no token_checked_at) is not checked twice when the day is split', async () => {
+    seed();
+    db.store.whatsappOnboardings.length = 0;
+    let t = 0;
+    const clock = () => t;
+    axios.get.mockImplementation(async () => { t += 60 * 1000; return { data: { data: { is_valid: true } } }; });
+    await sweepDaily(NOW, { budgetMs: 30 * 1000, clock });
+    await sweepDaily(new Date(NOW.getTime() + 60 * 1000), { budgetMs: 30 * 1000, clock });
+    expect(checkedTokens().sort()).toEqual(['tok1', 'tok2']);
+  });
 });

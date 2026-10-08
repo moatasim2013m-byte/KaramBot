@@ -177,8 +177,8 @@ async function verifyGrant(token, { wabaId, phoneNumberId, ownPhoneNumberId = nu
   } else if (targets.length === 1) {
     [waba] = targets;
   } else {
-    // Nothing to keep the token against: WhatsappOnboarding needs a WABA. SHIFT sees which ones
-    // were granted (es_failed) and finishes with the customer.
+    // Nothing to keep the token against: WhatsappOnboarding needs a WABA. connectFromCode answers
+    // with a failure asking for a new popup; SHIFT sees how many were granted (es_failed).
     throw Object.assign(new Error(`waba_unresolved: ${targets.length} WABAs granted and none named`), {
       code: 'waba_unresolved', granted: targets.length,
     });
@@ -611,6 +611,18 @@ async function ensureTrialSubscription(businessId, { connectedAt = new Date(), c
   const business = await prisma.business.findUnique({ where: { id: businessId }, select: { id: true, is_internal: true } });
   if (!business || business.is_internal) return { subscription: null, created: false };
 
+  // A shop that was already answering its customers before this connect is one of the hand-wired
+  // shops that predate contracts, reconnected after its token died. costGuard treats it as paying
+  // (soft cap); a trial here would hand it a free month it never had and a hard reply cap that
+  // silences a paying shop. connected_at cannot tell (the link just rewrote it), but a message
+  // sent before the connect can: a shop connecting for the first time has had no number to send
+  // from. SHIFT sets its contract by hand instead.
+  const servedBefore = await prisma.message.findFirst({
+    where: { business_id: businessId, direction: 'outbound', created_at: { lt: connectedAt } },
+    select: { id: true },
+  });
+  if (servedBefore) return { subscription: null, created: false, skipped: 'served_before' };
+
   const campaign = (await platformSettings.get('campaign')) || {};
   const data = plans.trialSubscriptionData({
     businessId,
@@ -666,7 +678,9 @@ async function afterConnect({ businessId, onboarding, actor = {}, finishEvent = 
     console.warn(`[embedded-signup] Meta status after connect business=${businessId}: ${err.message}`);
   }
   try {
-    await ensureTrialSubscription(businessId, { connectedAt: now, createdBy: actor.kind === 'shift' ? (actor.userId || 'shift') : 'system' });
+    const trial = await ensureTrialSubscription(businessId, { connectedAt: now, createdBy: actor.kind === 'shift' ? (actor.userId || 'shift') : 'system' });
+    // On the log, so SHIFT sees why a reconnected shop has no free month and sets its contract.
+    if (trial.skipped) await eventLogger(businessId, actor)('trial_skipped', { reason: trial.skipped });
   } catch (err) {
     console.error(`[embedded-signup] trial subscription business=${businessId} not created: ${err.message}`);
   }
@@ -696,6 +710,9 @@ const ERRORS_AR = Object.freeze({
   number_not_verified: 'لم يكتمل التحقق من الرقم لدى Meta — أكمل التحقق ثم اضغط «حاول مرة أخرى».',
   meta_busy: 'خدمة Meta مشغولة الآن — حاول مرة أخرى بعد دقائق.',
   revoked: 'انفصل كرم بوت عن حسابك في Meta — البوت لا يستقبل الرسائل. اضغط «أعد الربط».',
+  // No FINISH and a grant of several WABAs (or none): the token cannot be kept against one, so
+  // the only way on is a new popup with one account chosen.
+  waba_unresolved: 'لم نعرف أي حساب واتساب للأعمال تقصد — اضغط «أكمل الربط» واختر حسابًا واحدًا فيه رقمك، أو تواصل مع شِفت.',
   needs_number: 'أنشأت حساب واتساب للأعمال دون إضافة رقم — اضغط «أضف الرقم» لتكمل.',
   needs_operator: 'وصلتنا موافقتك لكن لم نحدد الرقم — سيُكمل فريق شِفت الربط دون أن تعيد الخطوات.',
   coexistence: 'هذا الرقم مربوط بتطبيق واتساب للأعمال — سيتواصل معك فريق شِفت لترتيب الربط.',
@@ -708,6 +725,18 @@ const ERRORS_AR = Object.freeze({
 const FAILED_STEP = Object.freeze({
   code_received: 'exchange', token_exchanged: 'subscribe', subscribed: 'register', registered: 'link',
 });
+
+// SHIFT's alerts are Arabic WhatsApp messages: the stage a connect stopped at, in words (the
+// same ones ConnectWhatsApp's FAILED_STEP_LABEL shows), never the code's key.
+const STAGE_AR = Object.freeze({
+  exchange: 'تأكيد الموافقة',
+  verify: 'التحقق من الرقم',
+  onboarding: 'حفظ الربط',
+  subscribe: 'ربط الرقم بكرم بوت',
+  register: 'تسجيل الرقم',
+  link: 'إكمال الربط',
+});
+const stageAr = (stage) => STAGE_AR[stage] || 'إحدى خطوات الربط';
 
 // Graph codes worth their own words. 133005 (two-step PIN mismatch) is assumed from Meta's
 // error-code table until G1 records a real one (spec, «Failure paths»).
@@ -786,7 +815,9 @@ function typed(code, status, messageAr, extra = {}) {
  * row is linked; (8) Meta status, (9) the trial, (10) es_connected and SHIFT's alert.
  *
  * Every outcome is on the account's log. Throws for the route to answer: number_taken (409),
- * es_ownership_mismatch (403), and a Graph failure with `stage` and `onboarding` attached.
+ * es_ownership_mismatch (403), waba_unresolved (422: no FINISH and not one WABA granted, so
+ * nothing could be kept and a new popup is the only way on), and a Graph failure with `stage`
+ * and `onboarding` attached.
  *
  * @param {object} p
  * @param {string} p.businessId  from the session or the admin URL, never the browser
@@ -847,7 +878,7 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
         businessId,
         summary: status === 'needs_number'
           ? 'وافق في Meta لكن حساب واتساب بلا رقم — ينتظر إضافة الرقم'
-          : 'وافق في Meta وعلى حسابه أكثر من رقم — اختر الرقم من «ربط بدون رقم»',
+          : 'وافق في Meta وعلى حسابه أكثر من رقم — اختر الرقم من «ربط بدون حساب»',
       });
       return { status, onboarding: row };
     }
@@ -874,11 +905,13 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
       tellShift({ reason: 'needs_operator', businessId, summary: 'رقم واتساب لا يتبع حساب فيسبوك الذي دخل به الزبون' });
       throw Object.assign(err, { message_ar: ERRORS_AR.ownership });
     }
+    // Nothing was kept (WhatsappOnboarding needs a WABA, and the token named none), so there is
+    // no row SHIFT could finish: telling the customer «لا داعي لإعادة الخطوات» would be untrue.
+    // A failure asking for a new popup with one account chosen; SHIFT hears of it too.
     if (err.code === 'waba_unresolved') {
-      await log('es_failed', { stage: 'verify', status: 'needs_operator', reason: 'waba_unresolved', granted: err.granted });
-      tellShift({ reason: 'needs_operator', businessId, summary: 'وافق في Meta دون تحديد حساب واتساب واحد — تواصل معه' });
-      const current = await prisma.whatsappOnboarding.findUnique({ where: { business_id: businessId } }).catch(() => null);
-      return { status: 'needs_operator', onboarding: current };
+      await log('es_failed', { stage: 'verify', status: 'failed', reason: 'waba_unresolved', granted: err.granted });
+      tellShift({ reason: 'connect_failed', businessId, summary: 'وافق في Meta دون تحديد حساب واتساب واحد — يلزم ربط جديد، تواصل معه' });
+      throw Object.assign(err, { status: 422, stage: 'verify', onboarding: null, message_ar: ERRORS_AR.waba_unresolved, needs_pin: false });
     }
     // The step reached is on the caller's own row when there is one, so the panel can offer a
     // resume rather than a fresh signup.
@@ -894,7 +927,7 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
       waba_id: wabaHint,
       phone_number_id: phoneHint,
     });
-    tellShift({ reason: 'connect_failed', businessId, summary: `توقف الربط عند: ${failedStep}` });
+    tellShift({ reason: 'connect_failed', businessId, summary: `توقف الربط عند: ${stageAr(failedStep)}` });
     const ar = errorAr({ code: err.graph?.code, step: failedStep });
     throw Object.assign(err, {
       stage: failedStep, onboarding: current, message_ar: ar.text, needs_pin: ar.needsPin,
@@ -955,7 +988,7 @@ async function completeOnboarding({ onboardingId, phoneNumberId, actor = {} }) {
     throw typed('coexistence', 409, 'هذا الرقم على تطبيق واتساب للأعمال، والربط المشترك غير مفعّل بعد.');
   }
   if (row.phone_number_id && !row.needs_operator) {
-    throw typed('has_number', 409, 'لهذا الربط رقم مسبقًا — استخدم «حاول مرة أخرى» من صفحة الحساب.');
+    throw typed('has_number', 409, 'لهذا الربط رقم مسبقًا — أكمله من تبويب «الحالة» في صفحة الحساب، أو اربطه بزبون.');
   }
   const token = decrypt(row.access_token_enc);
   if (!token) throw typed('no_token', 409, 'لا يوجد رمز وصول محفوظ لهذا الربط — يلزم ربط جديد من نافذة Meta.');
@@ -1103,6 +1136,8 @@ function publicStatus(row, { business = null, audience = 'owner' } = {}) {
       ar: paymentNotice(payment, reader, 'long'),
     },
     failed: Boolean(row.last_error) || Boolean(row.revoked_at),
+    // Meta took SHIFT off the account: its own red state on the panel, with «أعد الربط».
+    revoked: Boolean(row.revoked_at),
     updated_at: row.updated_at,
   };
   if (reader === 'staff') out.last_error = row.last_error || null;
@@ -1136,4 +1171,5 @@ module.exports = {
   FINISH_EVENTS,
   COEXISTENCE_EVENT,
   ERRORS_AR,
+  STAGE_AR,
 };

@@ -200,3 +200,18 @@ describe('when Meta no longer knows the configured number', () => {
     await expect(refresh(business())).rejects.toThrow('Invalid OAuth access token');
   });
 });
+
+describe('a hung Graph read gives up (P1 review)', () => {
+  test('every Meta read carries a deadline, so the daily sweep cannot wait on it for minutes', async () => {
+    const { GRAPH_TIMEOUT_MS } = require('../src/services/metaStatus');
+    global.fetch
+      .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
+      .mockReturnValueOnce(ok({ id: 'PN1', quality_rating: 'GREEN', status: 'CONNECTED' }));
+    await refresh(business());
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    for (const [, opts] of global.fetch.mock.calls) {
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+    }
+    expect(GRAPH_TIMEOUT_MS).toBeLessThanOrEqual(15000);
+  });
+});

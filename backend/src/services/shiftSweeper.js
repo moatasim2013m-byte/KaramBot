@@ -1145,9 +1145,17 @@ const STEPS = [
   ['weekly_followups', sweepWeeklyFollowups],
 ];
 
-// The Amman day the daily step last started on this instance. Another instance may run it too;
+// The Amman day the daily step finished on this instance. Another instance may run it too;
 // token_checked_at on each onboarding row keeps a shop from being checked twice the same day.
 let dailyRanFor = null;
+// The shops this instance already checked today. token_checked_at cannot say it for a hand-wired
+// shop with no onboarding row, and a day split over several sweeps must not start over each time.
+let dailyDone = { day: null, ids: new Set() };
+// One sweep's share of the daily step. It runs after the SHIFT steps but still inside the
+// sweep's `running` flag, so a slow Graph must not keep the next minute's sweep (the sales bot's
+// recovery, alerts, nudges and reminders) waiting: past this, the rest of the shops wait for the
+// next sweep. At least one shop is checked per sweep, so the day always finishes.
+const DAILY_BUDGET_MS = 40 * 1000;
 
 /**
  * Once a day (the first sweep after midnight, Amman time), for every connected customer shop:
@@ -1160,10 +1168,14 @@ let dailyRanFor = null;
  * Connected means a number and a token. SHIFT's own number and the internal rows are left out, and
  * a closed account is nobody's to check. One shop's failure is counted and the rest carry on.
  */
-async function sweepDaily(now) {
+async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } = {}) {
   const today = costGuard.ammanDay(now);
   if (dailyRanFor === today) return null;
-  const out = { date: today, shops: 0, skipped: 0, meta_refreshed: 0, token_valid: 0, token_invalid: 0, token_unknown: 0, errors: 0 };
+  if (dailyDone.day !== today) dailyDone = { day: today, ids: new Set() };
+  const started = clock();
+  const out = {
+    date: today, shops: 0, skipped: 0, deferred: 0, meta_refreshed: 0, token_valid: 0, token_invalid: 0, token_unknown: 0, errors: 0,
+  };
 
   const shops = (await prisma.business.findMany({
     where: {
@@ -1175,9 +1187,11 @@ async function sweepDaily(now) {
       wa_phone_number_id: true, wa_business_account_id: true, wa_access_token: true,
     },
   })).filter((b) => !costGuard.isExempt(b) && b.wa_phone_number_id && b.wa_access_token && b.status !== 'closed');
-  // Marked only once the list is read: a failed read is retried by the next minute's sweep.
-  dailyRanFor = today;
-  if (!shops.length) return out;
+  // A failed read leaves the day open: the next minute's sweep retries it.
+  if (!shops.length) {
+    dailyRanFor = today;
+    return out;
+  }
 
   const since = costGuard.dayStart(now);
   const onboardings = await prisma.whatsappOnboarding.findMany({
@@ -1193,11 +1207,16 @@ async function sweepDaily(now) {
     .map((o) => o.business_id));
 
   for (const shop of shops) {
-    if (checkedToday.has(shop.id)) {
+    if (checkedToday.has(shop.id) || dailyDone.ids.has(shop.id)) {
       out.skipped += 1;
       continue;
     }
+    if (out.shops > 0 && clock() - started >= budgetMs) {
+      out.deferred += 1;
+      continue;
+    }
     out.shops += 1;
+    dailyDone.ids.add(shop.id);
     if (shop.wa_business_account_id) {
       try {
         await metaStatus.refresh(shop);
@@ -1215,12 +1234,15 @@ async function sweepDaily(now) {
       console.warn(`[sweep] daily token check failed for ${shop.id}: ${err.message}`);
     }
   }
+  // Done for the day only when no shop was left for the next sweep.
+  if (!out.deferred) dailyRanFor = today;
   return out;
 }
 
 /** Tests: let the daily step run again in the same process. */
 function resetDaily() {
   dailyRanFor = null;
+  dailyDone = { day: null, ids: new Set() };
 }
 
 /**
@@ -1246,13 +1268,6 @@ async function runSweep({ now = new Date() } = {}) {
       console.error('[sweep] stuck_inbound failed:', err.message);
     }
 
-    try {
-      report.daily = await sweepDaily(now);
-    } catch (err) {
-      report.errors.push(`daily: ${err.message}`);
-      console.error('[sweep] daily step failed:', err.message);
-    }
-
     let businesses = [];
     try {
       businesses = await prisma.business.findMany({ where: { business_type: 'shift', status: 'active' } });
@@ -1270,6 +1285,15 @@ async function runSweep({ now = new Date() } = {}) {
           console.error(`[sweep] ${name} failed for ${business.id}:`, err.message);
         }
       }
+    }
+
+    // Last, and on a time budget: the customer shops' Graph reads are the slowest thing a sweep
+    // does, and SHIFT's own recovery, alerts, nudges and reminders above must not wait on them.
+    try {
+      report.daily = await sweepDaily(now);
+    } catch (err) {
+      report.errors.push(`daily: ${err.message}`);
+      console.error('[sweep] daily step failed:', err.message);
     }
     last = { at: new Date(now).toISOString(), report };
     return report;

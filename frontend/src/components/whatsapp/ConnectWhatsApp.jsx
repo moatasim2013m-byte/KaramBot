@@ -4,6 +4,7 @@ import api from '../../utils/api';
 import {
   preload, getLoadedSdk, launchEmbeddedSignup, isFacebookOrigin, isInAppBrowser,
 } from '../../utils/facebookSdk';
+import { connectView } from './connectView';
 
 /**
  * «اربط واتساب» — Embedded Signup v4, in Arabic, for SHIFT's attended connect and later the owner.
@@ -17,9 +18,11 @@ import {
  * business: the backend refuses one with a 400.
  *
  * What the screen can be in, all read back from GET /status on mount so a reload in the middle
- * shows «أكمل الربط» instead of a fresh start: not connected; Meta's window open; exchanging;
- * stopped part-way (with a PIN field when the number already has two-step verification);
- * waiting for SHIFT to pick the number; connected, with the payment card step after it.
+ * shows «حاول مرة أخرى» or «أكمل الربط» instead of a fresh start: not connected; Meta's window
+ * open; exchanging; stopped part-way (with a PIN field when the number already has two-step
+ * verification); a WABA with no number («أضف الرقم»); waiting for SHIFT to pick the number;
+ * removed by Meta («أعد الربط»); connected, with the payment card step after it. connectView.js
+ * decides which, and what the button says.
  */
 
 export function adminEndpoints(accountId) {
@@ -46,9 +49,6 @@ const STEPS = [
   ['registered', 'سجّلنا الرقم لدى واتساب'],
 ];
 const STEP_INDEX = Object.fromEntries(STEPS.map(([k], i) => [k, i]));
-// Steps after which the server can carry on with the token it already holds: «أكمل الربط» then
-// posts /retry instead of opening Meta's window again for nothing.
-const SERVER_RESUMABLE = ['token_exchanged', 'subscribed', 'registered'];
 
 // failed_step may name the stage that failed or the step last reached; both read the same way to
 // the person in front of the screen. Anything unknown gets a neutral phrase, never the raw name.
@@ -416,11 +416,13 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
 
   const status = remote?.status;
   const onb = remote?.onboarding || null;
-  const connected = status === 'connected';
-  const waitingOperator = status === 'needs_number' || status === 'needs_operator';
-  const started = status === 'in_progress' || status === 'failed' || Boolean(problem);
-  const resumeOnServer = !connected && SERVER_RESUMABLE.includes(onb?.step)
-    && (status === 'in_progress' || status === 'failed');
+  // The state and its one button (connectView.js): the label is the button the server's Arabic
+  // names in that state, «أعد الربط», «أضف الرقم», «حاول مرة أخرى» or «أكمل الربط».
+  const view = connectView({ status, onb, problem, isStaff });
+  const connected = view.kind === 'connected';
+  const waitingOperator = view.kind === 'waiting_operator';
+  const { started } = view;
+  const resumeOnServer = view.action === 'retry';
   const reached = onb?.step === 'done' ? STEPS.length - 1 : (STEP_INDEX[onb?.step] ?? -1);
   const canLaunch = Boolean(sdkReady && config && base) && !busy;
 
@@ -479,9 +481,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
   }
 
   // ── Everything before «connected» ─────────────────────────────────────────
-  const buttonLabel = started
-    ? 'أكمل الربط'
-    : (isStaff ? 'اربط واتساب لهذا الحساب' : 'اربط واتساب');
+  const buttonLabel = view.label;
   const failedAt = (status === 'failed' || problem?.kind === 'server') && reached >= 0 && reached < STEPS.length - 1
     ? reached + 1 : null;
 
@@ -491,7 +491,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
         <div className="mb-3 rounded-lg bg-red-50 p-3 text-[13px] text-red-800">{loadError}</div>
       )}
 
-      {!started && !waitingOperator && beforeConnectNote && !busy && (
+      {!started && view.kind === 'steps' && beforeConnectNote && !busy && (
         <p className="mb-3 rounded-lg bg-gray-50 p-3 text-[13px] text-gray-700">{beforeConnectNote}</p>
       )}
 
@@ -519,13 +519,38 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
           <p className="flex items-center gap-2 text-[14px] font-medium text-gray-900"><Loader2 size={15} className="animate-spin" /> جارٍ الربط…</p>
           <StepList reached={busy === 'retrying' ? reached : -1} failedAt={null} working />
         </div>
+      ) : view.kind === 'revoked' || view.kind === 'needs_number' ? (
+        // Their own cards, with no step list: a revoked shop's steps were all done once and
+        // would show four green ticks, and a WABA with no number has no step to stop at.
+        <div>
+          <div className={`rounded-lg p-4 text-[13px] ${view.kind === 'revoked' ? 'bg-red-50 text-red-900' : 'bg-amber-50 text-amber-900'}`}>
+            <p className="font-medium">
+              {view.kind === 'revoked'
+                ? 'انفصل كرم بوت عن حساب Meta — البوت لا يستقبل الرسائل.'
+                : 'حساب واتساب للأعمال جاهز لكن بلا رقم.'}
+            </p>
+            {onb?.last_error_ar && <p className="mt-1 text-[12px]">{onb.last_error_ar}</p>}
+            {problem && <p className="mt-1 text-[12px]">{problem.text}</p>}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={launch} disabled={!canLaunch} className={btnPrimary}>{buttonLabel}</button>
+            {!isStaff && (
+              <a href={SUPPORT_WA} target="_blank" rel="noopener noreferrer" className={btnSecondary}>تواصل مع شِفت</a>
+            )}
+            {!sdkReady && !sdkFailed && !loadError && (
+              <span className="flex items-center gap-1 text-[12px] text-gray-400"><Loader2 size={12} className="animate-spin" /> جارٍ تجهيز نافذة فيسبوك…</span>
+            )}
+          </div>
+          {sdkFailed && (
+            <div className="mt-3 rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">
+              <p>تعذّر تحميل فيسبوك. أوقف مانع الإعلانات لهذا الموقع أو جرّب متصفحًا آخر.</p>
+              <button type="button" onClick={retryLoadSdk} className="mt-2 font-medium underline">حاول التحميل مرة أخرى</button>
+            </div>
+          )}
+        </div>
       ) : waitingOperator ? (
         <div className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">
-          <p className="font-medium">
-            {status === 'needs_number'
-              ? 'وصلتنا موافقتك لكن لم نحدد الرقم — سيُكمل فريق شِفت الربط دون أن تعيد الخطوات.'
-              : 'وصل الربط إلى خطوة يكملها فريق شِفت — لا داعي لإعادة الخطوات.'}
-          </p>
+          <p className="font-medium">وصل الربط إلى خطوة يكملها فريق شِفت — لا داعي لإعادة الخطوات.</p>
           {onb?.last_error_ar && <p className="mt-1 text-[12px]">{onb.last_error_ar}</p>}
           {isStaff && (
             <p className="mt-2 text-[12px] text-amber-800">

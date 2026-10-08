@@ -107,7 +107,7 @@ describe('SHIFT removed from the customer\'s account', () => {
     expect(eventsOf('biz_sham').map((e) => [e.type, e.data.event])).toEqual([['partner_removed', event]]);
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ reason: 'partner_removed', businessId: 'biz_sham' }));
     expect(staffAlert).toHaveBeenCalledWith(expect.objectContaining({
-      reason: 'partner_removed', business: expect.objectContaining({ id: 'biz_sham' }), summary: expect.stringMatching(/أعد الربط/),
+      reason: 'partner_removed', business: expect.objectContaining({ id: 'biz_sham' }), summary: expect.stringMatching(/تواصل مع شِفت/),
     }));
     // A removal is a state, not a failed step: last_error (the resume point) is untouched.
     expect(onboarding().last_error).toBeNull();
@@ -118,6 +118,24 @@ describe('SHIFT removed from the customer\'s account', () => {
     await handleAccountUpdate(...first(fx.partnerRemoved()));
     expect(notify).toHaveBeenCalledTimes(1);
     expect(eventsOf('biz_sham')).toHaveLength(1);
+  });
+
+  test('two removals delivered together (same event twice, or PARTNER_REMOVED with PARTNER_APP_UNINSTALLED) alert once', async () => {
+    await Promise.all([
+      handleAccountUpdate(...first(fx.partnerRemoved())),
+      handleAccountUpdate(...first(fx.partnerRemoved())),
+      handleAccountUpdate(...first(fx.appUninstalled())),
+    ]);
+    expect(onboarding().revoked_at).toBeInstanceOf(Date);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(staffAlert).toHaveBeenCalledTimes(1);
+    expect(eventsOf('biz_sham').filter((e) => e.type === 'partner_removed')).toHaveLength(1);
+  });
+
+  test('the owner is not sent looking for a «أعد الربط» button their panel does not have', () => {
+    const { REMOVED_AR } = require('../src/services/accountUpdate');
+    expect(REMOVED_AR).not.toMatch(/أعد الربط|افتح لوحتك/);
+    expect(REMOVED_AR).toMatch(/تواصل مع شِفت/);
   });
 
   test('ACCOUNT_RECONNECTED clears it', async () => {

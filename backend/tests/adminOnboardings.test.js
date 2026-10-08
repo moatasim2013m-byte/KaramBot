@@ -204,3 +204,36 @@ describe('«أكمل الربط» (complete)', () => {
     expect(axios.get).not.toHaveBeenCalled();
   });
 });
+
+describe('what the P1 review found', () => {
+  test('an unattached row shows its number and Meta name, read with its own stored token', async () => {
+    metaListsNumbers([fx.number({ id: PHONE_ORPHAN, display: '+962 7 9555 0101', name: 'صيدلية قديمة' })]);
+    const res = await request(app).get(`${BASE}/orphans`).set(ADMIN());
+    const o = res.body.orphans.find((x) => x.id === 'onb_orphan');
+    expect(o).toMatchObject({ display_phone: '+962 7 9555 0101', verified_name: 'صيدلية قديمة' });
+    expect(JSON.stringify(res.body)).not.toMatch(/EAAJ|access_token/);
+  });
+
+  test('a number a Business row still carries needs no Meta call; a failed Meta read still lists the row', async () => {
+    db.store.businesses.push({ id: 'biz_hand', name: 'محل', slug: 'hand', wa_phone_number_id: PHONE_ORPHAN, wa_display_phone: '+962 7 9555 0101', wa_verified_name: 'محل' });
+    let res = await request(app).get(`${BASE}/orphans`).set(ADMIN());
+    expect(res.body.orphans.find((x) => x.id === 'onb_orphan').display_phone).toBe('+962 7 9555 0101');
+    expect(axios.get).not.toHaveBeenCalled();
+
+    db.store.businesses.pop();
+    axios.get.mockRejectedValue(new Error('graph down'));
+    res = await request(app).get(`${BASE}/orphans`).set(ADMIN());
+    expect(res.status).toBe(200);
+    expect(res.body.orphans.find((x) => x.id === 'onb_orphan')).toMatchObject({ display_phone: null, phone_number_id: PHONE_ORPHAN });
+  });
+
+  test('«أكمل الربط» on a row that has a number points to a place that exists, not a «حاول مرة أخرى» button', async () => {
+    db.store.whatsappOnboardings.find((r) => r.id === 'onb_wait').phone_number_id = '109900000000777';
+    db.store.whatsappOnboardings.find((r) => r.id === 'onb_wait').needs_operator = false;
+    const res = await request(app).post(`${BASE}/onb_wait/complete`).set(ADMIN()).send({ phone_number_id: '109900000000777' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('has_number');
+    expect(res.body.message).not.toContain('حاول مرة أخرى');
+    expect(res.body.message).toContain('«الحالة»');
+  });
+});

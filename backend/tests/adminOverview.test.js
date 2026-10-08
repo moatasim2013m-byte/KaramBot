@@ -580,6 +580,23 @@ describe('«ردود الشهر»: usage from the cost guard', () => {
     expect(items.find((a) => a.business_id === 'b2').message).toBe('استهلك 80% من ردود الشهر (800 / 1,000)');
   });
 
+  test('the cap and its wording follow the Karam Bot contract, not a newer contract of another solution (P1 review)', async () => {
+    mockDb({
+      businesses: [biz()],
+      onboardings: ready(),
+      // Newest first, as the route asks for them: a website trial after the paid bot contract.
+      subs: [
+        { business_id: 'b1', solution: 'website', status: 'trial', amount_jod: 50, ai_replies_month: null },
+        { business_id: 'b1', solution: 'karam_bot', status: 'active', amount_jod: 19.99, ai_replies_month: 500 },
+      ],
+    });
+    mockUsage({ replies: { b1: 500 } });
+    const res = await get();
+    expect(res.body.accounts[0].usage).toMatchObject({ cap: 500 });
+    const item = res.body.attention.find((a) => a.business_id === 'b1' && a.category === 'cap_reached');
+    expect(item.message).toBe('وصل حد ردود الشهر (500 / 500) — اشتراك مدفوع، البوت مستمر');
+  });
+
   test('usage that cannot be read is left out, and the overview still answers', async () => {
     mockDb({ businesses: [biz()], onboardings: ready() });
     const base = prisma.message.groupBy.getMockImplementation();

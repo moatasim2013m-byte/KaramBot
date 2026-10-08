@@ -5,6 +5,9 @@ import api from '../../utils/api';
 import {
   Panel, StateCell, Timestamp, Ltr, Num, Freshness, SkeletonRows, EmptyState,
 } from '../../components/shared/Primitives';
+import {
+  orphanActions, orphanNumber, needsReplaceConfirm, attachBody,
+} from './orphanView';
 
 /**
  * Platform overview — one question per element, and the attention queue is the protagonist.
@@ -76,6 +79,9 @@ function OrphanSignups({ accounts, onDone }) {
   const [open, setOpen] = useState(null); // {id, mode: 'attach' | 'complete'}
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
+  // The server's «أكّد الاستبدال» for a shop live on another number: {id, message} until SHIFT
+  // confirms (the attach is re-posted with replace) or cancels.
+  const [confirmReplace, setConfirmReplace] = useState(null);
   // The WABA's numbers for «أكمل الربط», read with the customer's stored token. null while
   // loading or when Meta could not be asked; the id can then still be typed by hand.
   const [numbers, setNumbers] = useState(null);
@@ -99,17 +105,21 @@ function OrphanSignups({ accounts, onDone }) {
       .catch(() => setNumbers(null));
   };
 
-  const submit = async (o) => {
+  const submit = async (o, { replace = false } = {}) => {
     if (!open || !value) return;
     setBusy(true); setError(null);
     try {
-      if (open.mode === 'attach') await api.post(`/admin/onboardings/${o.id}/attach`, { business_id: value });
+      if (open.mode === 'attach') await api.post(`/admin/onboardings/${o.id}/attach`, attachBody(value, replace));
       else await api.post(`/admin/onboardings/${o.id}/complete`, { phone_number_id: value.trim() });
-      setOpen(null); setValue('');
+      setOpen(null); setValue(''); setConfirmReplace(null);
       load();
       if (onDone) onDone();
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.error || 'تعذّر الحفظ');
+      if (open.mode === 'attach' && !replace && needsReplaceConfirm(err)) {
+        setConfirmReplace({ id: o.id, message: err.response?.data?.message || 'هذا الحساب مربوط برقم يعمل.' });
+      } else {
+        setError(err.response?.data?.message || err.response?.data?.error || 'تعذّر الحفظ');
+      }
     } finally {
       setBusy(false);
     }
@@ -123,12 +133,15 @@ function OrphanSignups({ accounts, onDone }) {
     <Panel title={`ربط بدون حساب${orphans?.length ? ` · ${orphans.length}` : ''}`}>
       {error && <p className="px-4 py-2 text-[13px] text-red-700 bg-red-50 border-b border-red-100">{error}</p>}
       <ul className="divide-y divide-gray-100">
-        {(orphans || []).map((o) => (
+        {(orphans || []).map((o) => {
+          const actions = orphanActions(o);
+          const number = orphanNumber(o);
+          return (
           <li key={o.id} className="px-4 py-2.5">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-[13px] font-medium text-gray-900">{o.verified_name || 'بدون اسم عند Meta'}</span>
-              {o.display_phone ? <Ltr className="text-[13px] text-gray-700">{o.display_phone}</Ltr>
-                : <span className="text-[12px] text-amber-700">الرقم غير محدد</span>}
+              {number.tone === 'number' ? <Ltr className="text-[13px] text-gray-700">{number.text}</Ltr>
+                : <span className={`text-[12px] ${number.tone === 'missing' ? 'text-amber-700' : 'text-gray-500'}`}>{number.text}</span>}
               <span className="text-[12px] text-gray-500">
                 {o.needs === 'number' ? 'وافق في Meta ولم يُحدَّد الرقم' : (ORPHAN_KIND[o.kind] || '')}
               </span>
@@ -136,14 +149,15 @@ function OrphanSignups({ accounts, onDone }) {
               {o.waba_id && <span className="text-[11px] text-gray-400">حساب واتساب <Ltr className="font-mono">{o.waba_id}</Ltr></span>}
               <Timestamp value={o.created_at} className="text-[11px] text-gray-400" />
               <span className="flex-1" />
-              <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
-                onClick={() => { setOpen({ id: o.id, mode: 'attach' }); setValue(''); }}>
-                اربطه بزبون…
-              </button>
-              {/* The server lists two kinds of onboarding rows: needs 'attach' (no shop) and needs
-                  'number' (a shop, but Meta left no number). Only the second takes /complete; an
-                  unattached row with a number is attached, not completed. */}
-              {o.kind === 'onboarding' && (o.needs ? o.needs === 'number' : !o.phone_number_id) && (
+              {/* orphanView.js: a row with a shop already (needs 'number') is completed, never
+                  attached; an unattached row is attached, never completed. */}
+              {actions.attach && (
+                <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
+                  onClick={() => { setOpen({ id: o.id, mode: 'attach' }); setValue(''); setConfirmReplace(null); }}>
+                  اربطه بزبون…
+                </button>
+              )}
+              {actions.complete && (
                 <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
                   onClick={() => openComplete(o)}>
                   أكمل الربط
@@ -175,11 +189,24 @@ function OrphanSignups({ accounts, onDone }) {
                   className="h-8 rounded bg-gray-900 px-3 text-[12px] font-medium text-white disabled:opacity-40">
                   {busy ? 'جارٍ…' : open.mode === 'attach' ? 'اربط' : 'أكمل'}
                 </button>
-                <button type="button" onClick={() => setOpen(null)} className="text-[12px] text-gray-500 underline">إلغاء</button>
+                <button type="button" onClick={() => { setOpen(null); setConfirmReplace(null); }} className="text-[12px] text-gray-500 underline">إلغاء</button>
               </form>
             )}
+            {confirmReplace?.id === o.id && open?.id === o.id && (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-900">
+                <p>{confirmReplace.message} رقمه الحالي يتوقف عن استقبال الرسائل.</p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button type="button" disabled={busy} onClick={() => submit(o, { replace: true })}
+                    className="h-7 rounded bg-amber-700 px-3 font-medium text-white disabled:opacity-40">
+                    {busy ? 'جارٍ…' : 'استبدل الرقم'}
+                  </button>
+                  <button type="button" onClick={() => setConfirmReplace(null)} className="text-gray-600 underline">تراجع</button>
+                </div>
+              </div>
+            )}
           </li>
-        ))}
+          );
+        })}
       </ul>
     </Panel>
   );

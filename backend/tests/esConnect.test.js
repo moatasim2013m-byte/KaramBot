@@ -391,3 +391,72 @@ describe('the browser\'s launch is logged', () => {
     expect(eventsOf().map((e) => [e.type, e.actor_kind])).toEqual([['es_started', 'shift']]);
   });
 });
+
+describe('what the P1 review found', () => {
+  const WABA_B = '104900000000077';
+
+  test('no FINISH and two WABAs granted: a failure asking for a new popup, never «SHIFT will finish», nothing stored', async () => {
+    meta({ wabas: [IDS.WABA, WABA_B] });
+    const res = await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send({ code: 'c', finish_event: null });
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ error: 'waba_unresolved', status: 'failed', message: ERRORS_AR.waba_unresolved, onboarding: null, resumable: false });
+    expect(res.body.message).not.toMatch(/لا داعي|سيُكمل فريق شِفت/);
+    expect(db.store.whatsappOnboardings).toEqual([]);
+    expect(eventsOf().map((e) => [e.type, e.data.reason])).toEqual([['es_failed', 'waba_unresolved']]);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ reason: 'connect_failed', businessId: 'biz_sham' }));
+  });
+
+  test('the same on a connected shop leaves its live row alone and does not call it needs_operator', async () => {
+    meta();
+    await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finish()));
+    meta({ token: TOKEN_2, wabas: [IDS.WABA, WABA_B] });
+    const res = await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send({ code: 'again', finish_event: null });
+    expect(res.status).toBe(422);
+    expect(res.body.status).toBe('failed');
+    expect(onboardingOf()).toMatchObject({ step: 'done', revoked_at: null });
+    expect(decrypt(onboardingOf().access_token_enc)).toBe(fx.TOKEN);
+  });
+
+  test('SHIFT\'s connect_failed alert names the stage in Arabic, never the code\'s key', async () => {
+    meta({ register: Object.assign(new Error('boom'), { response: { data: { error: { message: 'Internal', code: 9999 } } } }) });
+    await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finish()));
+    const alert = notify.mock.calls.map(([p]) => p).find((p) => p.reason === 'connect_failed');
+    expect(alert.summary).toMatch(/^توقف الربط عند: /);
+    expect(alert.summary).not.toMatch(/[A-Za-z]/);
+  });
+
+  test('SHIFT\'s needs_operator alert sends it to the panel that exists, «ربط بدون حساب»', async () => {
+    const numbers = [fx.number(), fx.number({ id: '109900000000003', display: '+962 7 9000 0003', name: 'فرع ٢' })];
+    meta({ numbers });
+    await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send({ code: 'c', finish_event: 'FINISH_ONLY_WABA' });
+    const alert = notify.mock.calls.map(([p]) => p).find((p) => p.reason === 'needs_operator');
+    expect(alert.summary).toContain('«ربط بدون حساب»');
+    expect(alert.summary).not.toContain('ربط بدون رقم');
+  });
+
+  test('a shop that was already answering customers gets no free month when SHIFT reconnects it', async () => {
+    db.seed({
+      conversations: [{ id: 'c_old', business_id: 'biz_sham', customer_wa_id: '962790000001' }],
+      messages: [{
+        business_id: 'biz_sham', conversation_id: 'c_old', direction: 'outbound', is_ai_generated: true,
+        text_body: 'أهلًا', status: 'sent', created_at: new Date('2026-09-01'),
+      }],
+    });
+    meta();
+    const res = await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finish()));
+    expect(res.body.status).toBe('connected');
+    expect(subscriptionsOf()).toEqual([]);
+    expect(eventsOf().map((e) => e.type)).toEqual(expect.arrayContaining(['es_connected', 'trial_skipped']));
+  });
+
+  test('a revoked row says so (revoked: true), so the panel can show its own red state', async () => {
+    db.seed({
+      whatsappOnboardings: [{
+        id: 'onb_rev', business_id: 'biz_sham', app_id: APP, meta_business_id: IDS.PORTFOLIO, waba_id: IDS.WABA,
+        phone_number_id: IDS.PHONE, step: 'done', access_token_enc: encrypt('EAAdead'), revoked_at: new Date('2026-10-01'),
+      }],
+    });
+    const res = await request(app).get(`${adminBase('biz_sham')}/status`).set(ADMIN());
+    expect(res.body).toMatchObject({ status: 'failed', onboarding: { revoked: true, last_error_ar: ERRORS_AR.revoked } });
+  });
+});

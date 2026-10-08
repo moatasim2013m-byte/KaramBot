@@ -151,6 +151,22 @@ describe('allow', () => {
     expect(alerts.notifyShift).toHaveBeenCalledWith(expect.objectContaining({ reason: 'cap_reached', businessId: 'shop' }));
   });
 
+  test('a newer website or automation trial never makes a paying bot shop\'s cap hard (P1 review)', async () => {
+    const b = shop();
+    contract({ status: 'active', ai_replies_month: 20, created_at: new Date('2026-10-01') });
+    contract({ solution: 'website', status: 'trial', ai_replies_month: null, created_at: new Date('2026-10-10') });
+    messages(25);
+    expect(await guard.allow(b, 'reply', { now: NOW })).toEqual({ ok: true, reason: 'monthly_cap', soft: true });
+  });
+
+  test('a newer paid non-bot contract never makes a free-month bot shop look paid (P1 review)', async () => {
+    const b = shop();
+    contract({ status: 'trial', ai_replies_month: 20, created_at: new Date('2026-10-01') });
+    contract({ solution: 'automation', status: 'active', ai_replies_month: 5000, created_at: new Date('2026-10-10') });
+    messages(20);
+    expect(await guard.allow(b, 'reply', { now: NOW })).toEqual({ ok: false, reason: 'monthly_cap' });
+  });
+
   test('a hand-wired shop with no contract is never silenced by the cap', async () => {
     const b = shop();
     limits({ reply_month_default: 5 });

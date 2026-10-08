@@ -136,7 +136,8 @@ function config(req, res) {
  * ids; they still prove nothing until Meta confirms them with the token.
  *
  * 200 answers carry status connected, needs_number or needs_operator; 409 a number another shop
- * holds; 403 ids the customer's Facebook login does not cover; 502 a Graph step that failed,
+ * holds; 403 ids the customer's Facebook login does not cover; 422 a grant naming no single
+ * WABA (a new popup is needed); 502 a Graph step that failed,
  * resumable from GET /status and POST /retry.
  */
 async function exchange(req, res) {
@@ -168,6 +169,10 @@ async function exchange(req, res) {
     }
     if (err.code === 'es_ownership_mismatch') {
       return res.status(403).json({ error: 'es_ownership_mismatch', status: 'failed', message: MESSAGES.ownershipMismatch });
+    }
+    // Not one WABA to keep the token against: nothing was stored, a new popup is the way on.
+    if (err.code === 'waba_unresolved') {
+      return res.status(422).json(await failureBody(scope, err, 'waba_unresolved', { resumable: false }));
     }
     // A TypeError or a database error before any Graph call is ours, not Meta's.
     if (!err.message_ar) throw err;

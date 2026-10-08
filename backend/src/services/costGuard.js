@@ -157,10 +157,14 @@ function positive(n) {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
-/** The live contract: the newest one not cancelled (the same rule the admin overview uses). */
+/**
+ * The live Karam Bot contract: the newest one not cancelled. Only the bot's own solution counts:
+ * a newer website or automation contract in 'trial' must not make a paying bot shop's cap hard,
+ * and a newer paid one must not make a free-month bot look paid.
+ */
 async function contractFor(businessId) {
   return prisma.subscription.findFirst({
-    where: { business_id: businessId, status: { not: 'cancelled' } },
+    where: { business_id: businessId, solution: DEFAULT_PLAN.solution, status: { not: 'cancelled' } },
     orderBy: { created_at: 'desc' },
     select: { status: true, ai_replies_month: true },
   });
@@ -289,8 +293,8 @@ async function allow(business, kind = 'reply', { now = new Date() } = {}) {
 
 /**
  * The admin overview's «ردود الشهر» for many shops at once, in two grouped reads.
- * `contracts` maps business id → the live Subscription row (with ai_replies_month), as the
- * overview already reads it.
+ * `contracts` maps business id → the live Karam Bot Subscription row (with ai_replies_month);
+ * rows of other solutions are ignored, as contractFor does.
  * @returns {Promise<Map<string, {ai_replies_month:number, cap:number, media_today:number}>>}
  */
 async function fleetUsage(businessIds, { contracts = new Map(), now = new Date() } = {}) {
@@ -314,7 +318,8 @@ async function fleetUsage(businessIds, { contracts = new Map(), now = new Date()
   const repliesBy = count(replies);
   const mediaBy = count(media);
   for (const id of businessIds) {
-    const sub = contracts.get(id);
+    const found = contracts.get(id);
+    const sub = found && (!found.solution || found.solution === DEFAULT_PLAN.solution) ? found : null;
     out.set(id, {
       ai_replies_month: repliesBy.get(id) || 0,
       cap: positive(sub && sub.ai_replies_month) || positive(limits.reply_month_default) || DEFAULT_PLAN.ai_replies_month,
@@ -340,4 +345,5 @@ module.exports = {
   clearCache,
   CACHE_MS,
   WARN_RATIO,
+  BOT_SOLUTION: DEFAULT_PLAN.solution,
 };

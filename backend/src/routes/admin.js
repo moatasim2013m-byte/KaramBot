@@ -79,13 +79,19 @@ router.get('/overview', async (req, res) => {
     });
     const contractByBusiness = new Map();
     for (const sub of subs) if (!contractByBusiness.has(sub.business_id)) contractByBusiness.set(sub.business_id, sub);
+    // The cap and its wording follow the Karam Bot contract alone (costGuard.contractFor): a newer
+    // website or automation contract says nothing about the bot's free month.
+    const botContractByBusiness = new Map();
+    for (const sub of subs) {
+      if (sub.solution === costGuard.BOT_SOLUTION && !botContractByBusiness.has(sub.business_id)) botContractByBusiness.set(sub.business_id, sub);
+    }
     const DUE_SOON_DAYS = 7;
 
     // «ردود الشهر»: the cost guard's own counts and caps (services/costGuard.js), so the number on
     // this screen is the one the bot is held to. Unreadable usage is left out, not shown as zero.
     let usageByBusiness = new Map();
     try {
-      usageByBusiness = await costGuard.fleetUsage(businessIds, { contracts: contractByBusiness });
+      usageByBusiness = await costGuard.fleetUsage(businessIds, { contracts: botContractByBusiness });
     } catch (err) {
       console.error('[admin/overview] usage not read:', err.message);
     }
@@ -299,7 +305,7 @@ router.get('/overview', async (req, res) => {
       if (usage && usage.cap > 0 && !costGuard.isExempt(b)) {
         const shown = `(${usage.ai_replies_month.toLocaleString('en-US')} / ${usage.cap.toLocaleString('en-US')})`;
         if (usage.ai_replies_month >= usage.cap) {
-          push('warning', 'cap_reached', contract?.status === 'trial'
+          push('warning', 'cap_reached', botContractByBusiness.get(b.id)?.status === 'trial'
             ? `وصل حد ردود الشهر ${shown} — البوت يحوّل الزبائن للفريق`
             : `وصل حد ردود الشهر ${shown} — اشتراك مدفوع، البوت مستمر`, null);
         } else if (usage.ai_replies_month >= Math.ceil(usage.cap * costGuard.WARN_RATIO)) {

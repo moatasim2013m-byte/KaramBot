@@ -17,8 +17,15 @@ function graphBase() {
   return `https://graph.facebook.com/${process.env.GRAPH_API_VERSION || 'v24.0'}`;
 }
 
+// Bare fetch has no deadline of its own (undici waits up to 300 s for headers and again for the
+// body). The sweeper's daily step reads every shop through here, so a hung Graph call must give
+// up in seconds, like the axios calls next door (tokenHealth, embeddedSignup: 15 s).
+const GRAPH_TIMEOUT_MS = 15000;
+
 async function get(url, token) {
-  const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`);
+  const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, {
+    signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
+  });
   const j = await r.json().catch(() => null);
   // Graph puts the useful part in error.message; the rest of the response carries the token.
   if (!r.ok || j?.error) throw new Error(j?.error?.message || `graph ${r.status}`);
@@ -125,4 +132,4 @@ function metaAttention(onboarding) {
   return items;
 }
 
-module.exports = { refresh, metaAttention };
+module.exports = { refresh, metaAttention, GRAPH_TIMEOUT_MS };

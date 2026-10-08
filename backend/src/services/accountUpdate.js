@@ -27,7 +27,9 @@ const RESTRICTION_EVENTS = Object.freeze(['ACCOUNT_VIOLATION', 'ACCOUNT_RESTRICT
 // only trace of a signup we do not (Hosted ES, a lost code), which SHIFT then matches by hand.
 const ADDED_EVENTS = Object.freeze(['PARTNER_ADDED', 'PARTNER_APP_INSTALLED']);
 
-const REMOVED_AR = 'انفصل كرم بوت عن حسابك في Meta — البوت لا يستقبل الرسائل. افتح لوحتك واضغط «أعد الربط».';
+// The owner's panel has no reconnect button yet (ConnectWhatsApp lives on SHIFT's «الحالة» tab,
+// and the owner's route waits for es_owner_enabled), so the way back goes through SHIFT.
+const REMOVED_AR = 'انفصل كرم بوت عن حسابك في Meta — البوت لا يستقبل الرسائل. تواصل مع شِفت لإعادة الربط.';
 
 const metaId = (v) => (v !== undefined && v !== null && /^\d{1,32}$/.test(String(v)) ? String(v) : null);
 
@@ -112,11 +114,14 @@ async function handleAccountUpdate(entry, change) {
     // The token exchange is already running in the request that opened it: confirmation only.
     await log('partner_added', { event, waba_id: wabaId });
   } else if (REMOVAL_EVENTS.includes(event)) {
-    if (!row.revoked_at) {
-      await prisma.whatsappOnboarding.update({
-        where: { id: row.id },
-        data: { revoked_at: now, revoked_reason: event.toLowerCase() },
-      });
+    // Conditional, not check-then-write: Meta can deliver the same removal twice, or
+    // PARTNER_REMOVED with PARTNER_APP_UNINSTALLED, and routes/whatsapp.js handles them side by
+    // side. Only the delivery that flips revoked_at logs and alerts (as tokenHealth.markInvalid).
+    const { count } = row.revoked_at ? { count: 0 } : await prisma.whatsappOnboarding.updateMany({
+      where: { id: row.id, revoked_at: null },
+      data: { revoked_at: now, revoked_reason: event.toLowerCase() },
+    });
+    if (count === 1) {
       await log('partner_removed', { event, waba_id: wabaId });
       if (row.business_id) {
         Promise.resolve(alerts.notifyShift({
@@ -249,4 +254,5 @@ module.exports = {
   REMOVAL_EVENTS,
   RESTRICTION_EVENTS,
   OWNER_ALERT_TEMPLATES,
+  REMOVED_AR,
 };
