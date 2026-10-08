@@ -21,6 +21,19 @@ function recordSettingsChanged(req, businessId, update, aiConfigPatch) {
   return accountEvents.record({ businessId, actorUserId: req.user.id, actorKind, type: 'settings_changed', data });
 }
 
+/**
+ * The owner's «البوت يرد على الزبائن» switch: a PATCH whose whole body is { ai_config: { enabled } }.
+ * Anything sent with it means a settings form, and a form's copy of the flag may be stale.
+ */
+function isPauseToggle(req) {
+  const body = req.body || {};
+  return req.user.role === 'business_owner'
+    && Object.keys(body).length === 1
+    && isPlainObject(body.ai_config)
+    && Object.keys(body.ai_config).length === 1
+    && 'enabled' in body.ai_config;
+}
+
 /** A real object: an array or a string spread into numeric keys instead of being rejected. */
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -50,6 +63,8 @@ const ADMIN_ALLOWED_FIELDS = [
 // No 'enabled': the bot's pause has its own route (PATCH /api/admin/accounts/:id/bot), which logs
 // bot_paused/bot_resumed with a reason. Accepted here, a settings form opened before a pause
 // switched the bot back on when the greeting was saved, and the log said only settings_changed.
+// The owner's own switch on /bot is the one exception, and only as a PATCH carrying nothing else
+// (isPauseToggle), so a stale form can still never flip it.
 const OWNER_AI_CONFIG_ALLOWED = [
   'provider', 'personality', 'greeting_message',
   'fallback_message', 'handoff_keywords', 'out_of_hours_message',
@@ -271,6 +286,28 @@ router.patch('/:id', async (req, res) => {
     // numbers that tell the owner something went wrong.
     if (('ai_config' in req.body || 'policies' in req.body) && !SETTINGS_ROLES.includes(req.user.role)) {
       return res.status(403).json({ error: 'إعدادات البوت والسياسات لصاحب الحساب فقط' });
+    }
+
+    if (isPauseToggle(req)) {
+      const enabled = req.body.ai_config.enabled;
+      // The string "false" is truthy, and messageProcessor pauses only on a real false.
+      if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'حدّد هل البوت يعمل أم موقوف' });
+      const before = await prisma.business.findUnique({ where: { id: req.params.id }, select: { ai_config: true } });
+      if (!before) return res.status(404).json({ error: 'Business not found' });
+      const wasEnabled = before.ai_config?.enabled !== false;
+      // Only the one key, patched in Postgres, so the shop's other settings are untouched.
+      const { ok } = await jsonb.patchJson('businesses', req.params.id, 'ai_config', { enabled });
+      if (!ok) return res.status(404).json({ error: 'Business not found' });
+      // A repeated tap changes nothing and writes nothing to the log. Who pressed it is the owner:
+      // the shop's «السجل» and SHIFT's board read the same events SHIFT's own pause writes.
+      if (wasEnabled !== enabled) {
+        await accountEvents.record({
+          businessId: req.params.id, actorUserId: req.user.id, actorKind: 'owner',
+          type: enabled ? 'bot_resumed' : 'bot_paused', data: { via: 'owner_switch' },
+        });
+      }
+      const biz = await prisma.business.findUnique({ where: { id: req.params.id }, select: BUSINESS_PUBLIC_SELECT });
+      return res.json({ business: biz, enabled, changed: wasEnabled !== enabled });
     }
 
     const allowedKeys = isAdmin ? ADMIN_ALLOWED_FIELDS : OWNER_ALLOWED_FIELDS;

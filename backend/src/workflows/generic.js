@@ -82,6 +82,9 @@ async function processGenericMessage(business, conversation, customerMessage) {
       reply: business.ai_config?.fallback_message || 'سأحولك إلى أحد موظفينا الآن.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      // handoff_kind says why the chat went to a person, so «ما عرف يجاوب» lists only the
+      // questions the model gave up on: an owner's own keyword is not a gap in what the bot knows.
+      handoff_kind: 'keyword',
     };
   }
 
@@ -110,6 +113,7 @@ async function processGenericMessage(business, conversation, customerMessage) {
       action: 'HANDOFF_TO_HUMAN',
       // The model failed, not a customer asking for a person: the owner reads it as a fault.
       alert_reason: 'ai_failure',
+      handoff_kind: 'ai_failure',
     };
   }
 
@@ -120,6 +124,8 @@ async function processGenericMessage(business, conversation, customerMessage) {
       reply: reply || business.ai_config?.fallback_message || 'سأحولك إلى أحد موظفينا الآن.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      // The model chose to hand over: the one kind that is a question the bot could not answer.
+      handoff_kind: 'model',
     };
   }
 

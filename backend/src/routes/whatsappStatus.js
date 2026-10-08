@@ -7,6 +7,8 @@ const alerts = require('../services/alerts');
 const platformSettings = require('../services/platformSettings');
 const { connectionState, agentState, lifecycle } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
+const { dayStart } = require('../services/costGuard');
+const account = require('./account');
 // The payment wording lives in one place (no dates: the «30 أيلول» copies read as a missed
 // deadline once October came).
 const {
@@ -43,7 +45,8 @@ function buildSetup({
     ? { key: 'menu', label: 'أضف أصناف القائمة وأسعارها', where: '/menu', owner: 'you' }
     : isClinic
       ? { key: 'services', label: 'أضف خدمات العيادة والأطباء', where: '/clinic', owner: 'you' }
-      : { key: 'knowledge', label: 'عرّف البوت على منشأتك — الدوام وأهم الأسئلة', where: '/settings', owner: 'you' };
+      // «البوت» is where the knowledge is taught (P3); /settings no longer holds it.
+      : { key: 'knowledge', label: 'عرّف البوت على منشأتك — الدوام وأهم الأسئلة', where: '/bot', owner: 'you' };
 
   const steps = [
     // Once owners may connect themselves, this is their step with a button («اربط واتساب»);
@@ -176,6 +179,7 @@ router.get('/', async (req, res) => {
       select: {
         id: true, name: true, status: true, business_type: true,
         wa_phone_number_id: true, wa_business_account_id: true, wa_access_token: true, ai_config: true,
+        wa_display_phone: true, wa_verified_name: true,
       },
     });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب' });
@@ -193,7 +197,11 @@ router.get('/', async (req, res) => {
     // newest reply: last_outbound_at is also stamped by staff sends and stored alerts, and an
     // owner covering by hand for a dead bot must still see «البوت لا يرد — تواصل مع شِفت».
     const [onboarding, latest, aiReply, contract] = await Promise.all([
-      prisma.whatsappOnboarding.findFirst({ where: { business_id: business.id }, orderBy: { created_at: 'desc' }, select: { step: true, payment_method_ok: true, payment_method_claimed_at: true } }),
+      prisma.whatsappOnboarding.findFirst({
+        where: { business_id: business.id },
+        orderBy: { created_at: 'desc' },
+        select: { step: true, payment_method_ok: true, payment_method_claimed_at: true, meta_name_status: true, meta_quality_rating: true },
+      }),
       prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true } }),
       prisma.message.aggregate({ where: { business_id: business.id, direction: 'outbound', is_ai_generated: true }, _max: { created_at: true } }),
       prisma.subscription.findFirst({
@@ -204,6 +212,7 @@ router.get('/', async (req, res) => {
     ]);
 
     const ownerConnect = await ownerConnectEnabled();
+    const panel = await homeNumbers(business.id);
     // A shop wired by hand has no onboarding row: its owner's «أضفت البطاقة» is kept as the event.
     const paymentClaimed = onboarding
       ? Boolean(onboarding.payment_method_claimed_at)
@@ -228,6 +237,15 @@ router.get('/', async (req, res) => {
         amount_jod: Number(contract.amount_jod), billing_cycle: contract.billing_cycle, next_due_at: contract.next_due_at,
       } : null,
       payment_method_claimed: paymentClaimed,
+      // «رقم المحل» and «الاسم الذي يراه زبائنك» as Meta shows them, never the ids behind them.
+      // name_status and quality_rating are Meta's words (APPROVED, GREEN…); the page says them in Arabic.
+      number: {
+        display: business.wa_display_phone || null,
+        verified_name: business.wa_verified_name || null,
+        name_status: onboarding ? onboarding.meta_name_status || null : null,
+        quality_rating: onboarding ? onboarding.meta_quality_rating || null : null,
+      },
+      ...panel,
       explain: explain(connection, agent, onboarding, contract, { ownerConnect, hasNumber: Boolean(business.wa_phone_number_id) }),
       setup: buildSetup({
         business,
@@ -245,6 +263,50 @@ router.get('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * The home page's numbers (docs/panels/spec.md «الرئيسية»): the plan banner, «هذا الشهر», «اليوم»
+ * and how many «ما عرف يجاوب» questions are open. «اليوم» starts at midnight in Amman, whatever
+ * the server's clock zone. Best effort as a block: the connection card above is what this route is
+ * for, and a failed count must not take it down, so each part answers null when it cannot be read.
+ */
+async function homeNumbers(businessId) {
+  const out = { plan: null, usage: null, today: null, gaps_open: null };
+  try {
+    const contract = await account.contractOf(businessId);
+    out.plan = account.planView(contract);
+    out.usage = await account.usageView(businessId, contract);
+  } catch (err) {
+    console.error(`[whatsapp/status] plan not read business=${businessId}: ${err.message}`);
+  }
+  try {
+    const since = dayStart(new Date());
+    const now = new Date();
+    const [inbound, aiRows, waiting] = await Promise.all([
+      // «زبائن راسلوك»: conversations a customer wrote in today.
+      prisma.conversation.count({ where: { business_id: businessId, last_inbound_at: { gte: since } } }),
+      // «ردّ عليهم البوت»: of those, the ones the bot answered — conversations, not messages.
+      prisma.message.findMany({
+        where: { business_id: businessId, direction: 'outbound', is_ai_generated: true, created_at: { gte: since } },
+        select: { conversation_id: true },
+        distinct: ['conversation_id'],
+      }),
+      // «بانتظارك»: the inbox's own «بانتظارك» filter (needs_attention, not snoozed).
+      prisma.conversation.count({
+        where: { AND: [{ business_id: businessId, needs_attention: true }, { OR: [{ snoozed_until: null }, { snoozed_until: { lte: now } }] }] },
+      }),
+    ]);
+    out.today = { inbound, ai_replies: new Set(aiRows.map((r) => r.conversation_id)).size, waiting };
+  } catch (err) {
+    console.error(`[whatsapp/status] today not read business=${businessId}: ${err.message}`);
+  }
+  try {
+    out.gaps_open = await prisma.accountEvent.count({ where: { business_id: businessId, type: 'bot_handoff', resolved_at: null } });
+  } catch (err) {
+    console.error(`[whatsapp/status] gaps not read business=${businessId}: ${err.message}`);
+  }
+  return out;
+}
 
 /** Whether the owner of a shop with no onboarding row said «أضفت البطاقة». False when unreadable. */
 async function handWiredClaim(businessId) {
