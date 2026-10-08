@@ -109,6 +109,9 @@ app.use('/api/orders', apiLimiter, require('./routes/orders'));
 app.use('/api/staff', apiLimiter, require('./routes/staff'));
 app.use('/api/clinic', apiLimiter, require('./routes/clinic'));
 app.use('/api/reports', apiLimiter, require('./routes/reports'));
+// «الاشتراك» (owner only) and «الفريق»: the customer panel's plan, payments and people.
+app.use('/api/account', apiLimiter, require('./routes/account'));
+app.use('/api/team', apiLimiter, require('./routes/team'));
 
 
 // Block suspicious probe paths before static/spa handling

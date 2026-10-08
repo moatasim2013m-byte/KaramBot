@@ -45,6 +45,8 @@ const BOT_PAUSED = 'bot_paused';
 const BOT_LIMIT = 'bot_limit';
 // Sent at most once a day per conversation while the cost guard holds the bot (ai_config.limit_message
 // overrides it). It promises a person, which is true: the conversation is on the staff's attention list.
+// A «ما عرف يجاوب» row keeps the customer's question, cut so a pasted essay cannot bloat the log.
+const MAX_GAP_QUESTION = 500;
 const DEFAULT_LIMIT_MESSAGE = 'شكرًا لتواصلك معنا. وصلت رسالتك لفريقنا وسيرد عليك أحد الموظفين بأقرب وقت.';
 
 /** The numbers staff alerts are sent TO. A conversation with one of them is a staff thread. */
@@ -1071,6 +1073,17 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
       conversation,
       summary: customerText,
     });
+    // «ما عرف يجاوب»: only a question the model gave up on is a gap the owner can teach. A keyword
+    // the owner chose, or a provider failure, is not something an answer in «البوت» would fix.
+    // Not awaited: record() never throws, and the customer's reply must not wait on the log.
+    if (workflowResult.handoff_kind === 'model') {
+      accountEvents.record({
+        businessId: business.id,
+        actorKind: 'system',
+        type: 'bot_handoff',
+        data: { question: String(customerText).slice(0, MAX_GAP_QUESTION), conversation_id: conversation.id },
+      });
+    }
   }
 
   if (workflowResult.stateUpdate && Object.keys(workflowResult.stateUpdate).length > 0) {

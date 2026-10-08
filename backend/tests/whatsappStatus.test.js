@@ -5,11 +5,14 @@
 require('./setup');
 
 jest.mock('../src/config/prisma', () => ({
-  user: { findUnique: jest.fn() },
+  user: { findUnique: jest.fn(), findMany: jest.fn() },
+  userActivation: { findMany: jest.fn() },
   business: { findUnique: jest.fn() },
   whatsappOnboarding: { findFirst: jest.fn() },
-  conversation: { aggregate: jest.fn() },
-  message: { aggregate: jest.fn() },
+  conversation: { aggregate: jest.fn(), count: jest.fn() },
+  message: { aggregate: jest.fn(), count: jest.fn(), findMany: jest.fn() },
+  accountEvent: { count: jest.fn() },
+  platformSetting: { findMany: jest.fn() },
   subscription: { findFirst: jest.fn() },
   menuItem: { count: jest.fn() },
   service: { count: jest.fn() },
@@ -21,6 +24,8 @@ const request = require('supertest');
 const prisma = require('../src/config/prisma');
 const app = require('../src/app');
 const { PAYMENT_METHOD_OWNER_LONG, PAYMENT_METHOD_OWNER_SHORT, WHATSAPP_MANAGER_URL } = require('../src/config/metaNotices');
+const costGuard = require('../src/services/costGuard');
+const platformSettings = require('../src/services/platformSettings');
 
 const OWNER = { id: 'u1', name: 'O', email: 'o@clinic.jo', role: 'business_owner', business_id: 'b1', active: true };
 const auth = () => ({ Authorization: `Bearer ${jwt.sign({ id: 'u1' }, process.env.JWT_SECRET)}` });
@@ -42,11 +47,23 @@ function setup({ business = biz(), onboarding = { step: 'done', payment_method_o
   prisma.menuItem.count.mockResolvedValue(knowledge);
   prisma.service.count.mockResolvedValue(knowledge);
   prisma.businessKnowledge.count.mockResolvedValue(knowledge);
+  // The home page's numbers (P3): quiet defaults unless a test sets them.
+  prisma.user.findMany.mockResolvedValue([{ id: 'u1', active: true }]);
+  prisma.userActivation.findMany.mockResolvedValue([]);
+  prisma.conversation.count.mockResolvedValue(0);
+  prisma.message.count.mockResolvedValue(0);
+  prisma.message.findMany.mockResolvedValue([]);
+  prisma.accountEvent.count.mockResolvedValue(0);
+  prisma.platformSetting.findMany.mockResolvedValue([]);
 }
 
 const get = () => request(app).get('/api/whatsapp/status').set(auth());
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  costGuard.clearCache();
+  platformSettings.clearCache();
+});
 
 test('a business owner sees only their own business, whatever the query says', async () => {
   setup();
@@ -214,5 +231,68 @@ describe('the setup guide the customer follows', () => {
     const { setup: s } = (await get()).body;
     expect(s.steps.find((x) => x.key === 'payment').done).toBe(false);
     expect(s.done).toBe(false);
+  });
+});
+
+describe('the home page numbers (P3)', () => {
+  const trial = (over = {}) => ({
+    solution: 'karam_bot', plan_name: 'باقة كرم بوت', status: 'trial', amount_jod: 19.99, billing_cycle: 'monthly',
+    trial_ends_at: new Date(Date.now() + 18 * 86400000 - 3600000), next_due_at: new Date(Date.now() + 18 * 86400000),
+    ai_replies_month: 1000, seats: 3, ...over,
+  });
+
+  test('number, plan, usage, today and open gaps, for the caller\'s own shop', async () => {
+    setup({
+      business: biz({ wa_display_phone: '+962 7 9123 4567', wa_verified_name: 'عيادة النور' }),
+      onboarding: { step: 'done', payment_method_ok: true, meta_name_status: 'APPROVED', meta_quality_rating: 'GREEN' },
+      contract: trial(),
+    });
+    prisma.user.findMany.mockResolvedValue([{ id: 'u1', active: true }, { id: 'u2', active: false }, { id: 'u3', active: false }]);
+    prisma.userActivation.findMany.mockResolvedValue([{ user_id: 'u2' }]);
+    prisma.message.count.mockResolvedValue(312);
+    prisma.conversation.count.mockResolvedValueOnce(14).mockResolvedValueOnce(2);
+    prisma.message.findMany.mockResolvedValue([{ conversation_id: 'c1' }, { conversation_id: 'c2' }, { conversation_id: 'c1' }]);
+    prisma.accountEvent.count.mockResolvedValue(3);
+
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(res.body.number).toEqual({ display: '+962 7 9123 4567', verified_name: 'عيادة النور', name_status: 'APPROVED', quality_rating: 'GREEN' });
+    expect(res.body.plan).toMatchObject({ name: 'باقة كرم بوت', price_jod: 19.99, status: 'trial', trial_days_left: 18 });
+    expect(res.body.usage).toEqual({ ai_replies_month: 312, cap: 1000, seats_used: 2, seats: 3 });
+    expect(res.body.today).toEqual({ inbound: 14, ai_replies: 2, waiting: 2 });
+    expect(res.body.gaps_open).toBe(3);
+
+    // Every count is this shop's, and «اليوم» starts at midnight in Amman.
+    const since = costGuard.dayStart(new Date());
+    expect(prisma.conversation.count.mock.calls[0][0].where).toEqual({ business_id: 'b1', last_inbound_at: { gte: since } });
+    expect(prisma.message.findMany.mock.calls[0][0].where).toMatchObject({ business_id: 'b1', is_ai_generated: true, created_at: { gte: since } });
+    expect(prisma.accountEvent.count.mock.calls[0][0].where).toEqual({ business_id: 'b1', type: 'bot_handoff', resolved_at: null });
+    expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({ business_id: 'b1' });
+  });
+
+  test('a paid, late shop and one with no contract', async () => {
+    setup({ contract: trial({ status: 'past_due', trial_ends_at: null }) });
+    expect((await get()).body.plan).toMatchObject({ status: 'past_due', trial_days_left: null });
+    setup({ contract: null });
+    expect((await get()).body.plan).toMatchObject({ status: 'none', price_jod: 19.99 });
+  });
+
+  test('a failed count leaves its card empty and the connection card standing', async () => {
+    setup({ inbound: minsAgo(10), outbound: minsAgo(9) });
+    prisma.conversation.count.mockRejectedValue(new Error('db down'));
+    prisma.accountEvent.count.mockRejectedValue(new Error('db down'));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(res.body.today).toBeNull();
+    expect(res.body.gaps_open).toBeNull();
+    expect(res.body.explain.tone).toBe('good');
+    console.error.mockRestore();
+  });
+
+  test('a generic shop is sent to «البوت» to teach it', async () => {
+    setup({ business: biz({ business_type: 'generic' }), knowledge: 0 });
+    const { setup: s } = (await get()).body;
+    expect(s.steps.find((x) => x.key === 'knowledge').where).toBe('/bot');
   });
 });

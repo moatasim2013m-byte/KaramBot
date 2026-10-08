@@ -75,6 +75,8 @@ test('the owner\'s handoff words win before anything is generated', async () => 
   );
   expect(out.action).toBe('HANDOFF_TO_HUMAN');
   expect(out.stateUpdate).toMatchObject({ ai_enabled: false, status: 'human_takeover' });
+  // An owner's keyword is not a gap in what the bot knows: never on «ما عرف يجاوب».
+  expect(out.handoff_kind).toBe('keyword');
   expect(generateValidatedAIReply).not.toHaveBeenCalled();
   expect(prisma.businessKnowledge.findMany).not.toHaveBeenCalled();
 });
@@ -85,6 +87,7 @@ test('a model failure hands the customer to a human rather than guessing', async
   const out = await processGenericMessage(business(), conv(), 'سؤال');
   expect(out.action).toBe('HANDOFF_TO_HUMAN');
   expect(out.stateUpdate.ai_enabled).toBe(false);
+  expect(out.handoff_kind).toBe('ai_failure');
 });
 
 test('the model asking for a human is honoured and the conversation is handed over', async () => {
@@ -93,6 +96,8 @@ test('the model asking for a human is honoured and the conversation is handed ov
   const out = await processGenericMessage(business(), conv(), 'بدي أحجز');
   expect(out.action).toBe('HANDOFF_TO_HUMAN');
   expect(out.reply).toBe('رح أحوّلك لموظف');
+  // The one kind that is a question the owner can teach.
+  expect(out.handoff_kind).toBe('model');
 });
 
 test('a paused agent says nothing at all', async () => {

@@ -209,8 +209,11 @@ describe('review 2026-10-08', () => {
     expect(res.status).toBe(200);
     expect(sent).toHaveBeenCalledWith('businesses', 'b1', 'ai_config', { greeting_message: 'مرحبا' });
     expect(db.store.accountEvents.map((e) => e.data.ai_config_keys)).toEqual([['greeting_message']]);
-    // Alone, the flag is not a setting at all.
-    const only = await request(app).patch('/api/businesses/b1').set(as(who)).send({ ai_config: { enabled: false } });
-    expect(only.status).toBe(400);
+    // Alone, the flag is the owner's pause switch (P3, below); for SHIFT it is not a setting at all
+    // (its pause is PATCH /api/admin/accounts/:id/bot, with a reason).
+    if (who === 'admin') {
+      const only = await request(app).patch('/api/businesses/b1').set(as(who)).send({ ai_config: { enabled: false } });
+      expect(only.status).toBe(400);
+    }
   });
 });
