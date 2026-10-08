@@ -345,10 +345,11 @@ router.patch('/:id/token', requireRole('platform_admin'), async (req, res) => {
       where: { id: req.params.id },
       data: { wa_access_token: encryptedToken },
     });
-    // That a token was set by hand, and by whom; never the token.
+    // That a token was set by hand, and by whom; never the token. Only platform_admin reaches
+    // this route, so the actor is always SHIFT.
     await accountEvents.record({
       businessId: req.params.id, actorUserId: req.user.id,
-      actorKind: isAdmin ? 'shift' : 'owner', type: 'token_set', data: { source: 'manual' },
+      actorKind: 'shift', type: 'token_set', data: { source: 'manual' },
     });
     res.json({ success: true, message: 'Token encrypted and saved' });
   } catch (err) {

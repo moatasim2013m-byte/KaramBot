@@ -9,7 +9,6 @@ jest.mock('../src/config/prisma', () => ({
   business: { findUnique: jest.fn() },
   whatsappOnboarding: { findFirst: jest.fn() },
   conversation: { aggregate: jest.fn() },
-  message: { aggregate: jest.fn() },
   subscription: { findFirst: jest.fn() },
   menuItem: { count: jest.fn() },
   service: { count: jest.fn() },
@@ -35,8 +34,7 @@ function setup({ business = biz(), onboarding = { step: 'done', payment_method_o
   prisma.user.findUnique.mockResolvedValue(OWNER);
   prisma.business.findUnique.mockResolvedValue(business);
   prisma.whatsappOnboarding.findFirst.mockResolvedValue(onboarding);
-  prisma.conversation.aggregate.mockResolvedValue({ _max: { last_inbound_at: inbound } });
-  prisma.message.aggregate.mockResolvedValue({ _max: { created_at: outbound } });
+  prisma.conversation.aggregate.mockResolvedValue({ _max: { last_inbound_at: inbound, last_outbound_at: outbound } });
   prisma.subscription.findFirst.mockResolvedValue(contract);
   prisma.menuItem.count.mockResolvedValue(knowledge);
   prisma.service.count.mockResolvedValue(knowledge);
@@ -97,8 +95,23 @@ test('a generic shop with nothing entered reads «بدون معلومات», and
   // said the bot was answering while it only ever sent the greeting.
   setup({ business: biz({ business_type: 'generic' }), knowledge: 0, inbound: minsAgo(3), outbound: minsAgo(2) });
   const res = await get();
-  expect(res.body.agent).toMatchObject({ state: 'down', label: 'بدون معلومات' });
+  expect(res.body.agent).toMatchObject({ state: 'degraded', label: 'بدون معلومات' });
   expect(res.body.explain).toMatchObject({ tone: 'warn', action: 'knowledge' });
+});
+
+test('a bot SHIFT paused says so, and tells the owner to answer by hand', async () => {
+  // agentState's 'paused' (admin PATCH /accounts/:id/bot) must not fall through to «غير معروفة».
+  setup({ business: biz({ ai_config: { enabled: false } }), inbound: minsAgo(40), outbound: minsAgo(90) });
+  const res = await get();
+  expect(res.body.agent).toMatchObject({ state: 'paused', label: 'موقوف مؤقتًا' });
+  expect(res.body.explain).toMatchObject({ tone: 'warn', title: 'البوت موقوف مؤقتًا', action: 'contact' });
+});
+
+test('the last reply is read from Conversation.last_outbound_at, as the admin overview does', async () => {
+  setup({ inbound: minsAgo(40), outbound: minsAgo(30) });
+  const res = await get();
+  expect(res.body.agent.state).toBe('ok');
+  expect(prisma.conversation.aggregate.mock.calls[0][0]._max).toEqual({ last_inbound_at: true, last_outbound_at: true });
 });
 
 test('a generic shop with knowledge answering is good news', async () => {
@@ -114,14 +127,6 @@ test('not connected yet says SHIFT is on it, and that no message will arrive unt
   expect(res.body.connection.state).toBe('down');
   expect(res.body.explain.title).toContain('غير موصول');
   expect(res.body.explain.action).toBe('contact');
-});
-
-test('a human answering by hand does not count as the bot working', async () => {
-  // the outbound aggregate is filtered to is_ai_generated: true in the query
-  setup({ inbound: minsAgo(30), outbound: null });
-  const res = await get();
-  expect(prisma.message.aggregate.mock.calls[0][0].where).toMatchObject({ direction: 'outbound', is_ai_generated: true });
-  expect(res.body.agent.state).toBe('down');
 });
 
 test('the contract is shown, never the token or the Meta identifiers', async () => {

@@ -91,12 +91,20 @@ function explain(connection, agent, onboarding, contract) {
     return { tone: 'good', title: 'واتساب موصول — بانتظار أول رسالة', body: 'الرقم مربوط والبوت جاهز. لم يراسلك أحد بعد؛ أول محادثة ستظهر في «المحادثات».', action: null };
   }
   // A generic shop with nothing entered answers every question with its greeting: connected and
-  // "working", yet useless. agentState marks it down; the fix is theirs, not SHIFT's.
-  if (connection.state === 'ok' && agent.state === 'down' && agent.label === 'بدون معلومات') {
+  // "working", yet useless. agentState marks it degraded (customers still get a greeting); keyed
+  // on the label, not the state, so a change of severity there cannot hide this message. The fix
+  // is theirs, not SHIFT's.
+  if (connection.state === 'ok' && agent.label === 'بدون معلومات') {
     return { tone: 'warn', title: 'البوت بدون معلومات', body: 'البوت يرد بالترحيب فقط لأنه لا يعرف شيئًا عن منشأتك بعد. أضف الدوام وأهم الأسئلة وأجوبتها.', action: 'knowledge' };
   }
   if (connection.state === 'ok' && agent.state === 'down') {
     return { tone: 'bad', title: 'واتساب موصول لكن البوت لا يرد', body: `آخر رسالة من زبون لم يُرد عليها${agent.sub ? ` منذ ${agent.sub}` : ''}. تواصل مع شِفت الآن.`, action: 'contact' };
+  }
+  // The bot was paused on purpose (ai_config.enabled === false: SHIFT's PATCH
+  // /api/admin/accounts/:id/bot, or the owner's own switch). Messages still arrive and the
+  // conversations are flagged, so the owner must know to answer by hand. Not «غير معروفة».
+  if (agent.state === 'paused') {
+    return { tone: 'warn', title: 'البوت موقوف مؤقتًا', body: 'الرد الآلي موقوف مؤقتًا. الرسائل تصلك وتجدها في «المحادثات» — رد على زبائنك بنفسك، أو تواصل مع شِفت.', action: 'contact' };
   }
   if (connection.state === 'idle' || agent.state === 'idle') {
     return { tone: 'warn', title: 'الوكيل موقوف', body: 'الرد الآلي متوقف يدويًا. الرسائل تصل لكن لا يجيب عليها أحد إلا فريقك.', action: null };
@@ -129,10 +137,12 @@ router.get('/', async (req, res) => {
         ? await prisma.service.count({ where: { business_id: business.id } })
         : await prisma.businessKnowledge.count({ where: { business_id: business.id, active: true } });
 
-    const [onboarding, inbound, outbound, contract] = await Promise.all([
+    // Last inbound and last reply both from Conversation, the same input the admin overview and
+    // account page read (last_outbound_at is stamped on every outbound path), so the owner's card
+    // and SHIFT's fleet row cannot disagree about whether the bot is answering.
+    const [onboarding, latest, contract] = await Promise.all([
       prisma.whatsappOnboarding.findFirst({ where: { business_id: business.id }, orderBy: { created_at: 'desc' }, select: { step: true, payment_method_ok: true } }),
-      prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true } }),
-      prisma.message.aggregate({ where: { business_id: business.id, direction: 'outbound', is_ai_generated: true }, _max: { created_at: true } }),
+      prisma.conversation.aggregate({ where: { business_id: business.id }, _max: { last_inbound_at: true, last_outbound_at: true } }),
       prisma.subscription.findFirst({
         where: { business_id: business.id, status: { not: 'cancelled' } },
         orderBy: { created_at: 'desc' },
@@ -140,8 +150,8 @@ router.get('/', async (req, res) => {
       }),
     ]);
 
-    const lastInbound = inbound._max.last_inbound_at;
-    const lastOutbound = outbound._max.created_at;
+    const lastInbound = latest._max.last_inbound_at;
+    const lastOutbound = latest._max.last_outbound_at;
     const connection = connectionState(business, onboarding);
     // knowledgeCount lets agentState say «بدون معلومات» for a generic shop with nothing entered;
     // without it that state could never show and the card said «يرد».
