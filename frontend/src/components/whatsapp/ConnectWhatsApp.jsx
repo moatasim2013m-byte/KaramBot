@@ -129,6 +129,15 @@ const PAYMENT_NOTICES = {
   },
 };
 
+// Coexistence (P5): a number that stays on the WhatsApp Business app on the owner's phone. A copy
+// of backend/src/services/coexistence.js NOTICE_AR; backend/tests/coexistence.test.js fails when
+// the two differ. Offered only when the server's config says SHIFT has switched it on.
+const COEX_NOTICE = {
+  inactivity: 'افتح واتساب للأعمال على هاتف المحل مرة كل بضعة أيام على الأقل: إذا بقي الهاتف دون استخدام نحو 14 يومًا تفصل Meta الرقم عن كرم بوت، ويلزم ربطه من جديد.',
+  throughput: 'سرعة الإرسال على هذا الرقم محدودة بـ20 رسالة في الثانية، وهذا أكثر من كافٍ لمحل.',
+  owner_hold: 'حين ترد على زبون من التطبيق يسكت البوت في تلك المحادثة ساعتين.',
+};
+
 function paymentState(payment) {
   if (!payment) return 'missing';
   if (payment.blocked) return 'blocked';
@@ -362,7 +371,10 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
 
   // Called straight from the click. Nothing is awaited before FB.login (inside
   // launchEmbeddedSignup): an await here spends the tap, and the browser blocks Meta's window.
-  const launch = () => {
+  // `mode` 'coexistence' asks Meta for the WhatsApp Business app flow; anything else (a click
+  // event, when used as onClick directly) is the usual new-number flow.
+  const launch = (mode) => {
+    const coexistence = mode === 'coexistence' && Boolean(config?.coexistence);
     const FB = getLoadedSdk();
     if (!FB || !config) {
       setProblem({ kind: 'sdk', text: 'نافذة فيسبوك لم تجهز بعد. انتظر لحظة ثم اضغط مرة أخرى.' });
@@ -371,7 +383,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
     finishRef.current = null;
     metaOutcomeRef.current = null;
     const startedAt = Date.now();
-    const pending = launchEmbeddedSignup(FB, { configId: config.config_id });
+    const pending = launchEmbeddedSignup(FB, { configId: config.config_id, coexistence });
     setProblem(null);
     setBusy('popup');
     postEvent({ event: 'LAUNCHED' });
@@ -465,6 +477,14 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
             )}
           </div>
         </div>
+
+        {onb?.coexistence && (
+          <div className="mt-3 rounded-lg bg-blue-50 p-3 text-[13px] text-blue-900">
+            <p className="font-medium">الرقم يعمل على تطبيق واتساب للأعمال وعلى كرم بوت معًا.</p>
+            <p className="mt-1 text-[12px]">{COEX_NOTICE.inactivity}</p>
+            <p className="mt-1 text-[12px]">{COEX_NOTICE.owner_hold}</p>
+          </div>
+        )}
 
         {/* The last step is the customer's own, and it is the one that silently blocks
             sending, so it sits in the open rather than in a footnote. */}
@@ -627,6 +647,25 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
             <div className="mt-3 rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">
               <p>تعذّر تحميل فيسبوك. أوقف مانع الإعلانات لهذا الموقع أو جرّب متصفحًا آخر.</p>
               <button type="button" onClick={retryLoadSdk} className="mt-2 font-medium underline">حاول التحميل مرة أخرى</button>
+            </div>
+          )}
+
+          {/* P5, only once SHIFT has switched coexistence on: the shop's current number, kept on
+              the owner's phone. The button above stays the way for a new SIM. */}
+          {config?.coexistence && !resumeOnServer && !onb?.needs_pin && (
+            <div className="mt-4 rounded-lg border border-gray-200 p-3">
+              <p className="text-[13px] font-medium text-gray-900">رقم المحل الحالي وعليه واتساب؟</p>
+              <p className="mt-1 text-[12px] text-gray-600">
+                اربطه دون أن تتركه: يبقى تطبيق واتساب للأعمال على هاتفك ومعه محادثاتك، ويرد كرم بوت على الزبائن معك.
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pr-4 text-[12px] text-gray-600">
+                <li>{COEX_NOTICE.inactivity}</li>
+                <li>{COEX_NOTICE.owner_hold}</li>
+                <li>{COEX_NOTICE.throughput}</li>
+              </ul>
+              <button type="button" onClick={() => launch('coexistence')} disabled={!canLaunch} className={`${btnSecondary} mt-3`}>
+                رقم المحل الحالي وعليه واتساب
+              </button>
             </div>
           )}
         </div>

@@ -103,9 +103,13 @@ export function isInAppBrowser(ua = (typeof navigator !== 'undefined' ? navigato
  *
  * extras is {setup: {}} and nothing else: Meta's v4 docs say it is purposely empty. The
  * featureType '' and sessionInfoVersion '3' that used to be here did nothing under v4
- * (docs/panels/meta-facts.md, Q1e), and featureType stays unsent so coexistence is not offered.
+ * (docs/panels/meta-facts.md, Q1e). featureType is sent only for `coexistence` (a number that
+ * stays on the WhatsApp Business app, P5), which the screen offers only when the server's config
+ * says SHIFT has switched it on; the server refuses to link one otherwise.
  */
-export function launchEmbeddedSignup(FB, { configId }) {
+export const COEXISTENCE_FEATURE_TYPE = 'whatsapp_business_app_onboarding';
+
+export function launchEmbeddedSignup(FB, { configId, coexistence = false }) {
   return new Promise((resolve) => {
     FB.login(
       (response) => {
@@ -116,7 +120,7 @@ export function launchEmbeddedSignup(FB, { configId }) {
         config_id: configId,
         response_type: 'code',
         override_default_response_type: true,
-        extras: { setup: {} },
+        extras: coexistence ? { featureType: COEXISTENCE_FEATURE_TYPE, setup: {} } : { setup: {} },
       },
     );
   });

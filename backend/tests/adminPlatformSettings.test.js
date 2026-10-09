@@ -2,8 +2,8 @@
  * «إعدادات المنصة» made real: GET and PATCH /api/admin/platform-settings over the PlatformSetting
  * rows the code obeys. What a person can get wrong is refused in Arabic before anything is stored;
  * a block may be sent partly; null restores the default; every save leaves
- * platform_setting_changed with the value before and after. provider_status and coexistence are
- * not editable here, and public self-signup stays off.
+ * platform_setting_changed with the value before and after. provider_status is not editable here,
+ * public self-signup stays off, and coexistence takes a typed confirmation (coexistence.test.js).
  */
 require('./setup');
 
@@ -40,7 +40,9 @@ test('GET returns every effective setting, the defaults, what is editable and th
   expect(res.body.defaults.campaign.trial_days).toBe(30);
   expect(res.body.editable).toEqual(expect.arrayContaining(['campaign', 'ai_limits', 'late_policy', 'payment_instructions']));
   expect(res.body.editable).not.toContain('provider_status');
-  expect(res.body.editable).not.toContain('coexistence');
+  // P5: coexistence is editable, behind a typed confirmation the page shows as given here.
+  expect(res.body.editable).toContain('coexistence');
+  expect(res.body.coexistence_confirm).toMatch(/[ء-ي]/);
   expect(res.body.meta).toMatchObject({ config_id: expect.any(String) });
 });
 
@@ -91,7 +93,7 @@ describe('validation, in Arabic, before anything is stored', () => {
   });
 
   test('settings the code writes, or that the spec keeps closed, are not editable', async () => {
-    for (const key of ['provider_status', 'coexistence', 'nonsense']) {
+    for (const key of ['provider_status', 'nonsense']) {
       const res = await patch({ key, value: { enabled: true } });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/[ء-ي]/);

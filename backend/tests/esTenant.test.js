@@ -181,6 +181,8 @@ describe('the owner router stays closed until G1 (es_owner_enabled)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       app_id: APP, config_id: expect.any(String), graph_version: expect.any(String), locale: 'ar_AR',
+      // P5: the «رقم المحل الحالي» option is offered only once SHIFT switches coexistence on.
+      coexistence: false,
     });
     expect(JSON.stringify(res.body)).not.toContain(process.env.SHIFT_ES_APP_SECRET);
   });

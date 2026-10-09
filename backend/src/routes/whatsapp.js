@@ -2,6 +2,7 @@ const express = require('express');
 const { validateSignature, parseInboundMessage } = require('../services/whatsapp');
 const { persistInbound, processInboundMessage } = require('../services/messageProcessor');
 const { handleAccountUpdate, handleQualityUpdate, handleTemplateStatusUpdate } = require('../services/accountUpdate');
+const coexistence = require('../services/coexistence');
 
 // The fields that carry no message, each with its handler. The app is subscribed to all three.
 const SIDE_FIELDS = {
@@ -9,6 +10,22 @@ const SIDE_FIELDS = {
   phone_number_quality_update: handleQualityUpdate,
   message_template_status_update: handleTemplateStatusUpdate,
 };
+
+// Coexistence (P5; services/coexistence.js). Each handler drops the delivery unless
+// PlatformSetting coexistence.enabled is on and the number, WABA and app are the shop's, so with
+// the switch off they change nothing. The past chats and the contact list are on the side, like
+// the fields above: a big history chunk must not cost the messages beside it their 200, and the
+// wamid makes a lost one recoverable by the next chunk or a re-sync. The owner's own replies are
+// awaited with the messages instead: a lost echo is a chat where the bot talks over the owner, so
+// a failed save answers 500 and Meta retries (the wamid makes the retry harmless).
+const COEX_SIDE_FIELDS = {
+  history: coexistence.handleHistory,
+  smb_app_state_sync: coexistence.handleStateSync,
+};
+const COEX_AWAITED_FIELDS = {
+  smb_message_echoes: coexistence.handleEchoes,
+};
+const own = (map, field) => (Object.prototype.hasOwnProperty.call(map, field) ? map[field] : null);
 
 /**
  * One webhook implementation, mounted once per Meta app.
@@ -99,19 +116,27 @@ function withTimeout(promise, ms) {
   // on, nor stop the messages in the same delivery from being saved.
   for (const entry of entries) {
     for (const change of entry.changes || []) {
-      const handler = Object.prototype.hasOwnProperty.call(SIDE_FIELDS, change?.field) ? SIDE_FIELDS[change.field] : null;
-      if (!handler) continue;
+      const handler = own(SIDE_FIELDS, change?.field);
+      const coexHandler = own(COEX_SIDE_FIELDS, change?.field);
+      if (!handler && !coexHandler) continue;
       Promise.resolve()
-        .then(() => handler(entry, change))
+        .then(() => (handler ? handler(entry, change) : coexHandler(entry, change, { servesApp, endpoint: label })))
         .catch((err) => console.error(`[${change.field}] failed:`, err.message));
     }
   }
 
   const budget = parseInt(process.env.WEBHOOK_PERSIST_BUDGET_MS, 10) || 4000;
   const persists = entries.map((e) => persistInbound(e, { servesApp, endpoint: label }));
+  const echoes = [];
+  for (const entry of entries) {
+    for (const change of entry.changes || []) {
+      const handler = own(COEX_AWAITED_FIELDS, change?.field);
+      if (handler) echoes.push(handler(entry, change, { servesApp, endpoint: label }));
+    }
+  }
   let persisted;
   try {
-    persisted = await withTimeout(Promise.all(persists), budget);
+    persisted = await withTimeout(Promise.all([...persists, ...echoes]).then((all) => all.slice(0, persists.length)), budget);
   } catch (err) {
     console.error('[webhook] persist failed — returning 500 so Meta retries:', err.message);
     res.status(500).json({ error: 'persist_failed' });

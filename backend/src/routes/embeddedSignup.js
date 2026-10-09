@@ -115,13 +115,15 @@ async function failureBody(scope, err, error, extra = {}) {
 }
 
 /** The config the browser needs. The app secret is not here and never will be. */
-function config(req, res) {
+async function config(req, res) {
   res.json({
     app_id: embeddedSignupAppId(),
     config_id: process.env.META_ES_CONFIG_ID || '1664627968720314',
     graph_version: process.env.GRAPH_API_VERSION || 'v24.0',
     // The popup in the shop's language (connect.facebook.net/ar_AR).
     locale: 'ar_AR',
+    // P5: offer «رقم المحل الحالي وعليه واتساب» only when SHIFT has switched coexistence on.
+    coexistence: await require('../services/coexistence').isEnabled(),
   });
 }
 

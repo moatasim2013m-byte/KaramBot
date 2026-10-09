@@ -21,9 +21,11 @@ const { embeddedSignupAppId } = require('../utils/metaSecrets');
  * without retyping the campaign. value null restores the code default. Every save is an
  * AccountEvent platform_setting_changed with the value before and after (platformSettings.set).
  *
- * Not editable here, on purpose: provider_status (written by the code when the AI fails) and
- * coexistence (the spec keeps no toggle for it until P5). Public self-signup stays off until after
- * the first ten shops; only its daily cap can be prepared.
+ * Not editable here, on purpose: provider_status (written by the code when the AI fails). Public
+ * self-signup stays off until after the first ten shops; only its daily cap can be prepared.
+ * Coexistence (P5) is editable, but switching it on takes the typed Arabic confirmation
+ * COEXISTENCE_CONFIRM in the body: it changes what every shop's connect screen offers, and Meta
+ * then holds SHIFT to a 24-hour sync per number (services/coexistence.js).
  */
 
 const router = express.Router();
@@ -103,17 +105,35 @@ const VALIDATORS = {
     return { enabled: false, daily_cap: intIn(v.daily_cap, 1, 50, 'الحد اليومي للتسجيل بين 1 و50') };
   },
 };
+
+// ── Coexistence (P5) ─────────────────────────────────────────────────────────
+// Off in October (decisions #10). Turning it on is not a click: the person types this sentence,
+// which says what it does. Turning it off needs nothing: off is the safe side.
+const COEXISTENCE_CONFIRM = 'نعم، فعّل الربط مع تطبيق واتساب للأعمال';
+VALIDATORS.coexistence = function coexistence(v, { current, confirm } = {}) {
+  if (typeof v.enabled !== 'boolean') bad('حدّد هل الربط مع تطبيق واتساب للأعمال مفعّل أم لا');
+  const turningOn = v.enabled === true && !(current && current.enabled === true);
+  if (turningOn && String(confirm || '').replace(/\s+/g, ' ').trim() !== COEXISTENCE_CONFIRM) {
+    bad(`للتفعيل اكتب: «${COEXISTENCE_CONFIRM}»`);
+  }
+  return { enabled: v.enabled };
+};
+
 const EDITABLE = Object.keys(VALIDATORS);
 
-/** The checked value to store for `key`, from the current effective value and what was sent. */
-function validateSetting(key, sent, current) {
+/**
+ * The checked value to store for `key`, from the current effective value and what was sent.
+ * `opts.confirm` is the typed confirmation a switch may ask for (coexistence).
+ */
+function validateSetting(key, sent, current, opts = {}) {
   if (!EDITABLE.includes(key)) bad('هذا الإعداد لا يُعدَّل من هنا');
   const validate = VALIDATORS[key];
+  const ctx = { current, confirm: opts.confirm };
   if (isPlainObject(current)) {
     if (!isPlainObject(sent)) bad(`قيمة «${labels.SETTING_AR[key]}» غير صحيحة`);
-    return validate({ ...current, ...sent });
+    return validate({ ...current, ...sent }, ctx);
   }
-  return validate(sent);
+  return validate(sent, ctx);
 }
 
 // Read-only «Meta» block: the same values the connect button uses (routes/embeddedSignup.js
@@ -134,6 +154,8 @@ router.get('/', async (req, res) => {
       editable: EDITABLE,
       labels: labels.SETTING_AR,
       meta: metaInfo(),
+      // The sentence to type to switch coexistence on, so the page shows exactly what is checked.
+      coexistence_confirm: COEXISTENCE_CONFIRM,
     });
   } catch (err) {
     console.error(`[admin/platform-settings] read failed: ${err.message}`);
@@ -150,7 +172,7 @@ router.patch('/', async (req, res) => {
   try {
     let value = null;
     if (req.body.value !== null) {
-      value = validateSetting(key, req.body.value, await platformSettings.get(key));
+      value = validateSetting(key, req.body.value, await platformSettings.get(key), { confirm: req.body.confirm });
     }
     const effective = await platformSettings.set(key, value, req.user.id);
     res.json({ key, value: effective, settings: await platformSettings.getAll() });
@@ -165,3 +187,4 @@ router.patch('/', async (req, res) => {
 module.exports = router;
 module.exports.validateSetting = validateSetting;
 module.exports.EDITABLE = EDITABLE;
+module.exports.COEXISTENCE_CONFIRM = COEXISTENCE_CONFIRM;
