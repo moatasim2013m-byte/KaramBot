@@ -44,6 +44,8 @@ test('GET returns every effective setting, the defaults, what is editable and th
   // P5: coexistence is editable, behind a typed confirmation the page shows as given here.
   expect(res.body.editable).toContain('coexistence');
   expect(res.body.coexistence_confirm).toMatch(/[ء-ي]/);
+  // Both public switches share one confirm map, which the settings page reads for both blocks.
+  expect(res.body.confirm_to_enable).toEqual({ self_signup: expect.stringMatching(/[ء-ي]/), coexistence: res.body.coexistence_confirm });
   expect(res.body.meta).toMatchObject({ config_id: expect.any(String) });
 });
 
