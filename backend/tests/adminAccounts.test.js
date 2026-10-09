@@ -424,7 +424,7 @@ describe('POST /api/admin/accounts/invites/unused-links', () => {
     // Narrowed to the shops shown.
     const none = await request(app).post('/api/admin/accounts/invites/unused-links').set(ADMIN()).send({ account_ids: ['biz_other'] });
     expect(none.body.links).toEqual([]);
-  });
+  }, 20000); // three creates hash with bcrypt 12: past 5 s when the whole suite shares this slow machine
 
   test('SHIFT only', async () => {
     db.seed({ users: [{ id: 'u_owner', role: 'business_owner', business_id: 'biz_other' }] });

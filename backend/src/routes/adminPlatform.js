@@ -22,8 +22,12 @@ const { embeddedSignupAppId } = require('../utils/metaSecrets');
  * AccountEvent platform_setting_changed with the value before and after (platformSettings.set).
  *
  * Not editable here, on purpose: provider_status (written by the code when the AI fails) and
- * coexistence (the spec keeps no toggle for it until P5). Public self-signup stays off until after
- * the first ten shops; only its daily cap can be prepared.
+ * coexistence (the spec keeps no toggle for it until P5).
+ *
+ * Public self-signup (P5, routes/publicSignup.js) is built off (decisions #1: the first ten are
+ * invite-only). Its daily cap can be changed freely; turning it ON lets strangers create shops,
+ * so it also needs the Arabic confirm text in the body ({key, value, confirm}), typed by a person
+ * on purpose rather than clicked through. Turning it off needs nothing.
  */
 
 const router = express.Router();
@@ -99,21 +103,43 @@ const VALIDATORS = {
     return out;
   },
   self_signup(v) {
-    if (v.enabled === true) bad('التسجيل الذاتي العام يُفتح بعد أول 10 زبائن');
-    return { enabled: false, daily_cap: intIn(v.daily_cap, 1, 50, 'الحد اليومي للتسجيل بين 1 و50') };
+    if (typeof v.enabled !== 'boolean') bad('حدّد هل التسجيل الذاتي العام مفتوح أم مغلق');
+    return { enabled: v.enabled, daily_cap: intIn(v.daily_cap, 1, 50, 'الحد اليومي للتسجيل بين 1 و50') };
   },
 };
+
+/**
+ * Switches that open something to the public: turning one ON from off needs this exact sentence
+ * in the request's `confirm`. The settings page asks the person to type it.
+ */
+const CONFIRM_TO_ENABLE = {
+  self_signup: {
+    text: 'افتح التسجيل العام',
+    error: 'التسجيل الذاتي العام يُفتح بعد أول 10 زبائن. لفتحه اكتب عبارة التأكيد: «افتح التسجيل العام»',
+  },
+};
+
+function assertConfirmed(key, value, current, confirm) {
+  const rule = CONFIRM_TO_ENABLE[key];
+  if (!rule || !isPlainObject(value) || value.enabled !== true) return;
+  if (isPlainObject(current) && current.enabled === true) return; // already open: e.g. a new cap
+  if (String(confirm == null ? '' : confirm).replace(/\s+/g, ' ').trim() !== rule.text) bad(rule.error);
+}
 const EDITABLE = Object.keys(VALIDATORS);
 
 /** The checked value to store for `key`, from the current effective value and what was sent. */
-function validateSetting(key, sent, current) {
+function validateSetting(key, sent, current, { confirm } = {}) {
   if (!EDITABLE.includes(key)) bad('هذا الإعداد لا يُعدَّل من هنا');
   const validate = VALIDATORS[key];
+  let value;
   if (isPlainObject(current)) {
     if (!isPlainObject(sent)) bad(`قيمة «${labels.SETTING_AR[key]}» غير صحيحة`);
-    return validate({ ...current, ...sent });
+    value = validate({ ...current, ...sent });
+  } else {
+    value = validate(sent);
   }
-  return validate(sent);
+  assertConfirmed(key, value, current, confirm);
+  return value;
 }
 
 // Read-only «Meta» block: the same values the connect button uses (routes/embeddedSignup.js
@@ -134,6 +160,8 @@ router.get('/', async (req, res) => {
       editable: EDITABLE,
       labels: labels.SETTING_AR,
       meta: metaInfo(),
+      // The sentence the page asks a person to type before a public switch goes on.
+      confirm_to_enable: Object.fromEntries(Object.entries(CONFIRM_TO_ENABLE).map(([k, r]) => [k, r.text])),
     });
   } catch (err) {
     console.error(`[admin/platform-settings] read failed: ${err.message}`);
@@ -150,7 +178,7 @@ router.patch('/', async (req, res) => {
   try {
     let value = null;
     if (req.body.value !== null) {
-      value = validateSetting(key, req.body.value, await platformSettings.get(key));
+      value = validateSetting(key, req.body.value, await platformSettings.get(key), { confirm: req.body.confirm });
     }
     const effective = await platformSettings.set(key, value, req.user.id);
     res.json({ key, value: effective, settings: await platformSettings.getAll() });
@@ -165,3 +193,4 @@ router.patch('/', async (req, res) => {
 module.exports = router;
 module.exports.validateSetting = validateSetting;
 module.exports.EDITABLE = EDITABLE;
+module.exports.CONFIRM_TO_ENABLE = CONFIRM_TO_ENABLE;

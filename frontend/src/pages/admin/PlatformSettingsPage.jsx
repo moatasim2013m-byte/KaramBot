@@ -10,9 +10,11 @@ import api from '../../utils/api';
  * untouched block shows what the platform is actually running on). Each block saves on its own,
  * after a confirmation, and the server writes platform_setting_changed with the before and after.
  *
- * Three things are deliberately not switches here: public self-signup (greyed until after the
- * first ten shops), coexistence (built, off for October — fresh SIMs only), and the Meta ids,
- * which come from the deployment and are shown read-only. Secrets never appear on this page.
+ * Public self-signup («جرّب مجانًا», P5) is a switch, built off: opening it to strangers asks the
+ * person to type a sentence the server checks (adminPlatform.js CONFIRM_TO_ENABLE), so it is never
+ * opened by a stray click. Not switches here: coexistence (built, off for October — fresh SIMs
+ * only) and the Meta ids, which come from the deployment and are shown read-only. Secrets never
+ * appear on this page.
  */
 
 const input = 'w-full h-9 border border-gray-200 rounded-md px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-gray-400';
@@ -119,14 +121,80 @@ function NumbersList({ value, onChange }) {
   );
 }
 
+/**
+ * «التسجيل الذاتي العام»: the daily cap saves like any block; turning it ON asks for the typed
+ * confirmation sentence the server sent (confirm_to_enable.self_signup) and passes it along.
+ */
+function SelfSignupBlock({ settings, onSaved, confirmSentence }) {
+  const [draft, setDraft] = useState(settings?.self_signup);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const stored = JSON.stringify(settings?.self_signup ?? null);
+  useEffect(() => { setDraft(JSON.parse(stored)); }, [stored]);
+  const dirty = JSON.stringify(draft ?? null) !== stored;
+  const wasOn = Boolean(settings?.self_signup?.enabled);
+  const opening = !wasOn && Boolean(draft?.enabled);
+
+  const save = async () => {
+    const body = { key: 'self_signup', value: draft };
+    if (opening) {
+      const sentence = confirmSentence || 'افتح التسجيل العام';
+      const typed = window.prompt(`فتح التسجيل العام يسمح لأي محل لم تقابله بإنشاء حساب وتجربة كرم بوت، حتى ${draft?.daily_cap ?? 5} محلات في اليوم. للتأكيد اكتب: ${sentence}`);
+      if (typed === null) return;
+      body.confirm = typed;
+    } else if (!window.confirm(wasOn && !draft?.enabled
+      ? 'إغلاق التسجيل العام؟ تعود صفحة «جرّب مجانًا» إلى «التسجيل عبر دعوة من شِفت فقط». الحسابات التي سجّلت تبقى.'
+      : 'حفظ الحد اليومي للتسجيل العام؟')) return;
+    setBusy(true); setMsg(null);
+    try {
+      const res = await api.patch('/admin/platform-settings', body);
+      onSaved('self_signup', res.data?.value !== undefined ? res.data.value : draft);
+      setMsg({ tone: 'ok', text: 'تم الحفظ' });
+    } catch (err) {
+      setMsg({ tone: 'error', text: err.response?.data?.error || 'تعذّر الحفظ' });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Panel title="التسجيل الذاتي العام">
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[13px] text-gray-800">صفحة «جرّب مجانًا» بدون دعوة</p>
+            <p className="text-[11px] text-gray-500">مغلقة حتى بعد أول 10 زبائن. يصلك تنبيه مع كل محل يسجّل بنفسه.</p>
+          </div>
+          <Toggle checked={Boolean(draft?.enabled)} onChange={(on) => setDraft((d) => ({ ...d, enabled: on }))} label="التسجيل الذاتي العام" />
+        </div>
+        <Field label="أقصى عدد تسجيلات في اليوم" hint="يُعدّ بتوقيت عمّان. بعده تقول الصفحة: اكتملت تسجيلات اليوم.">
+          <NumberInput value={draft?.daily_cap} onChange={(n) => setDraft((d) => ({ ...d, daily_cap: n }))} min={1} />
+        </Field>
+        {opening && (
+          <p className="flex items-start gap-1.5 text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            عند الحفظ ستُطلب منك كتابة عبارة التأكيد.
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-3 px-4 py-3 border-t border-gray-100">
+        <button type="button" onClick={save} disabled={busy || !dirty}
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-[12px] disabled:opacity-40">
+          <Save size={12} /> {busy ? 'جارٍ…' : 'احفظ'}
+        </button>
+        {msg && <span className={`text-[12px] ${msg.tone === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</span>}
+      </div>
+    </Panel>
+  );
+}
+
 export default function PlatformSettingsPage() {
   const [settings, setSettings] = useState(null);
   const [meta, setMeta] = useState(null);
+  const [confirmTexts, setConfirmTexts] = useState({});
   const [error, setError] = useState(null);
 
   const load = useCallback(() => {
     api.get('/admin/platform-settings')
-      .then((res) => { setSettings(res.data?.settings || {}); setError(null); })
+      .then((res) => { setSettings(res.data?.settings || {}); setConfirmTexts(res.data?.confirm_to_enable || {}); setError(null); })
       .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل إعدادات المنصة'));
     api.get('/admin/embedded-signup/config')
       .then((res) => setMeta(res.data))
@@ -237,15 +305,7 @@ export default function PlatformSettingsPage() {
             {(v, set) => <NumbersList value={v} onChange={set} />}
           </Block>
 
-          <Panel title="التسجيل الذاتي العام">
-            <div className="p-4 flex items-center justify-between gap-3 opacity-60">
-              <div>
-                <p className="text-[13px] text-gray-800">صفحة تسجيل عامة بدون دعوة</p>
-                <p className="text-[11px] text-gray-500">بعد أول 10 زبائن</p>
-              </div>
-              <Toggle checked={Boolean(settings.self_signup?.enabled)} onChange={() => {}} disabled label="التسجيل الذاتي العام" />
-            </div>
-          </Panel>
+          <SelfSignupBlock {...blockProps} confirmSentence={confirmTexts.self_signup} />
 
           <Panel title="رقم واتساب موصول بتطبيق الهاتف (Coexistence)">
             <p className="px-4 py-3 text-[13px] text-gray-600">

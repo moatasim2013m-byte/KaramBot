@@ -74,6 +74,8 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
+// «جرّب مجانًا» (P5): a 503 until the owner opens self_signup; its POST has its own per-IP limiter.
+app.use('/api/public/signup', apiLimiter, require('./routes/publicSignup'));
 // Mounted before the webhook router so the more specific path wins.
 app.use('/api/whatsapp/embedded-signup', apiLimiter, require('./routes/embeddedSignup'));
 // The customer's own «is my WhatsApp connected» — read-only, scoped to their business.
