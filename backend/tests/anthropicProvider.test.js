@@ -9,11 +9,14 @@ require('./setup');
 
 const mockCreate = jest.fn();
 const mockClientOpts = [];
+// Which endpoint each call went to: the fallback opt-in is a beta, so it must go through client.beta.messages.
+const mockEndpoints = [];
 jest.mock('@anthropic-ai/sdk', () => {
   const actual = jest.requireActual('@anthropic-ai/sdk');
   function FakeAnthropic(opts) {
     mockClientOpts.push(opts);
-    this.messages = { create: (...args) => mockCreate(...args) };
+    this.messages = { create: (...args) => { mockEndpoints.push('messages'); return mockCreate(...args); } };
+    this.beta = { messages: { create: (...args) => { mockEndpoints.push('beta'); return mockCreate(...args); } } };
   }
   for (const k of ['APIError', 'BadRequestError', 'AuthenticationError', 'PermissionDeniedError', 'NotFoundError',
     'RateLimitError', 'InternalServerError', 'APIConnectionError', 'APIConnectionTimeoutError', 'APIUserAbortError']) {
@@ -69,7 +72,7 @@ const shiftOpts = (extra = {}) => ({
 });
 
 const ENV_KEYS = ['AI_PROVIDER', 'AI_FALLBACK_PROVIDER', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL', 'ANTHROPIC_THINKING',
-  'ANTHROPIC_EFFORT', 'ANTHROPIC_MAX_TOKENS', 'ANTHROPIC_STRUCTURED', 'AI_PROVIDER_COOLDOWN_MS', 'AI_PROVIDER_ALERT_MS', 'GEMINI_API_KEY'];
+  'ANTHROPIC_EFFORT', 'ANTHROPIC_MAX_TOKENS', 'ANTHROPIC_STRUCTURED', 'ANTHROPIC_FALLBACKS', 'AI_PROVIDER_COOLDOWN_MS', 'AI_PROVIDER_ALERT_MS', 'GEMINI_API_KEY'];
 const saved = {};
 let logSpy;
 
@@ -79,9 +82,10 @@ beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
   process.env.GEMINI_API_KEY = 'test_gemini_key';
   for (const k of ['AI_FALLBACK_PROVIDER', 'ANTHROPIC_MODEL', 'ANTHROPIC_THINKING', 'ANTHROPIC_EFFORT', 'ANTHROPIC_MAX_TOKENS',
-    'ANTHROPIC_STRUCTURED', 'AI_PROVIDER_COOLDOWN_MS', 'AI_PROVIDER_ALERT_MS']) delete process.env[k];
+    'ANTHROPIC_STRUCTURED', 'ANTHROPIC_FALLBACKS', 'AI_PROVIDER_COOLDOWN_MS', 'AI_PROVIDER_ALERT_MS']) delete process.env[k];
   mockCreate.mockReset();
   mockClientOpts.length = 0;
+  mockEndpoints.length = 0;
   mockGenerateContent.mockReset();
   mockGetGenerativeModel.mockClear();
   _resetProviderState();
@@ -107,7 +111,7 @@ const walk = (node, fn, path = '$') => {
 // ─── A. request shape ────────────────────────────────────────────────────────
 
 describe('A. request shape', () => {
-  test('A1. SHIFT call: claude-sonnet-5, cached system block, one user turn, thinking off, effort low, structured output', async () => {
+  test('A1. SHIFT call: claude-opus-5-5, cached system block, one user turn, thinking on, effort low, structured output, refusal fallback', async () => {
     mockCreate.mockResolvedValue(claudeMsg(GOOD));
     const result = await generateValidatedAIReply('STATIC SYSTEM', 'USER TURN (dates, stage, lead)', [], shiftOpts());
 
@@ -115,13 +119,18 @@ describe('A. request shape', () => {
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const [params, reqOpts] = mockCreate.mock.calls[0];
     expect(params).toEqual({
-      model: 'claude-sonnet-5',
-      max_tokens: 2048,
+      model: 'claude-opus-5-5',
+      // Room for the thinking as well as the reply: thinking spends from max_tokens.
+      max_tokens: 16000,
       system: [{ type: 'text', text: 'STATIC SYSTEM', cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: 'USER TURN (dates, stage, lead)' }],
-      thinking: { type: 'disabled' },
+      // Opus 5.5 rejects {type:'disabled'} at every effort level.
+      thinking: { type: 'adaptive' },
       output_config: { effort: 'low', format: { type: 'json_schema', schema: toClaudeSchema(RESPONSE_SCHEMA) } },
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
     });
+    expect(mockEndpoints).toEqual(['beta']);
     for (const forbidden of ['temperature', 'top_p', 'top_k']) expect(params).not.toHaveProperty(forbidden);
     expect(JSON.stringify(params)).not.toContain('budget_tokens');
     expect(params.messages.every((m) => m.role === 'user')).toBe(true); // no assistant prefill
@@ -141,7 +150,7 @@ describe('A. request shape', () => {
     expect(p.model).toBe('claude-sonnet-5-test');
     expect(p.thinking).toEqual({ type: 'adaptive' });
     expect(p.output_config.effort).toBe('medium');
-    expect(p.max_tokens).toBe(4096);
+    expect(p.max_tokens).toBe(16000);
     process.env.ANTHROPIC_MAX_TOKENS = '3000';
     process.env.ANTHROPIC_EFFORT = 'bogus';
     p = buildRequest('S', 'U', { jsonMode: true, systemInstruction: true, attemptMs: 1000 });
@@ -149,6 +158,67 @@ describe('A. request shape', () => {
     expect(p.output_config.effort).toBe('low');
     process.env.ANTHROPIC_THINKING = 'bogus';
     expect(anthropicConfig().thinking).toBe('off');
+  });
+
+  test('A2b. a model that always thinks never gets thinking off, whatever ANTHROPIC_THINKING says', () => {
+    process.env.ANTHROPIC_THINKING = 'off';
+    for (const model of ['claude-opus-5-5', 'claude-fable-5-1']) {
+      process.env.ANTHROPIC_MODEL = model;
+      expect(buildRequest('S', 'U', { jsonMode: true, systemInstruction: true, attemptMs: 1000 }).thinking).toEqual({ type: 'adaptive' });
+      expect(buildRequest('S', 'U', { jsonMode: true, systemInstruction: true, attemptMs: 1000, thinkingOff: true, tokenLimitHit: true }).thinking)
+        .toEqual({ type: 'adaptive' });
+    }
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-5';
+    expect(buildRequest('S', 'U', { jsonMode: true, systemInstruction: true, attemptMs: 1000 }).thinking).toEqual({ type: 'disabled' });
+  });
+
+  test('A2f. Sonnet 5.5 turns thinking off with between_tools (disabled is a 400), only at effort high or below', () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-5-5';
+    const req = () => buildRequest('S', 'U', { jsonMode: true, systemInstruction: true, attemptMs: 1000 });
+    process.env.ANTHROPIC_THINKING = 'off';
+    for (const effort of ['low', 'medium', 'high']) {
+      process.env.ANTHROPIC_EFFORT = effort;
+      expect(req().thinking).toEqual({ type: 'between_tools' });
+    }
+    process.env.ANTHROPIC_EFFORT = 'max';
+    expect(req().thinking).toEqual({ type: 'adaptive' });
+    process.env.ANTHROPIC_EFFORT = 'low';
+    process.env.ANTHROPIC_THINKING = 'adaptive';
+    expect(req().thinking).toEqual({ type: 'adaptive' });
+    // The thinking-off token-limit retry is between_tools too, never disabled.
+    delete process.env.ANTHROPIC_THINKING;
+    expect(buildRequest('S', 'U', { jsonMode: true, systemInstruction: true, attemptMs: 1000, thinkingOff: true, tokenLimitHit: true }).thinking)
+      .toEqual({ type: 'between_tools' });
+  });
+
+  test('A2c. ANTHROPIC_FALLBACKS=0 drops the fallback opt-in and uses the plain endpoint', async () => {
+    process.env.ANTHROPIC_FALLBACKS = '0';
+    mockCreate.mockResolvedValue(claudeMsg(GOOD));
+    await generateValidatedAIReply('S', 'U', [], shiftOpts());
+    const [params] = mockCreate.mock.calls[0];
+    expect(params).not.toHaveProperty('fallbacks');
+    expect(params).not.toHaveProperty('betas');
+    expect(mockEndpoints).toEqual(['messages']);
+  });
+
+  test('A2d. a 400 on the fallback opt-in resends the same turn without it, and stops sending it', async () => {
+    const { BadRequestError } = jest.requireActual('@anthropic-ai/sdk');
+    const err = Object.create(BadRequestError.prototype);
+    err.message = '400 fallbacks: unknown parameter';
+    err.status = 400;
+    mockCreate.mockRejectedValueOnce(err).mockResolvedValue(claudeMsg(GOOD));
+    const result = await generateValidatedAIReply('S', 'U', [], shiftOpts());
+    expect(result.reply).toBe('أهلا فيك');
+    expect(mockCreate.mock.calls[1][0]).not.toHaveProperty('fallbacks');
+    await generateValidatedAIReply('S', 'U', [], shiftOpts());
+    expect(mockCreate.mock.calls[2][0]).not.toHaveProperty('fallbacks');
+  });
+
+  test('A2e. a turn the fallback model served is logged with served_by', async () => {
+    mockCreate.mockResolvedValue({ ...claudeMsg(GOOD), model: 'claude-opus-5' });
+    await generateValidatedAIReply('S', 'U', [], shiftOpts());
+    const line = logSpy.mock.calls.map((c) => c[0]).find((l) => typeof l === 'string' && l.startsWith('[ai] '));
+    expect(JSON.parse(line.slice(5))).toEqual(expect.objectContaining({ model: 'claude-opus-5-5', served_by: 'claude-opus-5' }));
   });
 
   test('A3. the response schema fits structured outputs: additionalProperties:false and every property required, no maxItems / nullable / format / union', () => {
@@ -217,8 +287,8 @@ describe('A. request shape', () => {
     const line = logSpy.mock.calls.map((c) => c[0]).find((l) => typeof l === 'string' && l.startsWith('[ai] '));
     const fields = JSON.parse(line.slice(5));
     expect(fields).toEqual(expect.objectContaining({
-      provider: 'anthropic', model: 'claude-sonnet-5', in: 812, out: 96, cache_read: 5120, cache_write: 0,
-      finish: 'end_turn', thinking: 'disabled', effort: 'low', structured: true, conv: 'conv_1', attempt: 1, ok: true,
+      provider: 'anthropic', model: 'claude-opus-5-5', in: 812, out: 96, cache_read: 5120, cache_write: 0,
+      finish: 'end_turn', thinking: 'adaptive', effort: 'low', structured: true, conv: 'conv_1', attempt: 1, ok: true,
     }));
     expect(typeof fields.ms).toBe('number');
   });
@@ -227,7 +297,19 @@ describe('A. request shape', () => {
 // ─── B. stop_reason ──────────────────────────────────────────────────────────
 
 describe('B. stop_reason', () => {
-  test('B1. max_tokens → the retry gets thinking off and twice the room, like Gemini MAX_TOKENS', async () => {
+  test('B1. max_tokens → the retry gets twice the room; Opus 5.5 keeps thinking on (off would 400)', async () => {
+    mockCreate
+      .mockResolvedValueOnce(claudeMsg('{"reply":"أهلا ف', { stop_reason: 'max_tokens' }))
+      .mockResolvedValueOnce(claudeMsg(GOOD));
+    const result = await generateValidatedAIReply('S', 'U', [], shiftOpts());
+    expect(result.reply).toBe('أهلا فيك');
+    expect(mockCreate.mock.calls[0][0]).toEqual(expect.objectContaining({ thinking: { type: 'adaptive' }, max_tokens: 16000 }));
+    expect(mockCreate.mock.calls[1][0]).toEqual(expect.objectContaining({ thinking: { type: 'adaptive' }, max_tokens: 32000 }));
+  });
+
+  test('B1b. on an older model (claude-sonnet-5) the token-limit retry still turns thinking off', async () => {
+    process.env.ANTHROPIC_MODEL = 'claude-sonnet-5';
+    process.env.ANTHROPIC_MAX_TOKENS = '4096';
     process.env.ANTHROPIC_THINKING = 'adaptive';
     mockCreate
       .mockResolvedValueOnce(claudeMsg('{"reply":"أهلا ف', { stop_reason: 'max_tokens' }))

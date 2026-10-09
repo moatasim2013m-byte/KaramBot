@@ -1157,3 +1157,46 @@ describe('published figures (owner, 2026-10-05)', () => {
     expect(v.checkDigits('باقة 19 دينار.', {}).map((b) => b.detail)).toEqual(['19']);
   });
 });
+
+describe('live chat review, 2026-10-08', () => {
+  test('a link carries no language: an Instagram reel alone is answered in Arabic', () => {
+    const link = 'https://www.instagram.com/reel/DeJujedorzE/?stkn=MWtyeHdseHY3M3RvaA==';
+    expect(v.expectedLanguage([link], { language: 'ar' })).toBe('ar');
+    expect(v.expectedLanguage([link], {})).toBe('ar');
+    expect(v.expectedLanguage(['I run a clinic in Amman, how does it work?'], {})).toBe('en');
+  });
+
+  test('a demo price the customer wrote as a word («دينارين») may be quoted back (perfume shop «رونق»)', () => {
+    const facts = ['غوتشي غابانا 20 دينار', 'سوفاج 30 دينار', 'التوصيل داخل عمان دينارين', 'التوصيل خارج عمان 3 دنانير'];
+    const vctx = { roleplayActive: true, roleplayFacts: facts, batchTexts: ['وهل في توصيل'], lead: {} };
+    expect(v.checkDigits('التوصيل داخل عمان 2 دينار وخارجها 3 دنانير.', vctx)).toEqual([]);
+    expect(v.checkDigits('التوصيل داخل عمان بدينارين وخارج عمان 3 دنانير.', vctx)).toEqual([]);
+    // A price nobody gave is still an invented number.
+    expect(v.checkDigits('سوفاج بـ25 دينار.', vctx)).toEqual([{ code: 'digits', detail: '25' }]);
+  });
+
+  test('setting up the demo, the customer\'s own prices from this batch may be read back without «حسب أسعارك»', () => {
+    const batchTexts = ['غوتشي غابانا سعرو 20\nالتوصيل دينارين داخل عمان\nوخارج عمان 3', 'سوفاج 30 دينار', 'اسم المتجر رونق'];
+    const line = 'تمام، رونق: غوتشي غابانا 20 دينار، سوفاج 30 دينار، والتوصيل 2 دينار داخل عمان و3 خارجها.';
+    expect(v.checkDigits(line, { stage: 'roleplay_setup', batchTexts, lead: {} })).toEqual([]);
+    // Outside the demo setup the old rule stands, and a number nobody wrote is still blocked.
+    expect(v.checkDigits(line, { stage: 'discovery', batchTexts, lead: {} }).length).toBeGreaterThan(0);
+    expect(v.checkDigits('سوفاج 25 دينار.', { stage: 'roleplay_setup', batchTexts, lead: {} })).toEqual([{ code: 'digits', detail: '25' }]);
+  });
+});
+
+describe('the larger packages (owner, 2026-10-08)', () => {
+  const v = require('../src/workflows/shift/validators');
+  const check = (t, lang = 'ar') => v.validateResult(
+    { kind: 'reply', action: 'NONE', messages: [{ type: 'text', text: t, modelLine: t }] },
+    { lang, batchTexts: ['قديش الباقات؟'], lead: {}, stage: 'fit', attempt: 1 },
+  );
+  test('39.99, 79.99 and 149.99 a month may be said', () => {
+    expect(check('في كمان باقات 39.99 و79.99 و149.99 دينار بالشهر، وباقات مخصّصة حسب احتياجك.').verdict).toBe('ok');
+    expect(check('The packages are 39.99, 79.99 and 149.99 JOD a month.', 'en').verdict).toBe('ok');
+  });
+  test('any other package price is still invented', () => {
+    expect(check('الباقة الذهبية 99.99 دينار بالشهر.').blocks.map((b) => b.code)).toContain('digits');
+    expect(check('عنا 149.99 عميل.').blocks.map((b) => b.code)).toContain('digits');
+  });
+});

@@ -305,8 +305,10 @@ function roleplaySetupGaveUp(lang) {
  */
 function askMovedOn(lang) {
   return isEn(lang)
-    ? "No problem, we can carry on without it. Would you like to see an example on your business, or a short call with the team?"
-    : 'ولا يهمك، منكمّل بدونها. بتحب أوريك مثال على شغلك، ولا نرتّب مكالمة قصيرة مع الفريق؟';
+    ? 'Would you like to see an example on your business, or a short call with the team?'
+    // «ولا يهمك، منكمّل بدونها» ("never mind, we'll carry on without it") read as a non sequitur to people
+    // who had just answered (2026-10-07/08): only the offer stays.
+    : 'بتحب أوريك مثال على شغلك، ولا نرتّب مكالمة قصيرة مع الفريق؟';
 }
 
 function askHandover(lang) {

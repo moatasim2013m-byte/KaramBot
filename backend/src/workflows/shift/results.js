@@ -780,10 +780,17 @@ function isBareGreetingBatch(c) {
   return joined.split(/\s+/).length <= BARE_GREETING_MAX_WORDS;
 }
 
-function endRoleplayPart(reply, shown, sector, lang) {
+function endRoleplayPart(reply, shown, sector, lang, { steppedOut = false } = {}) {
   const end = roleplay.endLine(sector, lang);
-  // The model's debrief is kept only when it labels the example itself (G6 needs the label at the end).
+  // The model's debrief is kept when it labels the example itself (G6 needs the label at the end).
   if (reply && ROLEPLAY_LABEL_RE.test(reply)) return textMessage(shown, end, reply);
+  // The customer stepped out of the example with a real question («شو سعر خدمتك؟», perfume shop «رونق»,
+  // 2026-10-07): the label first, then the model's answer as SHIFT's Karam. Only the end line went out
+  // before, and the price question went unanswered twice.
+  if (steppedOut && reply) {
+    const note = roleplay.endNote(sector, lang);
+    return { type: 'text', text: compose(note, shown, TEXT_LIMIT), modelLine: reply, ack: note };
+  }
   return { type: 'text', text: end };
 }
 
@@ -796,7 +803,27 @@ function statementsOnly(line) {
     .trim();
 }
 
+/** The batch already carries a business name and at least one priced fact: the setup ask is answered. */
+function setupAlreadyGiven(c) {
+  // This batch and the customer's earlier messages: dress prices sent one photo at a time still count.
+  const texts = [...batchCustomerTexts(c), ...(Array.isArray(c.customerHistoryTexts) ? c.customerHistoryTexts : [])];
+  const name = roleplay.businessNameFrom(texts);
+  if (!name) return false;
+  return roleplay.factsFrom(texts, name).some((f) => /\d|دينار|دنانير|ليرة|قرش/.test(f));
+}
+
+// The model's own line already asks for the example's details — the name AND priced items («اكتبلي اسم
+// المحل وقطعتين بأسعارهم»). A bare «شو اسم المطعم؟» still gets the server's fuller ask.
+const SETUP_NAME_RE = /اسم|\bname\b/i;
+const SETUP_ITEMS_RE = /أسعار|اسعار|بأسعار|باسعار|سعر|منتج|صنف|أصناف|قطع|خدمت|خدمات|\bprices?\b|\bproducts?\b|\bitems?\b|\bservices\b/i;
+function asksForSetup(reply) {
+  return /[؟?]/.test(reply) && SETUP_NAME_RE.test(reply) && SETUP_ITEMS_RE.test(reply);
+}
+
 function setupAskPart(shown, reply, sector, lang) {
+  // Abu Mohammad's graded run: the model asked for the shop name and two priced items, and the server's
+  // fixed ask followed with the same request — two asks for one thing in one message.
+  if (reply && asksForSetup(reply)) return { type: 'text', text: compose(shown, null, TEXT_LIMIT), modelLine: reply };
   const ask = roleplay.setupAsk(sector, lang);
   const line = statementsOnly(shown);
   const own = statementsOnly(reply);
@@ -1055,6 +1082,19 @@ function repeatedAskGuard(r, c, wdp, action) {
     wdp.last_ask = { key, words, at, count, msg_id: msgId };
     return { ...r, messages: [...head, askPart(last, line, acks.callTimeAsk(c.lang), null)] };
   }
+  if (key !== 'time') {
+    // A question that is not about a time is dropped from the second repeat on — the model's own words go
+    // out without it, and the server offers a step only when nothing else is left to say. It never hands
+    // the conversation to the team: Mohannad and Abu Mohammad (2026-10-07/08) were passed to the team, and
+    // reminded the next morning that «طلبك لسه بالقائمة», for a question the model had simply asked twice
+    // while they kept answering.
+    wdp.last_ask = { key, words, at, count, msg_id: msgId };
+    // Nothing is added in the question's place: the canned «بتحب أوريك مثال… ولا نرتّب مكالمة قصيرة مع
+    // الفريق؟» read as an unrequested call offer in every graded conversation it appeared in (challenge
+    // exam, 2026-10-08). If the model said nothing but the question, its message goes as written.
+    if (!line) return r;
+    return { ...r, messages: [...head, askPart(last, line, null, null)] };
+  }
   if (count <= ASK_REPEAT_MAX) {
     // Round-2 review #7: ANY question that came back unanswered is dropped the second time — the model's
     // own words go out without it, and the server offers a step instead of asking again.
@@ -1149,6 +1189,21 @@ function resolveAction(aiResult, c) {
   return { action, args: { ...rawArgs, ...norm.args }, rawArgs };
 }
 
+// The customer's own words asking for a call or a meeting.
+const CALL_INTENT_RE = /مكالمة|مكالمه|اتصال|اتصل|تتصل|تتصلو|نحكي|نتواصل|احكي مع|أحكي مع|موعد|اجتماع|احجز|حجز|متى نحكي|إيمتى نحكي|ايمتى نحكي|نتشاوف|نلتقي|\bcall\b|\bmeeting\b|\bschedule\b|\bbook\b|\bappointment\b/i;
+
+/**
+ * A call is on the table when the customer asked for one in this batch, the conversation is already at the
+ * close step (the bot offered the call and they answered), a capture is pending, or they gave a time.
+ */
+function callOnTable(c, args) {
+  const texts = batchCustomerTexts(c);
+  if (texts.some((t) => CALL_INTENT_RE.test(t))) return true;
+  // The bot offered the call (close), or a request already stands (captured / handoff).
+  if (['close', 'captured', 'handoff'].includes(c.conversation.current_state) || c.wd.capture_pending) return true;
+  return !!customerCallTime(c, [args && args.time_text], texts);
+}
+
 function toWorkflowResult(aiResult, ctx) {
   const c = fillCtx(ctx);
   const wd = c.wd;
@@ -1157,6 +1212,14 @@ function toWorkflowResult(aiResult, ctx) {
   const prefill = c.prefill && (!wd.prefill || prefillRerun) ? c.prefill : null;
   let reply = aiResult && typeof aiResult.reply === 'string' ? aiResult.reply.trim() : '';
   let { action, args, rawArgs } = aiResult ? resolveAction(aiResult, c) : { action: 'NONE', args: {}, rawArgs: {} };
+  // A call time is asked for only when a call is on the table. Abu Mohammad (5 branches, 2026-10-08) wrote
+  // «احنا والله» — "we answer them ourselves" — to «مين بيرد على الزباين؟»; the model read it as agreeing
+  // to a call, and the server answered «أي يوم ووقت بناسبك؟» to a man who never asked for one.
+  if (action === 'CAPTURE_TIME' && !callOnTable(c, args)) {
+    console.warn('[shift] capture_time_without_call', JSON.stringify({ conv: c.conversation.id || null }));
+    action = 'NONE';
+    reply = withoutTimeAsk(reply) || reply;
+  }
   const common = { bot_turns: (wd.bot_turns || 0) + 1 };
   const baseLeadPatch = cleanLeadPatch(aiResult && aiResult.lead, c);
   const finishOpts = () => ({ aiResult, reply, action, common, baseLeadPatch, prefill });
@@ -1193,7 +1256,8 @@ function toWorkflowResult(aiResult, ctx) {
     if (action === 'END_ROLEPLAY' || exit) {
       return finish(emptyResult({
         action: 'END_ROLEPLAY',
-        messages: [endRoleplayPart(reply, shown, sector, c.lang)],
+        // A bare «خلص» gets the end line; the model ending the example to answer a question keeps its answer.
+        messages: [endRoleplayPart(reply, shown, sector, c.lang, { steppedOut: !exit })],
         stateUpdate: { current_state: 'close' },
         workflowDataPatch: { roleplay: roleplay.endState(wd.roleplay, 'done', c.now) },
       }));
@@ -1405,6 +1469,12 @@ function toWorkflowResult(aiResult, ctx) {
         // 3), so the example never depends on the model naming the right facts (eval #14).
         const sector = sampleSector(lead.sector);
         workflowDataPatch.roleplay = buttons.roleplayObject(wd.roleplay, { sector, setup_asks: 1 });
+        // The customer already gave the name and priced products in this batch («رونق»، «غوتشي غابانا
+        // سعرو 20»…): asking for exactly that again read as not listening (challenge exam, 2026-10-08).
+        // The model's own line goes alone; it starts the example on the next turn.
+        if (reply && setupAlreadyGiven(c)) {
+          return finish(emptyResult({ action: 'NONE', messages: [mtext()], stateUpdate, workflowDataPatch }));
+        }
         return finish(emptyResult({ action: 'NONE', messages: [setupAskPart(shown, reply, sector, c.lang)], stateUpdate, workflowDataPatch }));
       }
 

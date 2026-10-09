@@ -21,8 +21,26 @@ const express = require('express');
 const router = express.Router();
 const { authenticate, attachBusinessId } = require('../middleware/auth');
 const prisma = require('../config/prisma');
+const templateText = require('../services/templateText');
+const whatsapp = require('../services/whatsapp');
+const { decrypt } = require('../utils/tokenCrypto');
 
 router.use(authenticate, attachBusinessId);
+
+// ─── message display ──────────────────────────────────────────────────────────
+
+/** A template row shows the message the customer got (and its buttons), not the stored «[قالب …]» tag. */
+function messageText(m) {
+  if (m.message_type !== 'template') return { text_body: m.text_body };
+  const d = templateText.display(m.text_body);
+  return { text_body: d.text, template_name: d.template, template_buttons: d.buttons };
+}
+
+function mediaRead(m) {
+  const sm = (m.raw_payload && m.raw_payload.shift_media) || m.shift_media || null;
+  if (!sm || typeof sm !== 'object') return null;
+  return { status: sm.status || null, text: sm.status === 'ok' && typeof sm.text === 'string' ? sm.text : null };
+}
 
 // ─── limits ───────────────────────────────────────────────────────────────────
 
@@ -74,7 +92,8 @@ function withConversation(fn) {
 
 function preview(message) {
   if (!message) return null;
-  const text = typeof message.text_body === 'string' ? message.text_body.replace(/\s+/g, ' ').trim() : '';
+  const shown = messageText(message).text_body;
+  const text = typeof shown === 'string' ? shown.replace(/\s+/g, ' ').trim() : '';
   return {
     text: text.slice(0, PREVIEW_MAX),
     type: message.message_type || 'text',
@@ -319,7 +338,7 @@ router.get('/conversations/:id/messages', withConversation(async (req, res, conv
       meta_message_id: m.meta_message_id,
       direction: m.direction,
       message_type: m.message_type,
-      text_body: m.text_body,
+      ...messageText(m),
       media_id: m.media_id,
       media_mime_type: m.media_mime_type,
       interactive_reply: m.interactive_reply,
@@ -335,6 +354,8 @@ router.get('/conversations/:id/messages', withConversation(async (req, res, conv
       error_message: m.error_message,
       reactions: Array.isArray(m.reactions) ? m.reactions : [],
       kind: m.raw_payload && typeof m.raw_payload.kind === 'string' ? m.raw_payload.kind : null,
+      // What the bot read from a voice note, photo or video (SHIFT_MEDIA), shown under the attachment.
+      media_read: mediaRead(m),
       reply_to: m.reply_to_message_id
         ? (() => {
           const q = byWamid.get(m.reply_to_message_id);
@@ -352,6 +373,38 @@ router.get('/conversations/:id/messages', withConversation(async (req, res, conv
  * actually shown. Whatever arrived after it stays unread: zeroing the counter used to swallow a message
  * that landed between the page's fetch and this call (review, 2026-10-07). Without up_to: everything.
  */
+/**
+ * A voice note, photo, video or document in the thread, fetched from WhatsApp with the business's own token
+ * and streamed to staff (owner, 2026-10-08: voice notes could not be played in the Inbox, photos were a
+ * label). Only a message of this business, in this conversation; the bytes are not stored.
+ */
+const MEDIA_MAX_BYTES = 16 * 1024 * 1024;
+router.get('/conversations/:id/messages/:messageId/media', withConversation(async (req, res, conv) => {
+  const msg = await prisma.message.findFirst({
+    where: { id: req.params.messageId, conversation_id: conv.id, business_id: req.businessId },
+    select: { media_id: true, media_mime_type: true, message_type: true },
+  });
+  if (!msg || !msg.media_id) return res.status(404).json({ error: 'No media on this message' });
+  const business = await prisma.business.findUnique({ where: { id: req.businessId }, select: { wa_access_token: true } });
+  let token = null;
+  try {
+    token = business && business.wa_access_token ? decrypt(business.wa_access_token) : null;
+  } catch (err) {
+    token = null;
+  }
+  if (!token) return res.status(409).json({ error: 'WhatsApp is not connected' });
+  const info = await whatsapp.getMediaInfo(msg.media_id, token, { timeoutMs: 8000 });
+  // WhatsApp keeps an inbound file for a limited time; after that the id no longer resolves.
+  if (!info.ok) return res.status(410).json({ error: 'The file is no longer available on WhatsApp', detail: info.error });
+  const file = await whatsapp.downloadMedia(info.url, token, { maxBytes: MEDIA_MAX_BYTES, timeoutMs: 20000 });
+  if (!file.ok) return res.status(file.error === 'too_large' ? 413 : 502).json({ error: 'Could not download the file', detail: file.error });
+  const mime = String(file.mime_type || info.mime_type || msg.media_mime_type || 'application/octet-stream').split(';')[0].trim();
+  res.set('Content-Type', mime);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.set('X-Content-Type-Options', 'nosniff');
+  return res.send(file.buffer);
+}));
+
 router.post('/conversations/:id/read', withConversation(async (req, res, conv) => {
   const now = new Date();
   let remaining = 0;

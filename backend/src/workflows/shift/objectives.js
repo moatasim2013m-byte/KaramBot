@@ -76,7 +76,7 @@ const TEXTS = {
   sectorList: 'تعريف بجملة ثم قائمة القطاع (sector_list).',
   // Owner, 2026-10-05: the published price may always be said; only a custom quote's figure and date
   // stay with the team.
-  quotePending: 'عرض سعر مخصّص عند الفريق — لا تذكر رقمه ولا موعد إرساله؛ السعر المنشور (19.99 دينار بالشهر) بتقدر تقوله.',
+  quotePending: 'عرض سعر مخصّص عند الفريق — لا تذكر رقمه ولا موعد إرساله؛ الأسعار المنشورة (19.99 و39.99 و79.99 و149.99 دينار بالشهر) بتقدر تقولها.',
   // Round-2 review #16: the price answer ended discovery — «الأسعار بتعتمد على المنتجات المطلوبة وحجم
   // المنشأة» then «الفريق بيتواصل معك», with no scoping question and no next step.
   // Owner, 2026-10-05, after reading every conversation: price is the first thing almost every lead

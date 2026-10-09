@@ -23,6 +23,8 @@ const replyBatcher = require('./replyBatcher');
 const alerts = require('./alerts');
 const newMessageAlert = require('./newMessageAlert');
 const jsonb = require('../db/jsonb');
+const autoReply = require('./autoReply');
+const { isAdPrefill } = require('../workflows/shift/validators');
 const media = require('../workflows/shift/media');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
@@ -183,15 +185,67 @@ function inboundData(businessId, conversationId, waMsg, senderWaId, status, { ca
  * `received` / `processing` and a sweep recovers it.
  * @returns {Promise<{created: boolean, msg: object|null, conversation: object|null}>}
  */
+/**
+ * The customer's own WhatsApp away message, repeated (services/autoReply.js): the same template-length text
+ * this customer already sent, arriving within seconds of our last message. An ad click (WhatsApp's
+ * `referral`) or the ad's canned English prefill is a person, never a repeat. Decided before the row exists, so no batch, sweep or recovery path
+ * ever sees it as `received`. A failed lookup is "not an away message": the row goes the normal way.
+ */
+async function isAwayMessage(conversationId, waMsg) {
+  const text = waMsg && waMsg.type === 'text' && waMsg.text ? waMsg.text.body : null;
+  // A click on the ad (WhatsApp attaches `referral`) is always a person, whatever the canned text says.
+  if (!autoReply.templateLength(text) || waMsg.referral || isAdPrefill(text)) return false;
+  try {
+    const last = await prisma.message.findFirst({
+      where: { conversation_id: conversationId, direction: 'outbound' },
+      orderBy: { created_at: 'desc' },
+      select: { created_at: true },
+    });
+    if (!last) return false;
+    const sentAt = Number(waMsg.timestamp) > 0 ? Number(waMsg.timestamp) * 1000 : Date.now();
+    if (!autoReply.withinAwayWindow(sentAt, new Date(last.created_at).getTime())) return false;
+    const earlier = await prisma.message.findMany({
+      where: {
+        conversation_id: conversationId,
+        direction: 'inbound',
+        created_at: { gte: new Date(sentAt - autoReply.REPEAT_LOOKBACK_MS) },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+      select: { text_body: true },
+    });
+    const norm = autoReply.normalizeText(text);
+    return earlier.some((m) => autoReply.normalizeText(m.text_body) === norm);
+  } catch (err) {
+    console.error(`[inbound] away-message check failed conversation=${conversationId}: ${err.message}`);
+    return false;
+  }
+}
+
 async function insertInbound(businessId, conversationId, waMsg, senderWaId, status, options) {
   if (waMsg?.id) {
     const existing = await prisma.message.findUnique({ where: { meta_message_id: waMsg.id } });
     if (existing) return { created: false, msg: existing, conversation: null };
   }
+  const away = await isAwayMessage(conversationId, waMsg);
   try {
     return await prisma.$transaction(async (tx) => {
-      const msg = await tx.message.create({ data: inboundData(businessId, conversationId, waMsg, senderWaId, status, options) });
+      const data = inboundData(businessId, conversationId, waMsg, senderWaId, status, options);
+      if (away) {
+        // Kept for staff, answered by nobody (Laraca, 2026-10-08).
+        data.message_type = 'auto_reply';
+        data.status = 'skipped';
+        data.raw_payload = { ...(data.raw_payload || {}), auto_reply: true };
+      }
+      const msg = await tx.message.create({ data });
       const at = msg.created_at ? new Date(msg.created_at) : new Date();
+      if (away) {
+        // Not the customer writing: last_inbound_at (the window, «they replied», nudges) and the unread
+        // count stay as they were.
+        console.log(`[inbound] away message not answered conversation=${conversationId} message=${msg.id}`);
+        const conversation = await tx.conversation.update({ where: { id: conversationId }, data: { last_message_at: at } });
+        return { created: true, msg, conversation, away: true };
+      }
       // Never move last_inbound_at backwards: the deliveries of a burst can commit out of order.
       await tx.conversation.updateMany({
         where: { id: conversationId, OR: [{ last_inbound_at: null }, { last_inbound_at: { lt: at } }] },
@@ -428,8 +482,13 @@ async function persistInbound(entry, { servesApp, endpoint } = {}) {
       const customerWaId = normalizePhone(waMsg.from);
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
 
-      const { created, msg, conversation } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
+      const { created, msg, conversation, away } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
         { captions: shiftRows });
+      if (away) {
+        // Stored for staff and shown live in the Inbox, but not an item to answer, alert on or forward.
+        sseEmitter.emit(`business:${business.id}`, { type: 'new_message', conversationId: found.id, businessId: business.id });
+        continue;
+      }
       items.push({
         waMsg, contact, customerWaId, conversation: conversation || found, message: msg, created, recovered: false, claimed: created,
       });
