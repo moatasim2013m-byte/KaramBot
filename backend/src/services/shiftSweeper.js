@@ -42,6 +42,7 @@ const costGuard = require('./costGuard');
 const tokenHealth = require('./tokenHealth');
 const metaStatus = require('./metaStatus');
 const latePolicy = require('./latePolicy');
+const coexistence = require('./coexistence');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -1331,6 +1332,15 @@ async function runSweep({ now = new Date() } = {}) {
           console.error(`[sweep] ${name} failed for ${business.id}:`, err.message);
         }
       }
+    }
+
+    // Coexistence numbers owe Meta two syncs within 24 hours of connecting: retry what failed, and
+    // tell SHIFT at 20 hours. One empty query unless a coexistence number was ever connected.
+    try {
+      report.coex_sync = await coexistence.sweepSyncs(now);
+    } catch (err) {
+      report.errors.push(`coex_sync: ${err.message}`);
+      console.error('[sweep] coex_sync failed:', err.message);
     }
 
     // Last, and on a time budget: the customer shops' Graph reads are the slowest thing a sweep

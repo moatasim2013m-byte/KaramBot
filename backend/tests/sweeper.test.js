@@ -927,6 +927,8 @@ describe('runSweep', () => {
       calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
       // The October offer's weekly follow-up (off by default).
       weekly_followups_sent: 0, weekly_followups_failed: 0,
+      // P5: coexistence numbers' 24-hour syncs; none open while coexistence was never used.
+      coex_sync: { open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0 },
       errors: [],
     });
   });

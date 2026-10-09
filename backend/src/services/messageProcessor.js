@@ -33,6 +33,7 @@ const costGuard = require('./costGuard');
 const tokenHealth = require('./tokenHealth');
 const wentLive = require('./wentLive');
 const { outOfHoursMessage } = require('./openingHours');
+const coexistence = require('./coexistence');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -1054,6 +1055,15 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
   let conversation = startConversation;
 
   if (!conversation.ai_enabled || conversation.status === 'human_takeover') {
+    return;
+  }
+
+  // Coexistence (P5): the owner answered this customer from the WhatsApp Business app a moment ago
+  // (an smb_message_echoes delivery set the hold), so the owner is in the conversation and the bot
+  // does not talk over them. The message is stored and in the inbox already. Only a shop on
+  // coexistence ever has the hold, so for every other shop this is a no-op.
+  if (coexistence.ownerHolds(conversation, new Date())) {
+    emitNewMessages(business, [{ conversation }]);
     return;
   }
 

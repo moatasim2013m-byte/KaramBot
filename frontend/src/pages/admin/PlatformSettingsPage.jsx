@@ -10,11 +10,11 @@ import api from '../../utils/api';
  * untouched block shows what the platform is actually running on). Each block saves on its own,
  * after a confirmation, and the server writes platform_setting_changed with the before and after.
  *
- * Public self-signup («جرّب مجانًا», P5) is a switch, built off: opening it to strangers asks the
- * person to type a sentence the server checks (adminPlatform.js CONFIRM_TO_ENABLE), so it is never
- * opened by a stray click. Not switches here: coexistence (built, off for October — fresh SIMs
- * only) and the Meta ids, which come from the deployment and are shown read-only. Secrets never
- * appear on this page.
+ * Two switches open something wide, both built off: public self-signup («جرّب مجانًا», P5) and
+ * coexistence (P5, off for October — fresh SIMs only). Turning either on asks the person to type a
+ * sentence the server checks (adminPlatform.js CONFIRM_TO_ENABLE), so neither is opened by a stray
+ * click. The Meta ids come from the deployment and are shown read-only. Secrets never appear on
+ * this page.
  */
 
 const input = 'w-full h-9 border border-gray-200 rounded-md px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-gray-400';
@@ -186,6 +186,57 @@ function SelfSignupBlock({ settings, onSaved, confirmSentence }) {
   );
 }
 
+/**
+ * «التطبيق والمنصة معًا» (coexistence, P5). Not a Block: switching it on needs the sentence the
+ * server sends (confirm_to_enable.coexistence) typed back, because it changes what every shop's connect
+ * screen offers and holds SHIFT to Meta's 24-hour sync for each such number. Off needs only a
+ * confirm.
+ */
+function CoexistenceBlock({ value, confirmText, onSaved }) {
+  const on = Boolean(value?.enabled);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const flip = async () => {
+    let confirm;
+    if (!on) {
+      confirm = window.prompt(
+        `تفعيل الربط مع تطبيق واتساب للأعمال؟ سيظهر لكل محل خيار «رقم المحل الحالي وعليه واتساب»، وتلتزم شِفت بمزامنة كل رقم خلال 24 ساعة.\n\nللتأكيد اكتب:\n${confirmText || ''}`,
+      );
+      if (confirm === null) return;
+    } else if (!window.confirm('إيقاف الربط مع تطبيق واتساب للأعمال؟ يختفي الخيار من شاشة الربط. الأرقام المربوطة به تبقى تعمل.')) {
+      return;
+    }
+    setBusy(true); setMsg(null);
+    try {
+      const res = await api.patch('/admin/platform-settings', { key: 'coexistence', value: { enabled: !on }, confirm });
+      onSaved('coexistence', res.data?.value !== undefined ? res.data.value : { enabled: !on });
+      setMsg({ tone: 'ok', text: 'تم الحفظ' });
+    } catch (err) {
+      setMsg({ tone: 'error', text: err.response?.data?.error || 'تعذّر الحفظ' });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Panel title="رقم واتساب موصول بتطبيق الهاتف (Coexistence)">
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[13px] text-gray-800">خيار «رقم المحل الحالي وعليه واتساب» في شاشة الربط</p>
+            <p className="text-[11px] text-gray-500">{on ? 'مفعّل' : 'مغلق — كل محل يربط شريحة جديدة'}</p>
+          </div>
+          <Toggle checked={on} onChange={flip} disabled={busy} label="الربط مع تطبيق واتساب للأعمال" />
+        </div>
+        <p className="flex items-start gap-1.5 text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          جرّبه أولًا على رقم محل واحد صديق في إربد (دعم الأرقام الأردنية لم يُتحقق منه بعد). بعد كل ربط تطلب شِفت من Meta مزامنة جهات الاتصال والمحادثات خلال 24 ساعة، ويصلك تنبيه إن لم تكتمل بعد 20 ساعة.
+        </p>
+        {msg && <span className={`text-[12px] ${msg.tone === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</span>}
+      </div>
+    </Panel>
+  );
+}
+
 export default function PlatformSettingsPage() {
   const [settings, setSettings] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -307,11 +358,8 @@ export default function PlatformSettingsPage() {
 
           <SelfSignupBlock {...blockProps} confirmSentence={confirmTexts.self_signup} />
 
-          <Panel title="رقم واتساب موصول بتطبيق الهاتف (Coexistence)">
-            <p className="px-4 py-3 text-[13px] text-gray-600">
-              مغلق: في هذه المرحلة كل محل يربط شريحة جديدة. لا يوجد مفتاح هنا عمدًا.
-            </p>
-          </Panel>
+          <CoexistenceBlock value={settings.coexistence} confirmText={confirmTexts.coexistence} onSaved={onSaved} />
+
         </>
       )}
 

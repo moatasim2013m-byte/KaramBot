@@ -29,6 +29,7 @@ const accountEvents = require('./accountEvents');
 const alerts = require('./alerts');
 const metaStatus = require('./metaStatus');
 const platformSettings = require('./platformSettings');
+const coexistence = require('./coexistence');
 const plans = require('../config/plans');
 const { WHATSAPP_MANAGER_URL, paymentNotice } = require('../config/metaNotices');
 
@@ -91,8 +92,10 @@ const FINISH_EVENTS = Object.freeze([
   'FINISH_OBO_MIGRATION',
   'FINISH_GRANT_ONLY_API_ACCESS',
 ]);
-// A number still on the WhatsApp Business app. Coexistence is off in October (decision 10): its
-// number is already registered by the app, so /register is not called and SHIFT finishes by hand.
+// A number still on the WhatsApp Business app. Its number is already registered by the app, so
+// /register is never called. With coexistence off (October, decision 10) SHIFT finishes by hand;
+// with PlatformSetting coexistence.enabled on, the number is linked and the 24-hour syncs start
+// (services/coexistence.js).
 const COEXISTENCE_EVENT = 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
 
 /**
@@ -479,12 +482,14 @@ async function linkOnboardingToBusiness(row, { businessId = row.business_id, num
  * time; a resume uses the stored token, which is why a failed step 2 or 3 does not send the
  * customer back through Embedded Signup. `actor` ({kind, userId}) is who asked, for the
  * es_conflict event when the number turns out to be taken. `number` is Meta's view of it, passed
- * to the link. A coexistence row (or `skipRegister`) stops after subscribed_apps, marked
- * needs_operator: its number is registered by the WhatsApp Business app, and /register would
- * take it off the owner's phone. Returns the row as the dashboard should show it.
+ * to the link. A coexistence row never reaches /register: its number is registered by the
+ * WhatsApp Business app, and /register would take it off the owner's phone. With coexistence on
+ * (`coexistenceOn`, else PlatformSetting coexistence.enabled) it is linked without it; with
+ * coexistence off (or `skipRegister`) it stops after subscribed_apps, marked needs_operator.
+ * Returns the row as the dashboard should show it.
  */
 async function runOnboarding(onboardingId, {
-  code, token: exchangedToken, pin: suppliedPin, actor = {}, skipRegister = false, number = null,
+  code, token: exchangedToken, pin: suppliedPin, actor = {}, skipRegister = false, number = null, coexistenceOn,
 } = {}) {
   let row = await prisma.whatsappOnboarding.findUnique({ where: { id: onboardingId } });
   if (!row) throw new Error(`onboarding ${onboardingId} not found`);
@@ -537,6 +542,16 @@ async function runOnboarding(onboardingId, {
       where: { id: row.id },
       data: { step: 'subscribed', subscribed_at: new Date(), last_error: null, last_error_at: null },
     });
+  }
+
+  // ── Coexistence, when on: no /register, straight to the link ──────────────────
+  if (row.finish_event === COEXISTENCE_EVENT && !skipRegister) {
+    const on = coexistenceOn !== undefined ? Boolean(coexistenceOn) : await coexistence.isEnabled();
+    if (on) {
+      if (!row.business_id) return row;
+      row = await linkOnboardingToBusiness(row, { number });
+      return prisma.whatsappOnboarding.update({ where: { id: row.id }, data: { step: 'done', needs_operator: false } });
+    }
   }
 
   if (skipRegister || row.finish_event === COEXISTENCE_EVENT) {
@@ -693,6 +708,12 @@ async function afterConnect({ businessId, onboarding, actor = {}, finishEvent = 
   // The owner_alert template on the shop's own WABA, so handoff alerts reach the owner outside 24 h.
   // Not awaited: Meta's review is no reason to hold the owner's screen, and it never throws.
   try { require('./ownerAlertTemplate').submitAfterConnect(businessId, { now }).catch(() => {}); } catch (err) { console.warn(`[embedded-signup] owner alert template business=${businessId}: ${err.message}`); }
+  // A coexistence number owes Meta its two syncs within 24 hours. Every path that connects one
+  // (the code, a resume, SHIFT attaching it) comes through here; startSync never throws, and the
+  // sweep retries what it did not finish.
+  if ((finishEvent || onboarding.finish_event) === COEXISTENCE_EVENT) {
+    await coexistence.startSync({ businessId, onboarding, now });
+  }
   const display = business?.wa_display_phone ? `‎${business.wa_display_phone}` : 'رقمه';
   tellShift({
     reason: 'customer_connected',
@@ -857,7 +878,9 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
       tellShift({ reason: 'needs_operator', businessId, summary: 'حساب Meta الذي ربط منه يختلف عمّا أرسله المتصفح — راجِع الربط' });
     }
 
-    const coexistence = event === COEXISTENCE_EVENT;
+    const coexEvent = event === COEXISTENCE_EVENT;
+    // Read once, so the row and the steps after it agree even if SHIFT flips the switch meanwhile.
+    const coexOn = coexEvent ? await coexistence.isEnabled() : false;
     const row = await startOnboarding({
       appId: embeddedSignupApp().appId,
       businessId,
@@ -866,7 +889,7 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
       phoneNumberId: grant.phoneNumberId,
       sessionId: hints.sessionId ? String(hints.sessionId).slice(0, 128) : null,
       finishEvent: event,
-      needsOperator: coexistence || grant.resolution === 'ambiguous',
+      needsOperator: (coexEvent && !coexOn) || grant.resolution === 'ambiguous',
       token,
       actor,
     });
@@ -887,13 +910,21 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
     }
 
     stage = 'subscribe';
-    const done = await runOnboarding(row.id, { token, actor, skipRegister: coexistence, number: grant.number });
+    const done = await runOnboarding(row.id, {
+      token, actor, skipRegister: coexEvent && !coexOn, coexistenceOn: coexOn, number: grant.number,
+    });
     if (done.step !== 'done') {
       await log('es_failed', {
-        stage: 'register', status: deriveStatus(done), reason: coexistence ? 'coexistence' : 'not_linked',
+        stage: 'register', status: deriveStatus(done), reason: coexEvent ? 'coexistence' : 'not_linked',
         finish_event: event, waba_id: done.waba_id, phone_number_id: done.phone_number_id,
       });
-      tellShift({ reason: 'needs_operator', businessId, summary: 'الرقم على تطبيق واتساب للأعمال — الربط المشترك غير مفعّل، لم نسجّله' });
+      tellShift({
+        reason: 'needs_operator',
+        businessId,
+        summary: coexEvent && !coexOn
+          ? 'الرقم على تطبيق واتساب للأعمال — الربط المشترك غير مفعّل، لم نسجّله'
+          : 'وافق في Meta لكن الربط لم يكتمل — راجِعه من «الانضمام»',
+      });
       return { status: deriveStatus(done), onboarding: done };
     }
     await afterConnect({ businessId, onboarding: done, actor, finishEvent: event });
@@ -987,7 +1018,8 @@ async function resumeOnboarding({ businessId, pin, actor = {} }) {
 async function completeOnboarding({ onboardingId, phoneNumberId, actor = {} }) {
   const row = await prisma.whatsappOnboarding.findUnique({ where: { id: String(onboardingId) } });
   if (!row) throw typed('not_found', 404, 'لا يوجد ربط بهذا المعرّف.');
-  if (row.finish_event === COEXISTENCE_EVENT) {
+  // With coexistence on, the usual steps link it without /register (runOnboarding).
+  if (row.finish_event === COEXISTENCE_EVENT && !(await coexistence.isEnabled())) {
     throw typed('coexistence', 409, 'هذا الرقم على تطبيق واتساب للأعمال، والربط المشترك غير مفعّل بعد.');
   }
   if (row.phone_number_id && !row.needs_operator) {
@@ -1141,6 +1173,9 @@ function publicStatus(row, { business = null, audience = 'owner' } = {}) {
     failed: Boolean(row.last_error) || Boolean(row.revoked_at),
     // Meta took SHIFT off the account: its own red state on the panel, with «أعد الربط».
     revoked: Boolean(row.revoked_at),
+    // The number also lives in the WhatsApp Business app on the owner's phone: the panel explains
+    // the 14-day rule and that the bot steps back where the owner replies from the app.
+    coexistence: row.finish_event === COEXISTENCE_EVENT && row.step === 'done' && !row.needs_operator,
     updated_at: row.updated_at,
   };
   if (reader === 'staff') out.last_error = row.last_error || null;

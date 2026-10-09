@@ -21,13 +21,15 @@ const { embeddedSignupAppId } = require('../utils/metaSecrets');
  * without retyping the campaign. value null restores the code default. Every save is an
  * AccountEvent platform_setting_changed with the value before and after (platformSettings.set).
  *
- * Not editable here, on purpose: provider_status (written by the code when the AI fails) and
- * coexistence (the spec keeps no toggle for it until P5).
+ * Not editable here, on purpose: provider_status (written by the code when the AI fails).
  *
- * Public self-signup (P5, routes/publicSignup.js) is built off (decisions #1: the first ten are
- * invite-only). Its daily cap can be changed freely; turning it ON lets strangers create shops,
- * so it also needs the Arabic confirm text in the body ({key, value, confirm}), typed by a person
- * on purpose rather than clicked through. Turning it off needs nothing.
+ * Two switches open something wide, so turning either ON from off needs a sentence typed by a
+ * person in the body ({key, value, confirm}) rather than a click (CONFIRM_TO_ENABLE). Turning
+ * them off needs nothing: off is the safe side.
+ * - Public self-signup (P5, routes/publicSignup.js) is built off (decisions #1: the first ten are
+ *   invite-only); its daily cap can be changed freely.
+ * - Coexistence (P5) changes what every shop's connect screen offers, and Meta then holds SHIFT to
+ *   a 24-hour sync per number (services/coexistence.js).
  */
 
 const router = express.Router();
@@ -108,14 +110,27 @@ const VALIDATORS = {
   },
 };
 
+// ── Coexistence (P5) ─────────────────────────────────────────────────────────
+// Off in October (decisions #10). The typed sentence below says what it does.
+const COEXISTENCE_CONFIRM = 'نعم، فعّل الربط مع تطبيق واتساب للأعمال';
+VALIDATORS.coexistence = function coexistence(v) {
+  if (typeof v.enabled !== 'boolean') bad('حدّد هل الربط مع تطبيق واتساب للأعمال مفعّل أم لا');
+  return { enabled: v.enabled };
+};
+
 /**
- * Switches that open something to the public: turning one ON from off needs this exact sentence
- * in the request's `confirm`. The settings page asks the person to type it.
+ * Switches that open something wide: turning one ON from off needs this exact sentence in the
+ * request's `confirm`. The settings page asks the person to type it. One mechanism for both, so
+ * the PATCH path passes `confirm` through one place.
  */
 const CONFIRM_TO_ENABLE = {
   self_signup: {
     text: 'افتح التسجيل العام',
     error: 'التسجيل الذاتي العام يُفتح بعد أول 10 زبائن. لفتحه اكتب عبارة التأكيد: «افتح التسجيل العام»',
+  },
+  coexistence: {
+    text: COEXISTENCE_CONFIRM,
+    error: `للتفعيل اكتب: «${COEXISTENCE_CONFIRM}»`,
   },
 };
 
@@ -127,7 +142,10 @@ function assertConfirmed(key, value, current, confirm) {
 }
 const EDITABLE = Object.keys(VALIDATORS);
 
-/** The checked value to store for `key`, from the current effective value and what was sent. */
+/**
+ * The checked value to store for `key`, from the current effective value and what was sent.
+ * `opts.confirm` is the typed sentence a switch in CONFIRM_TO_ENABLE asks for.
+ */
 function validateSetting(key, sent, current, { confirm } = {}) {
   if (!EDITABLE.includes(key)) bad('هذا الإعداد لا يُعدَّل من هنا');
   const validate = VALIDATORS[key];
@@ -160,8 +178,10 @@ router.get('/', async (req, res) => {
       editable: EDITABLE,
       labels: labels.SETTING_AR,
       meta: metaInfo(),
-      // The sentence the page asks a person to type before a public switch goes on.
+      // The sentence the page asks a person to type before a switch goes on.
       confirm_to_enable: Object.fromEntries(Object.entries(CONFIRM_TO_ENABLE).map(([k, r]) => [k, r.text])),
+      // Kept for the coexistence block, which reads it by this name.
+      coexistence_confirm: COEXISTENCE_CONFIRM,
     });
   } catch (err) {
     console.error(`[admin/platform-settings] read failed: ${err.message}`);
@@ -194,3 +214,4 @@ module.exports = router;
 module.exports.validateSetting = validateSetting;
 module.exports.EDITABLE = EDITABLE;
 module.exports.CONFIRM_TO_ENABLE = CONFIRM_TO_ENABLE;
+module.exports.COEXISTENCE_CONFIRM = COEXISTENCE_CONFIRM;
