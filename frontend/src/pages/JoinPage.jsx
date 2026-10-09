@@ -6,7 +6,7 @@ import {
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { isInAppBrowser } from '../utils/facebookSdk';
-import ConnectWhatsApp, { OWNER_ENDPOINTS } from '../components/whatsapp/ConnectWhatsApp';
+import ConnectWhatsApp, { OWNER_ENDPOINTS, COEX_NOTICE } from '../components/whatsapp/ConnectWhatsApp';
 import TryTheBot from '../components/whatsapp/TryTheBot';
 
 /**
@@ -27,8 +27,10 @@ import TryTheBot from '../components/whatsapp/TryTheBot';
  *
  * /join with no link and no session is the public «جرّب مجانًا» (P5, routes/publicSignup.js): a
  * short form when SHIFT has opened self-signup (GET /public/signup/config), otherwise «التسجيل عبر
- * دعوة من شِفت فقط» with a way to message SHIFT. A signup is signed straight in and continues at
- * the connect step, exactly like an invited owner after their password.
+ * دعوة من شِفت فقط» with a way to message SHIFT. A signup is signed straight in, proves its mobile
+ * («أكّد رقمك»: the code sent from that mobile's WhatsApp to SHIFT; until then the mobile is not
+ * the login, so a stranger cannot take someone else's), then continues at the connect step,
+ * exactly like an invited owner after their password.
  */
 
 const SHIFT_WA = '962776788972';
@@ -36,7 +38,7 @@ const WHATSAPP_MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 const STORE_KEY = 'karam_join';
 
 // Which of «١ حسابك · ٢ واتساب · ٣ البوت» each screen belongs to.
-const STEP_GROUP = { signup: 0, password: 0, connect: 1, confirm: 1, wrong_number: 1, payment: 1, teach: 2, try: 2 };
+const STEP_GROUP = { signup: 0, verify: 0, password: 0, connect: 1, confirm: 1, wrong_number: 1, payment: 1, teach: 2, try: 2 };
 const GROUPS = ['١ حسابك', '٢ واتساب', '٣ البوت'];
 
 // What «عالق؟» tells SHIFT, so the operator knows where they stopped without asking.
@@ -46,6 +48,7 @@ const STEP_LABEL = {
   invalid: 'الرابط منتهٍ أو مستخدم',
   invite_only: 'التسجيل عبر دعوة',
   signup: 'التسجيل',
+  verify: 'تأكيد رقم الموبايل',
   resume: 'العودة للانضمام',
   password: 'اختيار كلمة المرور',
   connect: 'ربط واتساب',
@@ -296,6 +299,91 @@ function SignupStep({ onDone }) {
   );
 }
 
+// The sentence the wa.me link fills in; the server reads the six digits from it (publicSignup.js
+// codeText builds the same one).
+const codeText = (code) => `رمز تأكيد كرم بوت: ${code}`;
+const VERIFY_POLL_MS = 4000;
+
+/**
+ * «أكّد رقمك»: the mobile typed at signup becomes the login (and the shop's alert number) only
+ * once a message with the code comes from it to SHIFT's WhatsApp. The page asks every few seconds.
+ */
+function VerifyStep({ code: initialCode, onVerified }) {
+  const [code, setCode] = useState(initialCode || null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  // A reload loses the code (only its hash is kept): ask for a fresh one.
+  useEffect(() => {
+    if (code) return undefined;
+    let alive = true;
+    api.post('/public/signup/verify/code')
+      .then((res) => {
+        if (!alive) return;
+        if (res.data?.verified) onVerified();
+        else setCode(res.data?.code || null);
+      })
+      .catch((err) => { if (alive) setError(err.response?.data?.error || 'تعذّر تجهيز رمز التأكيد، حاول مرة أخرى'); });
+    return () => { alive = false; };
+  }, [code, onVerified]);
+
+  useEffect(() => {
+    if (!code) return undefined;
+    let alive = true;
+    const check = () => api.post('/public/signup/verify')
+      .then((res) => { if (alive && res.data?.verified) onVerified(); })
+      .catch((err) => {
+        if (!alive) return;
+        // 409: the mobile is proven but already on another account; anything else is retried.
+        if (err.response?.status === 409 || err.response?.status === 403) setError(err.response.data?.error || null);
+      });
+    const timer = setInterval(check, VERIFY_POLL_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, [code, onVerified]);
+
+  const newCode = async () => {
+    setBusy(true); setError(null);
+    try {
+      const res = await api.post('/public/signup/verify/code');
+      if (res.data?.verified) onVerified();
+      else setCode(res.data?.code || null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'تعذّر تجهيز رمز التأكيد، حاول مرة أخرى');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <h1 className="text-xl font-bold text-gray-900">أكّد رقم موبايلك</h1>
+      <p className="mt-1 text-[14px] text-gray-700">
+        من واتساب على الموبايل الذي كتبته، أرسل الرمز إلى شِفت. بعدها يصير رقمك هو رقم الدخول، وتصلك عليه تنبيهات المحل.
+      </p>
+      {code ? (
+        <>
+          <p className="mt-4 rounded-xl bg-gray-50 py-3 text-center text-2xl font-bold tracking-[0.3em] text-gray-900 tabular-nums" dir="ltr">{code}</p>
+          <div className="mt-4 space-y-2">
+            <a href={waLink(codeText(code))} target="_blank" rel="noopener noreferrer" className={btnPrimary}>
+              <MessageCircle size={16} /> أرسل الرمز على واتساب
+            </a>
+            <p className="flex items-center justify-center gap-2 text-[13px] text-gray-500">
+              <Loader2 size={14} className="animate-spin" /> ننتظر وصول الرمز…
+            </p>
+            <button type="button" onClick={newCode} disabled={busy} className={btnSecondary}>أرسل لي رمزًا جديدًا</button>
+          </div>
+        </>
+      ) : (
+        !error && <p className="mt-4 flex items-center gap-2 text-[14px] text-gray-600"><Loader2 size={16} className="animate-spin" /> لحظة…</p>
+      )}
+      {error && <p className="mt-3 text-[13px] text-red-600">{error}</p>}
+      {error && (
+        <p className="mt-2 text-center text-[13px] text-gray-600">عندك حساب؟ <Link to="/login" className="underline underline-offset-2">تسجيل الدخول</Link></p>
+      )}
+    </Card>
+  );
+}
+
 function ResumeScreen({ info, onContinue }) {
   return (
     <Card>
@@ -368,13 +456,19 @@ function ConnectStep({ info, onConnected, onSkip, onAlreadyConnected }) {
   // null while asking; true once the owner router answers; false when SHIFT has not opened
   // self-connect yet (503 until G1 passed) — then the owner is told SHIFT will connect with them.
   const [esOpen, setEsOpen] = useState(null);
+  // SHIFT has switched coexistence on (the owner /config says so): the shop's current number can be
+  // linked while it stays on the WhatsApp Business app, so nobody is told to delete it.
+  const [coexOn, setCoexOn] = useState(false);
   const [simAnswer, setSimAnswer] = useState(null); // 'new' | 'existing' | 'existing_ok'
   const [fbAnswer, setFbAnswer] = useState(null);   // 'yes' | 'no'
 
   useEffect(() => {
     let alive = true;
     api.get(OWNER_ENDPOINTS.config)
-      .then(() => api.get(`${OWNER_ENDPOINTS.base}/status`).catch(() => null))
+      .then((cfg) => {
+        if (alive) setCoexOn(Boolean(cfg?.data?.coexistence));
+        return api.get(`${OWNER_ENDPOINTS.base}/status`).catch(() => null);
+      })
       .then((res) => {
         if (!alive) return;
         // Already connected (SHIFT connected it attended, or a reload after Meta's window).
@@ -406,7 +500,9 @@ function ConnectStep({ info, onConnected, onSkip, onAlreadyConnected }) {
     );
   }
 
-  const simReady = simAnswer === 'new' || simAnswer === 'existing_ok';
+  // With coexistence on, the shop's current number is ready as it is: nothing to delete.
+  const coexPath = coexOn && simAnswer === 'existing';
+  const simReady = simAnswer === 'new' || simAnswer === 'existing_ok' || coexPath;
 
   return (
     <div className="space-y-4">
@@ -421,7 +517,18 @@ function ConnectStep({ info, onConnected, onSkip, onAlreadyConnected }) {
             رقم المحل الحالي وعليه واتساب
           </button>
         </div>
-        {simAnswer === 'existing' && (
+        {coexPath && (
+          <div className="mt-3 rounded-xl bg-green-50 p-3 text-[13px] text-green-900">
+            <p>تقدر تربطه وهو باقٍ على تطبيق واتساب للأعمال في هاتفك، ومعه محادثاتك القديمة، ويرد كرم بوت على الزبائن معك.</p>
+            <ul className="mt-2 list-disc space-y-1 pr-4 text-[12px]">
+              <li>{COEX_NOTICE.inactivity}</li>
+              <li>{COEX_NOTICE.owner_hold}</li>
+              <li>{COEX_NOTICE.throughput}</li>
+            </ul>
+            <p className="mt-2 text-[12px]">هذا لرقم عليه تطبيق واتساب للأعمال. إن كان عليه واتساب العادي فالأسهل شريحة جديدة.</p>
+          </div>
+        )}
+        {simAnswer === 'existing' && !coexOn && (
           <div className="mt-3 rounded-xl bg-amber-50 p-3 text-[13px] text-amber-900">
             <p>يجب حذف حساب واتساب من هذا الرقم أولًا، وستضيع محادثاته القديمة. الأفضل شريحة جديدة، أو تواصل مع شِفت.</p>
             <div className="mt-3 space-y-2">
@@ -462,6 +569,7 @@ function ConnectStep({ info, onConnected, onSkip, onAlreadyConnected }) {
               on mount and calls FB.login straight from the tap). */}
           <ConnectWhatsApp
             endpoints={OWNER_ENDPOINTS}
+            preferCoexistence={coexPath}
             onChange={(next) => { if (next?.status === 'connected') onConnected(next.onboarding || null); }}
           />
           <p className="mt-3 text-center text-[12px] text-gray-500">
@@ -820,6 +928,9 @@ export default function JoinPage() {
       const saved = readStore();
       if (signedInOwner && saved?.step) {
         setInfo(saved.info || fromUser()); setOnb(saved.onb || null); setStep(saved.step);
+      } else if (signedInOwner && !user?.phone && !user?.email) {
+        // A self-signup that has not proven its mobile yet (no login but this session).
+        setInfo(fromUser()); setStep('verify');
       } else if (signedInOwner) {
         setInfo(fromUser()); setStep('resume');
       } else {
@@ -869,16 +980,23 @@ export default function JoinPage() {
     setStep('connect');
   };
 
-  // A self-signup is signed in already; it continues where an invited owner does after the password.
+  // A self-signup is signed in already; it proves its mobile, then continues where an invited
+  // owner does after the password. The code rides in `info` so a reload keeps showing it.
   const afterSignup = (data) => {
     setSession?.(data.token, data.user);
     setInfo({
       shop_name: data.user?.business_name || '',
       owner_first_name: String(data.user?.name || '').trim().split(/\s+/)[0] || '',
       business_type: data.user?.business_type || null,
+      verify_code: data.verify?.code || null,
     });
-    setStep('connect');
+    setStep('verify');
   };
+
+  const onVerified = useStableCallback(() => {
+    setInfo((i) => ({ ...i, verify_code: null }));
+    setStep('connect');
+  });
 
   const onConnected = useStableCallback((o) => {
     setOnb(o);
@@ -902,6 +1020,7 @@ export default function JoinPage() {
   else if (step === 'invalid') body = <InvalidScreen />;
   else if (step === 'invite_only') body = <InviteOnlyScreen />;
   else if (step === 'signup') body = <SignupStep onDone={afterSignup} />;
+  else if (step === 'verify') body = <VerifyStep code={info?.verify_code} onVerified={onVerified} />;
   else if (step === 'resume') body = <ResumeScreen info={info} onContinue={() => setStep('connect')} />;
   else if (step === 'password') body = <PasswordStep info={info} token={token} onDone={afterActivate} />;
   else if (step === 'connect') body = <ConnectStep info={info} onConnected={onConnected} onAlreadyConnected={onAlreadyConnected} onSkip={() => setStep('teach')} />;

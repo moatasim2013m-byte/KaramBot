@@ -34,7 +34,8 @@ const messageProcessor = require('../src/services/messageProcessor');
 const alerts = require('../src/services/alerts');
 const acks = require('../src/workflows/shift/acks');
 const { NOTE_WINDOW_MARGIN_MS } = require('../src/utils/serviceWindow');
-const { runSweep, getShiftStatus, lastSweep, isCloser } = require('../src/services/shiftSweeper');
+const { runSweep, getShiftStatus, lastSweep, isCloser, dailyBudgetAfter, DAILY_BUDGET_MS } = require('../src/services/shiftSweeper');
+const coexistence = require('../src/services/coexistence');
 const db = require('./helpers/fakeDb').getFakeDb();
 
 // Monday 14 Sep 2026, 11:00 in Amman — inside the default team hours (Sun–Thu 9–18).
@@ -928,9 +929,42 @@ describe('runSweep', () => {
       // The October offer's weekly follow-up (off by default).
       weekly_followups_sent: 0, weekly_followups_failed: 0,
       // P5: coexistence numbers' 24-hour syncs; none open while coexistence was never used.
-      coex_sync: { open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0 },
+      coex_sync: { open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0, deferred: 0 },
       errors: [],
     });
+  });
+
+  // P5 review: the coexistence syncs are Graph calls inside the sweep's `running` flag. They are on
+  // their own budget, and what they spend comes off the daily step's, so a slow Meta cannot push a
+  // sweep past the minute and make the next one (SHIFT's recovery, alerts, nudges) skip.
+  test('the coexistence syncs and the daily step share one Graph budget inside the minute', () => {
+    expect(coexistence.SYNC_SWEEP_BUDGET_MS + DAILY_BUDGET_MS).toBeLessThanOrEqual(60 * 1000);
+    expect(dailyBudgetAfter(0)).toBe(DAILY_BUDGET_MS);
+    expect(dailyBudgetAfter(30 * 1000)).toBe(DAILY_BUDGET_MS - 30 * 1000);
+    // Never starved to nothing: the daily step still gets a few seconds (and always one shop).
+    expect(dailyBudgetAfter(10 * 60 * 1000)).toBeGreaterThan(0);
+  });
+
+  test('a slow coexistence step finishes the sweep, and the next tick runs SHIFT\'s steps', async () => {
+    seedBusiness();
+    const realNow = Date.now;
+    let skew = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+    const slow = jest.spyOn(coexistence, 'sweepSyncs').mockImplementation(async () => {
+      skew += coexistence.SYNC_SWEEP_BUDGET_MS; // Graph took the whole budget
+      return { open: 3, retried: 1, completed: 0, alerted: 0, given_up: 0, deferred: 2 };
+    });
+    try {
+      const first = await runSweep({ now: NOW });
+      expect(first.skipped).toBeUndefined();
+      expect(first.coex_sync.deferred).toBe(2);
+      const second = await runSweep({ now: new Date(NOW.getTime() + MIN) });
+      expect(second.skipped).toBeUndefined();
+      expect(replyBatcher.reconcileUnconfirmedIntents).toHaveBeenCalledTimes(2);
+    } finally {
+      slow.mockRestore();
+      Date.now.mockRestore();
+    }
   });
 
   test('D24: stuck non-SHIFT inbound is re-processed once per run, even with no SHIFT business', async () => {

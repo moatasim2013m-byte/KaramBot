@@ -1169,6 +1169,13 @@ let templatesDone = { day: null, ids: new Set() };
 // recovery, alerts, nudges and reminders) waiting: past this, the rest of the shops wait for the
 // next sweep. At least one shop is checked per sweep, so the day always finishes.
 const DAILY_BUDGET_MS = 40 * 1000;
+// What the daily step may still spend after the coexistence syncs spent `spentMs` of the same
+// sweep. Never below a floor: the daily step checks at least one shop per sweep anyway, and a
+// floor keeps it from being starved by a Meta slowdown on the syncs.
+const DAILY_BUDGET_FLOOR_MS = 5 * 1000;
+function dailyBudgetAfter(spentMs) {
+  return Math.max(DAILY_BUDGET_FLOOR_MS, DAILY_BUDGET_MS - Math.max(0, spentMs));
+}
 
 /**
  * Once a day (the first sweep after midnight, Amman time), for every connected customer shop:
@@ -1335,7 +1342,11 @@ async function runSweep({ now = new Date() } = {}) {
     }
 
     // Coexistence numbers owe Meta two syncs within 24 hours of connecting: retry what failed, and
-    // tell SHIFT at 20 hours. One empty query unless a coexistence number was ever connected.
+    // tell SHIFT at 20 hours. One empty query unless a coexistence number was ever connected. Graph
+    // calls, so on its own time budget (coexistence.SYNC_SWEEP_BUDGET_MS), and whatever it spent
+    // comes off the daily step's below: the two together stay inside the minute, so a slow Meta
+    // never makes the next sweep (SHIFT's recovery, alerts and nudges) return 'already_running'.
+    const graphStarted = Date.now();
     try {
       report.coex_sync = await coexistence.sweepSyncs(now);
     } catch (err) {
@@ -1346,7 +1357,7 @@ async function runSweep({ now = new Date() } = {}) {
     // Last, and on a time budget: the customer shops' Graph reads are the slowest thing a sweep
     // does, and SHIFT's own recovery, alerts, nudges and reminders above must not wait on them.
     try {
-      report.daily = await sweepDaily(now);
+      report.daily = await sweepDaily(now, { budgetMs: dailyBudgetAfter(Date.now() - graphStarted) });
     } catch (err) {
       report.errors.push(`daily: ${err.message}`);
       console.error('[sweep] daily step failed:', err.message);
@@ -1458,4 +1469,6 @@ async function getShiftStatus({ now = new Date() } = {}) {
   };
 }
 
-module.exports = { runSweep, getShiftStatus, lastSweep, isCloser, STEPS, sweepDaily, resetDaily };
+module.exports = {
+  runSweep, getShiftStatus, lastSweep, isCloser, STEPS, sweepDaily, resetDaily, dailyBudgetAfter, DAILY_BUDGET_MS,
+};

@@ -149,7 +149,7 @@ describe('off (the default): the old behaviour, untouched', () => {
   });
 
   test('the sweep step is one empty read', async () => {
-    expect(await coexistence.sweepSyncs(at(HOUR))).toEqual({ open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0 });
+    expect(await coexistence.sweepSyncs(at(HOUR))).toEqual({ open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0, deferred: 0 });
     expect(axios.post).not.toHaveBeenCalled();
   });
 });
@@ -309,6 +309,136 @@ describe('on: connect without /register, then both syncs', () => {
   });
 });
 
+// ─── What the P5 review found ────────────────────────────────────────────────
+
+describe('the sweep\'s budget, the per-number lease, and Meta\'s own clock', () => {
+  beforeEach(switchOn);
+
+  // Three shops, each with an open sync and nothing made yet.
+  function seedOpenSyncs(n = 3) {
+    const ids = [];
+    for (let i = 1; i <= n; i += 1) {
+      const phone = `10990000000010${i}`;
+      ids.push(phone);
+      db.seed({
+        businesses: [{ id: `biz_c${i}`, name: `محل ${i}`, slug: `c${i}`, wa_phone_number_id: phone, wa_business_account_id: `10490000000010${i}`, wa_app_id: APP }],
+        whatsappOnboardings: [{
+          id: `onb_c${i}`, business_id: `biz_c${i}`, app_id: APP, waba_id: `10490000000010${i}`, phone_number_id: phone,
+          finish_event: coexistence.COEXISTENCE_EVENT, step: 'done', access_token_enc: encrypt(fx.TOKEN),
+        }],
+        accountEvents: [{
+          id: `ev_c${i}`, business_id: `biz_c${i}`, actor_kind: 'system', type: 'coex_sync_started',
+          data: { phone_number_id: phone }, resolved_at: null, created_at: T0,
+        }],
+      });
+    }
+    return ids;
+  }
+
+  test('a slow Meta: past the budget no new call starts, the rest wait for the next sweep, and every row is reached', async () => {
+    seedOpenSyncs(3);
+    meta();
+    // Each smb_app_data call takes 10 s on this clock; the budget is 15 s.
+    let clockMs = 0;
+    const clock = () => clockMs;
+    const graph = axios.post.getMockImplementation();
+    axios.post.mockImplementation(async (...args) => { clockMs += 10 * 1000; return graph(...args); });
+
+    const first = await coexistence.sweepSyncs(at(MIN), { budgetMs: 15 * 1000, clock });
+    expect(first).toMatchObject({ open: 3, retried: 1, completed: 1, deferred: 2 });
+    expect(posts('/smb_app_data')).toHaveLength(2);
+
+    clockMs = 0;
+    const second = await coexistence.sweepSyncs(at(2 * MIN), { budgetMs: 15 * 1000, clock });
+    expect(second).toMatchObject({ open: 2, retried: 1, completed: 1, deferred: 1 });
+    clockMs = 0;
+    const third = await coexistence.sweepSyncs(at(3 * MIN), { budgetMs: 15 * 1000, clock });
+    expect(third).toMatchObject({ open: 1, retried: 1, completed: 1, deferred: 0 });
+    expect(posts('/smb_app_data')).toHaveLength(6);
+  });
+
+  test('the second call of a row is left for the next sweep once the budget is gone', async () => {
+    seedOpenSyncs(1);
+    meta();
+    let clockMs = 0;
+    const graph = axios.post.getMockImplementation();
+    axios.post.mockImplementation(async (...args) => { clockMs += 20 * 1000; return graph(...args); });
+    const report = await coexistence.sweepSyncs(at(MIN), { budgetMs: 15 * 1000, clock: () => clockMs });
+    expect(report).toMatchObject({ retried: 1, completed: 0, deferred: 1 });
+    expect(syncCalls().map((c) => c.body.sync_type)).toEqual(['smb_app_state_sync']);
+    // Not a failure: nothing is logged against the number, so the next sweep tries at once.
+    expect(events('coex_sync_failed', 'biz_c1')).toHaveLength(0);
+    await coexistence.sweepSyncs(at(2 * MIN));
+    expect(syncCalls().map((c) => c.body.sync_type)).toEqual(['smb_app_state_sync', 'history']);
+  });
+
+  test('two sweeps at once (two instances) call Meta once per sync, not twice', async () => {
+    seedOpenSyncs(1);
+    meta();
+    const graph = axios.post.getMockImplementation();
+    axios.post.mockImplementation(async (...args) => { await new Promise((r) => setTimeout(r, 15)); return graph(...args); });
+    const t = at(MIN);
+    await Promise.all([coexistence.sweepSyncs(t), coexistence.sweepSyncs(t)]);
+    expect(syncCalls().map((c) => c.body.sync_type)).toEqual(['smb_app_state_sync', 'history']);
+    expect(events('coex_sync_done', 'biz_c1')).toHaveLength(2);
+    expect(events('coex_sync_failed', 'biz_c1')).toHaveLength(0);
+    // The lease is given back: the number is not stuck for the next sweep.
+    const lease = business('biz_c1').ai_config[coexistence.LEASE_KEY];
+    expect(new Date(lease.until).getTime()).toBeLessThan(Date.now());
+  });
+
+  test('a connect while a sweep is calling Meta for the same number does not call again', async () => {
+    seedOpenSyncs(1);
+    meta();
+    // A sweep on another instance holds the number's lease right now.
+    business('biz_c1').ai_config = { [coexistence.LEASE_KEY]: { phone_number_id: '109900000000101', until: new Date(Date.now() + MIN).toISOString(), token: 'other' } };
+    const out = await coexistence.startSync({ businessId: 'biz_c1', onboarding: onboardingOf('biz_c1') });
+    expect(out).toMatchObject({ ran: false, reason: 'in_flight' });
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('linked long after the onboarding (a row SHIFT finishes late): the deadline is Meta\'s, and SHIFT hears at once', async () => {
+    db.reset();
+    at(0);
+    const onboardedAt = new Date(Date.now() - 23 * HOUR);
+    db.seed({
+      businesses: [{ id: 'biz_sham', name: 'مطعم الشام', slug: 'sham', wa_phone_number_id: null }],
+      whatsappOnboardings: [{
+        id: 'onb_coex', business_id: 'biz_sham', app_id: APP, meta_business_id: IDS.PORTFOLIO, waba_id: IDS.WABA,
+        phone_number_id: IDS.PHONE, finish_event: 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING', needs_operator: true,
+        step: 'subscribed', access_token_enc: encrypt(fx.TOKEN), token_exchanged_at: onboardedAt,
+      }],
+    });
+    switchOn();
+    meta();
+    syncAnswers = Array.from({ length: 20 }, () => cx.syncRefused());
+    notify.mockClear();
+    await completeOnboarding({ onboardingId: 'onb_coex', phoneNumberId: IDS.PHONE });
+
+    const [started] = events('coex_sync_started');
+    expect(Math.abs(new Date(started.data.due_by).getTime() - (onboardedAt.getTime() + coexistence.SYNC_DEADLINE_MS))).toBeLessThan(MIN);
+    expect(events('coex_sync_late')).toHaveLength(1);
+    const late = notify.mock.calls.map(([a]) => a).filter((a) => /مزامنة/.test(a.summary || ''));
+    expect(late).toHaveLength(1);
+    expect(late[0].summary).toMatch(/نحو 1 ساعات/);
+
+    // The sweep counts on Meta's clock too: no second alert, and the give-up comes 72 h after the
+    // onboarding, not 72 h after the link.
+    await coexistence.sweepSyncs(at(2 * HOUR));
+    expect(events('coex_sync_late')).toHaveLength(1);
+    const last = await coexistence.sweepSyncs(at(50 * HOUR));
+    expect(last.given_up).toBe(1);
+  });
+
+  test('a fresh connect keeps the full 24 hours', async () => {
+    meta();
+    await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finishCoexistence()));
+    const [started] = events('coex_sync_started');
+    expect(started.data.lag_ms).toBeLessThan(MIN);
+    expect(events('coex_sync_late')).toHaveLength(0);
+  });
+});
+
 // ─── The switch ──────────────────────────────────────────────────────────────
 
 describe('«إعدادات المنصة»: switching it on takes the typed sentence', () => {
@@ -376,6 +506,31 @@ describe('webhook fields', () => {
     expect(db.store.conversations).toHaveLength(0);
   });
 
+  test('switched off after a coexistence connect: that number keeps working — the owner\'s replies stored, the bot held', async () => {
+    switchOn();
+    meta();
+    const res = await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finishCoexistence()));
+    expect(res.body.status).toBe('connected');
+    const off = await request(app).patch('/api/admin/platform-settings').set(ADMIN()).send({ key: 'coexistence', value: { enabled: false } });
+    expect(off.status).toBe(200);
+    settings.clearCache();
+    expect(await coexistence.isEnabled()).toBe(false);
+
+    expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(200);
+    expect(msgsOf('biz_sham')).toEqual([expect.objectContaining({ meta_message_id: 'wamid.ECHO1', direction: 'outbound' })]);
+    const conv = db.store.conversations.find((c) => c.business_id === 'biz_sham');
+    expect(coexistence.ownerHolds(conv, new Date((1791460800 + 60) * 1000))).toBe(true);
+    await post(SHIFT_HOOK, cx.history());
+    await settled();
+    expect(msgsOf('biz_sham').map((m) => m.meta_message_id)).toEqual(expect.arrayContaining(['wamid.H1', 'wamid.H2']));
+  });
+
+  test('switched off: a number connected the ordinary way still gets nothing from these fields', async () => {
+    db.seed({ whatsappOnboardings: [{ id: 'onb_plain', business_id: 'biz_sham', app_id: APP, waba_id: IDS.WABA, phone_number_id: IDS.PHONE, finish_event: 'FINISH', step: 'done', access_token_enc: encrypt(fx.TOKEN) }] });
+    expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(200);
+    expect(db.store.messages).toHaveLength(0);
+  });
+
   describe('on', () => {
     beforeEach(switchOn);
 
@@ -396,6 +551,24 @@ describe('webhook fields', () => {
       expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(500);
       expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(200);
       expect(msgsOf('biz_sham')).toHaveLength(1);
+    });
+
+    test('a hold write that failed after the insert: Meta\'s retry still holds the chat for the owner', async () => {
+      db.failNext('jsonb.patchJson', new Error('connection reset'));
+      expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(500);
+      expect(msgsOf('biz_sham')).toHaveLength(1);
+      expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(200);
+      expect(msgsOf('biz_sham')).toHaveLength(1);
+      const conv = db.store.conversations.find((c) => c.business_id === 'biz_sham');
+      expect(coexistence.ownerHolds(conv, new Date((1791460800 + 60) * 1000))).toBe(true);
+    });
+
+    test('the bot\'s own send coming back as an echo never holds the chat', async () => {
+      db.seed({ conversations: [{ id: 'conv_bot', business_id: 'biz_sham', customer_wa_id: cx.CUSTOMER, metadata: {} }] });
+      db.seed({ messages: [{ id: 'm_bot', business_id: 'biz_sham', conversation_id: 'conv_bot', meta_message_id: 'wamid.ECHO1', direction: 'outbound', is_ai_generated: true, raw_payload: { kind: 'reply' } }] });
+      expect((await post(SHIFT_HOOK, cx.echo())).status).toBe(200);
+      const row = db.store.conversations.find((c) => c.id === 'conv_bot');
+      expect(coexistence.ownerHolds(row, new Date((1791460800 + 60) * 1000))).toBe(false);
     });
 
     test('history is imported once per wamid, settled, without opening the 24-hour window or the waiting list', async () => {
@@ -485,9 +658,59 @@ describe('the 14-day rule, the owner hold and 20 mps, in the owner\'s words', ()
     expect(coexistence.NOTICE_AR.inactivity).toContain('14');
   });
 
+  // P5 review: with coexistence on, /join must not tell the owner of a current WhatsApp Business
+  // number to delete it (and lose its chats) before offering the flow that keeps it.
+  test('/join reads the switch, and with it on the current number goes to the app flow, not to «delete WhatsApp»', () => {
+    const join = fs.readFileSync(path.join(__dirname, '../../frontend/src/pages/JoinPage.jsx'), 'utf8');
+    expect(join).toMatch(/setCoexOn\(Boolean\(cfg\?\.data\?\.coexistence\)\)/);
+    expect(join).toMatch(/const coexPath = coexOn && simAnswer === 'existing'/);
+    // The delete-first warning is behind «coexistence off».
+    expect(join).toMatch(/simAnswer === 'existing' && !coexOn && \(\s*<div className="mt-3 rounded-xl bg-amber-50/);
+    expect(join).toContain('preferCoexistence={coexPath}');
+    for (const key of ['inactivity', 'owner_hold', 'throughput']) expect(join).toContain(`COEX_NOTICE.${key}`);
+    expect(screen).toMatch(/coexFirst \? \(\) => launch\('coexistence'\)/);
+  });
+
   test('the connect screen asks Meta for the app flow only behind the server\'s switch', () => {
     const sdk = fs.readFileSync(path.join(__dirname, '../../frontend/src/utils/facebookSdk.js'), 'utf8');
     expect(sdk).toContain(`'${coexistence.FEATURE_TYPE}'`);
     expect(screen).toMatch(/mode === 'coexistence' && Boolean\(config\?\.coexistence\)/);
+  });
+});
+
+// ─── «السجل» ──────────────────────────────────────────────────────────────────
+
+describe('the sync\'s progress reads as its own sentence on the account\'s log', () => {
+  const { eventText } = require('../src/config/eventLabels');
+  const GENERIC = 'حدث في الحساب';
+
+  test.each([
+    ['coex_sync_started', {}],
+    ['coex_sync_done', { sync_type: 'smb_app_state_sync' }],
+    ['coex_sync_done', { sync_type: 'history' }],
+    ['coex_sync_failed', { sync_type: 'history' }],
+    ['coex_sync_failed', { sync_type: null, gave_up: true }],
+    ['coex_sync_late', {}],
+    ['coex_history_unavailable', {}],
+  ])('%s %j has Arabic of its own, with no Meta id or English key', (type, data) => {
+    const text = eventText({ type, data });
+    expect(text).not.toBe(GENERIC);
+    expect(text).toMatch(/[ء-ي]/);
+    expect(text.replace(/Meta/g, '')).not.toMatch(/[A-Za-z_]{3,}/);
+  });
+
+  test('a done sync, a failed one and a late one read differently, and each names the sync', () => {
+    const done = eventText({ type: 'coex_sync_done', data: { sync_type: 'history' } });
+    const failed = eventText({ type: 'coex_sync_failed', data: { sync_type: 'history' } });
+    const contacts = eventText({ type: 'coex_sync_done', data: { sync_type: 'smb_app_state_sync' } });
+    const late = eventText({ type: 'coex_sync_late', data: {} });
+    expect(new Set([done, failed, contacts, late]).size).toBe(4);
+    expect(done).toContain('المحادثات السابقة');
+    expect(contacts).toContain('جهات الاتصال');
+  });
+
+  test('a self-made shop says so', () => {
+    expect(eventText({ type: 'business_created', data: { source: 'self_signup' } })).toContain('جرّب مجانًا');
+    expect(eventText({ type: 'business_created', data: {} })).toBe('أُنشئ الحساب');
   });
 });

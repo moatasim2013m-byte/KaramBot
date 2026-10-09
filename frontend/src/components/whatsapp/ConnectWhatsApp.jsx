@@ -132,7 +132,7 @@ const PAYMENT_NOTICES = {
 // Coexistence (P5): a number that stays on the WhatsApp Business app on the owner's phone. A copy
 // of backend/src/services/coexistence.js NOTICE_AR; backend/tests/coexistence.test.js fails when
 // the two differ. Offered only when the server's config says SHIFT has switched it on.
-const COEX_NOTICE = {
+export const COEX_NOTICE = {
   inactivity: 'افتح واتساب للأعمال على هاتف المحل مرة كل بضعة أيام على الأقل: إذا بقي الهاتف دون استخدام نحو 14 يومًا تفصل Meta الرقم عن كرم بوت، ويلزم ربطه من جديد.',
   throughput: 'سرعة الإرسال على هذا الرقم محدودة بـ20 رسالة في الثانية، وهذا أكثر من كافٍ لمحل.',
   owner_hold: 'حين ترد على زبون من التطبيق يسكت البوت في تلك المحادثة ساعتين.',
@@ -196,7 +196,10 @@ function StepList({ reached, failedAt, working }) {
   );
 }
 
-export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, onChange, framed = true }) {
+// `preferCoexistence`: the owner already said the number is the shop's current one with WhatsApp
+// on it (/join's ConnectStep). Once SHIFT has switched coexistence on, the main button is then the
+// WhatsApp Business app flow, and the separate «رقم المحل الحالي» box is not shown twice.
+export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, onChange, framed = true, preferCoexistence = false }) {
   const { config: configUrl, base, audience = 'owner' } = endpoints || {};
   const isStaff = audience === 'staff';
 
@@ -439,6 +442,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
   const resumeOnServer = view.action === 'retry';
   const reached = onb?.step === 'done' ? STEPS.length - 1 : (STEP_INDEX[onb?.step] ?? -1);
   const canLaunch = Boolean(sdkReady && config && base) && !busy;
+  const coexFirst = preferCoexistence && Boolean(config?.coexistence);
 
   const frame = framed ? 'rounded-xl border border-gray-200 bg-white p-4' : 'p-4';
 
@@ -628,7 +632,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={resumeOnServer ? () => retry() : launch}
+                onClick={resumeOnServer ? () => retry() : (coexFirst ? () => launch('coexistence') : launch)}
                 disabled={resumeOnServer ? !base || Boolean(busy) : !canLaunch}
                 className={btnPrimary}
               >
@@ -652,7 +656,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
 
           {/* P5, only once SHIFT has switched coexistence on: the shop's current number, kept on
               the owner's phone. The button above stays the way for a new SIM. */}
-          {config?.coexistence && !resumeOnServer && !onb?.needs_pin && (
+          {config?.coexistence && !coexFirst && !resumeOnServer && !onb?.needs_pin && (
             <div className="mt-4 rounded-lg border border-gray-200 p-3">
               <p className="text-[13px] font-medium text-gray-900">رقم المحل الحالي وعليه واتساب؟</p>
               <p className="mt-1 text-[12px] text-gray-600">

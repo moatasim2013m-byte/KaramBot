@@ -276,12 +276,22 @@ const reasonOf = (d) => {
   return ` — السبب: ${r}`;
 };
 
+// The two coexistence syncs, by Meta's sync_type.
+const COEX_SYNC_AR = Object.freeze({
+  smb_app_state_sync: 'جهات الاتصال',
+  history: 'المحادثات السابقة',
+});
+
 /**
  * One sentence per event type. `d` is the event's data (already free of secrets: accountEvents
  * strips them on write). Kept short: it follows «10:32 · مطعم الشام ·» on «آخر ما حصل».
  */
 const EVENT_AR = Object.freeze({
-  business_created: () => 'أُنشئ الحساب',
+  // A self-signup is a shop nobody at SHIFT has met: the log says so.
+  business_created: (d) => (d.source === 'self_signup' ? 'سجّل صاحب المحل بنفسه من «جرّب مجانًا»' : 'أُنشئ الحساب'),
+  self_signup_code: () => 'أُرسل رمز تأكيد الموبايل لصاحب المحل',
+  self_signup_verified: () => 'أكّد صاحب المحل رقم موبايله من واتساب',
+  self_signup_phone_taken: () => 'أكّد صاحب المحل موبايلًا مسجّلًا لحساب آخر — لم يُربط بهذا الحساب',
   invite_created: (d) => (d.reissued ? 'أُنشئ رابط انضمام جديد' : 'أُنشئ رابط الانضمام'),
   invite_shared: () => 'أُرسل رابط الانضمام على واتساب',
   join_opened: () => 'فتح صاحب المحل رابط الانضمام',
@@ -338,6 +348,15 @@ const EVENT_AR = Object.freeze({
   owner_alert_template_submitted: () => 'أُرسل قالب تنبيهات صاحب المحل لمراجعة Meta',
   owner_alert_template_approved: () => 'وافقت Meta على قالب تنبيهات صاحب المحل',
   owner_alert_template_failed: () => 'تعذّر إرسال قالب تنبيهات صاحب المحل',
+  // Coexistence (services/coexistence.js): the two syncs Meta requires within 24 hours, each named,
+  // so «السجل» tells a done sync from a failed or late one (coexistence.md, G1 step 4).
+  coex_sync_started: () => 'رُبط الرقم مع تطبيق واتساب للأعمال — بدأت مهلة Meta للمزامنة (24 ساعة)',
+  coex_sync_done: (d) => `تمت مزامنة ${COEX_SYNC_AR[d.sync_type] || 'البيانات'} مع Meta`,
+  coex_sync_failed: (d) => (d.gave_up
+    ? 'توقفت محاولات المزامنة مع Meta بعد انتهاء المهلة — يلزم تدخل شِفت'
+    : `تعذّرت مزامنة ${COEX_SYNC_AR[d.sync_type] || 'البيانات'} مع Meta — ستعاد المحاولة`),
+  coex_sync_late: () => 'المزامنة مع Meta لم تكتمل وقاربت المهلة على الانتهاء — أُبلغ فريق شِفت',
+  coex_history_unavailable: () => 'لم يشارك صاحب المحل المحادثات السابقة من التطبيق',
 });
 
 /** The Arabic sentence for one stored AccountEvent. Never throws, never English. */

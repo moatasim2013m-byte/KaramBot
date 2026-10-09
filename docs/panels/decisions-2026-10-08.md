@@ -28,3 +28,22 @@ here overrides `spec.md` where they differ.
 - **Before merging P0**: a read-only production check for businesses with `ai_config.enabled = false`.
   P0 starts enforcing that flag, so any such shop would go silent on deploy.
 - **Merging**: every merge to `main` redeploys the live bot (Cloud Build trigger `^main$`).
+- **The «جرّب مجانًا» link on shifts-ai.com** (P5's first item): only the `/join` side is built.
+  The marketing site is deployed by hand (`python3 marketing/deploy.py`, not Cloud Build), and its
+  landing page (`marketing/site/index.html`) is a self-contained React bundle exported from an
+  artifact, so adding the button to `app.shifts-ai.com/join` is an edit to that export plus a
+  manual deploy. Do it in the same sitting as switching `self_signup` on, never before (the page
+  would say «التسجيل عبر دعوة فقط») and never long after (the switch would be on with no way in).
+  Self-signup also needs `es_owner_enabled` on first: the settings page refuses it otherwise.
+
+## P5 scope deliberately left for later
+
+`spec.md` P5 ends with «Also: …». Built in P5: public self-signup (off) and coexistence (off). Not
+built, on purpose, and not hidden anywhere in the code:
+
+| Item | Why it waits | What would start it |
+|---|---|---|
+| Menu from a photo | An image model call per upload, a review screen for what it read, and a menu editor that can take a draft. None of it helps the first ten, whom SHIFT onboards by hand, and it costs per shop before there is a reply-count baseline. | Five or more shops asking for it, after the 30 days of reply counts P5 depends on. |
+| Weekly WhatsApp digest to owners | Outside the 24-hour window it is a business-initiated template on each shop's own WABA, which Meta must approve per WABA (as with `owner_alert`), and each one is a paid message on the shop's card. The owner_alert template has to prove itself first. | `owner_alert` approved on most connected shops, and the owner choosing the digest's content. |
+| A Modeer-style assignment rule | Needs staff with their own logins actually answering chats; the first ten are one-person shops where the owner answers. The inbox already lets staff assign a chat by hand (`assigned_staff_id`); an automatic rule is the missing part. | A shop with three or more active staff logins. |
+| Token metering per shop | The spec makes it conditional: only if reply counts stop being a good proxy for cost. | The cost guard's numbers diverging from the provider bill. |

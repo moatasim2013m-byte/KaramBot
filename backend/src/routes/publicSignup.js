@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
@@ -12,13 +13,16 @@ const costGuard = require('../services/costGuard');
 const { SECTORS } = require('./adminAccounts');
 const { slugFromName, nextSlug } = require('./businesses');
 const { normalizeLoginPhone } = require('../utils/login');
+const { authenticate } = require('../middleware/auth');
 const { firstName } = require('../utils/names');
 
 /**
  * «جرّب مجانًا» — public self-signup (docs/panels/spec.md P5; docs/panels/self-signup.md).
  *
- *   GET  /api/public/signup/config  {enabled}: which /join screen a visitor with no link sees
- *   POST /api/public/signup         {shop_name, sector, owner_name, owner_phone, password, website}
+ *   GET  /api/public/signup/config       {enabled}: which /join screen a visitor with no link sees
+ *   POST /api/public/signup              {shop_name, sector, owner_name, owner_phone, password, website}
+ *   POST /api/public/signup/verify       (the new owner's session) has the code arrived from the mobile?
+ *   POST /api/public/signup/verify/code  (the new owner's session) a fresh code
  *
  * The only route that makes a shop and a user without SHIFT. It is built OFF (decisions-2026-10-08
  * #1: the first ten are invite-only) and stays completely inert until the owner flips
@@ -30,15 +34,28 @@ const { firstName } = require('../utils/names');
  *      events with source self_signup, Amman's day — the same day the cost guard counts;
  *   2. a per-IP limiter like authLimiter, so one script cannot spend the day's cap in a second;
  *   3. a honeypot: `website` is a field people never see (the form hides it), so a filled one is a bot;
- *   4. one mobile, one owner: a number that already signs in, or is already a shop's owner, is a 409;
+ *   4. the mobile is the visitor's only once they prove it (below): until then it is no login, no
+ *      shop's owner number and no alert number, so typing a stranger's mobile takes nothing from them;
  *   5. what invite shops already have: no Subscription until the number is connected (the free
  *      month starts at connect), and the cost guard's reply caps once it is.
  * The duplicate check on meta_business_id and the display number happens where those exist, at
- * connect (services/embeddedSignup.js assertNumberFree), not here.
+ * connect (services/embeddedSignup.js assertSelfSignupFree), not here.
  *
- * The shop gets source 'self_signup' and no number; the owner is active and signed straight in,
- * like /activate, and lands on /join's connect step. SHIFT hears of it at once (notifyShift
- * 'self_signup'), because this is a shop nobody at SHIFT has met.
+ * Proving the mobile. Nothing checked it before the P5 review: a stranger could sign up with a
+ * shop owner's mobile, hold it as their login (users.phone is unique, so the real owner could then
+ * neither sign up nor be invited) and send that shop's handoff alerts to it. And the 409 for a
+ * taken mobile told anyone whether a number was a Karam Bot customer. Now the signup answers the
+ * same for every mobile and holds none of them: the new owner gets a six-digit code and sends it
+ * from that mobile's WhatsApp to SHIFT's number (a wa.me link with the text filled in, free and with
+ * no template). The message lands in SHIFT's inbox like any other, read-only from here: the sales
+ * bot's message path is untouched (it answers the message as it answers any first message). When
+ * an inbound message from that very mobile carries the code, the mobile becomes the owner's login,
+ * the shop's owner number and its alert number. Only a hash of the code is stored.
+ *
+ * The shop gets source 'self_signup' and no number; the owner is active and signed straight in
+ * (the session is the only way in until the mobile is proven), and lands on /join's «أكّد رقمك»
+ * step, then connect. SHIFT hears of it at once (notifyShift 'self_signup'), because this is a
+ * shop nobody at SHIFT has met, and again when the mobile is proven.
  */
 
 const NAME_MAX = 120;
@@ -52,9 +69,11 @@ const ERRORS = {
   ownerName: 'اكتب اسمك',
   ownerPhone: 'رقم الموبايل غير صحيح — اكتبه هكذا: 07XXXXXXXX',
   password: `كلمة المرور يجب أن تكون ${PASSWORD_MIN} أحرف على الأقل`,
-  // Deliberately says nothing about which shop: this page is public, so it must not tell a
-  // stranger whose number is on Karam Bot.
-  phoneTaken: 'هذا الموبايل مسجّل لدينا. سجّل الدخول، أو راسل شِفت على واتساب إن نسيت كلمة المرور.',
+  // Only ever said to someone who proved the mobile from its own WhatsApp: the signup itself
+  // answers the same for every number, so it tells a stranger nothing about who is a customer.
+  phoneTaken: 'هذا الموبايل مسجّل لحساب آخر لدينا. سجّل الدخول به، أو راسل شِفت على واتساب إن نسيت كلمة المرور.',
+  notSelfSignup: 'هذه الخطوة لمن سجّل بنفسه من «جرّب مجانًا».',
+  noCode: 'لا يوجد رمز تأكيد لهذا الحساب. اطلب رمزًا جديدًا.',
   dailyCap: 'اكتملت تسجيلات اليوم. جرّب غدًا، أو راسل شِفت على واتساب ونفعّلك بأنفسنا.',
   tooMany: 'محاولات كثيرة من هذا الجهاز. انتظر ربع ساعة ثم جرّب مرة أخرى.',
   failed: 'تعذّر إنشاء الحساب، حاول مرة أخرى',
@@ -99,11 +118,66 @@ async function signupsToday(now = new Date()) {
   return rows.filter((r) => r.data && r.data.source === 'self_signup').length;
 }
 
-async function phoneTaken(phone) {
+async function phoneTaken(phone, { exceptBusinessId = null } = {}) {
   const user = await prisma.user.findUnique({ where: { phone }, select: { id: true } });
   if (user) return true;
   const shop = await prisma.business.findFirst({ where: { owner_phone: phone }, select: { id: true } });
-  return Boolean(shop);
+  return Boolean(shop && shop.id !== exceptBusinessId);
+}
+
+// ── The mobile's proof ───────────────────────────────────────────────────────
+
+const CODE_EVENT = 'self_signup_code';
+const digest = (code) => crypto.createHash('sha256').update(`karam-self-signup:${code}`).digest('hex');
+const newCode = () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+
+/** The text the wa.me link fills in. The page builds the same sentence (JoinPage VerifyStep). */
+const codeText = (code) => `رمز تأكيد كرم بوت: ${code}`;
+
+/** A new code for the shop's pending mobile; the old one stops counting. Returns the plain code. */
+async function issueCode({ businessId, userId, phone, client = prisma }) {
+  const code = newCode();
+  await client.accountEvent.updateMany({
+    where: { business_id: businessId, type: CODE_EVENT, resolved_at: null },
+    data: { resolved_at: new Date() },
+  });
+  await client.accountEvent.create({
+    data: accountEvents.toRow({
+      businessId, actorUserId: userId, actorKind: 'owner', type: CODE_EVENT,
+      data: { phone, digest: digest(code) },
+    }),
+  });
+  return code;
+}
+
+// Arabic-Indic and Persian digits as typed on many phones' keyboards.
+const asciiDigits = (s) => String(s || '')
+  .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+  .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06f0));
+
+/** Did SHIFT's number receive, from `phone` itself and since `since`, a message carrying the code? */
+async function codeArrived({ phone, want, since }) {
+  const shift = await prisma.business.findFirst({ where: { business_type: 'shift', status: 'active' }, select: { id: true } });
+  if (!shift) return false;
+  const rows = await prisma.message.findMany({
+    where: { business_id: shift.id, direction: 'inbound', sender_wa_id: phone, created_at: { gte: since } },
+    select: { text_body: true },
+    orderBy: { created_at: 'desc' },
+    take: 20,
+  });
+  return rows.some((r) => (asciiDigits(r.text_body).match(/(?<!\d)\d{6}(?!\d)/g) || []).some((c) => digest(c) === want));
+}
+
+/** The signed-in owner of a self-signup shop, or a response already sent. */
+async function selfSignupOwner(req, res) {
+  const shop = req.user && req.user.role === 'business_owner' && req.user.business_id
+    ? await prisma.business.findUnique({ where: { id: req.user.business_id }, select: { id: true, name: true, source: true, ai_config: true } })
+    : null;
+  if (!shop || shop.source !== 'self_signup') {
+    res.status(403).json({ error: ERRORS.notSelfSignup });
+    return null;
+  }
+  return shop;
 }
 
 const router = express.Router();
@@ -136,11 +210,11 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
   try {
     const setting = await selfSignupSetting();
     const cap = Number.isInteger(setting.daily_cap) ? setting.daily_cap : 0;
-    // Counted before the duplicate check, so a full day answers the same to everyone. Two
-    // signups racing past the last place can make it cap + 1; at five a day that is accepted.
+    // A full day answers the same to everyone. Two signups racing past the last place can make
+    // it cap + 1; at five a day that is accepted.
     if ((await signupsToday()) >= cap) return res.status(429).json({ error: ERRORS.dailyCap });
-
-    if (await phoneTaken(phone)) return res.status(409).json({ error: ERRORS.phoneTaken });
+    // No «this mobile is taken» here: that answer would tell a stranger who is a customer. A
+    // taken mobile is found when its owner proves it (POST /verify), never before.
 
     const spec = SECTORS[sector];
     const hashed = await bcrypt.hash(password, 12);
@@ -151,7 +225,8 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
       try {
         // One transaction: no shop without its owner. No Subscription and no number: the free
         // month is made at connect, as for an invite (spec decision (a)), so a signup that never
-        // connects costs nothing and takes no place in the offer.
+        // connects costs nothing and takes no place in the offer. The mobile is held nowhere yet
+        // (no users.phone, no owner_phone, no alert number) until its owner proves it.
         const created = await prisma.$transaction(async (tx) => {
           const business = await tx.business.create({
             data: {
@@ -159,10 +234,10 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
               slug: nextSlug(base, attempt),
               business_type: spec.business_type,
               sector,
-              owner_phone: phone,
+              owner_phone: null,
               source: 'self_signup',
               wa_phone_number_id: null,
-              ai_config: { greeting_message: spec.greeting(shopName), alert_wa_numbers: [phone] },
+              ai_config: { greeting_message: spec.greeting(shopName), alert_wa_numbers: [] },
             },
             select: { id: true, name: true, business_type: true },
           });
@@ -170,7 +245,7 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
             data: {
               name: ownerName,
               email: null,
-              phone,
+              phone: null,
               password: hashed,
               role: 'business_owner',
               business_id: business.id,
@@ -186,18 +261,19 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
               data: { business_type: spec.business_type, sector, source: 'self_signup' },
             }),
           });
-          return { business, owner };
+          const code = await issueCode({ businessId: business.id, userId: owner.id, phone, client: tx });
+          return { business, owner, code };
         });
 
-        const { business, owner } = created;
+        const { business, owner, code } = created;
         // Not awaited: the owner's first screen must not wait on SHIFT's WhatsApp, and notifyShift
         // never throws.
+        // No phone: it is not proven yet, and SHIFT must not message a mobile a stranger typed.
         alerts.notifyShift({
           reason: 'self_signup',
           businessId: business.id,
           shopName: business.name,
-          phone,
-          summary: `${firstName(owner.name) || 'صاحب محل'} سجّل ${business.name} بنفسه — التالي: ربط واتساب`,
+          summary: `${firstName(owner.name) || 'صاحب محل'} سجّل ${business.name} بنفسه — لم يؤكد موبايله بعد`,
         });
 
         return res.status(201).json({
@@ -212,12 +288,12 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
             business_type: business.business_type,
             business_name: business.name,
           },
+          verify: { code, text: codeText(code) },
         });
       } catch (err) {
         if (err && err.code === 'P2002') {
           const target = `${JSON.stringify((err.meta && err.meta.target) || '')} ${err.message || ''}`;
           if (target.includes('slug')) continue; // the next candidate, in a new transaction
-          if (target.includes('phone')) return res.status(409).json({ error: ERRORS.phoneTaken });
         }
         throw err;
       }
@@ -231,6 +307,85 @@ router.post('/', platformSettings.requireSetting('self_signup', ERRORS.closed), 
   }
 });
 
+// The new owner's own session; a few tries a minute is plenty for a page that polls every few seconds.
+const verifyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: ERRORS.tooMany },
+});
+
+/**
+ * Has the code arrived from the mobile? {verified: false} until it has; then the mobile becomes the
+ * owner's login, the shop's owner number and its alert number, and {verified: true, user}. A mobile
+ * another account already holds is a 409: the person proved it is theirs, so saying so leaks nothing.
+ * Not behind the self_signup switch: a shop that signed up before SHIFT closed it can still finish.
+ */
+router.post('/verify', verifyLimiter, authenticate, async (req, res) => {
+  try {
+    const shop = await selfSignupOwner(req, res);
+    if (!shop) return undefined;
+    if (req.user.phone) return res.json({ verified: true });
+    const [pending] = await accountEvents.list({ businessId: shop.id, types: CODE_EVENT, unresolved: true, limit: 1 });
+    if (!pending || !pending.data || !pending.data.phone) return res.status(404).json({ error: ERRORS.noCode });
+    const phone = String(pending.data.phone);
+    if (!(await codeArrived({ phone, want: pending.data.digest, since: new Date(pending.created_at) }))) {
+      return res.json({ verified: false });
+    }
+
+    if (await phoneTaken(phone, { exceptBusinessId: shop.id })) {
+      await accountEvents.resolve(pending.id);
+      await accountEvents.record({ businessId: shop.id, actorUserId: req.user.id, actorKind: 'owner', type: 'self_signup_phone_taken', data: {} });
+      return res.status(409).json({ error: ERRORS.phoneTaken });
+    }
+    const aiConfig = shop.ai_config && typeof shop.ai_config === 'object' ? shop.ai_config : {};
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: req.user.id }, data: { phone } });
+        await tx.business.update({
+          where: { id: shop.id },
+          data: { owner_phone: phone, ai_config: { ...aiConfig, alert_wa_numbers: [phone] } },
+        });
+      });
+    } catch (err) {
+      // Another account took the mobile between the check and the write.
+      if (err && err.code === 'P2002') return res.status(409).json({ error: ERRORS.phoneTaken });
+      throw err;
+    }
+    await accountEvents.resolve(pending.id);
+    await accountEvents.record({ businessId: shop.id, actorUserId: req.user.id, actorKind: 'owner', type: 'self_signup_verified', data: {} });
+    alerts.notifyShift({
+      reason: 'self_signup',
+      businessId: shop.id,
+      shopName: shop.name,
+      phone,
+      summary: `أكّد صاحب ${shop.name} موبايله — التالي: ربط واتساب`,
+    });
+    return res.json({ verified: true, user: { id: req.user.id, phone } });
+  } catch (err) {
+    console.error(`[public/signup] verify failed: ${err.code || ''} ${err.message}`);
+    return res.status(500).json({ error: ERRORS.failed });
+  }
+});
+
+/** A fresh code for the same pending mobile (the page lost it on a reload, or the owner asked). */
+router.post('/verify/code', verifyLimiter, authenticate, async (req, res) => {
+  try {
+    const shop = await selfSignupOwner(req, res);
+    if (!shop) return undefined;
+    if (req.user.phone) return res.json({ verified: true });
+    const [pending] = await accountEvents.list({ businessId: shop.id, types: CODE_EVENT, unresolved: true, limit: 1 });
+    if (!pending || !pending.data || !pending.data.phone) return res.status(404).json({ error: ERRORS.noCode });
+    const code = await issueCode({ businessId: shop.id, userId: req.user.id, phone: String(pending.data.phone) });
+    return res.json({ verified: false, code, text: codeText(code) });
+  } catch (err) {
+    console.error(`[public/signup] new code failed: ${err.code || ''} ${err.message}`);
+    return res.status(500).json({ error: ERRORS.failed });
+  }
+});
+
 module.exports = router;
+module.exports.codeText = codeText;
 module.exports.ERRORS = ERRORS;
 module.exports.signupsToday = signupsToday;

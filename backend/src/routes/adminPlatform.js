@@ -27,7 +27,8 @@ const { embeddedSignupAppId } = require('../utils/metaSecrets');
  * person in the body ({key, value, confirm}) rather than a click (CONFIRM_TO_ENABLE). Turning
  * them off needs nothing: off is the safe side.
  * - Public self-signup (P5, routes/publicSignup.js) is built off (decisions #1: the first ten are
- *   invite-only); its daily cap can be changed freely.
+ *   invite-only); its daily cap can be changed freely. It opens only while owner self-connect
+ *   (es_owner_enabled) is on, or a self-signed shop could not go live alone.
  * - Coexistence (P5) changes what every shop's connect screen offers, and Meta then holds SHIFT to
  *   a 24-hour sync per number (services/coexistence.js).
  */
@@ -146,7 +147,12 @@ const EDITABLE = Object.keys(VALIDATORS);
  * The checked value to store for `key`, from the current effective value and what was sent.
  * `opts.confirm` is the typed sentence a switch in CONFIRM_TO_ENABLE asks for.
  */
-function validateSetting(key, sent, current, { confirm } = {}) {
+// Self-signup promises a shop that «signs up and goes live alone» (spec P5): with owner self-connect
+// still closed (es_owner_enabled, off until G1), every public signup would stop at «سيتواصل معك
+// فريق شِفت لربط واتساب» and become SHIFT's manual work. So it opens only after self-connect does.
+const SELF_SIGNUP_NEEDS_ES = 'افتح «الربط الذاتي» أولًا: بدونه لا يستطيع من يسجّل بنفسه ربط واتساب دون فريق شِفت.';
+
+function validateSetting(key, sent, current, { confirm, esOwnerOn } = {}) {
   if (!EDITABLE.includes(key)) bad('هذا الإعداد لا يُعدَّل من هنا');
   const validate = VALIDATORS[key];
   let value;
@@ -157,6 +163,9 @@ function validateSetting(key, sent, current, { confirm } = {}) {
     value = validate(sent);
   }
   assertConfirmed(key, value, current, confirm);
+  if (key === 'self_signup' && value.enabled === true && !(isPlainObject(current) && current.enabled === true) && esOwnerOn === false) {
+    bad(SELF_SIGNUP_NEEDS_ES);
+  }
   return value;
 }
 
@@ -198,7 +207,8 @@ router.patch('/', async (req, res) => {
   try {
     let value = null;
     if (req.body.value !== null) {
-      value = validateSetting(key, req.body.value, await platformSettings.get(key), { confirm: req.body.confirm });
+      const esOwnerOn = key === 'self_signup' ? platformSettings.isOn(await platformSettings.get('es_owner_enabled')) : undefined;
+      value = validateSetting(key, req.body.value, await platformSettings.get(key), { confirm: req.body.confirm, esOwnerOn });
     }
     const effective = await platformSettings.set(key, value, req.user.id);
     res.json({ key, value: effective, settings: await platformSettings.getAll() });
@@ -215,3 +225,4 @@ module.exports.validateSetting = validateSetting;
 module.exports.EDITABLE = EDITABLE;
 module.exports.CONFIRM_TO_ENABLE = CONFIRM_TO_ENABLE;
 module.exports.COEXISTENCE_CONFIRM = COEXISTENCE_CONFIRM;
+module.exports.SELF_SIGNUP_NEEDS_ES = SELF_SIGNUP_NEEDS_ES;

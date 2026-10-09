@@ -9,9 +9,17 @@
  *   - the connect screen does not offer the option (routes/embeddedSignup.js config);
  *   - a FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING that arrives anyway goes to SHIFT, unregistered,
  *     exactly as before (services/embeddedSignup.js);
- *   - the three webhook fields below are logged and dropped.
+ *   - the three webhook fields below are logged and dropped for every number that was not
+ *     connected through coexistence.
  * The sweep step and the bot's «the owner is replying» check read only rows this file writes, so
  * with the switch never flipped they find nothing.
+ *
+ * The switch decides what is OFFERED, not what keeps working. A number already connected through
+ * coexistence stays on the owner's app and on Cloud API whatever the switch says, and Meta keeps
+ * sending its echoes; dropping them would let the bot answer under the owner. So the webhook
+ * fields are accepted for such a number (its onboarding row says so) even with the switch off,
+ * and the sweep keeps its 24-hour syncs going — which is what the switch-off confirm on the
+ * settings page promises («الأرقام المربوطة به تبقى تعمل»).
  *
  * What Meta requires of a Tech Provider once it is on (meta-facts.md Q4d):
  *   1. no /register (the app already registered the number) — embeddedSignup.runOnboarding;
@@ -31,6 +39,7 @@
  */
 
 const axios = require('axios');
+const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const jsonb = require('../db/jsonb');
 const { decrypt } = require('../utils/tokenCrypto');
@@ -41,6 +50,9 @@ const { markOutbound } = require('./lastOutbound');
 const sseEmitter = require('../utils/sseEmitter');
 
 const FEATURE_TYPE = 'whatsapp_business_app_onboarding';
+// Meta's finish event for a number linked from the WhatsApp Business app. The same string as
+// embeddedSignup.COEXISTENCE_EVENT (that module requires this one, so it is not imported back).
+const COEXISTENCE_EVENT = 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING';
 // In the order Meta lists them: contacts first, then the message history.
 const SYNC_TYPES = Object.freeze(['smb_app_state_sync', 'history']);
 const HOUR = 60 * 60 * 1000;
@@ -53,6 +65,17 @@ const SYNC_RETRY_EVERY_MS = 10 * 60 * 1000;
 // Past Meta's deadline a retry can still be accepted, so the sweep keeps trying a while longer;
 // after this it stops and leaves the row to SHIFT (the late alert is already out).
 const SYNC_GIVE_UP_MS = 72 * HOUR;
+// One sweep's share of the syncs. The step runs inside the sweep's `running` flag, before the
+// daily step, and each smb_app_data call may wait 15 s for a slow Graph: without a limit, a few
+// open rows during a Meta slowdown would hold the flag past the minute, and the next sweep (SHIFT's
+// own recovery, alerts and nudges, and the tenants' stuck rows) would return 'already_running'.
+// Past this, no new call starts; the rest wait for the next sweep. At least one row is tried per
+// sweep, so every open sync is reached.
+const SYNC_SWEEP_BUDGET_MS = 15 * 1000;
+// Who is making a number's calls right now: startSync on the connect request, or a sweep on any
+// instance. Long enough for both calls at their 15 s timeouts; a crashed holder frees it by then.
+const SYNC_LEASE_MS = 60 * 1000;
+const LEASE_KEY = 'coex_sync_lease';
 // After the owner answers a customer from the app, the bot stays quiet in that chat this long: the
 // owner is in the conversation, and the bot answering underneath reads as two people talking over
 // each other. Longer than the inbox's 30 minutes: a phone reply is slower and comes in bursts.
@@ -138,17 +161,60 @@ async function liveOnboarding(started) {
  * asked for only after the contacts, as Meta lists them. Resolves `started` when both are done.
  * Never throws; returns what it did.
  */
-async function runSync(started, { now = new Date() } = {}) {
+async function runSync(started, { now = new Date(), deadline = null, clock = Date.now } = {}) {
   const log = logFor(started.business_id);
   const row = await liveOnboarding(started);
   if (!row) return { ran: false, reason: 'not_connected' };
   const token = decrypt(row.access_token_enc);
   if (!token) return { ran: false, reason: 'no_token' };
 
+  const lease = await claimSync(started, now);
+  if (!lease) return { ran: false, reason: 'in_flight' };
+  try {
+    return await makeSyncs(started, row, token, log, { now, deadline, clock });
+  } finally {
+    await releaseSync(started, lease);
+  }
+}
+
+/**
+ * Take the number's lease (businesses.ai_config.coex_sync_lease, compare-and-set), so startSync on
+ * the connect request and a sweep on any instance never both call smb_app_data for one number: a
+ * second history request may be refused (logged as a failure, which delays the next retry) or
+ * answered with the history twice. Returns the lease written, or null when someone holds it.
+ */
+async function claimSync(started, now) {
+  const businessId = started.business_id;
+  const nowMs = new Date(now).getTime();
+  const shop = await prisma.business.findUnique({ where: { id: businessId }, select: { ai_config: true } });
+  if (!shop) return null;
+  const current = shop.ai_config && typeof shop.ai_config === 'object' ? (shop.ai_config[LEASE_KEY] ?? null) : null;
+  const heldUntil = current && current.until ? new Date(current.until).getTime() : 0;
+  if (Number.isFinite(heldUntil) && heldUntil > nowMs) return null;
+  const lease = {
+    phone_number_id: started.data?.phone_number_id || null,
+    until: new Date(nowMs + SYNC_LEASE_MS).toISOString(),
+    token: crypto.randomBytes(8).toString('hex'),
+  };
+  return (await jsonb.casBusinessConfig(businessId, LEASE_KEY, current, lease)) ? lease : null;
+}
+
+/** Give the lease back (only our own: a holder whose lease ran out may have been replaced). */
+async function releaseSync(started, lease) {
+  try {
+    await jsonb.casBusinessConfig(started.business_id, LEASE_KEY, lease, { ...lease, until: new Date(0).toISOString() });
+  } catch (err) {
+    console.error(`[coexistence] lease not released business=${started.business_id}: ${err.message}`);
+  }
+}
+
+async function makeSyncs(started, row, token, log, { now, deadline, clock }) {
   const { done } = await progressOf(started);
   const made = [];
   for (const syncType of SYNC_TYPES) {
     if (done.has(syncType)) continue;
+    // The sweep's budget: the call already made stands, the next waits for the next sweep.
+    if (made.length && deadline && clock() >= deadline) return { ran: true, made, deferred: true, complete: false };
     try {
       await requestSync(row.phone_number_id, token, syncType);
     } catch (err) {
@@ -181,7 +247,13 @@ async function startSync({ businessId, onboarding, now = new Date() }) {
     if (!businessId || !onboarding?.phone_number_id) return null;
     const open = await accountEvents.list({ businessId, types: 'coex_sync_started', unresolved: true, limit: 20 });
     let started = open.find((e) => e.data?.phone_number_id === onboarding.phone_number_id);
+    const nowMs = new Date(now).getTime();
     if (!started) {
+      // Meta's 24 hours run from the onboarding (meta-facts.md Q4d), not from this link: a row
+      // SHIFT finishes days after it was left, or a subscribe the owner resumes hours later, has
+      // less time than a fresh clock would say. The code was exchanged within seconds of Meta's
+      // finish, so token_exchanged_at is the onboarding's time.
+      const onboardedMs = onboardedAt(onboarding, nowMs);
       started = await accountEvents.record({
         businessId,
         actorKind: 'system',
@@ -189,32 +261,75 @@ async function startSync({ businessId, onboarding, now = new Date() }) {
         data: {
           phone_number_id: onboarding.phone_number_id,
           waba_id: onboarding.waba_id,
-          due_by: new Date(new Date(now).getTime() + SYNC_DEADLINE_MS).toISOString(),
+          onboarded_at: new Date(onboardedMs).toISOString(),
+          // How long after the onboarding this row was written. The sweep measures the 20-hour
+          // alert and the give-up from the row's created_at plus this, so both run on Meta's clock.
+          lag_ms: nowMs - onboardedMs,
+          due_by: new Date(onboardedMs + SYNC_DEADLINE_MS).toISOString(),
         },
       });
     }
     if (!started) return null;
-    return await runSync(started, { now });
+    const result = await runSync(started, { now });
+    // Linked late enough that the 20-hour mark has already passed: SHIFT hears now, not at a
+    // sweep 20 hours from here, long after Meta's deadline.
+    if (result.ran && !result.complete && lagOf(started) >= SYNC_ALERT_AFTER_MS) {
+      const progress = await progressOf(started);
+      if (!progress.alerted) await alertLate(started, progress.attempts, lagOf(started));
+    }
+    return result;
   } catch (err) {
     console.error(`[coexistence] sync start business=${businessId}: ${err.message}`);
     return null;
   }
 }
 
+/** When Meta's 24 hours started for this onboarding row, never later than `nowMs`. */
+function onboardedAt(onboarding, nowMs) {
+  const t = onboarding?.token_exchanged_at ? new Date(onboarding.token_exchanged_at).getTime() : NaN;
+  return Number.isFinite(t) && t <= nowMs ? t : nowMs;
+}
+
+const lagOf = (started) => {
+  const lag = Number(started?.data?.lag_ms);
+  return Number.isFinite(lag) && lag > 0 ? lag : 0;
+};
+
+/** The sync's age on Meta's clock: since the onboarding, not since the row was written. */
+function ageOf(started, nowMs) {
+  return nowMs - new Date(started.created_at).getTime() + lagOf(started);
+}
+
+/** SHIFT hears once, in Arabic, that a sync is late; logged as coex_sync_late. */
+async function alertLate(started, attempts, age) {
+  await logFor(started.business_id)('coex_sync_late', { phone_number_id: started.data?.phone_number_id, attempts });
+  const hoursLeft = Math.max(0, Math.round((SYNC_DEADLINE_MS - age) / HOUR));
+  Promise.resolve(alerts.notifyShift({
+    reason: 'needs_operator',
+    businessId: started.business_id,
+    summary: hoursLeft > 0
+      ? `مزامنة الرقم المشترك مع تطبيق واتساب للأعمال لم تكتمل — بقي نحو ${hoursLeft} ساعات على مهلة Meta`
+      : 'مزامنة الرقم المشترك مع تطبيق واتساب للأعمال لم تكتمل وقد انتهت مهلة Meta — قد يلزم فصل الرقم وربطه من جديد',
+  })).catch(() => {});
+}
+
 /**
  * The minute sweep's step: every open sync gets its missing calls retried (at most every
  * SYNC_RETRY_EVERY_MS), SHIFT hears once at 20 h if it is still not done, and after
  * SYNC_GIVE_UP_MS the row is closed with a note. Reads only coex_sync_started rows, so with
- * coexistence never switched on it is one empty query.
+ * coexistence never switched on it is one empty query. On a time budget (SYNC_SWEEP_BUDGET_MS):
+ * once spent, rows still due are counted as deferred and left for the next sweep.
  */
-async function sweepSyncs(now = new Date()) {
-  const report = { open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0 };
+async function sweepSyncs(now = new Date(), { budgetMs = SYNC_SWEEP_BUDGET_MS, clock = Date.now } = {}) {
+  const report = { open: 0, retried: 0, completed: 0, alerted: 0, given_up: 0, deferred: 0 };
   const open = await accountEvents.list({ allBusinesses: true, types: 'coex_sync_started', unresolved: true, limit: 200 });
   const nowMs = new Date(now).getTime();
+  const startedAt = clock();
+  const deadline = startedAt + budgetMs;
   for (const started of open) {
     report.open += 1;
     try {
-      const age = nowMs - new Date(started.created_at).getTime();
+      const age = ageOf(started, nowMs);
       const log = logFor(started.business_id);
       if (age > SYNC_GIVE_UP_MS) {
         await log('coex_sync_failed', { phone_number_id: started.data?.phone_number_id, sync_type: null, gave_up: true });
@@ -225,9 +340,12 @@ async function sweepSyncs(now = new Date()) {
       const progress = await progressOf(started);
       const due = !progress.lastFailureAt || nowMs - progress.lastFailureAt.getTime() >= SYNC_RETRY_EVERY_MS;
       let complete = SYNC_TYPES.every((t) => progress.done.has(t));
-      if (!complete && due) {
-        const result = await runSync(started, { now });
+      if (!complete && due && report.retried > 0 && clock() >= deadline) {
+        report.deferred += 1;
+      } else if (!complete && due) {
+        const result = await runSync(started, { now, deadline, clock });
         if (result.ran) report.retried += 1;
+        if (result.deferred) report.deferred += 1;
         complete = Boolean(result.complete);
         if (complete) report.completed += 1;
       } else if (complete) {
@@ -235,13 +353,7 @@ async function sweepSyncs(now = new Date()) {
         report.completed += 1;
       }
       if (!complete && age >= SYNC_ALERT_AFTER_MS && !progress.alerted) {
-        await log('coex_sync_late', { phone_number_id: started.data?.phone_number_id, attempts: progress.attempts });
-        const hoursLeft = Math.max(0, Math.round((SYNC_DEADLINE_MS - age) / HOUR));
-        Promise.resolve(alerts.notifyShift({
-          reason: 'needs_operator',
-          businessId: started.business_id,
-          summary: `مزامنة الرقم المشترك مع تطبيق واتساب للأعمال لم تكتمل — بقي نحو ${hoursLeft} ساعات على مهلة Meta`,
-        })).catch(() => {});
+        await alertLate(started, progress.attempts, age);
         report.alerted += 1;
       }
     } catch (err) {
@@ -258,21 +370,32 @@ const BUSINESS_SELECT = {
 };
 
 /**
+ * The number was linked through coexistence and is still the shop's: its onboarding row finished
+ * with Meta's app event, is done, and was neither removed nor detached.
+ */
+async function connectedThroughApp(phoneNumberId, businessId) {
+  const row = await prisma.whatsappOnboarding.findUnique({ where: { phone_number_id: String(phoneNumberId) } });
+  return Boolean(row && row.business_id === businessId && row.finish_event === COEXISTENCE_EVENT
+    && row.step === 'done' && !row.revoked_at && !row.detached_at);
+}
+
+/**
  * The shop a coexistence delivery belongs to, under the same rule as every other delivery
  * (messageProcessor.refusesDelivery, wabaIsolation.test.js): the number must be the shop's, the
  * WABA it arrived on must be the shop's, and the endpoint must serve the shop's Meta app. Null
- * when coexistence is off, or when any of that fails.
+ * when any of that fails, or when coexistence is off and the number was not connected through it
+ * (one that was keeps working: see the header).
  */
 async function deliveryOwner(entry, value, { servesApp, endpoint } = {}, field) {
-  if (!(await isEnabled())) {
-    console.log(`[coexistence] ${field} ignored: coexistence is off`);
-    return null;
-  }
   const phoneNumberId = value?.metadata?.phone_number_id;
   if (!phoneNumberId) return null;
   const business = await prisma.business.findFirst({ where: { wa_phone_number_id: String(phoneNumberId) }, select: BUSINESS_SELECT });
   if (!business) {
     console.warn(`[coexistence] ${field} for a number no shop holds: ${phoneNumberId}`);
+    return null;
+  }
+  if (!(await isEnabled()) && !(await connectedThroughApp(phoneNumberId, business.id))) {
+    console.log(`[coexistence] ${field} ignored: coexistence is off`);
     return null;
   }
   const wabaId = entry?.id ? String(entry.id) : null;
@@ -377,17 +500,24 @@ async function handleEchoes(entry, change, opts = {}) {
       raw_payload: { source: 'owner_app' },
       created_at: at,
     });
-    if (!msg) continue;
-    stored += 1;
-    await markOutbound(conv.id, at);
-    await bumpLastMessage(conv.id, at);
+    if (msg) {
+      stored += 1;
+      await markOutbound(conv.id, at);
+      await bumpLastMessage(conv.id, at);
+    } else {
+      // Already stored. When the hold write below failed after the insert, the webhook answered
+      // 500 and this is Meta's retry: the chat still owes the owner its hold, or the retry would
+      // protect nothing. The bot's own send coming back is not the owner's, and never silences it.
+      const prior = await prisma.message.findUnique({ where: { meta_message_id: String(echo.id) } });
+      if (!prior || prior.business_id !== business.id || prior.raw_payload?.source !== 'owner_app') continue;
+    }
     // Never moves backwards: an older echo delivered late must not shorten a newer hold.
     const until = new Date(at.getTime() + OWNER_HOLD_MS);
     const current = conv.metadata?.[HOLD_KEY] ? new Date(conv.metadata[HOLD_KEY]) : null;
     if (!current || Number.isNaN(current.getTime()) || current < until) {
       await jsonb.patchJson('conversations', conv.id, 'metadata', { [HOLD_KEY]: until.toISOString() });
     }
-    sseEmitter.emit(`business:${business.id}`, { type: 'new_message', conversationId: conv.id, businessId: business.id });
+    if (msg) sseEmitter.emit(`business:${business.id}`, { type: 'new_message', conversationId: conv.id, businessId: business.id });
   }
   return { stored };
 }
@@ -493,6 +623,10 @@ module.exports = {
   SYNC_ALERT_AFTER_MS,
   SYNC_RETRY_EVERY_MS,
   SYNC_GIVE_UP_MS,
+  SYNC_SWEEP_BUDGET_MS,
+  SYNC_LEASE_MS,
+  LEASE_KEY,
+  COEXISTENCE_EVENT,
   OWNER_HOLD_MS,
   HOLD_KEY,
   NOTICE_AR,

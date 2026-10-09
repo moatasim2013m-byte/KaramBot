@@ -305,6 +305,71 @@ async function assertNumberFree(phoneNumberId, businessId, { onboardingId = null
   throw numberTakenError(phoneNumberId);
 }
 
+const onlyDigits = (v) => String(v == null ? '' : v).replace(/\D/g, '');
+
+/**
+ * A self-signup's abuse control at connect (docs/panels/spec.md P5: «a duplicate check on
+ * meta_business_id and display number», the TrialClaim the spec replaced). assertNumberFree only
+ * looks at phone_number_id, so without this one person could sign up with several mobiles and
+ * connect each new shop from the same Meta portfolio, or the same display number re-added under a
+ * new WABA (a new phone_number_id), and take a free month and reply caps each time.
+ *
+ * Only for shops with source 'self_signup': an invite is a shop SHIFT met, and a chain's second
+ * branch on one portfolio is SHIFT's call there. A closed shop holds nothing. Recorded on the
+ * caller's account as es_conflict (held_by 'portfolio' or 'display_number', no other shop's id),
+ * SHIFT is told, and the same neutral Arabic as a taken number is answered. Before subscribe,
+ * register or any write.
+ */
+async function assertSelfSignupFree(businessId, { metaBusinessId = null, number = null, wabaId = null, phoneNumberId = null, actor = {} } = {}) {
+  const shop = await prisma.business.findUnique({ where: { id: businessId }, select: { id: true, source: true } });
+  if (!shop || shop.source !== 'self_signup') return;
+
+  let heldBy = null;
+  const portfolio = metaBusinessId ? String(metaBusinessId) : null;
+  if (portfolio) {
+    const viaOnboarding = await prisma.whatsappOnboarding.findMany({
+      where: { meta_business_id: portfolio, business_id: { not: null } },
+      select: { business_id: true },
+    });
+    const viaBusiness = await prisma.business.findMany({
+      where: { meta_business_id: portfolio, id: { not: businessId } },
+      select: { id: true },
+    });
+    const others = [...new Set([...viaOnboarding.map((r) => r.business_id), ...viaBusiness.map((b) => b.id)])]
+      .filter((id) => id && id !== businessId);
+    if (others.length) {
+      const open = await prisma.business.count({ where: { id: { in: others }, status: { not: 'closed' } } });
+      if (open) heldBy = 'portfolio';
+    }
+  }
+  const display = onlyDigits(number?.display_phone_number);
+  if (!heldBy && display) {
+    // Meta formats the display number with spaces and a plus; compared as digits. A handful of
+    // connected shops, so read and compared here (no JSON or function filters in the db contract).
+    const shops = await prisma.business.findMany({
+      where: { wa_display_phone: { not: null }, id: { not: businessId }, status: { not: 'closed' } },
+      select: { id: true, wa_display_phone: true },
+    });
+    if (shops.some((b) => onlyDigits(b.wa_display_phone) === display)) heldBy = 'display_number';
+  }
+  if (!heldBy) return;
+
+  await accountEvents.record({
+    businessId,
+    actorUserId: actor.userId || null,
+    actorKind: actor.kind || 'system',
+    type: 'es_conflict',
+    data: { held_by: heldBy, waba_id: wabaId ? String(wabaId) : null, phone_number_id: phoneNumberId ? String(phoneNumberId) : null },
+  });
+  tellShift({
+    reason: 'needs_operator',
+    businessId,
+    summary: heldBy === 'portfolio'
+      ? 'محل سجّل بنفسه حاول الربط من حساب Meta مربوط بمحل آخر لدينا — لم نربطه، راجِعه'
+      : 'محل سجّل بنفسه حاول ربط رقم واتساب مربوط بمحل آخر لدينا — لم نربطه، راجِعه',
+  });
+  throw Object.assign(new Error(`self_signup_duplicate: ${heldBy}`), { code: 'number_taken', status: 409, held_by: heldBy });
+}
 
 // What belongs to the number rather than to the shop. A shop's own row pointed at a new number
 // starts over from these, so the new number never inherits the old one's token, PIN or status.
@@ -871,6 +936,16 @@ async function connectFromCode({ businessId, code, finishEvent = null, hints = {
     });
     stage = 'onboarding';
 
+    // A self-signup may not take a second free month from a portfolio or a display number another
+    // shop already holds. Nothing is written yet, and the token is not kept.
+    await assertSelfSignupFree(businessId, {
+      metaBusinessId: grant.metaBusinessId || portfolioHint,
+      number: grant.number,
+      wabaId: grant.wabaId,
+      phoneNumberId: grant.phoneNumberId,
+      actor,
+    });
+
     // The portfolio the browser named is kept only for comparison. A different one from /me is
     // not a refusal (the token's grants are the proof), but SHIFT should look at it.
     if (portfolioHint && grant.metaBusinessId && portfolioHint !== grant.metaBusinessId) {
@@ -1197,6 +1272,7 @@ module.exports = {
   errorAr,
   paymentState,
   assertNumberFree,
+  assertSelfSignupFree,
   numberHolder,
   generatePin,
   exchangeCode,

@@ -6,7 +6,12 @@ A shop's existing number stays in the WhatsApp Business app on the owner's phone
 
 `PlatformSetting coexistence = {enabled: false}` by default. It is changed in «إعدادات المنصة» → «رقم واتساب موصول بتطبيق الهاتف». Switching it on means typing the sentence `routes/adminPlatform.js` `COEXISTENCE_CONFIRM` («نعم، فعّل الربط مع تطبيق واتساب للأعمال»). The PATCH refuses it without that sentence. Switching it off needs only a confirm.
 
-While it is off, everything below is inert:
+The switch decides what is **offered**. A number already connected through coexistence keeps
+working when it is switched off: its onboarding row (`finish_event
+FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING`, `step 'done'`, not removed) lets its echoes, history and
+contacts through, so the owner's replies still hold the bot, and its open syncs still run.
+
+While it is off, everything below is inert for every other number:
 
 | Piece | Off (today) | On |
 |---|---|---|
@@ -14,7 +19,7 @@ While it is off, everything below is inert:
 | `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` | Subscribed, never registered, `needs_operator`, SHIFT alerted (unchanged) | Subscribed, **no /register**, linked to the shop, `done` |
 | SHIFT's «أكمل الربط» on such a row | 409 `coexistence` | Links it without /register |
 | `smb_app_data` syncs | Never called | Called at connect, retried by the sweep, alert at 20 h |
-| Webhook `smb_message_echoes`, `history`, `smb_app_state_sync` | Logged and dropped | Handled (below) |
+| Webhook `smb_message_echoes`, `history`, `smb_app_state_sync` | Logged and dropped (handled for a number already connected through coexistence) | Handled (below) |
 | Bot | Unchanged | Stays quiet for 2 h in a chat where the owner just replied from the app |
 
 ## What happens when it is on
@@ -26,7 +31,12 @@ While it is off, everything below is inert:
   - `coex_sync_late` records the 20-hour alert.
 
   The minute sweep (`shiftSweeper.runSweep` → `coexistence.sweepSyncs`) retries the missing syncs at most every 10 minutes. It tells SHIFT once at 20 h (`notifyShift` reason `needs_operator`) and stops after 72 h. It does not retry a number Meta removed (ACCOUNT_OFFBOARDED), and it resumes after ACCOUNT_RECONNECTED.
-- **Echoes**: each echo is stored once per wamid as the shop's outbound message (`is_ai_generated` false, `raw_payload {source: 'owner_app'}`). It moves `last_outbound_at` and sets `conversation.metadata.owner_app_until` to 2 h after the echo. `messageProcessor.runTenantWorkflow` skips the bot while that hold is in the future. If an echo's wamid is already stored (a retry, or the bot's own send), nothing changes, so the bot never silences itself. A failed save answers 500, so Meta retries.
+
+  - **Meta's clock**: the 24 h run from the onboarding (`token_exchanged_at`, seconds after Meta's finish), not from the link. `coex_sync_started` records `onboarded_at`, `lag_ms` and a `due_by` from it, and the sweep's 20 h and 72 h are measured the same way. A row SHIFT finishes late, or a subscribe the owner resumes hours later, alerts SHIFT at once when the 20 h mark has already passed.
+  - **Time budget**: the step runs inside the sweep's `running` flag, so it stops starting calls after 15 s (`SYNC_SWEEP_BUDGET_MS`) and leaves the rest as `deferred` for the next minute; what it spent comes off the daily step's 40 s. A slow Meta can no longer make the next sweep (SHIFT's own recovery, alerts and nudges) return `already_running`.
+  - **One caller per number**: `startSync` on the connect request and a sweep on any instance take the number's lease (`businesses.ai_config.coex_sync_lease`, compare-and-set, 60 s) before calling `smb_app_data`, so no sync is asked for twice at once.
+  - «السجل» names each step in Arabic: which sync was done or failed, the late alert, and a declined history.
+- **Echoes**: each echo is stored once per wamid as the shop's outbound message (`is_ai_generated` false, `raw_payload {source: 'owner_app'}`). It moves `last_outbound_at` and sets `conversation.metadata.owner_app_until` to 2 h after the echo. `messageProcessor.runTenantWorkflow` skips the bot while that hold is in the future. If an echo's wamid is already stored as the bot's own send, nothing changes, so the bot never silences itself. A failed save answers 500, so Meta retries; a retry of an echo whose row was saved but whose hold was not still sets the hold.
 - **History**: messages are imported once per wamid, in the background, and already settled (inbound `delivered`). An import does not change unread counts, `last_inbound_at` (the 24-hour window) or the waiting list. A chunk with `errors` (the owner declined to share history) is logged as `coex_history_unavailable`.
 - **Contacts** (`smb_app_state_sync`): only the count is logged.
 - **Isolation**: each field must name a number that a shop holds, arrive on that shop's WABA (`entry.id`), and come through the endpoint of the shop's Meta app. This is the same rule as `wabaIsolation.test.js`.

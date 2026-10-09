@@ -134,6 +134,9 @@ function SelfSignupBlock({ settings, onSaved, confirmSentence }) {
   const dirty = JSON.stringify(draft ?? null) !== stored;
   const wasOn = Boolean(settings?.self_signup?.enabled);
   const opening = !wasOn && Boolean(draft?.enabled);
+  // The server refuses to open it while owner self-connect is closed: a self-signed shop could not
+  // connect WhatsApp without SHIFT. Said here before the operator types the sentence.
+  const esOwnerOff = settings?.es_owner_enabled !== true;
 
   const save = async () => {
     const body = { key: 'self_signup', value: draft };
@@ -168,7 +171,13 @@ function SelfSignupBlock({ settings, onSaved, confirmSentence }) {
         <Field label="أقصى عدد تسجيلات في اليوم" hint="يُعدّ بتوقيت عمّان. بعده تقول الصفحة: اكتملت تسجيلات اليوم.">
           <NumberInput value={draft?.daily_cap} onChange={(n) => setDraft((d) => ({ ...d, daily_cap: n }))} min={1} />
         </Field>
-        {opening && (
+        {esOwnerOff && (opening || wasOn) && (
+          <p className="flex items-start gap-1.5 text-[12px] text-red-800 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            «الربط الذاتي» مغلق: من يسجّل بنفسه لن يستطيع ربط واتساب دون فريق شِفت. افتحه أولًا.
+          </p>
+        )}
+        {opening && !esOwnerOff && (
           <p className="flex items-start gap-1.5 text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
             <AlertTriangle size={13} className="mt-0.5 shrink-0" />
             عند الحفظ ستُطلب منك كتابة عبارة التأكيد.

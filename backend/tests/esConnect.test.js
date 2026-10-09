@@ -465,3 +465,55 @@ describe('what the P1 review found', () => {
     expect(res.body).toMatchObject({ status: 'failed', onboarding: { revoked: true, last_error_ar: ERRORS_AR.revoked } });
   });
 });
+
+// ─── P5 review: a self-signup's duplicate check on the portfolio and the display number ─────
+
+describe('a self-signup cannot take a second free month from a portfolio or a display number another shop holds', () => {
+  beforeEach(() => {
+    db.seed({ businesses: [{ id: 'biz_self', name: 'محل جديد', slug: 'self', wa_phone_number_id: null, source: 'self_signup' }] });
+  });
+  const connect = () => request(app).post(`${adminBase('biz_self')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finish()));
+  const conflicts = () => eventsOf('biz_self').filter((e) => e.type === 'es_conflict');
+
+  test('the same Meta portfolio as a live shop: refused before subscribe, nothing linked, SHIFT told', async () => {
+    Object.assign(business('biz_other'), { meta_business_id: IDS.PORTFOLIO });
+    meta({ numbers: [fx.number({ display: '+962 7 9000 0001' })] });
+    const res = await connect();
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ error: 'number_taken', status: 'failed', message: ERRORS_AR.number_taken });
+    expect(posts('/subscribed_apps')).toHaveLength(0);
+    expect(posts('/register')).toHaveLength(0);
+    expect(business('biz_self').wa_phone_number_id).toBeNull();
+    expect(onboardingOf('biz_self')).toBeUndefined();
+    expect(subscriptionsOf('biz_self')).toHaveLength(0);
+    expect(conflicts()).toEqual([expect.objectContaining({ data: expect.objectContaining({ held_by: 'portfolio' }) })]);
+    expect(JSON.stringify(conflicts())).not.toContain('biz_other');
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ reason: 'needs_operator', businessId: 'biz_self' }));
+  });
+
+  test('the same display number as a live shop (re-added under a new WABA): refused', async () => {
+    Object.assign(business('biz_other'), { wa_display_phone: '+962791234567' });
+    meta(); // Meta shows '+962 7 9123 4567' for the new phone_number_id
+    const res = await connect();
+    expect(res.status).toBe(409);
+    expect(posts('/subscribed_apps')).toHaveLength(0);
+    expect(conflicts()).toEqual([expect.objectContaining({ data: expect.objectContaining({ held_by: 'display_number' }) })]);
+  });
+
+  test('a closed shop holds nothing, and a portfolio no one else has connects as usual', async () => {
+    Object.assign(business('biz_other'), { meta_business_id: IDS.PORTFOLIO, wa_display_phone: '+962 7 9123 4567', status: 'closed' });
+    meta();
+    const res = await connect();
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('connected');
+    expect(conflicts()).toHaveLength(0);
+  });
+
+  test('an invite shop is SHIFT\'s call: a second branch on the same portfolio still connects', async () => {
+    Object.assign(business('biz_other'), { meta_business_id: IDS.PORTFOLIO });
+    meta();
+    const res = await request(app).post(`${adminBase('biz_sham')}/exchange`).set(ADMIN()).send(bodyFrom(fx.finish()));
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('connected');
+  });
+});
