@@ -24,6 +24,11 @@ import TryTheBot from '../components/whatsapp/TryTheBot';
  * What survives a reload: the step, in sessionStorage, and only while signed in. A reload with no
  * session and a used link lands on «الرابط منتهٍ أو مستخدم» with a way to sign in, and a signed-in
  * owner who reopens the link is offered their panel or the rest of the steps.
+ *
+ * /join with no link and no session is the public «جرّب مجانًا» (P5, routes/publicSignup.js): a
+ * short form when SHIFT has opened self-signup (GET /public/signup/config), otherwise «التسجيل عبر
+ * دعوة من شِفت فقط» with a way to message SHIFT. A signup is signed straight in and continues at
+ * the connect step, exactly like an invited owner after their password.
  */
 
 const SHIFT_WA = '962776788972';
@@ -31,7 +36,7 @@ const WHATSAPP_MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 const STORE_KEY = 'karam_join';
 
 // Which of «١ حسابك · ٢ واتساب · ٣ البوت» each screen belongs to.
-const STEP_GROUP = { password: 0, connect: 1, confirm: 1, wrong_number: 1, payment: 1, teach: 2, try: 2 };
+const STEP_GROUP = { signup: 0, password: 0, connect: 1, confirm: 1, wrong_number: 1, payment: 1, teach: 2, try: 2 };
 const GROUPS = ['١ حسابك', '٢ واتساب', '٣ البوت'];
 
 // What «عالق؟» tells SHIFT, so the operator knows where they stopped without asking.
@@ -39,6 +44,8 @@ const STEP_LABEL = {
   loading: 'فتح الرابط',
   in_app: 'فتح الرابط في المتصفح',
   invalid: 'الرابط منتهٍ أو مستخدم',
+  invite_only: 'التسجيل عبر دعوة',
+  signup: 'التسجيل',
   resume: 'العودة للانضمام',
   password: 'اختيار كلمة المرور',
   connect: 'ربط واتساب',
@@ -182,6 +189,109 @@ function InvalidScreen() {
         <p className="pt-2 text-center text-[13px] text-gray-600">اخترت كلمة مرور من قبل؟ حسابك مفعّل.</p>
         <Link to="/login" className={btnSecondary}>تسجيل الدخول</Link>
       </div>
+    </Card>
+  );
+}
+
+function InviteOnlyScreen() {
+  return (
+    <Card>
+      <h1 className="text-lg font-bold text-gray-900">التسجيل عبر دعوة من شِفت فقط</h1>
+      <p className="mt-1 text-[13px] text-gray-600">نرسل لكل محل رابط انضمام خاصًا به على واتساب. راسلنا ونرسل لك رابطك.</p>
+      <div className="mt-4 space-y-2">
+        <a href={waLink('مرحبًا، بدي أجرّب كرم بوت لمحلي.')} target="_blank" rel="noopener noreferrer" className={btnPrimary}>
+          <MessageCircle size={16} /> راسل شِفت على واتساب
+        </a>
+        <p className="pt-2 text-center text-[13px] text-gray-600">عندك حساب؟</p>
+        <Link to="/login" className={btnSecondary}>تسجيل الدخول</Link>
+      </div>
+    </Card>
+  );
+}
+
+const SIGNUP_SECTORS = [
+  ['restaurant', 'مطعم'],
+  ['clinic', 'عيادة'],
+  ['pharmacy', 'صيدلية'],
+  ['salon', 'صالون'],
+  ['clothing', 'محل ملابس'],
+  ['shop', 'محل آخر'],
+];
+
+/** «جرّب مجانًا»: the shop, the owner's mobile and their own password, in one screen. */
+function SignupStep({ onDone }) {
+  const [form, setForm] = useState({ shop_name: '', sector: '', owner_name: '', owner_phone: '', password: '', website: '' });
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.shop_name.trim()) { setError('اكتب اسم المحل'); return; }
+    if (!form.sector) { setError('اختر نوع النشاط'); return; }
+    if (!form.owner_name.trim()) { setError('اكتب اسمك'); return; }
+    if (form.password.length < 10) { setError('كلمة المرور يجب أن تكون 10 أحرف على الأقل'); return; }
+    setBusy(true); setError(null);
+    try {
+      const res = await api.post('/public/signup', form);
+      onDone(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'تعذّر إنشاء الحساب، حاول مرة أخرى');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <h1 className="text-xl font-bold text-gray-900">جرّب مجانًا</h1>
+      <p className="mt-1 text-[14px] text-gray-700">كرم بوت يرد على زبائن محلك على واتساب. الشهر الأول مجاني، وبعد التسجيل تربط رقم واتساب المحل.</p>
+      <form onSubmit={submit} className="mt-4 space-y-3" noValidate>
+        <label className="block">
+          <span className="text-[14px] text-gray-800">اسم المحل</span>
+          <input value={form.shop_name} onChange={set('shop_name')} required maxLength={120} className={`${inputClass} mt-1.5`} />
+        </label>
+        <fieldset>
+          <legend className="text-[14px] text-gray-800">نوع النشاط</legend>
+          <div className="mt-1.5 grid grid-cols-2 gap-2">
+            {SIGNUP_SECTORS.map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setForm((f) => ({ ...f, sector: value }))}
+                aria-pressed={form.sector === value} className={btnChoice(form.sector === value)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <label className="block">
+          <span className="text-[14px] text-gray-800">اسمك</span>
+          <input value={form.owner_name} onChange={set('owner_name')} required maxLength={120} autoComplete="name" className={`${inputClass} mt-1.5`} />
+        </label>
+        <label className="block">
+          <span className="text-[14px] text-gray-800">رقم موبايلك (للدخول)</span>
+          <input value={form.owner_phone} onChange={set('owner_phone')} required inputMode="tel" autoComplete="tel"
+            placeholder="07XXXXXXXX" dir="ltr" className={`${inputClass} mt-1.5 text-right`} />
+        </label>
+        <label className="block">
+          <span className="text-[14px] text-gray-800">اختر كلمة مرور (10 أحرف على الأقل)</span>
+          <div className="relative mt-1.5">
+            <input type={show ? 'text' : 'password'} value={form.password} onChange={set('password')}
+              autoComplete="new-password" required minLength={10} dir="ltr" className={`${inputClass} pl-12`} />
+            <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+              className="absolute left-0 top-0 flex h-12 w-12 items-center justify-center text-gray-400">
+              {show ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+        </label>
+        {/* Honeypot: hidden from people and screen readers; a bot that fills it is refused. */}
+        <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
+          <label>الموقع<input name="website" tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} /></label>
+        </div>
+        {error && <p className="text-[13px] text-red-600">{error}</p>}
+        <button type="submit" disabled={busy} className={btnPrimary}>
+          {busy ? <><Loader2 size={16} className="animate-spin" /> جارٍ إنشاء الحساب…</> : 'أنشئ حسابي'}
+        </button>
+        <p className="text-center text-[13px] text-gray-600">عندك حساب؟ <Link to="/login" className="underline underline-offset-2">تسجيل الدخول</Link></p>
+      </form>
     </Card>
   );
 }
@@ -713,9 +823,12 @@ export default function JoinPage() {
       } else if (signedInOwner) {
         setInfo(fromUser()); setStep('resume');
       } else {
-        setStep('invalid');
+        // A visitor with no link: «جرّب مجانًا» only when SHIFT opened it; any failure reads closed.
+        api.get('/public/signup/config')
+          .then((res) => { if (alive) setStep(res.data?.enabled ? 'signup' : 'invite_only'); })
+          .catch(() => { if (alive) setStep('invite_only'); });
       }
-      return undefined;
+      return () => { alive = false; };
     }
 
     // The lookup also tells SHIFT the link was opened (AccountEvent join_opened), so it runs even
@@ -756,6 +869,17 @@ export default function JoinPage() {
     setStep('connect');
   };
 
+  // A self-signup is signed in already; it continues where an invited owner does after the password.
+  const afterSignup = (data) => {
+    setSession?.(data.token, data.user);
+    setInfo({
+      shop_name: data.user?.business_name || '',
+      owner_first_name: String(data.user?.name || '').trim().split(/\s+/)[0] || '',
+      business_type: data.user?.business_type || null,
+    });
+    setStep('connect');
+  };
+
   const onConnected = useStableCallback((o) => {
     setOnb(o);
     setStep('confirm');
@@ -776,6 +900,8 @@ export default function JoinPage() {
     body = <Card><p className="flex items-center gap-2 text-[14px] text-gray-600"><Loader2 size={16} className="animate-spin" /> جارٍ فتح الرابط…</p></Card>;
   } else if (step === 'in_app') body = <InAppScreen info={info} />;
   else if (step === 'invalid') body = <InvalidScreen />;
+  else if (step === 'invite_only') body = <InviteOnlyScreen />;
+  else if (step === 'signup') body = <SignupStep onDone={afterSignup} />;
   else if (step === 'resume') body = <ResumeScreen info={info} onContinue={() => setStep('connect')} />;
   else if (step === 'password') body = <PasswordStep info={info} token={token} onDone={afterActivate} />;
   else if (step === 'connect') body = <ConnectStep info={info} onConnected={onConnected} onAlreadyConnected={onAlreadyConnected} onSkip={() => setStep('teach')} />;

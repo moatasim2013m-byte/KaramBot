@@ -3,7 +3,8 @@
  * rows the code obeys. What a person can get wrong is refused in Arabic before anything is stored;
  * a block may be sent partly; null restores the default; every save leaves
  * platform_setting_changed with the value before and after. provider_status and coexistence are
- * not editable here, and public self-signup stays off.
+ * not editable here, and public self-signup opens only with a typed confirmation
+ * (tests/publicSignup.test.js).
  */
 require('./setup');
 
