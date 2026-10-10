@@ -18,15 +18,23 @@ const TTL_HOURS = 72;
 
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
-/** Issue a link for this user, invalidating any earlier unused one. */
-async function issue(userId, createdBy, { ttlHours = TTL_HOURS } = {}) {
+/**
+ * Issue a link for this user, invalidating any earlier unused one.
+ *
+ * `client` is a transaction the caller already holds: «زبون جديد» creates the shop, the owner and
+ * this link in one transaction (POST /api/admin/accounts), so a failure leaves no owner without a
+ * link and no link without an owner. Without one, the two writes get a transaction of their own.
+ * Returns expires_at too, so the operator's screen can say until when the link works.
+ */
+async function issue(userId, createdBy, { ttlHours = TTL_HOURS, client = null } = {}) {
   const token = crypto.randomBytes(TOKEN_BYTES).toString('base64url');
+  const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000);
 
   // Retire the old invitation and create the new one together. The database also carries a
   // partial unique index on (user_id) where used_at is null, because two concurrent issues
   // both see "nothing live" under READ COMMITTED and both insert — a transaction alone has
   // no row to lock, so the constraint is what actually prevents two live keys.
-  await prisma.$transaction(async (tx) => {
+  const write = async (tx) => {
     await tx.userActivation.updateMany({
       where: { user_id: userId, used_at: null },
       data: { used_at: new Date() },
@@ -35,13 +43,15 @@ async function issue(userId, createdBy, { ttlHours = TTL_HOURS } = {}) {
       data: {
         user_id: userId,
         token_hash: hash(token),
-        expires_at: new Date(Date.now() + ttlHours * 3600 * 1000),
+        expires_at: expiresAt,
         created_by: createdBy,
       },
     });
-  });
+  };
+  if (client) await write(client);
+  else await prisma.$transaction(write);
 
-  return { token, expires_in_hours: ttlHours };
+  return { token, expires_in_hours: ttlHours, expires_at: expiresAt };
 }
 
 /**
@@ -68,7 +78,20 @@ async function lookup(token) {
 
   const row = await prisma.userActivation.findUnique({
     where: { token_hash: hash(token) },
-    include: { user: { select: { id: true, name: true, email: true, active: true, business_id: true } } },
+    // role and the business name ride along so the activation page can greet the shop by name and
+    // the session minted on redeem is complete (role, business_type, business_name) from the
+    // first screen, instead of a half-filled user that the nav cannot route.
+    include: {
+      user: {
+        select: {
+          id: true, name: true, email: true, phone: true, role: true, active: true, business_id: true,
+          last_login: true,
+          // sector picks the /join starter cards; the number says whether WhatsApp is already
+          // connected (a shop SHIFT wired by hand skips the connect step).
+          business: { select: { name: true, business_type: true, sector: true, wa_phone_number_id: true } },
+        },
+      },
+    },
   });
 
   if (!row) return null;

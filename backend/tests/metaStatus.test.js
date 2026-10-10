@@ -10,7 +10,7 @@ require('./setup');
 
 jest.mock('../src/config/prisma', () => ({
   user: { findUnique: jest.fn() },
-  business: { findUnique: jest.fn() },
+  business: { findUnique: jest.fn(), update: jest.fn() },
   whatsappOnboarding: { findFirst: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
 }));
 
@@ -198,5 +198,20 @@ describe('when Meta no longer knows the configured number', () => {
   test('a failure on the ACCOUNT read still fails the refresh — that one is not optional', async () => {
     global.fetch.mockReturnValue(Promise.resolve({ ok: false, json: () => Promise.resolve({ error: { message: 'Invalid OAuth access token' } }) }));
     await expect(refresh(business())).rejects.toThrow('Invalid OAuth access token');
+  });
+});
+
+describe('a hung Graph read gives up (P1 review)', () => {
+  test('every Meta read carries a deadline, so the daily sweep cannot wait on it for minutes', async () => {
+    const { GRAPH_TIMEOUT_MS } = require('../src/services/metaStatus');
+    global.fetch
+      .mockReturnValueOnce(ok({ account_review_status: 'APPROVED' }))
+      .mockReturnValueOnce(ok({ id: 'PN1', quality_rating: 'GREEN', status: 'CONNECTED' }));
+    await refresh(business());
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    for (const [, opts] of global.fetch.mock.calls) {
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+    }
+    expect(GRAPH_TIMEOUT_MS).toBeLessThanOrEqual(15000);
   });
 });

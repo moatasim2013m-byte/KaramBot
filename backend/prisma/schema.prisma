@@ -24,10 +24,27 @@ model Business {
   timezone               String   @default("Asia/Amman")
   currency               String   @default("JOD")
   address                String?
-  wa_phone_number_id     String   @unique
+  // NULL until WhatsApp is connected: a shop's profile now exists before its number (the join
+  // link is sent first). Postgres allows many NULLs under the unique index, and inbound routing
+  // refuses a delivery that names no number, so a NULL never matches a webhook.
+  wa_phone_number_id     String?  @unique
   wa_business_account_id String?
   wa_access_token        String?  // stored encrypted; never expose raw
   wa_app_id              String?  // Meta app that owns this number's webhooks; selects the signing secret
+  // Filled from Meta when the number is connected, so the panels show the shop's real +962
+  // number and WhatsApp name instead of a phone_number_id nobody can read.
+  wa_display_phone       String?
+  wa_verified_name       String?
+  meta_business_id       String?  // the shop's Meta portfolio, from GET /me client_business_id
+  sector                 String?  // pharmacy | salon | clothing | shop | restaurant | clinic | other
+  city                   String?
+  owner_phone            String?  // 9627XXXXXXXX: where «راسله» and the owner's alerts go
+  source                 String   @default("operator") // operator | invite | self_signup
+  // SHIFT's own row and the test (-sim) rows: kept out of fleet totals, the AI ceiling and the
+  // attention queue, which they would otherwise inflate.
+  is_internal            Boolean  @default(false)
+  connected_at           DateTime?
+  went_live_at           DateTime? // first AI reply to a non-staff number; can start the free month
   opening_hours          Json     @default("[]")
   status                 String   @default("active")
   ai_config              Json     @default("{}")
@@ -59,7 +76,13 @@ model Business {
 model User {
   id          String    @id @default(cuid())
   name        String
-  email       String    @unique
+  // Optional since Migration 2 (P2): a shop owner signs in with the mobile number SHIFT already
+  // has, and many have no email they read. Staff and SHIFT's own logins keep theirs. A user has at
+  // least one of email or phone; the routes that create users enforce it (Postgres does not).
+  email       String?   @unique
+  // The owner's login, normalized to 9627XXXXXXXX by utils/phone.js normalizePhone, so «0791…»,
+  // «+962 79…» and Arabic-Indic digits all find the same row.
+  phone       String?   @unique
   password    String    // bcrypt hash
   role        String    @default("staff")
   business_id String?
@@ -95,6 +118,9 @@ model Conversation {
   assigned_staff_id      String?
   last_message_at        DateTime  @default(now())
   last_inbound_at        DateTime?
+  // Set wherever an outbound row is saved. «Waiting for a reply» is last_inbound_at newer than
+  // this; deriving it from last_message_at called every conversation unanswered.
+  last_outbound_at       DateTime?
   unread_count           Int       @default(0)
   ai_enabled             Boolean   @default(true)
   current_workflow_type  String?
@@ -126,6 +152,7 @@ model Conversation {
   @@index([business_id, needs_attention])
   @@index([business_id, snoozed_until])
   @@index([business_id, assigned_staff_id])
+  @@index([business_id, last_inbound_at])
   @@map("conversations")
 }
 
@@ -166,6 +193,9 @@ model Message {
 
   @@index([conversation_id])
   @@index([business_id])
+  // «ردود الشهر», the cost guard's counts and the newest-200 inspection view all read one
+  // business's messages by time.
+  @@index([business_id, created_at])
   @@map("messages")
 }
 
@@ -399,7 +429,13 @@ model WhatsappOnboarding {
   app_id             String    // the Meta app that onboarded this WABA; picks the secret for signature checks
   meta_business_id   String
   waba_id            String
-  phone_number_id    String    @unique
+  // NULL while the number is unknown: Meta can finish with a WABA and no number (FINISH_ONLY_WABA,
+  // or a WABA with several numbers). The row keeps the token and WABA so an operator can complete
+  // it (needs_operator) instead of the customer running Embedded Signup again.
+  phone_number_id    String?   @unique
+  finish_event       String?   // FINISH | FINISH_ONLY_WABA | FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
+  needs_operator     Boolean   @default(false)
+  started_by_user_id String?   // who pressed «اربط واتساب»: the owner, or SHIFT staff attending
   access_token_enc   String?   // AES-256-GCM (tokenCrypto). Never logged, never sent to the browser.
   pin_enc            String?   // the 6-digit 2FA PIN, same protection as the token
   step               String    @default("code_received") // → token_exchanged → subscribed → registered → done
@@ -412,6 +448,19 @@ model WhatsappOnboarding {
   payment_method_ok       Boolean   @default(false)
   payment_method_marked_by String?
   payment_method_marked_at DateTime?
+  // Two-sided: the owner says «أضفت البطاقة» (claimed), SHIFT confirms (payment_method_ok), and a
+  // Meta 131042 refusal on a send overrides both (blocked) until a later delivery clears it.
+  payment_method_claimed_at DateTime?
+  payment_blocked_at        DateTime?
+
+  // The connection ending on Meta's side (PARTNER_REMOVED, ACCOUNT_DELETED, a token Meta no longer
+  // accepts…). Kept apart from last_error: a removed partner is a state, not a failed step.
+  revoked_at         DateTime?
+  revoked_reason     String?
+  // A number change unlinks the old row (business_id NULL) before the new one is linked, which
+  // keeps business_id unique and the old row's history.
+  detached_at        DateTime?
+  token_checked_at   DateTime? // last daily debug_token is_valid check
 
   // What Meta reports about the number, as of the last check. Stored so the fleet view can show
   // ten accounts without ten Graph calls, always with the timestamp beside it.
@@ -491,6 +540,12 @@ model Subscription {
   ends_at       DateTime?
   next_due_at   DateTime?
   cancelled_at  DateTime?
+  // The plan's terms copied onto the contract when it is made (config/plans.js), so changing a
+  // default later never silently rewrites a deal already agreed.
+  trial_ends_at    DateTime?
+  ai_replies_month Int?
+  seats            Int?
+  campaign         String?   // e.g. irbid-2026-10
   notes         String?
   created_by    String
   created_at    DateTime  @default(now())
@@ -609,4 +664,41 @@ model StaffInboxPresence {
 
   @@index([business_id, last_seen_at])
   @@map("staff_inbox_presence")
+}
+
+// ─── AccountEvent ─────────────────────────────────────────────────────────────
+// One table for what happened to an account and who did it: the activity log, the history of
+// every Meta connect attempt, and the questions the bot handed over («ما عرف يجاوب», resolved
+// when answered). One table instead of separate signup-attempt, audit and knowledge-gap tables,
+// which ten shops do not need. No foreign key, like AdminAccessLog: the record of what happened
+// must outlive the row it happened to, and platform events have no business at all.
+// Secrets never go into `data` (services/accountEvents.js strips them).
+model AccountEvent {
+  id            String    @id @default(cuid())
+  business_id   String?   // NULL for platform events and an unmatched PARTNER_ADDED
+  actor_user_id String?
+  actor_kind    String    // owner | staff | shift | system | meta
+  type          String
+  data          Json      @default("{}")
+  resolved_at   DateTime?
+  created_at    DateTime  @default(now())
+
+  @@index([business_id, created_at])
+  @@index([type, resolved_at])
+  @@index([created_at])
+  @@map("account_events")
+}
+
+// ─── PlatformSetting ──────────────────────────────────────────────────────────
+// SHIFT-wide switches and numbers the owner changes without a deploy: whether owners see the
+// connect button, the campaign, the AI limits, the CliQ details. The defaults live in code
+// (services/platformSettings.js), so an empty table is a working platform and a row only ever
+// records a deliberate change.
+model PlatformSetting {
+  key        String   @id
+  value      Json
+  updated_by String?
+  updated_at DateTime @updatedAt
+
+  @@map("platform_settings")
 }

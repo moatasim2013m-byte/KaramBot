@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, X, Minus, ExternalLink, Eye, RefreshCw } from 'lucide-react';
 import api from '../../utils/api';
 import { Panel, StateCell, Timestamp, Ltr, SkeletonRows } from '../shared/Primitives';
-import TryTheBot from '../whatsapp/TryTheBot';
-import BusinessKnowledge from '../whatsapp/BusinessKnowledge';
+import ConnectWhatsApp, { adminEndpoints } from '../whatsapp/ConnectWhatsApp';
 
 /**
  * Whether this account can actually serve customers, and what is missing.
@@ -34,6 +33,11 @@ export default function AccountHealthTab({ accountId }) {
 
   useEffect(() => { load(); }, [accountId]);
 
+  // Built once per account: a new object each render would refetch the signup status.
+  const esEndpoints = useMemo(() => adminEndpoints(accountId), [accountId]);
+  // A connect, retry or PIN changes the checklist and Meta's panel below, so they reload with it.
+  const onConnectChange = useCallback(() => { load(); }, [accountId]);
+
   const refreshMeta = async () => {
     setBusy(true); setError(null);
     try { await api.post(`/admin/accounts/${accountId}/meta/refresh`); await load(); }
@@ -55,6 +59,17 @@ export default function AccountHealthTab({ accountId }) {
 
   return (
     <div className="space-y-4">
+      {/* SHIFT's attended Embedded Signup, bound to the account in the URL (the admin mirror).
+          It is the owner who logs in to Meta: the number and the WhatsApp account stay theirs. */}
+      <Panel title="ربط واتساب">
+        <ConnectWhatsApp
+          endpoints={esEndpoints}
+          framed={false}
+          onChange={onConnectChange}
+          beforeConnectNote="سلّم الشاشة لصاحب المحل: يدخل بحساب فيسبوك الخاص به. لا تطلب كلمة مروره أبدًا."
+        />
+      </Panel>
+
       <Panel title="الحالة">
         <div className="divide-y divide-gray-50">
           <div className="flex items-center justify-between px-4 h-10">
@@ -85,22 +100,30 @@ export default function AccountHealthTab({ accountId }) {
             </li>
           ))}
         </ul>
-        {onboarding && !onboarding.payment_method_ok && (
-          <div className="px-4 py-3 bg-amber-50 border-t border-amber-100">
-            <p className="text-[13px] text-amber-900 font-medium">لا توجد طريقة دفع — مهلة 30 أيلول</p>
-            <p className="text-xs text-amber-800 mt-0.5">
-              من 1 تشرين الأول تتوقف Meta عن تسليم رسائل الخدمة لأي حساب بلا طريقة دفع: أي أن الوكيل
-              يتوقف عن الرد على الزبائن. Meta لا تُخبرنا بذلك، فأكّدها يدويًا بعد أن تراها مضافة.
+        {/* The wording comes from the server (config/metaNotices.js), the one copy every panel
+            shares — the dated copy that was here read as a missed deadline once its date passed. */}
+        {onboarding?.payment_notice && (
+          <div className={`px-4 py-3 border-t ${onboarding.payment_notice.state === 'blocked' ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'}`}>
+            <p className={`text-[13px] font-medium ${onboarding.payment_notice.state === 'blocked' ? 'text-red-900' : 'text-amber-900'}`}>
+              {onboarding.payment_notice.short}
             </p>
+            <p className={`text-xs mt-0.5 ${onboarding.payment_notice.state === 'blocked' ? 'text-red-800' : 'text-amber-800'}`}>
+              {onboarding.payment_notice.long}
+            </p>
+            {onboarding.payment_method_claimed_at && onboarding.payment_notice.state === 'claimed' && (
+              <p className="text-[11px] text-amber-700 mt-0.5">ضغط الزبون «أضفت البطاقة» <Timestamp value={onboarding.payment_method_claimed_at} /></p>
+            )}
             <div className="flex items-center gap-3 mt-2">
-              <a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener noreferrer"
+              <a href={onboarding.payment_notice.whatsapp_manager_url} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs font-medium text-amber-900 underline">
                 WhatsApp Manager <ExternalLink size={11} />
               </a>
-              <button onClick={() => setPaymentMethod(true)} disabled={busy}
-                className="text-xs font-medium bg-amber-900 text-white px-2.5 h-7 rounded disabled:opacity-40">
-                رأيتها مضافة — أكّد
-              </button>
+              {!onboarding.payment_method_ok && (
+                <button onClick={() => setPaymentMethod(true)} disabled={busy}
+                  className="text-xs font-medium bg-amber-900 text-white px-2.5 h-7 rounded disabled:opacity-40">
+                  رأيتها مضافة — أكّد
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -171,19 +194,7 @@ export default function AccountHealthTab({ accountId }) {
         </Panel>
       )}
 
-      {onboarding && (
-        <Panel title="معرّفات Meta">
-          <div className="divide-y divide-gray-50">
-            {[['حساب واتساب للأعمال', onboarding.waba_id], ['معرّف الرقم', onboarding.phone_number_id]].map(([l, v]) => (
-              <div key={l} className="flex items-center justify-between px-4 h-10">
-                <span className="text-[13px] text-gray-600">{l}</span>
-                <Ltr className="font-mono text-xs text-gray-700">{v || '—'}</Ltr>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
-
+      {/* The ids, copyable, moved to «واتساب وMeta». */}
       <Panel title="فحص المحادثات">
         <div className="p-4">
           <p className="text-xs text-gray-500 mb-2">
@@ -194,18 +205,12 @@ export default function AccountHealthTab({ accountId }) {
             className="inline-flex items-center gap-1.5 border border-gray-200 text-gray-800 px-3 h-8 rounded-md text-[13px] hover:border-gray-300 hover:bg-gray-50 transition-colors"
           >
             <Eye size={14} />
-            عرض مساحة العمل
+            فحص المحادثات (مُسجّل)
           </Link>
         </div>
       </Panel>
 
-      {/* Staff can fill this in during onboarding, before handing the account over. */}
-      {!['restaurant', 'clinic', 'shift'].includes(account.business_type) && (
-        <BusinessKnowledge businessId={accountId} />
-      )}
-
-      {/* Runs the account's real workflow now — the model-only check certified dead bots. */}
-      <TryTheBot endpoint={`/admin/accounts/${accountId}/test-message`} />
+      {/* Knowledge and «جرّب البوت» live on «المعرفة» now, with the menu and services. */}
     </div>
   );
 }

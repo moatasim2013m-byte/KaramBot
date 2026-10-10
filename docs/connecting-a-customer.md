@@ -4,7 +4,7 @@ What to click, with the customer, to take an account from sold to answering. Wri
 whoever is doing it — SHIFT staff or Cowork — not for an engineer. The engineering detail lives
 in `whatsapp-embedded-signup.md`.
 
-**Time:** about 20 minutes with the customer on a call, plus whatever Meta takes.
+**Time:** about 20 minutes with the customer beside you or on a call, plus whatever Meta takes.
 **You need them present:** they log into *their* Facebook, not you. That is deliberate — it is
 what makes the WhatsApp account theirs.
 
@@ -38,7 +38,9 @@ prices, the three questions their customers ask most.
 ## The steps
 
 ### 1 · Create the account
-`/admin/accounts` → **إضافة حساب شركة**. Name, slug, type.
+`/admin/accounts` → **إضافة حساب شركة**. Only **اسم الحساب** and **نوع النشاط** are needed. Leave
+**الرابط المختصر** empty and the server makes one. Leave the Meta ids empty too: the connect
+step fills them.
 
 **Pick the type carefully — it decides which agent they get:**
 
@@ -52,40 +54,73 @@ A pharmacy, a gym, a workshop or a shop is the third row. It is not a lesser opt
 answers rather than books.
 
 ### 2 · Connect WhatsApp
-Open the account → **الحالة** tab → **Connect WhatsApp**.
+Open the account. The **الحالة** tab opens first, and the top panel is **ربط واتساب**. Read its
+grey note out loud: «سلّم الشاشة لصاحب المحل: يدخل بحساب فيسبوك الخاص به. لا تطلب كلمة مروره أبدًا.»
 
-**On `karambots.com` or `app.shifts-ai.com` only.** Both are in Meta's Allowed Domains. Other
-hosts are blocked by Meta and the button will fail with no useful message.
+Wait until the line «جارٍ تجهيز نافذة فيسبوك…» disappears, then press
+**اربط واتساب لهذا الحساب**. The button is greyed out until Facebook has loaded. That is
+deliberate: the press must open Meta's window straight away, or the browser blocks it.
 
-A Facebook window opens. **Hand the screen to the customer.** They:
+**On `app.shifts-ai.com` only.** That is the domain in Meta's Allowed Domains and Valid OAuth
+redirect URIs. On any other host Meta refuses the window. Use Chrome or Safari on a laptop. Do
+not use the browser inside WhatsApp, Facebook or Instagram: the panel detects those and shows
+«افتح الرابط في Chrome أو Safari لتتمكن من ربط واتساب» instead of the button.
+
+Meta's window opens in Arabic. Our page now says «أكمل الخطوات في نافذة فيسبوك — لا تغلق هذه
+الصفحة». **Hand the screen to the customer.** They:
 
 1. Log into their own Facebook
 2. Select or create their **Meta Business portfolio** — this is the step that decides they own it
-3. Select or create the **WhatsApp Business Account**
-4. Enter the phone number and complete the verification code
+3. Select or create the **WhatsApp Business Account** and the display name
+4. Enter the phone number and type the SMS or voice code
 
-Back on our page the button shows progress: `Connecting…` → the step it reached → `Connected`.
+When the window closes, the panel shows «جارٍ الربط…» with four lines:
+«وصلت موافقتك» → «تحققنا أن الرقم يخصك» → «ربطنا الرقم بكرم بوت» → «سجّلنا الرقم لدى واتساب».
+About a minute later it reads **واتساب متصل: ‎+962 …**, with «الاسم الذي يراه الزبائن» under it
+and Meta's review state (usually «قيد المراجعة» for a day or two). The checklist and
+**ما تقوله Meta** below it refresh on their own, and SHIFT gets a WhatsApp alert.
 
-### 3 · If it fails
-**Do not press Connect again.** The server records which step it reached, and **Try again**
-resumes from there. Re-running the Meta flow starts over for nothing.
+### 3 · If it stops part-way
+**Reloading is safe.** The panel reads where the signup stopped from the server, so after a
+reload it shows **أكمل الربط**, not a fresh start. If the server already holds the customer's
+approval, **أكمل الربط** carries on without opening Meta's window again. If it does not, the
+button opens the window again.
 
 | What you see | What it means | What to do |
 |---|---|---|
-| Fails immediately, popup never opens | Wrong domain, or a blocked pop-up | Use `karambots.com`; allow pop-ups |
-| Cancelled at a step | They closed the popup | **Try again** |
-| PIN / two-step verification error | The number already has a PIN set elsewhere | **Try again** with *their* existing 6-digit PIN — the retry accepts it |
-| Something else | Read the error on the card | It is recorded on the account; send it to the KaramBot session |
+| «منع المتصفح نافذة فيسبوك — اضغط مرة أخرى» | The browser blocked the popup | Press again. If it happens twice, allow pop-ups for the site or switch browser |
+| «تعذّر تحميل فيسبوك…» | An ad blocker or the network stopped Facebook's script | Turn the blocker off for the site, then «حاول التحميل مرة أخرى» |
+| «توقفت عند: … لم يضِع شيء — أكمل من هنا» | The customer closed Meta's window. The step is logged | **أكمل الربط** |
+| «أبلغت Meta عن خطأ: …» | Meta itself refused something | Read Meta's sentence to them. **نسخ رمز الجلسة للدعم** copies the id Meta support asks for |
+| «توقف الربط عند: …» with the four lines, one marked ✗ | Our server stopped after Meta (connect or register failed) | **أكمل الربط** resumes from that step |
+| «رمز التحقق بخطوتين لرقمك» field | The number already has a two-step PIN | The customer types *their* 6-digit PIN, then **أكمل الربط**. If they do not know it: WhatsApp Manager ← الرقم ← التحقق بخطوتين |
+| «هذا الرقم مربوط بحساب آخر على شِفت…» | The number belongs to another shop here | Stop. Nothing was changed. Find out which shop, then talk to the owner |
+| «هذا الرقم لا يتبع الحساب الذي دخلت به في فيسبوك.» | The ids do not belong to the Facebook account that signed in | Stop. SHIFT gets a critical alert. Check that they logged into the right Facebook |
+| «وصلتنا موافقتك لكن لم نحدد الرقم…» | Meta did not say which number, or the account has several | Nothing for the customer to redo. Finish it from **ربط بدون حساب** (below) |
 
-### 4 · The payment method — theirs, not ours
-When it connects, the card shows an amber note: **أضف طريقة دفع في WhatsApp Manager**.
+### «ربط بدون حساب» — finishing by hand
+On **نظرة عامة** (`/admin/overview`), the section **ربط بدون حساب** appears only when there is
+something in it: a signup our server could not finish on its own, or a Meta notice that a
+business added SHIFT when we have no account for it. Each row shows the Meta name, the number
+when known and when it arrived. It has two buttons:
 
-**This one is the customer's own step and it is not optional.** From 1 October 2026 Meta charges
-for service messages — the bot *replying to a customer who wrote first* — and **stops delivering
-them for any account with no payment method on file**. Without a card, the bot goes silent.
+- **اربطه بزبون…** → pick the account from the list → **اربط**. Use it when the signup is not
+  linked to an account here.
+- **أكمل الربط** (rows of a shop with no number yet) → pick the number from the WABA's list, or,
+  when Meta cannot be asked, paste its id (WhatsApp Manager ← Phone numbers ← the number) → **أكمل**.
 
-Walk them to <https://business.facebook.com/wa/manage/home/> and watch them add it. Do not end
-the call before this is done or scheduled.
+### 4 · The payment card — theirs, not ours
+Once connected, the panel shows an amber note: **بدون بطاقة دفع مؤكدة لدى Meta**, with the link
+**افتح إعدادات الدفع في WhatsApp Manager**.
+
+**This step is the customer's and it is not optional.** Meta bills service messages, which
+are the bot's replies to a customer who wrote first, to the shop's own card. It refuses to
+deliver them for an account with no payment method. Without a card, the bot goes silent.
+
+Open the link with them and watch them add the card. When you see it in WhatsApp Manager, press
+**رأيتها مضافة — أكّد** in the checklist. Do not end the call before the card is added or a time
+is set to add it. If Meta later refuses a reply for payment (error 131042), the note turns red on
+its own.
 
 ### 5 · Teach the agent
 Still on **الحالة**:
@@ -147,7 +182,8 @@ The fleet view raises it before they call you:
 | It says | Meaning |
 |---|---|
 | **الحساب بدون رمز وصول** | Not connected — no message will arrive |
-| **بدون طريقة دفع — مهلة 30 أيلول** | The bot will stop replying on 1 October |
+| **بدون بطاقة دفع مؤكدة لدى Meta** | Nobody has confirmed a card — Meta may refuse the bot's replies |
+| **رفضت واتساب ردود البوت — طريقة الدفع لدى Meta** | Meta refused a reply for payment (131042) — the customer must fix the card |
 | **رسالة بدون رد** | A customer has been waiting; the agent is not answering |
 | **بدون معلومات** | The agent greets and stops — nothing was entered |
 | **دفعة متأخرة** | They are behind on payment |

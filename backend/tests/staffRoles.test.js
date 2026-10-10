@@ -26,7 +26,11 @@ let tx;
 beforeEach(() => {
   jest.clearAllMocks();
   prisma.user.findFirst.mockResolvedValue({ id: 'target', business_id: 'b1' });
-  tx = { user: { update: jest.fn().mockResolvedValue({ id: 'target' }) }, userActivation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+  tx = {
+    user: { update: jest.fn().mockResolvedValue({ id: 'target' }) },
+    userActivation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    accountEvent: { create: jest.fn(async ({ data }) => data) },
+  };
   prisma.$transaction.mockImplementation((fn) => fn(tx));
 });
 
@@ -81,4 +85,32 @@ test('enabling a login does not touch invitations', async () => {
   prisma.user.findUnique.mockResolvedValue(OWNER);
   await request(app).patch('/api/staff/target').set(auth()).send({ active: true });
   expect(tx.userActivation.updateMany).not.toHaveBeenCalled();
+});
+
+describe('«السجل» records who changed whose access (review 2026-10-08)', () => {
+  const events = () => tx.accountEvent.create.mock.calls.map(([a]) => a.data);
+
+  test('a role change by the owner is role_changed, actor owner, on the shop', async () => {
+    prisma.user.findUnique.mockResolvedValue(OWNER);
+    prisma.user.findFirst.mockResolvedValue({ id: 'target', business_id: 'b1', role: 'staff', active: true });
+    await request(app).patch('/api/staff/target').set(auth()).send({ role: 'manager' });
+    expect(events()).toEqual([expect.objectContaining({
+      business_id: 'b1', actor_kind: 'owner', actor_user_id: 'owner1', type: 'role_changed',
+      data: { user_id: 'target', from: 'staff', to: 'manager' },
+    })]);
+  });
+
+  test('a deactivation by SHIFT is user_deactivated, actor shift', async () => {
+    prisma.user.findUnique.mockResolvedValue(ADMIN);
+    prisma.user.findFirst.mockResolvedValue({ id: 'target', business_id: 'b1', role: 'staff', active: true });
+    await request(app).patch('/api/staff/target?businessId=b1').set(auth()).send({ active: false });
+    expect(events()).toEqual([expect.objectContaining({ business_id: 'b1', actor_kind: 'shift', type: 'user_deactivated' })]);
+  });
+
+  test('a PATCH that changes nothing records nothing', async () => {
+    prisma.user.findUnique.mockResolvedValue(OWNER);
+    prisma.user.findFirst.mockResolvedValue({ id: 'target', business_id: 'b1', role: 'manager', active: true });
+    await request(app).patch('/api/staff/target').set(auth()).send({ role: 'manager', active: true });
+    expect(events()).toEqual([]);
+  });
 });

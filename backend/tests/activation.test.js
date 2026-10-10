@@ -11,6 +11,8 @@ jest.mock('../src/config/prisma', () => ({
   business: { findUnique: jest.fn() },
   userActivation: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
   adminAccessLog: { create: jest.fn() },
+  // join_opened (the first open of an owner's link) and password_set land on the account's log.
+  accountEvent: { findMany: jest.fn(), create: jest.fn() },
   $transaction: jest.fn(),
 }));
 
@@ -20,6 +22,7 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const prisma = require('../src/config/prisma');
 const activation = require('../src/services/activation');
+const alerts = require('../src/services/alerts');
 const app = require('../src/app');
 
 const ADMIN = { id: 'admin1', name: 'A', email: 'a@shifts-ai.com', role: 'platform_admin', business_id: null, active: true };
@@ -42,6 +45,9 @@ beforeEach(() => {
   prisma.userActivation.updateMany.mockResolvedValue({ count: 0 });
   prisma.userActivation.create.mockResolvedValue({ id: 'act1' });
   prisma.adminAccessLog.create.mockResolvedValue({ id: 'log1' });
+  prisma.accountEvent.findMany.mockResolvedValue([]);
+  prisma.accountEvent.create.mockImplementation(({ data }) => Promise.resolve({ id: 'ev1', ...data }));
+  jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
   // issue() writes both statements in one transaction, so the spies live here where a test
   // can inspect what was actually persisted.
   tx = {
@@ -130,13 +136,63 @@ describe('issuing a link', () => {
 
 describe('redeeming a link', () => {
   const future = () => new Date(Date.now() + 3600 * 1000);
-  const user = { id: 'u9', name: 'د. أحمد', email: 'ahmad@clinic.jo', active: false, business_id: 'b1' };
+  const user = {
+    id: 'u9', name: 'د. أحمد', email: 'ahmad@clinic.jo', role: 'business_owner', active: false, business_id: 'b1',
+    business: { name: 'عيادة النور', business_type: 'clinic' },
+  };
 
-  test('a valid link reveals only who it is for', async () => {
+  test('a valid link reveals only who it is for: the person, their role and their own shop', async () => {
     prisma.userActivation.findUnique.mockResolvedValue({ id: 'act1', user_id: 'u9', used_at: null, expires_at: future(), user });
     const res = await request(app).post('/api/auth/activate/lookup').send({ token: 'sometoken' });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ name: 'د. أحمد', email: 'ahmad@clinic.jo', expires_at: expect.any(String) });
+    expect(res.body).toEqual({
+      name: 'د. أحمد', email: 'ahmad@clinic.jo', role: 'business_owner', business_name: 'عيادة النور', expires_at: expect.any(String),
+      // Migration 2: an email-only user has no number to show; a phone owner's is masked
+      // (phoneLoginCreate.test.js).
+      phone_masked: null,
+      // P2 /join: the greeting, the starter cards and whether the connect step is already done.
+      shop_name: 'عيادة النور', owner_first_name: 'د. أحمد', sector: null, business_type: 'clinic', connected: false,
+    });
+    // The lookup asks for the shop through the user's own relation, never by an id from the request.
+    const include = prisma.userActivation.findUnique.mock.calls[0][0].include;
+    expect(include.user.select.business).toEqual({
+      select: { name: true, business_type: true, sector: true, wa_phone_number_id: true },
+    });
+  });
+
+  test('redeeming answers with the complete user, so the first session renders the right nav', async () => {
+    // Before: {id, name, email, business_id} — no role and no business_type, so a restaurant
+    // owner saw no menu link and staff saw owner links until a reload fetched /me.
+    prisma.userActivation.findUnique.mockResolvedValue({ id: 'act1', user_id: 'u9', used_at: null, expires_at: future(), user });
+    const tx = {
+      userActivation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      user: { update: jest.fn().mockResolvedValue(user) },
+    };
+    prisma.$transaction.mockImplementation((fn) => fn(tx));
+
+    const res = await request(app).post('/api/auth/activate').send({ token: 'good', password: 'a-long-enough-one' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user).toEqual({
+      id: 'u9', name: 'د. أحمد', email: 'ahmad@clinic.jo', phone: null, role: 'business_owner',
+      business_id: 'b1', business_type: 'clinic', business_name: 'عيادة النور',
+    });
+  });
+
+  test('a user row without the relation loaded still gets its business from the database', async () => {
+    const { business: _b, ...bare } = user;
+    void _b;
+    prisma.userActivation.findUnique.mockResolvedValue({ id: 'act1', user_id: 'u9', used_at: null, expires_at: future(), user: bare });
+    prisma.business.findUnique.mockResolvedValue({ name: 'عيادة النور', business_type: 'clinic' });
+    const tx = {
+      userActivation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      user: { update: jest.fn().mockResolvedValue(bare) },
+    };
+    prisma.$transaction.mockImplementation((fn) => fn(tx));
+
+    const res = await request(app).post('/api/auth/activate').send({ token: 'good', password: 'a-long-enough-one' });
+    expect(res.body.user).toMatchObject({ role: 'business_owner', business_type: 'clinic', business_name: 'عيادة النور' });
+    expect(prisma.business.findUnique.mock.calls[0][0].where).toEqual({ id: 'b1' });
   });
 
   test('an unknown link answers exactly like a used one', async () => {
@@ -233,5 +289,23 @@ describe('what the security review found — regression guards', () => {
 
     expect(res.status).toBe(200);
     expect(prisma.adminAccessLog.create.mock.calls[0][0].data.action).toBe('user_invite');
+  });
+});
+
+describe('every session carries the business name', () => {
+  test('GET /api/auth/me answers with business_name beside business_type', async () => {
+    signedInAs = { id: 'u9', name: 'د. أحمد', email: 'ahmad@clinic.jo', role: 'business_owner', business_id: 'b1', active: true };
+    prisma.business.findUnique.mockResolvedValue({ name: 'عيادة النور', business_type: 'clinic' });
+
+    const res = await request(app).get('/api/auth/me')
+      .set({ Authorization: `Bearer ${jwt.sign({ id: 'u9' }, process.env.JWT_SECRET)}` });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ role: 'business_owner', business_type: 'clinic', business_name: 'عيادة النور' });
+  });
+
+  test('platform_admin has no business, and /me says so with nulls', async () => {
+    const res = await request(app).get('/api/auth/me').set(auth());
+    expect(res.body).toMatchObject({ role: 'platform_admin', business_type: null, business_name: null });
   });
 });

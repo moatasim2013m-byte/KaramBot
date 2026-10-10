@@ -46,10 +46,11 @@ jest.mock('../src/config/prisma', () => {
         Promise.resolve({ id: 'conv_created_id', ...data }),
       ),
       update: jest.fn(({ data } = {}) => Promise.resolve({ ...CONV, ...data })),
+      updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
     },
     message: {
       create: jest.fn(({ data } = {}) => {
-        const msg = { id: `msg_${messages.length + 1}`, ...data };
+        const msg = { id: `msg_${messages.length + 1}`, created_at: new Date('2026-10-08T09:00:00Z'), ...data };
         messages.push(msg);
         return Promise.resolve(msg);
       }),
@@ -128,6 +129,22 @@ describe('POST /api/ingest/outbound', () => {
     expect(msg.is_ai_generated).toBe(true);
     expect(msg.conversation_id).toBe(mockPrisma.__CONV.id);
     expect(mockPrisma.__orders).toHaveLength(0);
+  });
+
+  // P0: the automation's reply answers the customer, so «waiting for a reply» ends here too.
+  test('stamps last_outbound_at with the reply\'s time, never moving it back', async () => {
+    mockPrisma.conversation.updateMany.mockClear();
+    const res = await request(app)
+      .post('/api/ingest/outbound')
+      .set('x-ingest-key', KEY)
+      .send({ phone_number_id: PHONE, to: CUSTOMER, text: 'تم' });
+
+    expect(res.status).toBe(200);
+    const at = new Date('2026-10-08T09:00:00Z');
+    expect(mockPrisma.conversation.updateMany).toHaveBeenCalledWith({
+      where: { id: mockPrisma.__CONV.id, OR: [{ last_outbound_at: null }, { last_outbound_at: { lt: at } }] },
+      data: { last_outbound_at: at },
+    });
   });
 
   test('creates a confirmed order when the reply contains the confirm keyword', async () => {

@@ -74,6 +74,8 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
+// «جرّب مجانًا» (P5): a 503 until the owner opens self_signup; its POST has its own per-IP limiter.
+app.use('/api/public/signup', apiLimiter, require('./routes/publicSignup'));
 // Mounted before the webhook router so the more specific path wins.
 app.use('/api/whatsapp/embedded-signup', apiLimiter, require('./routes/embeddedSignup'));
 // The customer's own «is my WhatsApp connected» — read-only, scoped to their business.
@@ -89,6 +91,22 @@ app.use('/api/ingest', apiLimiter, require('./routes/ingest'));
 // Before /api/inbox so /v2 is not tried against the current inbox's routes first.
 app.use('/api/inbox/v2', apiLimiter, require('./routes/inboxV2'));
 app.use('/api/inbox', apiLimiter, require('./routes/inbox'));
+// SHIFT connecting WhatsApp for a shop: the business comes from the URL. Before admin.js, so
+// these paths are authenticated and rate-limited once instead of passing through both.
+const adminEmbeddedSignup = require('./routes/adminEmbeddedSignup');
+app.use('/api/admin/embedded-signup', apiLimiter, adminEmbeddedSignup.configRouter);
+app.use('/api/admin/accounts/:id/embedded-signup', apiLimiter, adminEmbeddedSignup.accountRouter);
+// Signups SHIFT finishes by hand: orphans, «أكمل الربط». Before admin.js for the same reason.
+app.use('/api/admin/onboardings', apiLimiter, require('./routes/adminOnboardings'));
+// «زبون جديد» and the «الانضمام» board (routes/adminAccounts.js). Before admin.js. The accounts
+// router guards each of its own routes, so the other /api/admin/accounts/... paths fall through
+// to admin.js untouched (authenticated and rate-limited once, there).
+const adminAccounts = require('./routes/adminAccounts');
+app.use('/api/admin/onboarding', apiLimiter, adminAccounts.boardRouter);
+app.use('/api/admin/accounts', adminAccounts.accountsRouter);
+// «الاشتراكات والدفعات» and «إعدادات المنصة» (operator panel, P4). Before admin.js, each guarded.
+app.use('/api/admin/billing', apiLimiter, require('./routes/adminBilling'));
+app.use('/api/admin/platform-settings', apiLimiter, require('./routes/adminPlatform'));
 app.use('/api/admin', apiLimiter, require('./routes/admin'));
 app.use('/api/businesses', apiLimiter, require('./routes/businesses'));
 app.use('/api/menu', apiLimiter, require('./routes/menu'));
@@ -96,6 +114,9 @@ app.use('/api/orders', apiLimiter, require('./routes/orders'));
 app.use('/api/staff', apiLimiter, require('./routes/staff'));
 app.use('/api/clinic', apiLimiter, require('./routes/clinic'));
 app.use('/api/reports', apiLimiter, require('./routes/reports'));
+// «الاشتراك» (owner only) and «الفريق»: the customer panel's plan, payments and people.
+app.use('/api/account', apiLimiter, require('./routes/account'));
+app.use('/api/team', apiLimiter, require('./routes/team'));
 
 
 // Block suspicious probe paths before static/spa handling

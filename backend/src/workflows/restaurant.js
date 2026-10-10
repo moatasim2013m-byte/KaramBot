@@ -9,6 +9,7 @@
 const { generateValidatedAIReply } = require('../ai/provider');
 const { providerIssueAlert } = require('../services/workflowAlerts');
 const prisma = require('../config/prisma');
+const { ownerNotesSection } = require('./generic');
 
 const STATES = {
   IDLE: 'idle',
@@ -66,13 +67,13 @@ function hasDecisionPhrase(text, phrases) {
 function isConfirmation(text) { return hasDecisionPhrase(text, CONFIRMATION_PHRASES); }
 function isCancellation(text) { return hasDecisionPhrase(text, CANCEL_PHRASES); }
 
-function buildSystemPrompt(business, menuText) {
+function buildSystemPrompt(business, menuText, notes = '') {
   return `أنت مساعد طلبات ودود لمطعم "${business.name}".
 شخصيتك: ${business.ai_config?.personality || 'مساعد ودود ومحترف'}.
 عملتك: ${business.currency || 'JOD'}.
 
 قائمة الطعام المتاحة:
-${menuText}
+${menuText}${notes}
 
 قواعد مهمة جداً:
 - لا تخترع أسعاراً أو أصنافاً غير موجودة في القائمة.
@@ -171,6 +172,9 @@ async function processRestaurantMessage(business, conversation, customerMessage)
       reply: business.ai_config?.fallback_message || 'سأحولك إلى أحد موظفينا الآن.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      // Why the chat went to a person: «ما عرف يجاوب» lists only 'model' handoffs, so an owner's
+      // own keyword is never mistaken for a gap in what the bot knows.
+      handoff_kind: 'keyword',
     };
   }
 
@@ -274,7 +278,9 @@ async function processRestaurantMessage(business, conversation, customerMessage)
 
   try {
     const menuText = await buildMenuText(business.id, business);
-    const systemPrompt = buildSystemPrompt(business, menuText);
+    // The owner's taught answers («علّم البوت الجواب») sit beside the menu.
+    const notes = await ownerNotesSection(business.id);
+    const systemPrompt = buildSystemPrompt(business, menuText, notes);
     const contextMsg = state !== STATES.IDLE && cart.length
       ? `[حالة الطلب: ${cart.length} صنف في السلة]\nرسالة العميل: ${customerMessage}`
       : customerMessage;
@@ -292,6 +298,7 @@ async function processRestaurantMessage(business, conversation, customerMessage)
         // Not a customer asking for a person: the model failed twice. The owner needs to read
         // this as a fault, not as a lead.
         alert_reason: 'ai_failure',
+        handoff_kind: 'ai_failure',
       };
     }
 
@@ -344,6 +351,8 @@ async function processRestaurantMessage(business, conversation, customerMessage)
         reply: business.ai_config?.fallback_message || 'سأحولك إلى موظف الآن.',
         stateUpdate: { ai_enabled: false, status: 'human_takeover' },
         action: 'HANDOFF_TO_HUMAN',
+        // The model gave up on the question: this one is a «ما عرف يجاوب» gap.
+        handoff_kind: 'model',
       };
     }
 
@@ -358,6 +367,7 @@ async function processRestaurantMessage(business, conversation, customerMessage)
       reply: 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      handoff_kind: 'ai_failure',
     };
   }
 }

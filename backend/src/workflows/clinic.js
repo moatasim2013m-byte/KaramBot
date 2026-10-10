@@ -10,6 +10,7 @@ const { generateValidatedAIReply } = require('../ai/provider');
 const { providerIssueAlert } = require('../services/workflowAlerts');
 const prisma = require('../config/prisma');
 const { isConfirmation, isCancellation } = require('./restaurant');
+const { ownerNotesSection } = require('./generic');
 
 // Prisma CUID v1 format: starts with 'c', followed by 24+ alphanumeric chars.
 // If the ID strategy changes, update this pattern accordingly.
@@ -70,11 +71,11 @@ async function buildSlotsText(businessId, serviceId, doctorId) {
   }).join('\n');
 }
 
-function buildClinicSystemPrompt(business, context) {
+function buildClinicSystemPrompt(business, context, notes = '') {
   return `أنت مساعد حجز مواعيد ودود لعيادة "${business.name}".
 شخصيتك: ${business.ai_config?.personality || 'مساعد ودود ومحترف'}.
 
-${context}
+${context}${notes}
 
 قواعد مهمة:
 - لا تخترع أسعاراً أو أطباء أو أوقاتاً غير موجودة في القائمة.
@@ -104,6 +105,9 @@ async function processClinicMessage(business, conversation, customerMessage) {
       reply: business.ai_config?.fallback_message || 'سأحولك إلى أحد موظفينا الآن.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      // Why the chat went to a person: «ما عرف يجاوب» lists only 'model' handoffs, so an owner's
+      // own keyword is never mistaken for a gap in what the bot knows.
+      handoff_kind: 'keyword',
     };
   }
 
@@ -181,7 +185,9 @@ async function processClinicMessage(business, conversation, customerMessage) {
       contextText = `الخدمات المتاحة:\n${servicesText}`;
     }
 
-    const systemPrompt = buildClinicSystemPrompt(business, contextText);
+    // The owner's taught answers («علّم البوت الجواب») sit beside the services.
+    const notes = await ownerNotesSection(business.id);
+    const systemPrompt = buildClinicSystemPrompt(business, contextText, notes);
     const aiResult = await generateValidatedAIReply(systemPrompt, customerMessage, [], {
       onProviderIssue: providerIssueAlert(business, conversation),
     });
@@ -193,6 +199,7 @@ async function processClinicMessage(business, conversation, customerMessage) {
         action: 'HANDOFF_TO_HUMAN',
         // The model failed, not a customer asking for a person: the owner reads it as a fault.
         alert_reason: 'ai_failure',
+        handoff_kind: 'ai_failure',
       };
     }
 
@@ -246,6 +253,8 @@ async function processClinicMessage(business, conversation, customerMessage) {
         reply: business.ai_config?.fallback_message || 'سأحولك إلى موظف الآن.',
         stateUpdate: { ai_enabled: false, status: 'human_takeover' },
         action: 'HANDOFF_TO_HUMAN',
+        // The model gave up on the question: this one is a «ما عرف يجاوب» gap.
+        handoff_kind: 'model',
       };
     }
 
@@ -260,6 +269,7 @@ async function processClinicMessage(business, conversation, customerMessage) {
       reply: 'عذراً، واجهنا مشكلة تقنية. سيتواصل معك موظفنا قريباً.',
       stateUpdate: { ai_enabled: false, status: 'human_takeover' },
       action: 'HANDOFF_TO_HUMAN',
+      handoff_kind: 'ai_failure',
     };
   }
 }

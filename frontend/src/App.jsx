@@ -12,6 +12,8 @@ import SettingsPage from './pages/SettingsPage';
 import StaffPage from './pages/StaffPage';
 import ClinicPage from './pages/ClinicPage';
 import ReportsPage from './pages/ReportsPage';
+import BotPage from './pages/BotPage';
+import BillingPage from './pages/BillingPage';
 import AdminLayout from './layouts/AdminLayout';
 import AdminOverviewPage from './pages/admin/AdminOverviewPage';
 import BusinessesPage from './pages/admin/BusinessesPage';
@@ -22,6 +24,9 @@ import AccountWorkspacePage from './pages/admin/AccountWorkspacePage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import DataDeletionPage from './pages/DataDeletionPage';
 import ActivatePage from './pages/ActivatePage';
+import JoinPage from './pages/JoinPage';
+import OnboardingBoardPage from './pages/admin/OnboardingBoardPage';
+import BillingAdminPage from './pages/admin/BillingAdminPage';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -48,7 +53,9 @@ function RoleRoute({ roles, children }) {
  */
 function HomeRedirect() {
   const { user } = useAuth();
-  return <Navigate to={user?.role === 'platform_admin' ? '/admin/overview' : '/overview'} replace />;
+  // Staff answer chats; their home is the inbox (spec «الرئيسية»).
+  const home = user?.role === 'platform_admin' ? '/admin/overview' : user?.role === 'staff' ? '/inbox' : '/overview';
+  return <Navigate to={home} replace />;
 }
 
 export default function App() {
@@ -62,6 +69,9 @@ export default function App() {
           {/* Public: a new customer has no account until they redeem this. The token rides in
               the URL fragment, which browsers never send, so it stays out of every server log. */}
           <Route path="/activate" element={<ActivatePage />} />
+          {/* Public too: the shop owner's join wizard (/join#token). It signs them in at the
+              password step and carries on with their own session from there. */}
+          <Route path="/join" element={<JoinPage />} />
           <Route path="/" element={
             <ProtectedRoute>
               <DashboardLayout />
@@ -93,8 +103,21 @@ export default function App() {
                 <StaffPage />
               </RoleRoute>
             } />
-            <Route path="settings" element={
+            {/* «البوت»: the owner sees every card, a manager knowledge, gaps and the tester. */}
+            <Route path="bot" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager']}>
+                <BotPage />
+              </RoleRoute>
+            } />
+            {/* «الاشتراك»: money is the owner's. */}
+            <Route path="billing" element={
               <RoleRoute roles={['platform_admin', 'business_owner']}>
+                <BillingPage />
+              </RoleRoute>
+            } />
+            {/* Every role: managers and staff get «حسابي» only; the shop's tabs are the owner's. */}
+            <Route path="settings" element={
+              <RoleRoute roles={['platform_admin', 'business_owner', 'manager', 'staff']}>
                 <SettingsPage />
               </RoleRoute>
             } />
@@ -114,6 +137,9 @@ export default function App() {
             <Route path="accounts/:id" element={<BusinessDetailPage />} />
             {/* Read-only, audited: every visit is written to admin_access_logs. */}
             <Route path="accounts/:id/conversations" element={<AccountWorkspacePage />} />
+            <Route path="onboarding" element={<OnboardingBoardPage />} />
+            {/* «الاشتراكات والدفعات»: money across all shops, recorded by hand. */}
+            <Route path="billing" element={<BillingAdminPage />} />
             <Route path="settings" element={<PlatformSettingsPage />} />
           </Route>
 

@@ -29,6 +29,13 @@ const media = require('../workflows/shift/media');
 const { isOptOutCommand } = require('../workflows/shift/optout');
 const { saveLead } = require('../workflows/shift/lead');
 const sseEmitter = require('../utils/sseEmitter');
+const { markOutbound } = require('./lastOutbound');
+const accountEvents = require('./accountEvents');
+const costGuard = require('./costGuard');
+const tokenHealth = require('./tokenHealth');
+const wentLive = require('./wentLive');
+const { outOfHoursMessage } = require('./openingHours');
+const coexistence = require('./coexistence');
 
 const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 // Nothing to answer: WhatsApp system notices and reactions. `unsupported` (view-once media, polls) is
@@ -36,6 +43,16 @@ const MEDIA_TYPES = ['image', 'audio', 'video', 'document', 'sticker'];
 const SHIFT_SKIP_TYPES = ['reaction', 'system', 'ephemeral'];
 const REFERRAL_KEYS = ['source_url', 'source_id', 'source_type', 'headline', 'body', 'ctwa_clid'];
 const BILLING_ERROR_CODE = 131042;
+// Not something the customer wrote (newMessageAlert's SKIP_TYPES): never puts a conversation in front of staff.
+const NO_ANSWER_TYPES = ['reaction', 'system', 'ephemeral', 'request_welcome'];
+const BOT_PAUSED = 'bot_paused';
+const BOT_LIMIT = 'bot_limit';
+const OUT_OF_HOURS = 'out_of_hours';
+// Sent at most once a day per conversation while the cost guard holds the bot (ai_config.limit_message
+// overrides it). It promises a person, which is true: the conversation is on the staff's attention list.
+// A «ما عرف يجاوب» row keeps the customer's question, cut so a pasted essay cannot bloat the log.
+const MAX_GAP_QUESTION = 500;
+const DEFAULT_LIMIT_MESSAGE = 'شكرًا لتواصلك معنا. وصلت رسالتك لفريقنا وسيرد عليك أحد الموظفين بأقرب وقت.';
 
 /** The numbers staff alerts are sent TO. A conversation with one of them is a staff thread. */
 function isStaffNumber(business, waId) {
@@ -62,7 +79,11 @@ const SETTLED_STATUSES = ['failed', 'ambiguous_unreconciled', 'cancelled'];
 const BUSINESS_SELECT = {
   id: true, name: true, business_type: true, status: true,
   currency: true, wa_phone_number_id: true, wa_access_token: true, wa_business_account_id: true,
-  wa_app_id: true, ai_config: true, policies: true,
+  wa_app_id: true, ai_config: true, policies: true, is_internal: true,
+  // went_live: read so a shop that is already live costs no query per reply (wentLive.candidate).
+  went_live_at: true, connected_at: true,
+  // «أوقات الدوام» are enforced on the message path (openingHours), and the generic prompt reads them.
+  opening_hours: true, timezone: true,
 };
 
 function canSendAutoReply(business, conversation, label) {
@@ -245,7 +266,7 @@ async function insertInbound(businessId, conversationId, waMsg, senderWaId, stat
 }
 
 async function saveOutboundMessage(businessId, conversationId, text, metaResponse) {
-  return prisma.message.create({
+  const msg = await prisma.message.create({
     data: {
       business_id: businessId,
       conversation_id: conversationId,
@@ -257,6 +278,61 @@ async function saveOutboundMessage(businessId, conversationId, text, metaRespons
       is_ai_generated: true,
     },
   });
+  await markOutbound(conversationId, msg && msg.created_at);
+  costGuard.noteReply(businessId);
+  return msg;
+}
+
+/**
+ * «أوقف البوت مؤقتًا» (ai_config.enabled). Only an explicit false pauses: a business that never set
+ * the flag has always had a bot that answers, and must keep it.
+ */
+function botPaused(business) {
+  return business?.ai_config?.enabled === false;
+}
+
+/**
+ * The bot will not answer, so this customer is waiting for a person: the conversation joins the
+ * inbox's attention list. attention_at is when the customer wrote. It is kept while they are still
+ * waiting, so a burst is one item aged from its first message, and moves once staff have answered
+ * since, so the next message is a new wait. Best effort: the message is stored either way.
+ */
+async function flagForStaff(conversation, reason, at) {
+  const since = conversation.attention_at ? new Date(conversation.attention_at).getTime() : NaN;
+  const answered = !!conversation.last_outbound_at && new Date(conversation.last_outbound_at).getTime() >= since;
+  if (conversation.needs_attention && Number.isFinite(since) && !answered) return conversation;
+  try {
+    return await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { needs_attention: true, attention_reason: reason, attention_at: at ? new Date(at) : new Date() },
+    });
+  } catch (err) {
+    console.error(`[inbound] attention flag not set conversation=${conversation.id}: ${err.message}`);
+    return conversation;
+  }
+}
+
+/**
+ * A paused bot leaves this customer to the shop's team: flag the conversation, unless it is not a
+ * customer waiting. Reactions and system notices ask nothing. A staff number (alert_wa_numbers)
+ * writing in is staff, often just replying to an alert to keep its 24 h window open for the free
+ * ones, and its thread must not sit in «بانتظارك» beside real customers (review 2026-10-08).
+ */
+async function flagPausedWait(business, conversation, waMsg, customerWaId, at) {
+  if (NO_ANSWER_TYPES.includes(waMsg && waMsg.type)) return;
+  if (isStaffNumber(business, customerWaId || conversation.customer_wa_id)) return;
+  await flagForStaff(conversation, BOT_PAUSED, at);
+}
+
+// The inbox refreshes the thread and the list as soon as a message is stored.
+function emitNewMessages(business, items) {
+  for (const item of items) {
+    sseEmitter.emit(`business:${business.id}`, {
+      type: 'new_message',
+      conversationId: item.conversation.id,
+      businessId: business.id,
+    });
+  }
 }
 
 async function createConfirmedOrder(business, conversation, orderData) {
@@ -382,12 +458,18 @@ async function persistInbound(entry, { servesApp, endpoint } = {}) {
   if (refusesDelivery(business, { wabaId, servesApp, endpoint, what: 'message' })) {
     return { business: null, items: [] };
   }
-  if (business.status !== 'active') return { business, items: [] };
-
   // D5: only SHIFT rows enter the batcher's queue. D24: every other tenant's row is `processing` until its
   // forward/workflow ran (then `delivered`, today's value), so a crash in between is visible and recoverable.
-  const shiftQueue = business.business_type === 'shift' && business.ai_config?.reply_mode !== 'external';
-  const inboundStatus = shiftQueue ? 'received' : PROCESSING;
+  const shiftRows = business.business_type === 'shift' && business.ai_config?.reply_mode !== 'external';
+  // P0: a shop that is not 'active' (suspended, inactive) still has its messages stored, so they reach
+  // the inbox and the new-message alert; only the bot stops. Until now they were dropped here, unsaved.
+  // Its rows are stored already settled, with the value a non-active shop's rows end with anyway
+  // (runLeased marks SHIFT rows `skipped`, reprocessStuckInbound marks the others `delivered`): no
+  // sweep ever picks one up and answers it later, after the shop is switched back on.
+  const active = business.status === 'active';
+  let inboundStatus;
+  if (!active) inboundStatus = shiftRows ? 'skipped' : 'delivered';
+  else inboundStatus = shiftRows ? 'received' : PROCESSING;
   const contacts = value.contacts || [];
   const items = [];
 
@@ -401,7 +483,7 @@ async function persistInbound(entry, { servesApp, endpoint } = {}) {
       const found = await getOrCreateConversation(business.id, customerWaId, contact.profile?.name);
 
       const { created, msg, conversation, away } = await insertInbound(business.id, found.id, waMsg, customerWaId, inboundStatus,
-        { captions: shiftQueue });
+        { captions: shiftRows });
       if (away) {
         // Stored for staff and shown live in the Inbox, but not an item to answer, alert on or forward.
         sseEmitter.emit(`business:${business.id}`, { type: 'new_message', conversationId: found.id, businessId: business.id });
@@ -535,6 +617,48 @@ async function failIntent(intent, status, now) {
 }
 
 /**
+ * A shop's WABA can no longer pay Meta (131042): stamp WhatsappOnboarding.payment_blocked_at and
+ * tell SHIFT, once per block.
+ *
+ * The shop's own alert (reason 'billing') goes out from the shop's own number, which Meta is
+ * refusing for this very reason, and the webhook is SHIFT's private channel that no longer carries
+ * tenant reasons. Without this, nobody heard that the bot had gone silent, and the panels'
+ * payment_blocked state (admin.js, accountHealth.js) had no writer and could never turn red.
+ * notifyShift sends from SHIFT's own number and the webhook.
+ *
+ * The gate is the onboarding row itself: updateMany WHERE payment_blocked_at IS NULL wins once, so
+ * two webhook deliveries racing make one alert. Returns true when the onboarding row decided
+ * (whether or not this call was first), false when the shop has no onboarding row (a number wired
+ * by hand), so the caller falls back to the conversation's own first-block gate.
+ */
+async function markPaymentBlocked(biz, now) {
+  const onb = await prisma.whatsappOnboarding.findUnique({ where: { business_id: biz.id }, select: { id: true } });
+  if (!onb) return false;
+  const stamped = await prisma.whatsappOnboarding.updateMany({
+    where: { id: onb.id, payment_blocked_at: null },
+    data: { payment_blocked_at: now },
+  });
+  if (stamped.count > 0) await reportPaymentBlocked(biz);
+  return true;
+}
+
+async function reportPaymentBlocked(biz) {
+  await accountEvents.record({ businessId: biz.id, actorKind: 'meta', type: 'payment_blocked', data: { error_code: BILLING_ERROR_CODE } });
+  Promise.resolve(alerts.notifyShift({
+    reason: 'payment_blocked', businessId: biz.id, shopName: biz.name || '',
+    summary: 'واتساب رفض ردود البوت (131042) — لازم الزبون يضيف طريقة دفع في WhatsApp Manager',
+  })).catch(() => {});
+}
+
+/** A delivered message proves Meta is sending again: the red payment state ends (spec, payment_blocked). */
+async function clearPaymentBlocked(biz) {
+  await prisma.whatsappOnboarding.updateMany({
+    where: { business_id: biz.id, payment_blocked_at: { not: null } },
+    data: { payment_blocked_at: null },
+  });
+}
+
+/**
  * Delivery statuses (D17/D19). A bot intent is confirmed through replyBatcher.applyIntentStatus (never
  * moves backwards, answers its rows); a failed one goes through failIntent. Every other row (staff sends,
  * restaurant/clinic replies) is updated by its exact wamid as before. A status that matches nothing is
@@ -555,10 +679,17 @@ async function handleStatuses(phoneNumberId, statuses) {
     return business || null;
   };
 
+  let paymentCleared = false;
   for (const status of statuses) {
     try {
       const now = new Date();
       const found = await findStatusRow(status);
+      // Once per webhook call: a delivered send of this number lifts a 131042 block.
+      if (!paymentCleared && status.status === 'delivered' && found && found.direction === 'outbound') {
+        paymentCleared = true;
+        const biz = await statusBusiness();
+        if (biz && biz.business_type !== 'shift') await clearPaymentBlocked(biz);
+      }
       if (isBotIntent(found) && CONFIRMED_STATUSES.includes(status.status)) {
         await replyBatcher.applyIntentStatus({ intentId: found.id, wamid: status.id || null, status: status.status });
       } else if (isBotIntent(found) && status.status === 'failed') {
@@ -593,6 +724,11 @@ async function handleStatuses(phoneNumberId, statuses) {
       if (found?.raw_payload?.kind === 'staff_alert') continue;
       const biz = await statusBusiness();
       if (!biz) continue;
+      // A shop's block is reported to SHIFT here, before the conversation lookups below can skip:
+      // the shop's own alert cannot get out of a number Meta is refusing. SHIFT's own number keeps
+      // its webhook, so it needs none of this.
+      const tenant = biz.business_type !== 'shift';
+      const onboardingDecided = tenant ? await markPaymentBlocked(biz, now) : true;
       // The banner belongs to the conversation of the failed send; the recipient only locates a
       // conversation for a status whose row is unknown — it never marks any message.
       const conv = found
@@ -609,6 +745,8 @@ async function handleStatuses(phoneNumberId, statuses) {
       // racing on the same conversation make exactly one winner.
       const firstBlock = await jsonb.claimFlag('conversations', conv.id, 'metadata', ['billing_blocked_at']);
       if (!firstBlock) continue;
+      // A shop with no onboarding row (wired by hand): the conversation's first block tells SHIFT.
+      if (!onboardingDecided) await reportPaymentBlocked(biz);
       Promise.resolve(alerts.sendStaffAlert({
         reason: 'billing', business: biz, conversation: conv, summary: 'واتساب رفض رسالة — لازم تنضاف طريقة دفع',
       })).catch(() => {});
@@ -655,6 +793,11 @@ async function processShiftItem(business, accessToken, item) {
     // D1 save-only: nothing is ever sent, so there is no state to make durable first (runBatch would
     // reach the same `skipped` for a row left `received`).
     await prisma.message.update({ where: { id: msg.id }, data: { status: 'skipped' } });
+    // A paused bot is save-only too (isShiftReplyAllowed), but unlike the test-number mode a customer
+    // is now waiting for the team. A conversation staff already hold needs no flag.
+    if (botPaused(business) && !staffHolds(conv, now)) {
+      await flagPausedWait(business, conv, waMsg, customerWaId, msg.created_at);
+    }
     return;
   }
 
@@ -733,12 +876,21 @@ async function markDelivered(ids) {
  */
 async function forwardExternal(business, value, items) {
   const claimed = items.filter(needsProcessing);
-  for (const item of claimed) {
-    sseEmitter.emit(`business:${business.id}`, {
-      type: 'new_message',
-      conversationId: item.conversation.id,
-      businessId: business.id,
-    });
+  emitNewMessages(business, claimed);
+
+  // «أوقف البوت مؤقتًا» covers the outside automation too: it is this shop's bot, and the panels
+  // show it as paused. Nothing is forwarded; the messages are stored and the customers wait for
+  // the team, as with a paused workflow. Both callers (the webhook and reprocessStuckInbound) pass
+  // here, so neither can forward around the pause.
+  if (botPaused(business)) {
+    const now = new Date();
+    for (const item of claimed) {
+      if (item.conversation && !staffHolds(item.conversation, now)) {
+        await flagPausedWait(business, item.conversation, item.waMsg, item.customerWaId, item.message && item.message.created_at);
+      }
+    }
+    await markDelivered(claimed.map((item) => item.message.id));
+    return;
   }
 
   const forwardUrl = business.ai_config?.forward_url;
@@ -815,6 +967,147 @@ async function readTenantMedia(business, accessToken, item, waMsg) {
   return [`${TENANT_MEDIA_LABEL[read.type] || '[مرفق]'}${caption ? ` ${caption}` : ''}`, read.text].join('\n');
 }
 
+/**
+ * A tenant send Meta refused synchronously. Two refusals mean the bot has gone quiet for a reason
+ * only SHIFT can see: 131042 (no payment method at Meta) gets the same treatment as the status
+ * webhook's 131042 (handleStatuses), and 190 (the token is no longer valid) is recorded by
+ * tokenHealth. Never throws: the caller is already handling a failed send.
+ */
+async function noteSendRefusal(business, conversation, err) {
+  try {
+    const code = tokenHealth.graphCode(err);
+    if (code === tokenHealth.TOKEN_INVALID_CODE) {
+      await tokenHealth.markInvalid(business, { source: 'send' });
+      return;
+    }
+    if (code !== BILLING_ERROR_CODE || !business || business.business_type === 'shift') return;
+    const decided = await markPaymentBlocked(business, new Date());
+    if (!conversation || isStaffNumber(business, conversation.customer_wa_id)) return;
+    // The conversation's first block, as in handleStatuses: one banner, one shop alert.
+    const firstBlock = await jsonb.claimFlag('conversations', conversation.id, 'metadata', ['billing_blocked_at']);
+    if (!firstBlock) return;
+    if (!decided) await reportPaymentBlocked(business);
+    Promise.resolve(alerts.sendStaffAlert({
+      reason: 'billing', business, conversation, summary: 'واتساب رفض رسالة — لازم تنضاف طريقة دفع',
+    })).catch(() => {});
+  } catch (e) {
+    console.error(`[send] refusal not recorded business=${business && business.id}: ${e.message}`);
+  }
+}
+
+function limitMessage(business) {
+  const custom = business?.ai_config?.limit_message;
+  return typeof custom === 'string' && custom.trim() ? custom.trim().slice(0, 1000) : DEFAULT_LIMIT_MESSAGE;
+}
+
+/**
+ * The cost guard said no (costGuard.allow): the bot neither reads nor replies, and the customer
+ * becomes the shop staff's, exactly like a paused bot, with attention_reason 'bot_limit'. Unlike a
+ * pause, the customer is told once a day that a person will answer, so a free-month shop past its
+ * cap does not look dead. The day is claimed on the conversation (metadata.bot_limit_notice_day),
+ * so two deliveries racing send one notice.
+ *
+ * The notice is stored with is_ai_generated false: it is not a bot answer, it must not count
+ * against the cap that caused it, and it does not stamp last_outbound_at, which would read the
+ * customer as answered and restart their wait on the attention list.
+ */
+async function holdForLimit(business, accessToken, conversation, item) {
+  const { customerWaId } = item;
+  if (isStaffNumber(business, customerWaId || conversation.customer_wa_id)) return;
+  const flagged = await flagForStaff(conversation, BOT_LIMIT, item.message && item.message.created_at);
+  emitNewMessages(business, [{ conversation: flagged || conversation }]);
+
+  let claimed = false;
+  try {
+    claimed = await jsonb.claimValue('conversations', conversation.id, 'metadata', 'bot_limit_notice_day', costGuard.ammanDay());
+  } catch (err) {
+    console.error(`[costGuard] notice claim failed conversation=${conversation.id}: ${err.message}`);
+  }
+  if (!claimed || !canSendAutoReply(business, conversation, 'bot-limit notice')) return;
+
+  const text = limitMessage(business);
+  try {
+    const metaResponse = await sendTextMessage(business.wa_phone_number_id, accessToken, customerWaId, text);
+    await prisma.message.create({
+      data: {
+        business_id: business.id,
+        conversation_id: conversation.id,
+        meta_message_id: metaResponse?.messages?.[0]?.id || null,
+        direction: 'outbound',
+        message_type: 'text',
+        text_body: text,
+        status: 'sent',
+        is_ai_generated: false,
+      },
+    });
+  } catch (err) {
+    console.error(`[costGuard] limit notice not sent conversation=${conversation.id}: ${err.message}`);
+    await noteSendRefusal(business, conversation, err);
+  }
+}
+
+/**
+ * The shop is closed by its own «أوقات الدوام» and the owner wrote «رسالة خارج الدوام»: the bot takes
+ * no order and books nothing, and the customer is the team's when they open, like holdForLimit.
+ * The message goes once per conversation per Amman day (metadata.out_of_hours_notice_day), so a
+ * customer writing five times at night is told once, and stored with is_ai_generated false for the
+ * same reasons as the limit notice: not a bot answer, no cost, and the wait is not restarted.
+ */
+async function holdOutOfHours(business, accessToken, conversation, item, text) {
+  const { customerWaId } = item;
+  const flagged = await flagForStaff(conversation, OUT_OF_HOURS, item.message && item.message.created_at);
+  emitNewMessages(business, [{ conversation: flagged || conversation }]);
+
+  let claimed = false;
+  try {
+    claimed = await jsonb.claimValue('conversations', conversation.id, 'metadata', 'out_of_hours_notice_day', costGuard.ammanDay());
+  } catch (err) {
+    console.error(`[hours] notice claim failed conversation=${conversation.id}: ${err.message}`);
+  }
+  if (!claimed || !canSendAutoReply(business, conversation, 'out-of-hours message')) return;
+
+  try {
+    const metaResponse = await sendTextMessage(business.wa_phone_number_id, accessToken, customerWaId, text);
+    await prisma.message.create({
+      data: {
+        business_id: business.id,
+        conversation_id: conversation.id,
+        meta_message_id: metaResponse?.messages?.[0]?.id || null,
+        direction: 'outbound',
+        message_type: 'text',
+        text_body: text,
+        status: 'sent',
+        is_ai_generated: false,
+      },
+    });
+  } catch (err) {
+    console.error(`[hours] out-of-hours message not sent conversation=${conversation.id}: ${err.message}`);
+    await noteSendRefusal(business, conversation, err);
+  }
+}
+
+/** True when the shop may spend on this message; otherwise the conversation is held for staff. */
+async function spendAllowed(business, accessToken, conversation, item, kind) {
+  const verdict = await costGuard.allow(business, kind);
+  if (verdict.ok) return true;
+  console.warn(`[costGuard] business=${business.id} held (${verdict.reason}) conversation=${conversation.id}`);
+  await holdForLimit(business, accessToken, conversation, item);
+  return false;
+}
+
+const MEDIA_UNSUPPORTED_REPLY = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
+
+async function sendMediaUnsupported(business, accessToken, conversation, customerWaId) {
+  if (!canSendAutoReply(business, conversation, 'media-not-supported reply')) return;
+  try {
+    const metaResponse = await sendTextMessage(business.wa_phone_number_id, accessToken, customerWaId, MEDIA_UNSUPPORTED_REPLY);
+    await saveOutboundMessage(business.id, conversation.id, MEDIA_UNSUPPORTED_REPLY, metaResponse);
+  } catch (sendErr) {
+    console.error('Failed to send media-not-supported reply:', sendErr.message);
+    await noteSendRefusal(business, conversation, sendErr);
+  }
+}
+
 async function runTenantWorkflow(business, accessToken, item, startConversation) {
   const { waMsg, customerWaId } = item;
   const phoneNumberId = business.wa_phone_number_id;
@@ -824,7 +1117,37 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
     return;
   }
 
+  // Coexistence (P5): the owner answered this customer from the WhatsApp Business app a moment ago
+  // (an smb_message_echoes delivery set the hold), so the owner is in the conversation and the bot
+  // does not talk over them. The message is stored and in the inbox already. Only a shop on
+  // coexistence ever has the hold, so for every other shop this is a no-op.
+  if (coexistence.ownerHolds(conversation, new Date())) {
+    emitNewMessages(business, [{ conversation }]);
+    return;
+  }
+
+  // «أوقف البوت مؤقتًا»: nothing is sent, not even the «send it as text» media reply, and nothing is
+  // read or asked of the AI (both cost money). The message is already stored; the customer now waits
+  // for the shop's staff, so the conversation goes to their attention list.
+  if (botPaused(business)) {
+    await flagPausedWait(business, conversation, waMsg, customerWaId, item.message && item.message.created_at);
+    emitNewMessages(business, [{ conversation }]);
+    return;
+  }
+
+  // Closed by the owner's own hours, with a message written for it: that message, not a reply.
+  // Before media is read or the AI asked, so a closed shop costs nothing. A reaction asks nothing,
+  // and a staff number writing in is not a customer to tell the shop is closed.
+  const closedText = outOfHoursMessage(business);
+  if (closedText && !NO_ANSWER_TYPES.includes(waMsg.type)
+    && !isStaffNumber(business, customerWaId || conversation.customer_wa_id)) {
+    await holdOutOfHours(business, accessToken, conversation, item, closedText);
+    return;
+  }
+
   const msgType = waMsg.type || 'text';
+  // Set once the cost guard has been asked, so a media read and the reply it feeds are one check.
+  let guarded = false;
   let customerText = waMsg.text?.body
     || waMsg.interactive?.button_reply?.title
     || waMsg.interactive?.list_reply?.title
@@ -837,22 +1160,26 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
       customerText = parts.length ? parts.join(' - ') : `${loc.latitude},${loc.longitude}`;
     } else if (msgType === 'reaction') {
       return;
-    } else if (['image', 'audio', 'video'].includes(msgType) && (customerText = await readTenantMedia(business, accessToken, item, waMsg))) {
+    } else if (['image', 'audio', 'video'].includes(msgType) && media.mediaEnabled()) {
+      // Reading costs money, so the guard is asked first (the daily media cap and the reply caps).
+      if (!(await spendAllowed(business, accessToken, conversation, item, 'media'))) return;
+      guarded = true;
       // Read: the workflow answers what the customer sent, like a typed message (owner, 2026-10-07).
-    } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
-      const mediaReply = 'عذراً، لا يمكننا معالجة الصور أو الملفات أو الرسائل الصوتية حالياً. يرجى إرسال طلبك كنص، أو اكتب "موظف" للتحدث مع موظف خدمة العملاء.';
-      if (!canSendAutoReply(business, conversation, 'media-not-supported reply')) return;
-      try {
-        const metaResponse = await sendTextMessage(phoneNumberId, accessToken, customerWaId, mediaReply);
-        await saveOutboundMessage(business.id, conversation.id, mediaReply, metaResponse);
-      } catch (sendErr) {
-        console.error('Failed to send media-not-supported reply:', sendErr.message);
+      customerText = await readTenantMedia(business, accessToken, item, waMsg);
+      if (!customerText) {
+        await sendMediaUnsupported(business, accessToken, conversation, customerWaId);
+        return;
       }
+    } else if (['image', 'audio', 'video', 'document', 'sticker'].includes(msgType)) {
+      await sendMediaUnsupported(business, accessToken, conversation, customerWaId);
       return;
     } else {
       return;
     }
   }
+
+  // The AI is not asked once the shop is over a hard limit (costGuard; SHIFT's own number is exempt).
+  if (!guarded && !(await spendAllowed(business, accessToken, conversation, item, 'reply'))) return;
 
   // Shared with «جرّب البوت»: the dry run and production go through the same dispatch, so a
   // test reply is the reply a customer would get.
@@ -869,6 +1196,17 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
       conversation,
       summary: customerText,
     });
+    // «ما عرف يجاوب»: only a question the model gave up on is a gap the owner can teach. A keyword
+    // the owner chose, or a provider failure, is not something an answer in «البوت» would fix.
+    // Not awaited: record() never throws, and the customer's reply must not wait on the log.
+    if (workflowResult.handoff_kind === 'model') {
+      accountEvents.record({
+        businessId: business.id,
+        actorKind: 'system',
+        type: 'bot_handoff',
+        data: { question: String(customerText).slice(0, MAX_GAP_QUESTION), conversation_id: conversation.id },
+      });
+    }
   }
 
   if (workflowResult.stateUpdate && Object.keys(workflowResult.stateUpdate).length > 0) {
@@ -940,8 +1278,12 @@ async function runTenantWorkflow(business, accessToken, item, startConversation)
     try {
       const metaResponse = await sendTextMessage(phoneNumberId, accessToken, customerWaId, workflowResult.reply);
       await saveOutboundMessage(business.id, conversation.id, workflowResult.reply, metaResponse);
+      // The shop's first AI reply to a real customer: «يعمل» on the board, the free month's start.
+      // Never throws, and is a no-op without a query once the shop is live.
+      await wentLive.noteAiReply(business, customerWaId);
     } catch (sendErr) {
       console.error('Failed to send WhatsApp message:', sendErr.message);
+      await noteSendRefusal(business, conversation, sendErr);
     }
   }
 }
@@ -996,11 +1338,19 @@ async function processInboundMessage(entry, { persisted, servesApp, endpoint } =
 
     // Legacy callers (scripts, tests) did not persist first.
     const { business, items } = persisted || await persistInbound(entry, { servesApp, endpoint });
-    if (!business || business.status !== 'active') return;
+    if (!business) return;
 
-    // «رسالة جديدة من عميل» to staff (where configured). Not awaited and never rejects: the reply path
-    // below neither waits for it nor fails with it.
+    // «رسالة جديدة من عميل» to staff (where configured), whatever the shop's status: a suspended shop
+    // still hears from its customers. Not awaited and never rejects: the reply path below neither waits
+    // for it nor fails with it.
     newMessageAlert.notifyNewMessages(business, items);
+
+    // P0: the bot answers only for an active shop. The others' messages are stored (persistInbound) and
+    // shown in the inbox; nothing is sent or read, and no forward goes to an outside automation.
+    if (business.status !== 'active') {
+      emitNewMessages(business, items.filter(needsProcessing));
+      return;
+    }
 
     if (business.ai_config?.reply_mode === 'external') {
       await forwardExternal(business, value, items);
@@ -1102,6 +1452,10 @@ async function reprocessStuckInbound({ olderThanMs = STUCK_AFTER_MS, now = new D
         recovered: true,
         claimed: true,
       };
+
+      // The delivery that died may never have reached its new-message alert. Staff hear about the
+      // message whatever the shop's status; an alert that did go out is not repeated (its claim).
+      if (business && conversation) newMessageAlert.notifyNewMessages(business, [item]);
 
       if (!business || business.status !== 'active' || !conversation) {
         await markDelivered([message.id]);

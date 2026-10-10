@@ -1,9 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, attachBusinessId } = require('../middleware/auth');
+const { authenticate, attachBusinessId, requireRole } = require('../middleware/auth');
 const prisma = require('../config/prisma');
+const { recordCatalogChange } = require('../middleware/recordCatalogChange');
 
-router.use(authenticate, attachBusinessId);
+// The menu is what the bot quotes prices from: the owner and the manager edit it (docs/panels/
+// spec.md, P3). The page was already hidden from staff; now the API agrees, so a staff session
+// cannot rewrite a price the bot will then promise a customer.
+router.use(authenticate, attachBusinessId, requireRole('platform_admin', 'business_owner', 'manager'));
+// Who changed which price, in the shop's «السجل» (middleware/recordCatalogChange.js).
+router.use(recordCatalogChange('menu_changed'));
 
 // ─── Categories ────────────────────────────────────────────────────────────────
 

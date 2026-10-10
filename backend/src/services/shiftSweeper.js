@@ -25,6 +25,8 @@ const { sendStaffAlert, alertChannelConfigured } = require('./alerts');
 const { NOTE_WINDOW_MARGIN_MS, windowClosesAt, isWithinServiceWindow } = require('../utils/serviceWindow');
 const { resolveModel } = require('../ai/provider');
 const { graphVersion } = require('./whatsapp');
+const accountsDaily = require('./accountsDaily');
+const ownerAlertTemplate = require('./ownerAlertTemplate');
 // PR2 (contract §11.1): the idle role-play and single-nudge steps. All pure decision modules.
 const followups = require('../workflows/shift/followups');
 const weeklyFollowup = require('../workflows/shift/weeklyFollowup');
@@ -36,6 +38,11 @@ const { expectedLanguage } = require('../workflows/shift/validators');
 const booking = require('../workflows/shift/booking');
 // Calendly bookings seen on the sales calendar (owner decision 2026-09-19).
 const calendlySync = require('./calendlySync');
+const costGuard = require('./costGuard');
+const tokenHealth = require('./tokenHealth');
+const metaStatus = require('./metaStatus');
+const latePolicy = require('./latePolicy');
+const coexistence = require('./coexistence');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -88,7 +95,10 @@ function emptyReport() {
     roleplay_idle: 0, nudges_sent: 0, nudges_dropped: 0,
     reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
     calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
-    weekly_followups_sent: 0, weekly_followups_failed: 0, errors: [],
+    weekly_followups_sent: 0, weekly_followups_failed: 0,
+    // The once-a-day step (sweepDaily): null on every other sweep of the day.
+    daily: null,
+    errors: [],
   };
 }
 
@@ -1141,6 +1151,156 @@ const STEPS = [
   ['weekly_followups', sweepWeeklyFollowups],
 ];
 
+// The Amman day the daily step finished on this instance. Another instance may run it too;
+// token_checked_at on each onboarding row keeps a shop from being checked twice the same day.
+let dailyRanFor = null;
+// The shops this instance already checked today. token_checked_at cannot say it for a hand-wired
+// shop with no onboarding row, and a day split over several sweeps must not start over each time.
+let dailyDone = { day: null, ids: new Set() };
+// The Amman day accountsDaily ran on this instance (it is not split over sweeps like the shops).
+let accountsRanFor = null;
+// The Amman day the free-month reminders ran on this instance: they wait for the morning
+// (accountsDaily.REMIND_FROM_HOUR), so they are not tied to the midnight run.
+let remindedFor = null;
+// The owner_alert template poll, split over sweeps on the same budget as the shops: the Amman day
+// it finished on this instance, and the shops it already polled today.
+let templatesRanFor = null;
+let templatesDone = { day: null, ids: new Set() };
+// One sweep's share of the daily step. It runs after the SHIFT steps but still inside the
+// sweep's `running` flag, so a slow Graph must not keep the next minute's sweep (the sales bot's
+// recovery, alerts, nudges and reminders) waiting: past this, the rest of the shops wait for the
+// next sweep. At least one shop is checked per sweep, so the day always finishes.
+const DAILY_BUDGET_MS = 40 * 1000;
+// What the daily step may still spend after the coexistence syncs spent `spentMs` of the same
+// sweep. Never below a floor: the daily step checks at least one shop per sweep anyway, and a
+// floor keeps it from being starved by a Meta slowdown on the syncs.
+const DAILY_BUDGET_FLOOR_MS = 5 * 1000;
+function dailyBudgetAfter(spentMs) {
+  return Math.max(DAILY_BUDGET_FLOOR_MS, DAILY_BUDGET_MS - Math.max(0, spentMs));
+}
+
+/**
+ * Once a day (the first sweep after midnight, Amman time), for every connected customer shop:
+ * Meta's view of the number (metaStatus.refresh: quality, number and name status) and whether the
+ * stored token still works (tokenHealth.check, debug_token is_valid). A customer who removed SHIFT
+ * from their Meta account, or whose number Meta restricted, shows up on the panels by morning
+ * instead of when the owner asks why the bot went quiet. No new Cloud Scheduler job: it rides the
+ * minute sweep, guarded by the date.
+ *
+ * Connected means a number and a token. SHIFT's own number and the internal rows are left out, and
+ * a closed account is nobody's to check. One shop's failure is counted and the rest carry on.
+ */
+async function sweepDaily(now, { budgetMs = DAILY_BUDGET_MS, clock = Date.now } = {}) {
+  const today = costGuard.ammanDay(now);
+  const remindNow = remindedFor !== today && accountsDaily.remindersDue(now);
+  if (dailyRanFor === today && accountsRanFor === today && templatesRanFor === today && !remindNow) return null;
+  if (dailyDone.day !== today) dailyDone = { day: today, ids: new Set() };
+  if (templatesDone.day !== today) templatesDone = { day: today, ids: new Set() };
+  const started = clock();
+  const out = {
+    date: today, shops: 0, skipped: 0, deferred: 0, meta_refreshed: 0, token_valid: 0, token_invalid: 0, token_unknown: 0, errors: 0,
+    accounts: null, templates: null, late: null,
+  };
+
+  // The join campaign's chores (invite expiry, the 14-day backstop, and from the morning the
+  // free-month reminders). No Graph reads, and they never throw; idempotent and claimed per item,
+  // so another instance running them the same minute repeats nothing.
+  if (accountsRanFor !== today) {
+    out.accounts = await accountsDaily.runAccountsDaily(now, { reminders: remindNow });
+    // The late-payment policy (services/latePolicy.js): past the grace days, the contract turns
+    // past_due and the bot pauses while the inbox keeps working. Never throws; claimed per item.
+    out.late = await latePolicy.applyLatePolicy(now);
+    accountsRanFor = today;
+    if (remindNow) remindedFor = today;
+  } else if (remindNow) {
+    out.accounts = await accountsDaily.runTrialReminders(now);
+    remindedFor = today;
+  }
+  // The owner_alert template poll: a Graph read per shop whose template Meta has not decided yet.
+  // On this sweep's budget, like the shops below, so a slow Graph cannot hold the `running` flag
+  // (and with it the sales bot's recovery, alerts and nudges) for minutes; what is left over waits
+  // for the next minute's sweep.
+  if (templatesRanFor !== today) {
+    out.templates = await ownerAlertTemplate.pollPending({
+      now, deadline: started + budgetMs, clock, done: templatesDone.ids, since: costGuard.dayStart(now),
+    });
+    // A failed shop read (nothing checked) leaves it open for the next sweep too.
+    if (!out.templates.deferred && !(out.templates.errors && !out.templates.checked)) templatesRanFor = today;
+  }
+  if (dailyRanFor === today) return out;
+
+  const shops = (await prisma.business.findMany({
+    where: {
+      is_internal: false, business_type: { not: 'shift' }, status: { not: 'closed' },
+      wa_phone_number_id: { not: null }, wa_access_token: { not: null },
+    },
+    select: {
+      id: true, name: true, business_type: true, is_internal: true, status: true, wa_app_id: true,
+      wa_phone_number_id: true, wa_business_account_id: true, wa_access_token: true,
+    },
+  })).filter((b) => !costGuard.isExempt(b) && b.wa_phone_number_id && b.wa_access_token && b.status !== 'closed');
+  // A failed read leaves the day open: the next minute's sweep retries it.
+  if (!shops.length) {
+    dailyRanFor = today;
+    return out;
+  }
+
+  const since = costGuard.dayStart(now);
+  const onboardings = await prisma.whatsappOnboarding.findMany({
+    where: { business_id: { in: shops.map((b) => b.id) } },
+    select: { business_id: true, token_checked_at: true },
+  }).catch((err) => {
+    // Without the stamps every shop is checked; a second check in a day costs one Graph call.
+    console.warn(`[sweep] daily: token_checked_at not read: ${err.message}`);
+    return [];
+  });
+  const checkedToday = new Set(onboardings
+    .filter((o) => o.token_checked_at && new Date(o.token_checked_at) >= since)
+    .map((o) => o.business_id));
+
+  for (const shop of shops) {
+    if (checkedToday.has(shop.id) || dailyDone.ids.has(shop.id)) {
+      out.skipped += 1;
+      continue;
+    }
+    if (out.shops > 0 && clock() - started >= budgetMs) {
+      out.deferred += 1;
+      continue;
+    }
+    out.shops += 1;
+    dailyDone.ids.add(shop.id);
+    if (shop.wa_business_account_id) {
+      try {
+        await metaStatus.refresh(shop);
+        out.meta_refreshed += 1;
+      } catch (err) {
+        out.errors += 1;
+        console.warn(`[sweep] daily Meta refresh failed for ${shop.id}: ${err.message}`);
+      }
+    }
+    try {
+      const { status } = await tokenHealth.check(shop, { now });
+      out[`token_${status}`] = (out[`token_${status}`] || 0) + 1;
+    } catch (err) {
+      out.errors += 1;
+      console.warn(`[sweep] daily token check failed for ${shop.id}: ${err.message}`);
+    }
+  }
+  // Done for the day only when no shop was left for the next sweep.
+  if (!out.deferred) dailyRanFor = today;
+  return out;
+}
+
+/** Tests: let the daily step run again in the same process. */
+function resetDaily() {
+  dailyRanFor = null;
+  accountsRanFor = null;
+  remindedFor = null;
+  templatesRanFor = null;
+  templatesDone = { day: null, ids: new Set() };
+  dailyDone = { day: null, ids: new Set() };
+}
+
 /**
  * D24: restaurant, clinic and external-mode rows claimed as `processing` whose forward/workflow never
  * finished. Not per SHIFT business: those tenants have no SHIFT row. Required lazily: the processor
@@ -1181,6 +1341,28 @@ async function runSweep({ now = new Date() } = {}) {
           console.error(`[sweep] ${name} failed for ${business.id}:`, err.message);
         }
       }
+    }
+
+    // Coexistence numbers owe Meta two syncs within 24 hours of connecting: retry what failed, and
+    // tell SHIFT at 20 hours. One empty query unless a coexistence number was ever connected. Graph
+    // calls, so on its own time budget (coexistence.SYNC_SWEEP_BUDGET_MS), and whatever it spent
+    // comes off the daily step's below: the two together stay inside the minute, so a slow Meta
+    // never makes the next sweep (SHIFT's recovery, alerts and nudges) return 'already_running'.
+    const graphStarted = Date.now();
+    try {
+      report.coex_sync = await coexistence.sweepSyncs(now);
+    } catch (err) {
+      report.errors.push(`coex_sync: ${err.message}`);
+      console.error('[sweep] coex_sync failed:', err.message);
+    }
+
+    // Last, and on a time budget: the customer shops' Graph reads are the slowest thing a sweep
+    // does, and SHIFT's own recovery, alerts, nudges and reminders above must not wait on them.
+    try {
+      report.daily = await sweepDaily(now, { budgetMs: dailyBudgetAfter(Date.now() - graphStarted) });
+    } catch (err) {
+      report.errors.push(`daily: ${err.message}`);
+      console.error('[sweep] daily step failed:', err.message);
     }
     last = { at: new Date(now).toISOString(), report };
     return report;
@@ -1289,4 +1471,6 @@ async function getShiftStatus({ now = new Date() } = {}) {
   };
 }
 
-module.exports = { runSweep, getShiftStatus, lastSweep, isCloser, STEPS };
+module.exports = {
+  runSweep, getShiftStatus, lastSweep, isCloser, STEPS, sweepDaily, resetDaily, dailyBudgetAfter, DAILY_BUDGET_MS,
+};

@@ -503,7 +503,9 @@ function promptFor(ctx, history, hint) {
  * fallback provider. Required lazily and never awaited: an alert must not hold up or break the reply.
  */
 function providerIssueAlert(ctx) {
-  return ({ summary }) => {
+  return ({ provider, kind, summary } = {}) => {
+    // The operator panel's AI-down state, written whichever number hit the outage first.
+    require('../../services/workflowAlerts').recordProviderStatus({ provider, kind });
     try {
       const alerts = require('../../services/alerts');
       Promise.resolve(alerts.sendStaffAlert({
@@ -943,4 +945,5 @@ module.exports = {
   HISTORY_LIMIT,
   AI_DEADLINE_MS,
   MIN_REGENERATE_MS,
+  providerIssueAlert,
 };

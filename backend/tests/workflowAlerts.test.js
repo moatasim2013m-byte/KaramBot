@@ -22,6 +22,7 @@ jest.mock('../src/ai/provider', () => ({
 const axios = require('axios');
 const db = require('./helpers/fakeDb').getFakeDb();
 const alerts = require('../src/services/alerts');
+const platformSettings = require('../src/services/platformSettings');
 const provider = require('../src/ai/provider');
 const replyBatcher = require('../src/services/replyBatcher');
 const { persistInbound, processInboundMessage } = require('../src/services/messageProcessor');
@@ -46,6 +47,9 @@ function seedBusiness(aiConfig = {}, extra = {}) {
       wa_phone_number_id: PNID,
       wa_access_token: encrypt('tok'),
       ai_config: { alert_wa_numbers: [OWNER], ...aiConfig },
+      // Already live: these tests are about the shop's alerts, and a first reply would add SHIFT's
+      // went_live alert (wentLive.test.js).
+      went_live_at: new Date('2026-09-01T00:00:00Z'),
       ...extra,
     }],
   }).businesses[0];
@@ -86,6 +90,7 @@ const reasonsSent = () => sendStaffAlert.mock.calls.map((c) => c[0].reason);
 beforeEach(() => {
   db.reset();
   db.clock.set(T0);
+  platformSettings.clearCache();
   seq = 0;
   jest.restoreAllMocks();
   axios.post.mockReset();
@@ -169,22 +174,127 @@ test('an alert that never settles does not hold up the reply', async () => {
   release({ webhook: 'skipped', whatsapp: [] });
 });
 
-test('a provider out of credits reaches the owner as a fault', async () => {
-  // ai/provider.js hands this to the onProviderIssue callback the workflows now pass; it
-  // throttles to once an hour per provider, so it cannot flood the owner's phone.
-  seedBusiness();
+// Lets the fire-and-forget notifyShift chain (several awaits) and the provider_status write settle.
+async function settle(rounds = 20) {
+  for (let i = 0; i < rounds; i += 1) await new Promise((r) => setImmediate(r));
+}
+
+const SHIFT_PNID = 'pnid_shift_own';
+const SHIFT_STAFF = '962790000009';
+
+function seedShift() {
+  db.seed({
+    businesses: [{
+      id: 'biz_shift', name: 'شِفت', slug: 'shift', business_type: 'shift', status: 'active', is_internal: true,
+      wa_phone_number_id: SHIFT_PNID, wa_access_token: encrypt('shift_tok'),
+      ai_config: { alert_wa_numbers: [SHIFT_STAFF] },
+    }],
+    // SHIFT's staff member wrote to SHIFT's number within the day, so the alert goes as free text.
+    conversations: [{ id: 'conv_shift_staff', business_id: 'biz_shift', customer_wa_id: SHIFT_STAFF, status: 'open', ai_enabled: true, last_inbound_at: T0 }],
+  });
+}
+
+function providerOutage() {
   db.seed({ businessKnowledge: [{ business_id: 'biz_wf', kind: 'hours', content: 'من ٩ صباحاً', active: true }] });
   provider.generateValidatedAIReply.mockImplementation(async (_sys, _msg, _hist, opts) => {
-    opts.onProviderIssue({ provider: 'gemini', kind: 'quota', summary: 'رصيد مزوّد الذكاء خلص' });
+    opts.onProviderIssue({ provider: 'gemini', kind: 'billing', next: 'anthropic', summary: 'رصيد Gemini خلص — البوت شغّال على Claude' });
     return { reply: 'من ٩ صباحاً', action: 'NONE' }; // the fallback provider answered
+  });
+}
+
+test('a provider out of credits alerts SHIFT, not the shop that happened to hit it', async () => {
+  // provider.js throttles this to once an hour across every shop, so the one alert used to go to
+  // whichever owner's customer wrote first: a random shop was told SHIFT's credits ran out.
+  seedBusiness();
+  providerOutage();
+  const notifyShift = jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
+
+  await deliver('شو أوقات الدوام؟');
+  await settle();
+
+  expect(reasonsSent()).not.toContain('ai_failure'); // nothing to the shop's numbers
+  expect(notifyShift).toHaveBeenCalledTimes(1);
+  const arg = notifyShift.mock.calls[0][0];
+  expect(arg).toEqual({
+    reason: 'provider_down', businessId: 'biz_wf', shopName: 'صيدلية', summary: 'رصيد Gemini خلص — البوت شغّال على Claude',
+  });
+  // The customer's question is nowhere in it.
+  expect(JSON.stringify(arg)).not.toContain('أوقات الدوام');
+});
+
+test('the outage is recorded in provider_status for the operator panel', async () => {
+  seedBusiness();
+  providerOutage();
+  jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
+
+  await deliver('شو أوقات الدوام؟');
+  await settle();
+
+  const row = db.store.platformSettings.find((r) => r.key === 'provider_status');
+  expect(row.value).toEqual({ provider: 'gemini', kind: 'billing', last_seen: expect.any(String) });
+  expect(Number.isNaN(Date.parse(row.value.last_seen))).toBe(false);
+});
+
+test('SHIFT\'s own sales bot hitting the outage first records provider_status too (review 2026-10-08)', async () => {
+  // provider.js hands the hourly issue to whichever callback hit it first; SHIFT's number is the
+  // busiest, and its callback used to write nothing here, so the outage never showed.
+  seedShift();
+  jest.spyOn(alerts, 'sendStaffAlert').mockResolvedValue({ webhook: 'skipped', whatsapp: [] });
+  const { providerIssueAlert } = require('../src/workflows/shift');
+  const shiftBiz = db.store.businesses.find((b) => b.id === 'biz_shift');
+  providerIssueAlert({ business: shiftBiz, conversation: { id: 'c1' } })({ provider: 'anthropic', kind: 'auth', summary: 'مفتاح Claude مرفوض' });
+  await settle();
+
+  const row = db.store.platformSettings.find((r) => r.key === 'provider_status');
+  expect(row.value).toEqual({ provider: 'anthropic', kind: 'auth', last_seen: expect.any(String) });
+  // Its own alert still goes as before.
+  expect(alerts.sendStaffAlert).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ai_failure' }));
+});
+
+test('end to end: the WhatsApp alert leaves from SHIFT\'s number to SHIFT staff, never to the owner', async () => {
+  seedShift();
+  seedBusiness();
+  providerOutage();
+
+  await deliver('شو أوقات الدوام؟');
+  await settle();
+
+  const sends = axios.post.mock.calls.filter(([url]) => /\/messages$/.test(String(url)));
+  const toShift = sends.filter(([url, body]) => String(url).includes(SHIFT_PNID) && body.to === SHIFT_STAFF);
+  expect(toShift).toHaveLength(1);
+  expect(JSON.stringify(toShift[0][1])).toContain('صيدلية');
+  expect(JSON.stringify(toShift[0][1])).not.toContain('أوقات الدوام');
+  // The owner's number got the customer's answer path only, never an outage alert.
+  expect(sends.some(([, body]) => body.to === OWNER)).toBe(false);
+});
+
+test('the shop\'s conversation still answers on the fallback provider', async () => {
+  seedBusiness();
+  providerOutage();
+  jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
+
+  await deliver('شو أوقات الدوام؟');
+
+  const sent = db.store.messages.filter((m) => m.direction === 'outbound' && m.business_id === 'biz_wf');
+  expect(sent.map((m) => m.text_body)).toContain('من ٩ صباحاً');
+});
+
+test('when no provider answers, the conversation is handed to the shop\'s staff as before', async () => {
+  // The handover alert is the shop's signal; only the provider-outage alarm moved to SHIFT.
+  seedBusiness();
+  db.seed({ businessKnowledge: [{ business_id: 'biz_wf', kind: 'hours', content: 'من ٩ صباحاً', active: true }] });
+  jest.spyOn(alerts, 'notifyShift').mockResolvedValue(null);
+  provider.generateValidatedAIReply.mockImplementation(async (_sys, _msg, _hist, opts) => {
+    opts.onProviderIssue({ provider: 'gemini', kind: 'billing', next: null, summary: 'رصيد Gemini خلص' });
+    return null;
   });
 
   await deliver('شو أوقات الدوام؟');
 
-  expect(reasonsSent()).toContain('ai_failure');
-  const call = sendStaffAlert.mock.calls.find((c) => c[0].reason === 'ai_failure')[0];
-  expect(call.summary).toContain('رصيد');
-  expect(call.business.id).toBe('biz_wf');
+  expect(reasonsSent()).toContain('ai_failure'); // the handover, from the workflow's result
+  const conv = db.store.conversations.find((c) => c.business_id === 'biz_wf');
+  expect(conv.status).toBe('human_takeover');
+  expect(alerts.notifyShift).toHaveBeenCalledWith(expect.objectContaining({ reason: 'provider_down' }));
 });
 
 test('a staff alert that fails to deliver does not raise another alert', async () => {

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
@@ -5,6 +6,49 @@ const prisma = require('../config/prisma');
 const { encrypt } = require('../utils/tokenCrypto');
 const { normalizePhone } = require('../utils/phone');
 const jsonb = require('../db/jsonb');
+const accountEvents = require('../services/accountEvents');
+
+/**
+ * «السجل» on the account page: which settings changed and who changed them. Key names only, never
+ * values: a greeting is harmless but alert numbers and policies are the shop's own data, and the
+ * log is read by more people than the settings are.
+ */
+function recordSettingsChanged(req, businessId, update, aiConfigPatch) {
+  const actorKind = req.user.role === 'platform_admin' ? 'shift' : req.user.role === 'business_owner' ? 'owner' : 'staff';
+  const data = { keys: Object.keys(update).filter((k) => k !== 'policies') };
+  if (aiConfigPatch && Object.keys(aiConfigPatch).length) data.ai_config_keys = Object.keys(aiConfigPatch);
+  if (update.policies && typeof update.policies === 'object') data.policies_keys = Object.keys(update.policies);
+  return accountEvents.record({ businessId, actorUserId: req.user.id, actorKind, type: 'settings_changed', data });
+}
+
+/**
+ * The owner's «البوت يرد على الزبائن» switch: a PATCH whose whole body is { ai_config: { enabled } }.
+ * Anything sent with it means a settings form, and a form's copy of the flag may be stale.
+ */
+function isPauseToggle(req) {
+  const body = req.body || {};
+  return req.user.role === 'business_owner'
+    && Object.keys(body).length === 1
+    && isPlainObject(body.ai_config)
+    && Object.keys(body.ai_config).length === 1
+    && 'enabled' in body.ai_config;
+}
+
+const SHIFT_PAUSED_ERROR = 'أوقف فريق شِفت البوت — تواصل معهم لإعادة تشغيله';
+
+/**
+ * Whether the bot's current pause is SHIFT's. ai_config.paused_by is written by both pause
+ * routes; a pause from before that marker existed falls back to who wrote the latest bot_paused.
+ */
+async function pausedByShift(businessId, aiConfig) {
+  if (aiConfig?.paused_by) return aiConfig.paused_by === 'shift';
+  const last = await prisma.accountEvent.findFirst({
+    where: { business_id: businessId, type: 'bot_paused' },
+    orderBy: { created_at: 'desc' },
+    select: { actor_kind: true },
+  });
+  return last?.actor_kind === 'shift';
+}
 
 /** A real object: an array or a string spread into numeric keys instead of being rejected. */
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -14,6 +58,9 @@ const BUSINESS_PUBLIC_SELECT = {
   id: true, name: true, slug: true, business_type: true,
   logo_url: true, language_default: true, timezone: true,
   currency: true, address: true, wa_phone_number_id: true,
+  // sector picks the starter chips on /bot (a pharmacy is business_type 'generic'); city is the
+  // shop tab's «المدينة». Both were left out, so every non-restaurant shop got «other»'s chips.
+  sector: true, city: true,
   wa_business_account_id: true, opening_hours: true,
   status: true, ai_config: true, policies: true,
   created_at: true, updated_at: true,
@@ -22,7 +69,7 @@ const BUSINESS_PUBLIC_SELECT = {
 router.use(authenticate);
 
 const OWNER_ALLOWED_FIELDS = [
-  'name', 'logo_url', 'address', 'timezone', 'currency',
+  'name', 'logo_url', 'address', 'city', 'timezone', 'currency',
   'opening_hours', 'policies', 'ai_config',
 ];
 
@@ -32,8 +79,13 @@ const ADMIN_ALLOWED_FIELDS = [
   'wa_phone_number_id', 'wa_business_account_id',
 ];
 
+// No 'enabled': the bot's pause has its own route (PATCH /api/admin/accounts/:id/bot), which logs
+// bot_paused/bot_resumed with a reason. Accepted here, a settings form opened before a pause
+// switched the bot back on when the greeting was saved, and the log said only settings_changed.
+// The owner's own switch on /bot is the one exception, and only as a PATCH carrying nothing else
+// (isPauseToggle), so a stale form can still never flip it.
 const OWNER_AI_CONFIG_ALLOWED = [
-  'enabled', 'provider', 'personality', 'greeting_message',
+  'provider', 'personality', 'greeting_message',
   'fallback_message', 'handoff_keywords', 'out_of_hours_message',
   'confidence_threshold',
   // Where the bot reaches a human. Without a number here the staff alerts — a customer asking
@@ -102,19 +154,141 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/businesses — platform_admin only
-router.post('/', requireRole('platform_admin'), async (req, res) => {
-  try {
-    if ('wa_access_token' in req.body) {
-      return res.status(400).json({ error: 'Set WhatsApp token via PATCH /api/businesses/:id/token' });
+// ─── creating a shop ────────────────────────────────────────────────────────
+
+// What an operator may set when creating a row. Not the raw body: Prisma would otherwise accept
+// any column, wa_access_token and id included, and its own error text named the column that
+// broke — English, with internals, shown to an operator as is.
+const CREATE_ALLOWED_FIELDS = [
+  'name', 'slug', 'business_type', 'language_default', 'timezone', 'currency', 'address', 'logo_url',
+  'wa_phone_number_id', 'wa_business_account_id', 'opening_hours', 'ai_config', 'policies',
+  'sector', 'city', 'owner_phone', 'is_internal',
+];
+const SLUG_RE = /^[a-z0-9-]{1,60}$/;
+const SLUG_ATTEMPTS = 5;
+
+const CREATE_ERRORS = {
+  name: 'اسم الحساب مطلوب',
+  slug: 'الرابط المختصر: أحرف إنجليزية صغيرة وأرقام وشرطات فقط',
+  number_taken: 'هذا الرقم مربوط بحساب آخر',
+  type: 'نوع النشاط غير معروف',
+  failed: 'تعذّر إنشاء الحساب',
+};
+// The workflows that exist (messageProcessor picks one by business_type). The schema default is
+// 'restaurant', which would hand a pharmacy created with just a name the restaurant menu bot.
+const BUSINESS_TYPES = ['generic', 'restaurant', 'clinic', 'shift'];
+
+function randomLetters(n) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const bytes = crypto.randomBytes(n);
+  let out = '';
+  for (let i = 0; i < n; i += 1) out += alphabet[bytes[i] % alphabet.length];
+  return out;
+}
+
+/**
+ * A slug from the shop's name: its Latin letters and digits, lowercased and joined by dashes.
+ * Most of SHIFT's shops have Arabic-only names («صيدلية النور»), which leave nothing Latin, so
+ * those get 'shop-' and six random letters. The slug is an internal handle nobody types, so a
+ * readable one is a bonus, never a requirement the operator has to meet.
+ */
+function slugFromName(name) {
+  const latin = String(name || '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return latin.length >= 2 ? latin : `shop-${randomLetters(6)}`;
+}
+
+/** The candidate for a retry after a slug collision: a fresh random one, or the base plus a suffix. */
+function nextSlug(base, attempt) {
+  if (attempt === 0) return base;
+  if (/^shop-[a-z]{6}$/.test(base)) return `shop-${randomLetters(6)}`;
+  return `${base.slice(0, 50)}-${randomLetters(4)}`;
+}
+
+// Prisma reports the column of a unique violation in meta.target (an array, or the index name in
+// some versions); the fake DB and older drivers only put it in the message. Both are checked.
+function uniqueField(err) {
+  if (!err || err.code !== 'P2002') return null;
+  const target = err.meta && err.meta.target;
+  const text = `${Array.isArray(target) ? target.join(',') : (target || '')} ${err.message || ''}`;
+  if (text.includes('wa_phone_number_id')) return 'wa_phone_number_id';
+  if (text.includes('slug')) return 'slug';
+  return 'other';
+}
+
+function cleanCreateBody(body) {
+  const data = pickAllowed(body || {}, CREATE_ALLOWED_FIELDS);
+  // An empty form field is "not given", never ''. An empty wa_phone_number_id in particular
+  // used to be stored as '', and the second shop created without a number then collided with
+  // the first on the unique index.
+  for (const [k, v] of Object.entries(data)) {
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t) data[k] = t; else delete data[k];
     }
-    const { wa_access_token: _tok, ...biz } = await prisma.business.create({ data: req.body });
-    void _tok;
-    res.status(201).json({ business: biz });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
   }
+  // Stated, not left to the column default, so "no number yet" is NULL everywhere it is read.
+  if (!data.wa_phone_number_id) data.wa_phone_number_id = null;
+  if ('owner_phone' in data) data.owner_phone = normalizePhone(data.owner_phone) || null;
+  if ('is_internal' in data) data.is_internal = data.is_internal === true;
+  for (const k of ['ai_config', 'policies']) {
+    if (k in data && !isPlainObject(data[k])) delete data[k];
+  }
+  if ('opening_hours' in data && !Array.isArray(data.opening_hours)) delete data.opening_hours;
+  return data;
+}
+
+// POST /api/businesses — platform_admin only. A name (and normally a type) is enough: the slug
+// is generated here, and the WhatsApp number comes later, when the shop connects.
+router.post('/', requireRole('platform_admin'), async (req, res) => {
+  if (req.body && 'wa_access_token' in req.body) {
+    return res.status(400).json({ error: 'رمز واتساب يُضبط من صفحة الحساب، لا عند الإنشاء' });
+  }
+  const data = cleanCreateBody(req.body);
+  if (!data.name) return res.status(400).json({ error: CREATE_ERRORS.name });
+  if (!data.business_type) data.business_type = 'generic';
+  if (!BUSINESS_TYPES.includes(data.business_type)) return res.status(400).json({ error: CREATE_ERRORS.type });
+
+  let base;
+  if (data.slug) {
+    const given = data.slug.toLowerCase();
+    if (!SLUG_RE.test(given)) return res.status(400).json({ error: CREATE_ERRORS.slug });
+    base = given;
+  } else {
+    base = slugFromName(data.name);
+  }
+
+  for (let attempt = 0; attempt < SLUG_ATTEMPTS; attempt += 1) {
+    try {
+      const { wa_access_token: _tok, ...biz } = await prisma.business.create({
+        data: { ...data, slug: nextSlug(base, attempt) },
+      });
+      void _tok;
+      // The first line of the shop's «السجل»: who opened the account, and as what.
+      await accountEvents.record({
+        businessId: biz.id, actorUserId: req.user.id, actorKind: 'shift', type: 'business_created',
+        data: { business_type: biz.business_type, source: biz.source || 'operator' },
+      });
+      return res.status(201).json({ business: biz });
+    } catch (err) {
+      const field = uniqueField(err);
+      if (field === 'slug') continue; // someone has it: try the next candidate
+      if (field === 'wa_phone_number_id') return res.status(409).json({ error: CREATE_ERRORS.number_taken });
+      // Never err.message: it is Prisma's English, with column names and internals in it.
+      console.error(`[businesses] create failed: ${err.code || ''} ${err.message}`);
+      return res.status(400).json({ error: CREATE_ERRORS.failed });
+    }
+  }
+  console.error(`[businesses] create failed: no free slug after ${SLUG_ATTEMPTS} attempts from "${base}"`);
+  return res.status(409).json({ error: CREATE_ERRORS.failed });
 });
+
+const SETTINGS_ROLES = ['business_owner', 'platform_admin'];
 
 // PATCH /api/businesses/:id — allowlisted fields per role
 router.patch('/:id', async (req, res) => {
@@ -125,6 +299,44 @@ router.patch('/:id', async (req, res) => {
     }
     if ('wa_access_token' in req.body) {
       return res.status(400).json({ error: 'Use PATCH /api/businesses/:id/token to update the WhatsApp token' });
+    }
+    // What the bot says and does, and the shop's policies, are the owner's decision. A manager
+    // or staff member could otherwise switch the bot off, change its greeting or the alert
+    // numbers that tell the owner something went wrong.
+    if (('ai_config' in req.body || 'policies' in req.body) && !SETTINGS_ROLES.includes(req.user.role)) {
+      return res.status(403).json({ error: 'إعدادات البوت والسياسات لصاحب الحساب فقط' });
+    }
+
+    if (isPauseToggle(req)) {
+      const enabled = req.body.ai_config.enabled;
+      // The string "false" is truthy, and messageProcessor pauses only on a real false.
+      if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'حدّد هل البوت يعمل أم موقوف' });
+      const before = await prisma.business.findUnique({ where: { id: req.params.id }, select: { ai_config: true } });
+      if (!before) return res.status(404).json({ error: 'Business not found' });
+      const wasEnabled = before.ai_config?.enabled !== false;
+      // SHIFT's pause (late payment, a bot quoting wrong prices) is SHIFT's to lift. Without this
+      // the owner's switch turned it back on with one tap, and the late policy meant nothing.
+      if (enabled && !wasEnabled && await pausedByShift(req.params.id, before.ai_config)) {
+        return res.status(403).json({ error: SHIFT_PAUSED_ERROR, paused_by: 'shift' });
+      }
+      if (wasEnabled !== enabled) {
+        // Only these keys, patched in Postgres, so the shop's other settings are untouched. A
+        // repeated pause writes nothing, so it cannot relabel SHIFT's pause as the owner's.
+        const { ok } = enabled
+          ? await jsonb.patchJson('businesses', req.params.id, 'ai_config', { enabled }, { remove: ['paused_by'] })
+          : await jsonb.patchJson('businesses', req.params.id, 'ai_config', { enabled, paused_by: 'owner' });
+        if (!ok) return res.status(404).json({ error: 'Business not found' });
+      }
+      // A repeated tap changes nothing and writes nothing to the log. Who pressed it is the owner:
+      // the shop's «السجل» and SHIFT's board read the same events SHIFT's own pause writes.
+      if (wasEnabled !== enabled) {
+        await accountEvents.record({
+          businessId: req.params.id, actorUserId: req.user.id, actorKind: 'owner',
+          type: enabled ? 'bot_resumed' : 'bot_paused', data: { via: 'owner_switch' },
+        });
+      }
+      const biz = await prisma.business.findUnique({ where: { id: req.params.id }, select: BUSINESS_PUBLIC_SELECT });
+      return res.json({ business: biz, enabled, changed: wasEnabled !== enabled });
     }
 
     const allowedKeys = isAdmin ? ADMIN_ALLOWED_FIELDS : OWNER_ALLOWED_FIELDS;
@@ -170,6 +382,7 @@ router.patch('/:id', async (req, res) => {
         select: BUSINESS_PUBLIC_SELECT,
       });
       if (!only) return res.status(404).json({ error: 'Business not found' });
+      await recordSettingsChanged(req, req.params.id, update, aiConfigPatch);
       return res.json({ business: only });
     }
 
@@ -178,6 +391,7 @@ router.patch('/:id', async (req, res) => {
       data: update,
       select: BUSINESS_PUBLIC_SELECT,
     });
+    await recordSettingsChanged(req, req.params.id, update, aiConfigPatch);
     res.json({ business: biz });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Business not found' });
@@ -185,13 +399,11 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// PATCH /api/businesses/:id/token — encrypt and store WhatsApp token
-router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), async (req, res) => {
+// PATCH /api/businesses/:id/token — encrypt and store WhatsApp token. platform_admin only: the
+// token comes from Embedded Signup or from SHIFT's own setup, never from a customer pasting one
+// into a box, and a wrong token pasted by an owner silently stopped their bot.
+router.patch('/:id/token', requireRole('platform_admin'), async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'platform_admin';
-    if (!isAdmin && req.user.business_id !== req.params.id) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
     const { wa_access_token } = req.body;
     if (!wa_access_token || wa_access_token.trim().length < 10) {
       return res.status(400).json({ error: 'Valid wa_access_token is required' });
@@ -207,6 +419,12 @@ router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), asyn
       where: { id: req.params.id },
       data: { wa_access_token: encryptedToken },
     });
+    // That a token was set by hand, and by whom; never the token. Only platform_admin reaches
+    // this route, so the actor is always SHIFT.
+    await accountEvents.record({
+      businessId: req.params.id, actorUserId: req.user.id,
+      actorKind: 'shift', type: 'token_set', data: { source: 'manual' },
+    });
     res.json({ success: true, message: 'Token encrypted and saved' });
   } catch (err) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Business not found' });
@@ -215,3 +433,7 @@ router.patch('/:id/token', requireRole('platform_admin', 'business_owner'), asyn
 });
 
 module.exports = router;
+// «زبون جديد» (routes/adminAccounts.js) names shops the same way: one slug rule, not two.
+module.exports.slugFromName = slugFromName;
+module.exports.nextSlug = nextSlug;
+module.exports.uniqueField = uniqueField;

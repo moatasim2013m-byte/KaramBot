@@ -29,10 +29,18 @@ export default function ActivatePage() {
   useEffect(() => {
     if (!token) { setError('الرابط غير مكتمل. اطلب رابطًا جديدًا من شِفت.'); setChecking(false); return; }
     api.post('/auth/activate/lookup', { token })
-      .then((res) => setInvite(res.data))
+      .then((res) => {
+        // A shop owner's link belongs to the join wizard (password, then WhatsApp, then the bot);
+        // this page stays for staff and managers. Older owner links pointing here still work.
+        if (res.data?.role === 'business_owner') {
+          navigate(`/join#${token}`, { replace: true });
+          return;
+        }
+        setInvite({ ...res.data, business_name: res.data?.shop_name || res.data?.business_name });
+      })
       .catch(() => setError('الرابط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من شِفت.'))
       .finally(() => setChecking(false));
-  }, [token]);
+  }, [token, navigate]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -46,7 +54,8 @@ export default function ActivatePage() {
       // the browser's history for the next person at that screen.
       window.history.replaceState(null, '', '/activate');
       setSession?.(res.data.token, res.data.user);
-      navigate('/overview', { replace: true });
+      // Staff work in the conversations; owners and managers start on the overview.
+      navigate(res.data.user?.role === 'staff' ? '/inbox' : '/overview', { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'تعذّر تفعيل الحساب');
       setBusy(false);
@@ -57,7 +66,7 @@ export default function ActivatePage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4" dir="rtl">
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
-          <div className="text-xl font-bold text-gray-900">شِفت</div>
+          <div className="text-xl font-bold text-gray-900">كرم بوت — من شِفت</div>
           <p className="text-xs text-gray-500 mt-1">فعّل حسابك واختر كلمة المرور</p>
         </div>
 
@@ -75,9 +84,27 @@ export default function ActivatePage() {
             </div>
           ) : (
             <form onSubmit={submit} className="space-y-3">
+              {/* The shop's name first: it is what the owner recognises. The email stays, smaller,
+                  because it is still what they sign in with. */}
               <div className="pb-3 border-b border-gray-100">
-                <p className="text-sm font-medium text-gray-900">{invite.name}</p>
-                <p className="text-xs text-gray-500" dir="ltr">{invite.email}</p>
+                {invite.business_name && (
+                  <p className="text-base font-semibold text-gray-900">{invite.business_name}</p>
+                )}
+                <p className={invite.business_name ? 'text-sm text-gray-700 mt-0.5' : 'text-sm font-medium text-gray-900'}>
+                  أهلًا {invite.name}
+                </p>
+                {/* An owner made with a mobile signs in with it (Migration 2); the server sends it
+                    masked, so a leaked link does not hand out the number. */}
+                {invite.phone_masked && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    الدخول برقم الموبايل: <span dir="ltr">{invite.phone_masked}</span>
+                  </p>
+                )}
+                {invite.email && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    الدخول بالبريد: <span dir="ltr">{invite.email}</span>
+                  </p>
+                )}
               </div>
 
               <label className="block">
@@ -109,7 +136,7 @@ export default function ActivatePage() {
 
               <p className="text-[11px] text-gray-400 text-center pt-1">
                 <CheckCircle2 size={11} className="inline ml-1" />
-                لن يطّلع أحد في شِفت على كلمة مرورك
+                أنت وحدك تختار كلمة مرورك
               </p>
             </form>
           )}

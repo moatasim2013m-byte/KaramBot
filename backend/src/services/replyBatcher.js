@@ -45,6 +45,7 @@ const { vettedSectors } = require('../workflows/shift/assets');
 const { isWithinServiceWindow, REPLY_WINDOW_MARGIN_MS } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
 const sseEmitter = require('../utils/sseEmitter');
+const { markOutbound } = require('./lastOutbound');
 const { SITE_HOST } = require('../config/site');
 
 const LEASE_TTL_MS = 60000;
@@ -144,6 +145,9 @@ function quietWindowMs(text, env = process.env) {
 function isShiftReplyAllowed(business, customerWaId, env = process.env) {
   const aiConfig = (business && business.ai_config) || {};
   if (aiConfig.reply_mode === 'external') return false;
+  // «أوقف البوت مؤقتًا» (P0): a paused bot says nothing, here or through the sweeper's notes and
+  // booking messages, which ask this same gate. Only an explicit false: unset has always meant on.
+  if (aiConfig.enabled === false) return false;
   if (env.SHIFT_BOT_LIVE !== '0') return true;
   const fromConfig = Array.isArray(aiConfig.test_numbers) ? aiConfig.test_numbers : [];
   const fromEnv = String(env.SHIFT_TEST_NUMBERS || '').split(',');
@@ -1148,6 +1152,7 @@ async function dispatchIntent({
     }
     if (report.some((p) => p.status === 'sent' || p.status === 'ambiguous')) {
       await prisma.conversation.update({ where: { id }, data: { last_message_at: now } });
+      await markOutbound(id, now);
     }
   } catch (err) {
     // The send is recorded on its intent; the next run's recoverCovered settles the rows without resending.

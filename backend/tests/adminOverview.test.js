@@ -3,12 +3,17 @@
  *
  * The rule these tests defend: an account is only shown as healthy when we have evidence
  * that it is. Missing telemetry reads as `unknown`, never as green, and the attention queue
- * carries only rules we can actually evaluate.
+ * carries only rules we can actually evaluate — and only true ones: the stale rule this file
+ * used to defend counted every answered thread as waiting.
+ *
+ * Conversations are given as rows and the Prisma mock answers groupBy and findMany from them
+ * with the route's own `where`, so the database half of each rule (the 15-minute and 24-hour
+ * bounds, status, ai_enabled) is exercised along with the half done in JavaScript.
  */
 require('./setup');
 
 jest.mock('../src/config/prisma', () => ({
-  business: { findMany: jest.fn() },
+  business: { findMany: jest.fn(), count: jest.fn() },
   whatsappOnboarding: { findMany: jest.fn() },
   conversation: { groupBy: jest.fn(), findMany: jest.fn() },
   message: { groupBy: jest.fn() },
@@ -21,32 +26,89 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const prisma = require('../src/config/prisma');
 const app = require('../src/app');
+const { PAYMENT_NOTICES } = require('../src/config/metaNotices');
 
 const ADMIN = { id: 'u1', name: 'Admin', email: 'a@b.c', role: 'platform_admin', business_id: null, active: true };
 const token = () => jwt.sign({ id: 'u1' }, process.env.JWT_SECRET);
 
 const biz = (over = {}) => ({
-  id: 'b1', name: 'مطعم الشام', status: 'active', business_type: 'restaurant',
-  wa_phone_number_id: 'PHONE', wa_business_account_id: 'WABA',
+  id: 'b1', name: 'مطعم الشام', status: 'active', business_type: 'restaurant', is_internal: false,
+  wa_phone_number_id: 'PHONE', wa_business_account_id: 'WABA', connected_at: null,
   wa_access_token: 'enc', ai_config: {}, created_at: new Date('2026-09-01'), updated_at: new Date('2026-09-20'),
   ...over,
 });
 
 const minsAgo = (m) => new Date(Date.now() - m * 60000);
 
-function mockDb({ businesses, onboardings = [], conv = [], open = [], outbound = [], stale = [], subs = [], knowledge = [] }) {
-  prisma.business.findMany.mockResolvedValue(businesses);
-  prisma.whatsappOnboarding.findMany.mockResolvedValue(onboardings);
-  prisma.message.groupBy.mockResolvedValue(outbound);
-  prisma.conversation.findMany.mockResolvedValue(stale);
-  prisma.subscription.findMany.mockResolvedValue(subs);
-  prisma.businessKnowledge.groupBy.mockResolvedValue(knowledge);
-  prisma.conversation.groupBy
-    .mockResolvedValueOnce(conv)   // totals aggregate
-    .mockResolvedValueOnce(open);  // open conversations
+const conversation = (over = {}) => ({
+  business_id: 'b1', status: 'open', ai_enabled: true, unread_count: 0,
+  last_message_at: minsAgo(1), last_inbound_at: null, last_outbound_at: null,
+  needs_attention: false, attention_at: null,
+  ...over,
+});
+
+// ── A small evaluator for the where clauses the route sends ─────────────────
+function matchField(value, cond) {
+  if (cond === null || typeof cond !== 'object' || cond instanceof Date) {
+    return cond instanceof Date ? value && new Date(value).getTime() === cond.getTime() : value === cond;
+  }
+  if ('in' in cond && !cond.in.includes(value)) return false;
+  if ('not' in cond && value === cond.not) return false;
+  if ('lt' in cond && !(value && new Date(value) < cond.lt)) return false;
+  if ('gt' in cond && !(value && new Date(value) > cond.gt)) return false;
+  return true;
+}
+const matches = (row, where = {}) => Object.entries(where).every(([k, cond]) => matchField(row[k], cond));
+
+function groupConversations(rows, { where, _max, _count, _sum }) {
+  const groups = new Map();
+  for (const r of rows.filter((c) => matches(c, where))) {
+    if (!groups.has(r.business_id)) groups.set(r.business_id, []);
+    groups.get(r.business_id).push(r);
+  }
+  return [...groups].map(([business_id, list]) => {
+    const out = { business_id };
+    if (_max) {
+      out._max = {};
+      for (const f of Object.keys(_max)) {
+        const vals = list.map((r) => r[f]).filter(Boolean);
+        out._max[f] = vals.length ? new Date(Math.max(...vals.map((v) => new Date(v).getTime()))) : null;
+      }
+    }
+    if (_count) out._count = { _all: list.length };
+    if (_sum) out._sum = { unread_count: list.reduce((s, r) => s + (r.unread_count || 0), 0) };
+    return out;
+  });
 }
 
-const get = () => request(app).get('/api/admin/overview').set('Authorization', `Bearer ${token()}`);
+// aiReplies: the newest AI-generated outbound per business. Unless a test says otherwise, every
+// conversation's last_outbound_at is taken to be the bot's own reply.
+function mockDb({ businesses, onboardings = [], conversations = [], subs = [], knowledge = [], hidden = 0, aiReplies = null }) {
+  const ai = aiReplies || conversations.filter((c) => c.last_outbound_at).map((c) => ({ business_id: c.business_id, created_at: c.last_outbound_at }));
+  prisma.message.groupBy.mockImplementation(({ where }) => {
+    const ids = where?.business_id?.in;
+    const byBiz = new Map();
+    for (const m of ai) {
+      if (ids && !ids.includes(m.business_id)) continue;
+      const t = new Date(m.created_at);
+      if (!byBiz.has(m.business_id) || byBiz.get(m.business_id) < t) byBiz.set(m.business_id, t);
+    }
+    return Promise.resolve([...byBiz].map(([business_id, created_at]) => ({ business_id, _max: { created_at } })));
+  });
+  prisma.business.findMany.mockImplementation(({ where = {} } = {}) =>
+    Promise.resolve(businesses.filter((b) => matches(b, where))));
+  prisma.business.count.mockResolvedValue(hidden);
+  prisma.whatsappOnboarding.findMany.mockResolvedValue(onboardings);
+  prisma.subscription.findMany.mockResolvedValue(subs);
+  prisma.businessKnowledge.groupBy.mockResolvedValue(knowledge);
+  prisma.conversation.groupBy.mockImplementation((args) => Promise.resolve(groupConversations(conversations, args)));
+  prisma.conversation.findMany.mockImplementation(({ where, take }) =>
+    Promise.resolve(conversations.filter((c) => matches(c, where)).slice(0, take)));
+}
+
+const get = (q = '') => request(app).get(`/api/admin/overview${q}`).set('Authorization', `Bearer ${token()}`);
+const ready = (over = {}) => [{ business_id: 'b1', step: 'done', payment_method_ok: true, last_error: null, updated_at: new Date(), ...over }];
+const categories = (res) => res.body.attention.map((a) => a.category);
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -62,10 +124,8 @@ test('a business user cannot reach the platform overview', async () => {
 test('a healthy account is active, connected and answering', async () => {
   mockDb({
     businesses: [biz()],
-    onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, last_error: null, last_error_at: null, updated_at: new Date() }],
-    conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(5), last_message_at: minsAgo(4) }, _count: { _all: 9 }, _sum: { unread_count: 0 } }],
-    outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(4) } }],
-    open: [{ business_id: 'b1', _count: { _all: 2 } }],
+    onboardings: ready(),
+    conversations: [conversation({ last_inbound_at: minsAgo(5), last_outbound_at: minsAgo(4) })],
     // A healthy account also has something sold against it; without a contract the
     // fleet view rightly points that out, which is a different test.
     subs: [{ business_id: 'b1', solution: 'karam_bot', status: 'active', amount_jod: 120, billing_cycle: 'monthly',
@@ -78,29 +138,180 @@ test('a healthy account is active, connected and answering', async () => {
   expect(a.lifecycle).toBe('active');
   expect(a.connection.state).toBe('ok');
   expect(a.agent.state).toBe('ok');
+  expect(a.bot_enabled).toBe(true);
   expect(res.body.totals.active).toBe(1);
   expect(res.body.attention).toEqual([]);   // nothing to do is the normal case
 });
 
+test('the agent state is read from the bot\'s own replies, scoped to the accounts shown', async () => {
+  const replied = minsAgo(4);
+  mockDb({ businesses: [biz()], onboardings: ready(), conversations: [conversation({ last_inbound_at: minsAgo(5), last_outbound_at: replied })] });
+  const res = await get();
+  expect(res.body.accounts[0].last_outbound_at).toBe(replied.toISOString());
+  expect(res.body.accounts[0].last_ai_reply_at).toBe(replied.toISOString());
+  // The newest-reply query (the cost guard's month counts are grouped reads of their own).
+  const [call] = prisma.message.groupBy.mock.calls.find(([args]) => args._max);
+  expect(call.where).toEqual({ business_id: { in: ['b1'] }, direction: 'outbound', is_ai_generated: true });
+});
+
+test('a staff reply or a stored alert after the customer does not make a dead bot read «يرد» (review 2026-10-08)', async () => {
+  // The customer wrote 30 min ago; the bot's last reply was 2 h ago; the owner (or the handoff
+  // alert stored on the staff thread) stamped last_outbound_at after the customer.
+  mockDb({
+    businesses: [biz()], onboardings: ready(),
+    conversations: [conversation({ last_inbound_at: minsAgo(30), last_outbound_at: minsAgo(29) })],
+    aiReplies: [{ business_id: 'b1', created_at: minsAgo(120) }],
+  });
+  const res = await get();
+  expect(res.body.accounts[0].agent.state).toBe('down');
+});
+
 test('an account with no messages yet reads as unknown, never healthy', async () => {
-  mockDb({ businesses: [biz()], onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }] });
+  mockDb({ businesses: [biz()], onboardings: ready() });
   const res = await get();
   expect(res.body.accounts[0].agent.state).toBe('unknown');
 });
 
-test('an unanswered customer is critical, with how long they have waited', async () => {
-  mockDb({
-    businesses: [biz()],
-    onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
-    // inbound 40 minutes ago; the last outbound predates it, so nobody answered
-    conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(40), last_message_at: minsAgo(40) }, _count: { _all: 1 }, _sum: { unread_count: 1 } }],
-    outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(90) } }],
+describe('the waiting rule: a customer wrote after the last reply, 15 minutes to 24 hours ago', () => {
+  const run = async (rows) => {
+    mockDb({ businesses: [biz()], onboardings: ready(), conversations: rows });
+    return get();
+  };
+
+  test('an answered thread is not waiting, however old its last inbound', async () => {
+    // The bug this replaces: inbound 3 hours ago, answered a minute later, counted as waiting.
+    const res = await run([conversation({ last_inbound_at: minsAgo(180), last_outbound_at: minsAgo(179) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(0);
+    expect(categories(res)).not.toContain('unanswered');
   });
 
-  const res = await get();
-  expect(res.body.accounts[0].agent.state).toBe('down');
-  const item = res.body.attention.find((x) => x.category === 'unanswered');
-  expect(item.severity).toBe('critical');
+  test('a thread never answered at all is waiting (coalesce to epoch)', async () => {
+    const res = await run([conversation({ last_inbound_at: minsAgo(25), last_outbound_at: null })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(1);
+    const item = res.body.attention.find((a) => a.category === 'unanswered');
+    expect(item.severity).toBe('critical');
+    expect(item.message).toBe('زبون ينتظر ردًا منذ 25 د');
+  });
+
+  test('an inbound after the last reply is waiting', async () => {
+    const res = await run([conversation({ last_inbound_at: minsAgo(40), last_outbound_at: minsAgo(90) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(1);
+    expect(res.body.accounts[0].agent.state).toBe('down');
+  });
+
+  test('a resolved (closed) thread is not waiting', async () => {
+    const res = await run([conversation({ status: 'closed', last_inbound_at: minsAgo(40) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(0);
+  });
+
+  test('a pending thread counts like an open one', async () => {
+    const res = await run([conversation({ status: 'pending', last_inbound_at: minsAgo(40) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(1);
+  });
+
+  test('a thread the team took over (bot off for it) is not the bot leaving a customer waiting', async () => {
+    const res = await run([conversation({ ai_enabled: false, last_inbound_at: minsAgo(40) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(0);
+  });
+
+  test('the 15-minute boundary: 14 minutes is not yet waiting, 16 is', async () => {
+    let res = await run([conversation({ last_inbound_at: minsAgo(14) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(0);
+    res = await run([conversation({ last_inbound_at: minsAgo(16) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(1);
+  });
+
+  test('past 24 hours it leaves the queue', async () => {
+    const res = await run([conversation({ last_inbound_at: minsAgo(25 * 60) })]);
+    expect(res.body.accounts[0].unanswered_conversations).toBe(0);
+  });
+
+  test('a neglected thread is not hidden behind a busy one, and several are counted', async () => {
+    const res = await run([
+      conversation({ last_inbound_at: minsAgo(2), last_outbound_at: minsAgo(1) }),
+      conversation({ last_inbound_at: minsAgo(400), last_outbound_at: minsAgo(500) }),
+      conversation({ last_inbound_at: minsAgo(90) }),
+    ]);
+    expect(res.body.accounts[0].agent.state).toBe('ok');           // the account overall is answering
+    expect(res.body.accounts[0].unanswered_conversations).toBe(2); // but two customers are waiting
+    const item = res.body.attention.find((a) => a.category === 'unanswered');
+    expect(item.message).toBe('2 زبائن ينتظرون ردًا — أقدمهم منذ 7 س');
+  });
+
+  test('the query is bounded and asks only for the columns the rule reads', async () => {
+    await run([]);
+    const call = prisma.conversation.findMany.mock.calls.find(([a]) => a.where.ai_enabled === true)[0];
+    expect(call.take).toBeGreaterThan(0);
+    expect(call.where.last_inbound_at.lt).toBeInstanceOf(Date);
+    expect(call.where.last_inbound_at.gt).toBeInstanceOf(Date);
+    expect(call.where.status).toEqual({ in: ['open', 'pending'] });
+    expect(Object.keys(call.select).sort()).toEqual(['ai_enabled', 'business_id', 'last_inbound_at', 'last_outbound_at', 'status']);
+  });
+});
+
+describe('handoff_waiting: handed to the team more than an hour ago and not answered since', () => {
+  const run = async (rows) => {
+    mockDb({ businesses: [biz()], onboardings: ready(), conversations: rows });
+    return get();
+  };
+
+  test('flagged 90 minutes ago with nothing sent since is a warning', async () => {
+    const res = await run([
+      conversation({ needs_attention: true, attention_at: minsAgo(90), last_outbound_at: minsAgo(95) }),
+      conversation({ needs_attention: true, attention_at: minsAgo(120) }),
+    ]);
+    const item = res.body.attention.find((a) => a.category === 'handoff_waiting');
+    expect(item.severity).toBe('warning');
+    expect(item.message).toBe('2 محادثات محوّلة لفريق المحل بلا رد منذ أكثر من ساعة');
+    expect(res.body.accounts[0].handoff_waiting).toBe(2);
+  });
+
+  test('a reply after the handoff, or a handoff under an hour old, is not listed', async () => {
+    const res = await run([
+      conversation({ needs_attention: true, attention_at: minsAgo(90), last_outbound_at: minsAgo(30) }),
+      conversation({ needs_attention: true, attention_at: minsAgo(30) }),
+      conversation({ needs_attention: true, attention_at: minsAgo(300), status: 'closed' }),
+    ]);
+    expect(categories(res)).not.toContain('handoff_waiting');
+  });
+});
+
+describe('internal accounts', () => {
+  const shift = biz({ id: 'shift1', name: 'شِفت', business_type: 'shift', is_internal: true });
+  const sim = biz({ id: 'sim1', name: 'noor-clinic-sim', business_type: 'clinic', is_internal: true });
+
+  test("SHIFT's own row and the -sim shops are hidden from the accounts, totals and queue, and counted", async () => {
+    mockDb({
+      businesses: [biz(), shift, sim],
+      onboardings: ready(),
+      conversations: [conversation({ business_id: 'shift1', last_inbound_at: minsAgo(40) })],
+      hidden: 2,
+    });
+    const res = await get();
+    expect(res.body.accounts.map((a) => a.id)).toEqual(['b1']);
+    expect(res.body.totals.active + res.body.totals.onboarding).toBe(1);
+    expect(res.body.attention.some((a) => a.business_id === 'shift1')).toBe(false);
+    expect(res.body.hidden_internal_count).toBe(2);
+    expect(prisma.business.findMany.mock.calls[0][0].where).toEqual({ is_internal: false });
+    // Their conversations are not even read.
+    const waitingCall = prisma.conversation.findMany.mock.calls[0][0];
+    expect(waitingCall.where.business_id).toEqual({ in: ['b1'] });
+  });
+
+  test('?include_internal=1 shows them, tagged', async () => {
+    mockDb({ businesses: [biz(), shift], onboardings: ready() });
+    const res = await get('?include_internal=1');
+    expect(res.body.accounts.map((a) => a.id)).toEqual(['b1', 'shift1']);
+    expect(res.body.accounts[1].is_internal).toBe(true);
+    expect(res.body.include_internal).toBe(true);
+    expect(prisma.business.count).not.toHaveBeenCalled();
+  });
+
+  test('an internal row is never asked for a contract, whatever its type', async () => {
+    mockDb({ businesses: [biz({ is_internal: true, business_type: 'generic' })], onboardings: ready() });
+    const res = await get('?include_internal=1');
+    expect(categories(res)).not.toContain('no_contract');
+  });
 });
 
 test('an unfinished signup is onboarding, not active, and says which step', async () => {
@@ -112,17 +323,50 @@ test('an unfinished signup is onboarding, not active, and says which step', asyn
   expect(res.body.accounts[0].lifecycle).toBe('onboarding');
   expect(res.body.accounts[0].connection.state).toBe('degraded');
   expect(res.body.totals.onboarding).toBe(1);
-  expect(res.body.attention.some((a) => a.category === 'onboarding_incomplete')).toBe(true);
+  expect(categories(res)).toContain('onboarding_incomplete');
 });
 
-test('a finished signup without a payment method warns — sending is blocked', async () => {
-  mockDb({
-    businesses: [biz()],
-    onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: false, updated_at: new Date() }],
+describe('the payment method at Meta', () => {
+  test('connected more than 48 hours without a confirmed card is a warning, in the shared wording', async () => {
+    mockDb({ businesses: [biz({ connected_at: minsAgo(3 * 24 * 60) })], onboardings: ready({ payment_method_ok: false }) });
+    const res = await get();
+    expect(res.body.accounts[0].connection.state).toBe('degraded');
+    expect(res.body.accounts[0].connection.label).toBe(PAYMENT_NOTICES.missing.staff.short);
+    const item = res.body.attention.find((a) => a.category === 'payment_unconfirmed');
+    expect(item.severity).toBe('warning');
+    expect(item.message).toBe(`${PAYMENT_NOTICES.missing.staff.short} — منذ 3 يوم`);
+    // The dated rule it replaces is gone.
+    expect(JSON.stringify(res.body)).not.toMatch(/تشرين|أيلول/);
   });
-  const res = await get();
-  expect(res.body.accounts[0].connection.state).toBe('degraded');
-  expect(res.body.attention.some((a) => a.category === 'payment_method')).toBe(true);
+
+  test('says when the owner claims to have added it', async () => {
+    mockDb({
+      businesses: [biz({ connected_at: minsAgo(3 * 24 * 60) })],
+      onboardings: ready({ payment_method_ok: false, payment_method_claimed_at: minsAgo(60) }),
+    });
+    const res = await get();
+    expect(res.body.attention.find((a) => a.category === 'payment_unconfirmed').message)
+      .toContain(PAYMENT_NOTICES.claimed.staff.short);
+  });
+
+  test('inside the first 48 hours it waits', async () => {
+    mockDb({ businesses: [biz({ connected_at: minsAgo(60) })], onboardings: ready({ payment_method_ok: false }) });
+    expect(categories(await get())).not.toContain('payment_unconfirmed');
+  });
+
+  test('a shop connected before connected_at existed falls back to its onboarding time', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready({ payment_method_ok: false, registered_at: minsAgo(5 * 24 * 60), updated_at: minsAgo(5 * 24 * 60) }) });
+    expect(categories(await get())).toContain('payment_unconfirmed');
+  });
+
+  test('a Meta 131042 refusal is critical and overrides the confirmation', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready({ payment_method_ok: true, payment_blocked_at: minsAgo(10) }) });
+    const res = await get();
+    const item = res.body.attention.find((a) => a.category === 'payment_blocked');
+    expect(item).toMatchObject({ severity: 'critical', message: PAYMENT_NOTICES.blocked.staff.short });
+    expect(res.body.accounts[0].connection.state).toBe('down');
+    expect(categories(res)).not.toContain('connection'); // it has a token; this is not that
+  });
 });
 
 test('an account with no access token cannot receive, and is not called active', async () => {
@@ -130,12 +374,13 @@ test('an account with no access token cannot receive, and is not called active',
   const res = await get();
   expect(res.body.accounts[0].connection.state).toBe('down');
   expect(res.body.accounts[0].lifecycle).toBe('onboarding');
+  expect(categories(res)).toContain('connection');
 });
 
 test('critical items sort above warnings', async () => {
   mockDb({
-    businesses: [biz(), biz({ id: 'b2', name: 'عيادة النور', wa_access_token: null })],
-    onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: false, updated_at: new Date() }],
+    businesses: [biz({ connected_at: minsAgo(4000) }), biz({ id: 'b2', name: 'عيادة النور', wa_access_token: null })],
+    onboardings: ready({ payment_method_ok: false }),
   });
   const res = await get();
   expect(res.body.attention[0].severity).toBe('critical');
@@ -144,9 +389,6 @@ test('critical items sort above warnings', async () => {
 test('signals we do not collect are declared, not silently absent', async () => {
   mockDb({ businesses: [biz()] });
   const res = await get();
-  // Quality and throughput are read per account with its own business token now. What is still
-  // genuinely unknowable is who changed a configuration — and Meta's payment method, which is
-  // why that one is a recorded human confirmation rather than a field.
   expect(res.body.unavailable).toContain('config_change_actor');
   expect(res.body.unavailable).not.toContain('meta_quality_rating');
   // throughput is a sending rate, not the messaging tier — one does not stand in for the other,
@@ -158,11 +400,10 @@ test("Meta's own view of an account travels with it, with the time it was read",
   const checked = new Date('2026-09-27T09:00:00Z');
   mockDb({
     businesses: [biz()],
-    onboardings: [{
-      business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date(),
+    onboardings: ready({
       meta_quality_rating: 'GREEN', meta_throughput: 'STANDARD', meta_number_status: 'CONNECTED',
       meta_name_status: 'DECLINED', meta_review_status: 'APPROVED', meta_checked_at: checked,
-    }],
+    }),
   });
   const res = await get();
   expect(res.body.accounts[0].meta).toMatchObject({ quality_rating: 'GREEN', number_status: 'CONNECTED', name_status: 'DECLINED' });
@@ -175,60 +416,54 @@ test('a customer message is not mistaken for a reply', async () => {
   // at all must never read as answering.
   mockDb({
     businesses: [biz()],
-    onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
-    conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(30), last_message_at: minsAgo(30) }, _count: { _all: 3 }, _sum: { unread_count: 3 } }],
-    outbound: [],   // nothing ever sent
+    onboardings: ready(),
+    conversations: [conversation({ last_inbound_at: minsAgo(30), last_message_at: minsAgo(30), unread_count: 3 })],
   });
-
   const res = await get();
   expect(res.body.accounts[0].agent.state).toBe('down');
   expect(res.body.accounts[0].last_outbound_at).toBeNull();
 });
 
-describe('an account cannot look healthy when it is not', () => {
-  test('a human answering by hand is not the agent working', async () => {
-    // Manual replies write outbound rows too; only the agent's own replies may count.
+describe('a paused bot', () => {
+  test('reads as paused, not as broken, and its waiting customers are not an incident', async () => {
     mockDb({
-      businesses: [biz()],
-      onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
-      conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(30), last_message_at: minsAgo(28) }, _count: { _all: 4 }, _sum: { unread_count: 0 } }],
-      outbound: [],   // groupBy filters is_ai_generated: true, so a hand-typed reply is absent
+      businesses: [biz({ ai_config: { enabled: false } })],
+      onboardings: ready(),
+      conversations: [conversation({ last_inbound_at: minsAgo(40) })],
     });
     const res = await get();
-    expect(res.body.accounts[0].agent.state).toBe('down');
+    expect(res.body.accounts[0].agent).toMatchObject({ state: 'paused', label: 'موقوف مؤقتًا' });
+    expect(res.body.accounts[0].bot_enabled).toBe(false);
+    expect(categories(res)).not.toContain('unanswered');
   });
+});
 
-  test('a generic account with no knowledge entered is down, whatever it last sent', async () => {
-    // It answers with the greeting and stops: a working pipeline with nothing to say.
+describe('no_knowledge, softened', () => {
+  test('a connected generic shop with nothing entered is a warning, not critical', async () => {
     mockDb({
       businesses: [biz({ business_type: 'generic' })],
-      onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
-      conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(5), last_message_at: minsAgo(4) }, _count: { _all: 2 }, _sum: { unread_count: 0 } }],
-      outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(4) } }],
+      onboardings: ready(),
+      conversations: [conversation({ last_inbound_at: minsAgo(5), last_outbound_at: minsAgo(4) })],
     });
     const res = await get();
-    expect(res.body.accounts[0].agent.state).toBe('down');
-    expect(res.body.attention.some((a) => a.category === 'no_knowledge')).toBe(true);
+    expect(res.body.accounts[0].agent.state).toBe('degraded');
+    const item = res.body.attention.find((a) => a.category === 'no_knowledge');
+    expect(item).toMatchObject({ severity: 'warning', message: 'لم تُدخل معلومات المحل — البوت يرحّب فقط' });
   });
 
-  test('a neglected thread is not hidden behind a busy one', async () => {
-    mockDb({
-      businesses: [biz()],
-      onboardings: [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }],
-      conv: [{ business_id: 'b1', _max: { last_inbound_at: minsAgo(2), last_message_at: minsAgo(1) }, _count: { _all: 9 }, _sum: { unread_count: 1 } }],
-      outbound: [{ business_id: 'b1', _max: { created_at: minsAgo(1) } }],
-      stale: [{ business_id: 'b1', last_inbound_at: minsAgo(400) }, { business_id: 'b1', last_inbound_at: minsAgo(90) }],
-    });
-    const res = await get();
-    expect(res.body.accounts[0].agent.state).toBe('ok');           // the account overall is answering
-    expect(res.body.accounts[0].unanswered_conversations).toBe(2); // but two customers are waiting
-    expect(res.body.attention.some((a) => a.category === 'stale_threads')).toBe(true);
+  test('before a number is connected it is not raised at all', async () => {
+    mockDb({ businesses: [biz({ business_type: 'generic', wa_phone_number_id: null })] });
+    expect(categories(await get())).not.toContain('no_knowledge');
+  });
+
+  test('a shop with knowledge entered is not flagged', async () => {
+    mockDb({ businesses: [biz({ business_type: 'generic' })], onboardings: ready(), knowledge: [{ business_id: 'b1', _count: { _all: 3 } }] });
+    expect(categories(await get())).not.toContain('no_knowledge');
   });
 });
 
 describe('contracts on the fleet view', () => {
   const daysFromNow = (d) => new Date(Date.now() + d * 86400000);
-  const ready = () => [{ business_id: 'b1', step: 'done', payment_method_ok: true, updated_at: new Date() }];
   const contract = (over = {}) => ({
     business_id: 'b1', solution: 'karam_bot', plan_name: null, status: 'active',
     amount_jod: 120, billing_cycle: 'monthly', next_due_at: daysFromNow(20), starts_at: new Date('2026-09-01'), ...over,
@@ -238,7 +473,7 @@ describe('contracts on the fleet view', () => {
     mockDb({ businesses: [biz()], onboardings: ready(), subs: [contract()] });
     const res = await get();
     expect(res.body.accounts[0].contract).toMatchObject({ solution: 'karam_bot', amount_jod: 120, status: 'active' });
-    expect(res.body.attention.some((a) => a.category === 'no_contract')).toBe(false);
+    expect(categories(res)).not.toContain('no_contract');
   });
 
   test('an active account with nothing sold against it is pointed out', async () => {
@@ -248,10 +483,10 @@ describe('contracts on the fleet view', () => {
     expect(res.body.attention.some((a) => a.category === 'no_contract' && a.severity === 'info')).toBe(true);
   });
 
-  test("SHIFT's own row is not asked for a contract", async () => {
+  test('a shift-type row that is not marked internal is treated like any other account', async () => {
+    // is_internal, not business_type, is what exempts a row now.
     mockDb({ businesses: [biz({ business_type: 'shift' })], onboardings: ready(), subs: [] });
-    const res = await get();
-    expect(res.body.attention.some((a) => a.category === 'no_contract')).toBe(false);
+    expect(categories(await get())).toContain('no_contract');
   });
 
   test('a payment due within a week is a heads-up; past its date it is a warning; past_due is critical', async () => {
@@ -271,5 +506,103 @@ describe('contracts on the fleet view', () => {
     prisma.subscription.findMany.mockResolvedValue([]);
     const res = await get();
     expect(res.body.accounts[0].contract).toBeNull();
+  });
+});
+
+describe('accountHealth.isWaiting, the rule itself', () => {
+  const { isWaiting, isHandoffWaiting } = require('../src/services/accountHealth');
+  const NOW = new Date('2026-10-08T12:00:00Z').getTime();
+  const at = (m) => new Date(NOW - m * 60000);
+
+  test('exactly 15 minutes is not yet waiting; a second more is', () => {
+    expect(isWaiting(conversation({ last_inbound_at: at(15) }), NOW)).toBe(false);
+    expect(isWaiting(conversation({ last_inbound_at: new Date(NOW - 15 * 60000 - 1000) }), NOW)).toBe(true);
+  });
+
+  test('an outbound at the same instant as the inbound counts as answered', () => {
+    expect(isWaiting(conversation({ last_inbound_at: at(30), last_outbound_at: at(30) }), NOW)).toBe(false);
+  });
+
+  test('a handoff answered after it was raised is done', () => {
+    expect(isHandoffWaiting(conversation({ needs_attention: true, attention_at: at(90), last_outbound_at: at(80) }), NOW)).toBe(false);
+    expect(isHandoffWaiting(conversation({ needs_attention: true, attention_at: at(90), last_outbound_at: at(100) }), NOW)).toBe(true);
+  });
+});
+
+describe('«ردود الشهر»: usage from the cost guard', () => {
+  // The two counts costGuard.fleetUsage asks for, answered per business; the _max query keeps the
+  // mock's own answer.
+  function mockUsage({ replies = {}, media = {} }) {
+    const base = prisma.message.groupBy.getMockImplementation();
+    prisma.message.groupBy.mockImplementation((args) => {
+      if (!args._count) return base(args);
+      const source = args.where.direction === 'outbound' ? replies : media;
+      return Promise.resolve(Object.entries(source).map(([business_id, n]) => ({ business_id, _count: { _all: n } })));
+    });
+  }
+
+  beforeEach(() => jest.spyOn(console, 'error').mockImplementation(() => {}));
+  afterEach(() => console.error.mockRestore());
+
+  test('each row carries the month\'s replies, the contract\'s cap and today\'s media', async () => {
+    mockDb({
+      businesses: [biz(), biz({ id: 'b2', name: 'صيدلية' })],
+      onboardings: ready(),
+      subs: [{ business_id: 'b1', solution: 'karam_bot', status: 'trial', amount_jod: 19.99, ai_replies_month: 500 }],
+    });
+    mockUsage({ replies: { b1: 312, b2: 4 }, media: { b1: 7 } });
+    const res = await get();
+    const row = (id) => res.body.accounts.find((a) => a.id === id);
+    expect(row('b1').usage).toEqual({ ai_replies_month: 312, cap: 500, media_today: 7 });
+    // No contract: the platform default (PlatformSetting ai_limits, 1,000 out of the box).
+    expect(row('b2').usage).toEqual({ ai_replies_month: 4, cap: 1000, media_today: 0 });
+
+    // The month counted from Amman's 1st, only the bot's own replies.
+    const call = prisma.message.groupBy.mock.calls.find(([a]) => a._count && a.where.direction === 'outbound')[0];
+    expect(call.where).toMatchObject({ is_ai_generated: true, business_id: { in: ['b1', 'b2'] } });
+    expect(call.where.created_at.gte).toBeInstanceOf(Date);
+  });
+
+  test('80% and the cap reach the attention queue; a free-month shop at the cap is told it stops', async () => {
+    mockDb({
+      businesses: [biz(), biz({ id: 'b2', name: 'صيدلية' })],
+      onboardings: ready(),
+      subs: [
+        { business_id: 'b1', solution: 'karam_bot', status: 'trial', amount_jod: 19.99, ai_replies_month: 1000 },
+        { business_id: 'b2', solution: 'karam_bot', status: 'active', amount_jod: 19.99, ai_replies_month: 1000 },
+      ],
+    });
+    mockUsage({ replies: { b1: 1000, b2: 800 } });
+    const res = await get();
+    const items = res.body.attention.filter((a) => ['cap_80', 'cap_reached'].includes(a.category));
+    expect(items.map((a) => [a.business_id, a.category])).toEqual(expect.arrayContaining([['b1', 'cap_reached'], ['b2', 'cap_80']]));
+    expect(items.find((a) => a.business_id === 'b1').message).toBe('وصل حد ردود الشهر (1,000 / 1,000) — البوت يحوّل الزبائن للفريق');
+    expect(items.find((a) => a.business_id === 'b2').message).toBe('استهلك 80% من ردود الشهر (800 / 1,000)');
+  });
+
+  test('the cap and its wording follow the Karam Bot contract, not a newer contract of another solution (P1 review)', async () => {
+    mockDb({
+      businesses: [biz()],
+      onboardings: ready(),
+      // Newest first, as the route asks for them: a website trial after the paid bot contract.
+      subs: [
+        { business_id: 'b1', solution: 'website', status: 'trial', amount_jod: 50, ai_replies_month: null },
+        { business_id: 'b1', solution: 'karam_bot', status: 'active', amount_jod: 19.99, ai_replies_month: 500 },
+      ],
+    });
+    mockUsage({ replies: { b1: 500 } });
+    const res = await get();
+    expect(res.body.accounts[0].usage).toMatchObject({ cap: 500 });
+    const item = res.body.attention.find((a) => a.business_id === 'b1' && a.category === 'cap_reached');
+    expect(item.message).toBe('وصل حد ردود الشهر (500 / 500) — اشتراك مدفوع، البوت مستمر');
+  });
+
+  test('usage that cannot be read is left out, and the overview still answers', async () => {
+    mockDb({ businesses: [biz()], onboardings: ready() });
+    const base = prisma.message.groupBy.getMockImplementation();
+    prisma.message.groupBy.mockImplementation((args) => (args._count ? Promise.reject(new Error('db down')) : base(args)));
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(res.body.accounts[0].usage).toBeNull();
   });
 });

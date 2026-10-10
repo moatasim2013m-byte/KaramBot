@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ExternalLink, MessageCircle, RefreshCw } from 'lucide-react';
 import api from '../../utils/api';
 import { StatusDot, Timestamp } from '../shared/Primitives';
+import { explainControls } from './setupControls';
+import { ClaimCardButton, ConnectInline } from './OwnerSetupActions';
 
 /**
  * «هل واتسابي موصول؟» — the customer's own answer.
@@ -10,8 +13,9 @@ import { StatusDot, Timestamp } from '../shared/Primitives';
  * told a paying customer whether the WhatsApp they pay for is connected. The state here comes
  * from the same functions SHIFT staff see in the fleet view, so both sides read one truth.
  *
- * Read-only by design. Connecting and retrying stay with SHIFT; what the customer can do
- * themselves — add a payment method — is the one action offered.
+ * What the customer can do themselves is offered here: connect the number (once owners may,
+ * es_owner_enabled), add a payment method and say so («أضفت البطاقة»), or tell the bot about the
+ * shop. Retrying a stopped connect stays in the same «اربط واتساب» screen.
  */
 
 const TONE = {
@@ -21,6 +25,7 @@ const TONE = {
 };
 const TONE_TEXT = { good: 'text-emerald-900', warn: 'text-amber-900', bad: 'text-red-900' };
 const SUPPORT_WA = 'https://wa.me/962776788972';
+const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 
 export default function WhatsAppStatusCard({ compact = false }) {
   const [data, setData] = useState(null);
@@ -39,7 +44,10 @@ export default function WhatsAppStatusCard({ compact = false }) {
   if (error) return <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!data) return <div className="rounded-lg border border-gray-200 bg-white px-4 py-4 animate-pulse"><div className="h-3 w-1/3 bg-gray-100 rounded" /></div>;
 
-  const { connection, agent, explain, last_inbound_at, last_outbound_at } = data;
+  const { connection, agent, explain, last_inbound_at, last_outbound_at, setup } = data;
+  // The page that holds this shop's knowledge (menu, services or facts), from the setup steps.
+  const knowledgeWhere = setup?.steps?.find((s) => ['knowledge', 'menu', 'services'].includes(s.key))?.where || '/settings';
+  const controls = explainControls(explain, { managerUrl: MANAGER_URL, knowledgeWhere });
 
   // On the overview, one honest line where four zeros used to leave the customer guessing.
   if (compact) {
@@ -72,19 +80,34 @@ export default function WhatsAppStatusCard({ compact = false }) {
         <div><dt className="text-gray-500">آخر رد من الوكيل</dt><dd className="text-gray-800"><Timestamp value={last_outbound_at} /></dd></div>
       </dl>
 
-      {explain.action && (
-        <div className="px-4 pb-4">
-          {explain.action === 'payment' ? (
-            <a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-900 underline underline-offset-2">
-              افتح WhatsApp Manager وأضف طريقة دفع <ExternalLink size={12} />
-            </a>
-          ) : (
-            <a href={SUPPORT_WA} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[13px] font-medium text-gray-900 underline underline-offset-2">
-              راسل فريق شِفت على واتساب <ExternalLink size={12} />
-            </a>
-          )}
+      {controls.length > 0 && (
+        <div className="px-4 pb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+          {controls.map((c) => {
+            if (c.kind === 'connect') return <ConnectInline key={c.kind} onDone={load} />;
+            if (c.kind === 'claim') return <ClaimCardButton key={c.kind} onDone={load} />;
+            if (c.kind === 'manager') {
+              return (
+                <a key={c.kind} href={c.href} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-900 underline underline-offset-2">
+                  {c.label} <ExternalLink size={12} />
+                </a>
+              );
+            }
+            if (c.kind === 'knowledge') {
+              return (
+                <Link key={c.kind} to={c.to}
+                  className="inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-900 underline underline-offset-2">
+                  {c.label}
+                </Link>
+              );
+            }
+            return (
+              <a key={c.kind} href={SUPPORT_WA} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-gray-900 underline underline-offset-2">
+                {c.label} <ExternalLink size={12} />
+              </a>
+            );
+          })}
         </div>
       )}
     </section>

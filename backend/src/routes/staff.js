@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticate, requireRole, attachBusinessId } = require('../middleware/auth');
 const prisma = require('../config/prisma');
 const activation = require('../services/activation');
+const accountEvents = require('../services/accountEvents');
 
 // A tenant may manage its own people and nothing above them. Without this list, a
 // business_owner could PATCH their own row to platform_admin and reach every other account.
@@ -17,7 +18,7 @@ router.get('/', requireRole('platform_admin', 'business_owner', 'manager'), asyn
     const users = await prisma.user.findMany({
       where,
       select: {
-        id: true, name: true, email: true, role: true,
+        id: true, name: true, email: true, phone: true, role: true,
         business_id: true, active: true, last_login: true,
         created_at: true, updated_at: true,
       },
@@ -54,7 +55,7 @@ router.patch('/:id', requireRole('platform_admin', 'business_owner'), async (req
         where: { id: req.params.id },
         data,
         select: {
-          id: true, name: true, email: true, role: true,
+          id: true, name: true, email: true, phone: true, role: true,
           business_id: true, active: true, last_login: true,
           created_at: true, updated_at: true,
         },
@@ -63,6 +64,15 @@ router.patch('/:id', requireRole('platform_admin', 'business_owner'), async (req
       // outstanding link redeems it later and comes back in with active set true again —
       // making the only lockout control reversible by the person being locked out.
       if (active === false) await activation.revoke(req.params.id, tx);
+      // Who changed whose access goes into the shop's «السجل», written with the change itself.
+      // Ids and roles only: the log is read by more people than the staff list.
+      const actor = { businessId: existing.business_id, actorUserId: req.user.id, actorKind: req.user.role === 'platform_admin' ? 'shift' : 'owner' };
+      if (data.role && data.role !== existing.role) {
+        await accountEvents.record({ ...actor, type: 'role_changed', data: { user_id: existing.id, from: existing.role, to: data.role } }, { client: tx });
+      }
+      if (typeof data.active === 'boolean' && data.active !== existing.active) {
+        await accountEvents.record({ ...actor, type: data.active ? 'user_reactivated' : 'user_deactivated', data: { user_id: existing.id } }, { client: tx });
+      }
       return updated;
     });
     res.json({ user });

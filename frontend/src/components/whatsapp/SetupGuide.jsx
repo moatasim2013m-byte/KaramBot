@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ArrowLeft, ExternalLink, CheckCircle2, Clock } from 'lucide-react';
 import api from '../../utils/api';
+import { stepControls } from './setupControls';
+import { ClaimCardButton, ConnectInline } from './OwnerSetupActions';
 
 /**
  * «خطوات تشغيل البوت» — what is left, in the order it has to happen.
@@ -21,16 +23,21 @@ const OWNER_BADGE = {
   nobody: { label: 'تلقائي', cls: 'bg-gray-100 text-gray-500' },
 };
 
-export default function SetupGuide() {
-  const [setup, setSetup] = useState(null);
+// A page that already read GET /whatsapp/status («الرئيسية») passes its `setup` and its own
+// `onReload`, so the checklist and the status line come from one read and refresh together.
+export default function SetupGuide({ setup: given, onReload } = {}) {
+  const [own, setOwn] = useState(null);
+  const controlled = given !== undefined;
+  const setup = controlled ? given : own;
 
   const load = useCallback(() => {
+    if (controlled) { if (onReload) onReload(); return; }
     api.get('/whatsapp/status')
-      .then((res) => setSetup(res.data.setup || null))
-      .catch(() => setSetup(null));
-  }, []);
+      .then((res) => setOwn(res.data.setup || null))
+      .catch(() => setOwn(null));
+  }, [controlled, onReload]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!controlled) load(); }, [controlled, load]);
 
   // The footer promises this list disappears on its own, and the last step — a customer writing
   // in — completes without anyone touching the page. So it keeps looking while there is anything
@@ -91,23 +98,34 @@ export default function SetupGuide() {
                     <p className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">{step.hint}</p>
                   )}
 
-                  {!step.done && step.url && (
-                    <a href={step.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-amber-900 underline underline-offset-2">
-                      افتح WhatsApp Manager <ExternalLink size={11} />
-                    </a>
-                  )}
-                  {!step.done && step.where && (
-                    <Link to={step.where}
-                      className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-gray-900 underline underline-offset-2">
-                      اذهب للإعداد <ArrowLeft size={11} />
-                    </Link>
-                  )}
-                  {!step.done && step.owner === 'shift' && (
-                    <p className="inline-flex items-center gap-1 mt-1.5 text-[12px] text-gray-500">
-                      <Clock size={11} /> بانتظار فريق شِفت
-                    </p>
-                  )}
+                  {stepControls(step).map((c) => {
+                    if (c.kind === 'connect') return <ConnectInline key={c.kind} onDone={load} />;
+                    if (c.kind === 'claim') return <ClaimCardButton key={c.kind} onDone={load} />;
+                    if (c.kind === 'manager') {
+                      return (
+                        <a key={c.kind} href={c.href} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 mt-1.5 me-3 text-[12px] font-medium text-amber-900 underline underline-offset-2">
+                          {c.label} <ExternalLink size={11} />
+                        </a>
+                      );
+                    }
+                    if (c.kind === 'where') {
+                      return (
+                        <Link key={c.kind} to={c.to}
+                          className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-gray-900 underline underline-offset-2">
+                          {c.label} <ArrowLeft size={11} />
+                        </Link>
+                      );
+                    }
+                    if (c.kind === 'shift_wait') {
+                      return (
+                        <p key={c.kind} className="inline-flex items-center gap-1 mt-1.5 text-[12px] text-gray-500">
+                          <Clock size={11} /> {c.label}
+                        </p>
+                      );
+                    }
+                    return null;
+                  })}
                 </div>
               </div>
             </li>

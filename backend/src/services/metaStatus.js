@@ -17,8 +17,15 @@ function graphBase() {
   return `https://graph.facebook.com/${process.env.GRAPH_API_VERSION || 'v24.0'}`;
 }
 
+// Bare fetch has no deadline of its own (undici waits up to 300 s for headers and again for the
+// body). The sweeper's daily step reads every shop through here, so a hung Graph call must give
+// up in seconds, like the axios calls next door (tokenHealth, embeddedSignup: 15 s).
+const GRAPH_TIMEOUT_MS = 15000;
+
 async function get(url, token) {
-  const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`);
+  const r = await fetch(`${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`, {
+    signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
+  });
   const j = await r.json().catch(() => null);
   // Graph puts the useful part in error.message; the rest of the response carries the token.
   if (!r.ok || j?.error) throw new Error(j?.error?.message || `graph ${r.status}`);
@@ -35,7 +42,7 @@ async function refresh(business) {
   if (!token) throw new Error('لا يوجد رمز وصول محفوظ لهذا الحساب');
 
   const waba = business.wa_business_account_id;
-  const NUMBER_FIELDS = 'display_phone_number,quality_rating,throughput,status,name_status';
+  const NUMBER_FIELDS = 'display_phone_number,verified_name,quality_rating,throughput,status,name_status';
 
   /**
    * Read the number we actually serve — by its id, which sidesteps pagination and, more
@@ -77,9 +84,26 @@ async function refresh(business) {
   };
 
   await prisma.whatsappOnboarding.updateMany({ where: { business_id: business.id }, data });
+
+  // The number as customers see it and the name Meta shows, kept on the Business row so the panels
+  // show ‎+962 7… and «الاسم عند Meta» instead of an id (this used to be read and thrown away).
+  // Only from a read of the number we serve, and never over Business.name, which SHIFT typed.
+  const profile = {};
+  if (mine?.display_phone_number) profile.wa_display_phone = String(mine.display_phone_number).slice(0, 32);
+  if (mine?.verified_name) profile.wa_verified_name = String(mine.verified_name).slice(0, 200);
+  if (Object.keys(profile).length
+    && (profile.wa_display_phone !== business.wa_display_phone || profile.wa_verified_name !== business.wa_verified_name)) {
+    try {
+      await prisma.business.update({ where: { id: business.id }, data: profile });
+    } catch (err) {
+      console.warn(`[metaStatus] profile for business=${business.id} not stored: ${err.message}`);
+    }
+  }
+
   return {
     ...data,
     display_phone_number: mine?.display_phone_number || null,
+    verified_name: mine?.verified_name || null,
     // Said plainly so staff see "Meta no longer knows this number" rather than a row of blanks.
     number_error: numberError,
   };
@@ -108,4 +132,4 @@ function metaAttention(onboarding) {
   return items;
 }
 
-module.exports = { refresh, metaAttention };
+module.exports = { refresh, metaAttention, GRAPH_TIMEOUT_MS };
