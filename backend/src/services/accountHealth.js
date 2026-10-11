@@ -51,6 +51,25 @@ function connectionState(business, onboarding) {
 // The types whose knowledge is modelled elsewhere: a menu, services, or SHIFT's own sales flow.
 const WORKFLOW_TYPES = ['restaurant', 'clinic', 'shift'];
 
+// «أوقف البوت» for a set time (PATCH /api/admin/accounts/:id/bot, duration_minutes): from five
+// minutes to a day. Longer than a day is a decision someone should come back to by hand.
+const BOT_PAUSE_MIN_MINUTES = 5;
+const BOT_PAUSE_MAX_MINUTES = 24 * 60;
+
+/**
+ * When SHIFT's timed pause lifts itself (shiftSweeper.sweepBotPauses), or null.
+ *
+ * Only for a pause that is still SHIFT's own: the late policy's (pause_reason) and the owner's
+ * keep their own rules, and a resume_at left behind by a pause someone has since taken over or
+ * lifted means nothing. The sweeper and the panels read it through here so they agree on when.
+ */
+function botResumeAt(aiConfig) {
+  const cfg = aiConfig || {};
+  if (cfg.enabled !== false || cfg.paused_by !== 'shift' || cfg.pause_reason) return null;
+  if (typeof cfg.resume_at !== 'string' || Number.isNaN(Date.parse(cfg.resume_at))) return null;
+  return cfg.resume_at;
+}
+
 /**
  * @param knowledgeCount  rows of BusinessKnowledge, for a business whose type has no sector
  *                        workflow. Undefined means "not checked" and is not held against it.
@@ -58,7 +77,10 @@ const WORKFLOW_TYPES = ['restaurant', 'clinic', 'shift'];
 function agentState(business, lastInbound, lastOutbound, knowledgeCount) {
   // A deliberate pause (PATCH /api/admin/accounts/:id/bot) is its own state: silence here is the
   // intended outcome, so it must read neither as healthy nor as a broken bot.
-  if (business.ai_config?.enabled === false) return { state: 'paused', label: 'موقوف مؤقتًا' };
+  if (business.ai_config?.enabled === false) {
+    const resumeAt = botResumeAt(business.ai_config);
+    return { state: 'paused', label: 'موقوف مؤقتًا', ...(resumeAt ? { resume_at: resumeAt } : {}) };
+  }
   // Every type has a workflow now, but a generic one with nothing entered still answers with a
   // greeting and stops — a working pipeline with nothing to say. Degraded, not down: the
   // customers still get a reply and the shop's team still gets the conversation.
@@ -195,7 +217,7 @@ function whatsappColumn(business, onboarding, events = []) {
 /** «البوت» on the fleet table, from agentState plus the monthly cap. */
 function botColumn(agent, { usage = null, trial = false } = {}) {
   const pick = (state) => ({ state, ...labels.BOT_AR[state] });
-  if (agent && agent.state === 'paused') return pick('paused');
+  if (agent && agent.state === 'paused') return agent.resume_at ? { ...pick('paused'), resume_at: agent.resume_at } : pick('paused');
   // Only a free-month shop is stopped at its cap; a paying one keeps answering (costGuard).
   if (trial && usage && usage.cap > 0 && usage.ai_replies_month >= usage.cap) return pick('cap_reached');
   if (agent && agent.state === 'degraded') return pick('no_knowledge');
@@ -251,8 +273,8 @@ function metaRule(item) {
  * @param {object|null} [c.invite]    the owner's newest unused activation {expires_at}
  * @param {object} [c.agent]          agentState()
  * @param {string} [c.bucket]         lifecycle()
- * @param {object} [c.waiting]        {count, oldest} unanswered conversations
- * @param {object} [c.handoff]        {count, oldest} handed-over conversations left waiting
+ * @param {object} [c.waiting]        {count, oldest, oldest_id} unanswered conversations (oldest_id: the thread the alert opens)
+ * @param {object} [c.handoff]        {count, oldest, oldest_id} handed-over conversations left waiting
  * @param {number} [c.knowledgeCount]
  * @param {object|null} [c.usage]     {ai_replies_month, cap}
  * @param {object|null} [c.contract]  the live contract (any solution)
@@ -272,8 +294,8 @@ function shopAttention(c) {
   const out = [];
   // Minutes before `now` (the caller's clock, so the rules are testable at any instant).
   const mins = (d) => (d ? (now - time(d)) / 60000 : null);
-  const push = (rule, text, since, category = rule) => out.push({
-    rule, category, severity: labels.RULES[rule].severity, text_ar: String(text).slice(0, 200), since: since || null,
+  const push = (rule, text, since, category = rule, extra = {}) => out.push({
+    rule, category, severity: labels.RULES[rule].severity, text_ar: String(text).slice(0, 200), since: since || null, ...extra,
   });
   const has = (rule) => out.some((i) => i.rule === rule);
   const connected = Boolean(b.wa_phone_number_id);
@@ -359,12 +381,15 @@ function shopAttention(c) {
     const since = shortDuration(mins(c.waiting.oldest));
     push('unanswered', c.waiting.count === 1
       ? `زبون ينتظر ردًا منذ ${since}`
-      : `${c.waiting.count} زبائن ينتظرون ردًا — أقدمهم منذ ${since}`, c.waiting.oldest);
+      : `${c.waiting.count} زبائن ينتظرون ردًا — أقدمهم منذ ${since}`, c.waiting.oldest, 'unanswered',
+    // The thread that has waited longest, so the alert opens that customer rather than a guess.
+    c.waiting.oldest_id ? { conversation_id: c.waiting.oldest_id } : {});
   }
   if (c.handoff && c.handoff.count > 0) {
     push('handoff_waiting', c.handoff.count === 1
       ? 'محادثة محوّلة لفريق المحل بلا رد منذ أكثر من ساعة'
-      : `${c.handoff.count} محادثات محوّلة لفريق المحل بلا رد منذ أكثر من ساعة`, c.handoff.oldest);
+      : `${c.handoff.count} محادثات محوّلة لفريق المحل بلا رد منذ أكثر من ساعة`, c.handoff.oldest, 'handoff_waiting',
+    c.handoff.oldest_id ? { conversation_id: c.handoff.oldest_id } : {});
   }
   // Softened: before a number is connected an empty knowledge base is a setup step.
   if (connected && !WORKFLOW_TYPES.includes(b.business_type) && (c.knowledgeCount || 0) === 0) {
@@ -461,4 +486,5 @@ module.exports = {
   whatsappColumn, botColumn, subscriptionColumn, shopAttention, platformAttention, providerDown, sortAttention, esOutcome,
   QUIET_HOURS, UNANSWERED_MINUTES, UNANSWERED_MAX_HOURS, HANDOFF_MINUTES, PAYMENT_UNCONFIRMED_HOURS,
   WORKFLOW_TYPES, PROVIDER_DOWN_MINUTES, DUE_SOON_DAYS,
+  botResumeAt, BOT_PAUSE_MIN_MINUTES, BOT_PAUSE_MAX_MINUTES,
 };

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { MessageCircle, Link2, CreditCard, Receipt, Send, Pause, Settings, Route as RouteIcon } from 'lucide-react';
 import api from '../../utils/api';
 import { fixFor, waLine, waLink } from './operatorView';
+import { btnClass } from './ui';
+import { PauseDialog, resumeLabel } from './BotPauseControl';
 
 /**
  * The one fix button an attention row earns (operatorView.RULES), doing the fix where it can:
@@ -12,12 +14,14 @@ import { fixFor, waLine, waLink } from './operatorView';
  * - «أكّد البطاقة» confirms the payment card at Meta in place (the owner already said «أضفت»).
  * - «سجّل دفعة» opens «الاشتراكات والدفعات» with this shop's payment drawer open.
  * - «أعد إرسال الرابط» issues a new join link and opens WhatsApp with it, as the board does.
- * - «أوقف البوت مؤقتًا» asks for the reason the log needs, then pauses; the inbox keeps working.
+ * - «أوقف البوت مؤقتًا» opens the same pause dialog as the account header (the reason the log
+ *   needs, prefilled with the row's text), then pauses; the inbox keeps working.
  *
  * `owner` is {first_name, phone} from the fleet row, when there is one.
  */
 
-const BTN = 'inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 h-7 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap';
+// A row's button: the secondary kit button, 40px tall so a thumb can hit it in a list.
+const BTN = `${btnClass('secondary', 'sm')} !min-h-[40px]`;
 
 const ICON = {
   message: MessageCircle, connect_with: Link2, confirm_card: CreditCard, record_payment: Receipt,
@@ -26,6 +30,7 @@ const ICON = {
 
 export default function FixButton({ item, owner, onDone, onNotice }) {
   const [busy, setBusy] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const fix = fixFor(item);
   if (!fix) return null;
   const Icon = ICON[fix.kind] || MessageCircle;
@@ -36,21 +41,21 @@ export default function FixButton({ item, owner, onDone, onNotice }) {
   if (fix.kind === 'message') {
     const href = waLink(owner?.phone, waLine(item.rule, item.name, owner?.first_name));
     if (!href) {
-      return <Link to={`/admin/accounts/${id}?tab=access`} onClick={stop} className={BTN} title="لا يوجد موبايل لصاحب المحل"><Icon size={12} /> {fix.label}</Link>;
+      return <Link to={`/admin/accounts/${id}?tab=access`} onClick={stop} className={BTN} title="لا يوجد موبايل لصاحب المحل"><Icon size={14} /> {fix.label}</Link>;
     }
-    return <a href={href} target="_blank" rel="noopener noreferrer" onClick={stop} className={BTN}><Icon size={12} /> {fix.label}</a>;
+    return <a href={href} target="_blank" rel="noopener noreferrer" onClick={stop} className={BTN}><Icon size={14} /> {fix.label}</a>;
   }
   if (fix.kind === 'connect_with') {
-    return <Link to={`/admin/accounts/${id}?tab=health`} onClick={stop} className={BTN}><Icon size={12} /> {fix.label}</Link>;
+    return <Link to={`/admin/accounts/${id}?tab=health`} onClick={stop} className={BTN}><Icon size={14} /> {fix.label}</Link>;
   }
   if (fix.kind === 'record_payment') {
-    return <Link to={`/admin/billing?pay=${encodeURIComponent(id)}`} onClick={stop} className={BTN}><Icon size={12} /> {fix.label}</Link>;
+    return <Link to={`/admin/billing?pay=${encodeURIComponent(id)}`} onClick={stop} className={BTN}><Icon size={14} /> {fix.label}</Link>;
   }
   if (fix.kind === 'platform_settings') {
-    return <Link to="/admin/settings" onClick={stop} className={BTN}><Icon size={12} /> {fix.label}</Link>;
+    return <Link to="/admin/settings" onClick={stop} className={BTN}><Icon size={14} /> {fix.label}</Link>;
   }
   if (fix.kind === 'open_onboarding') {
-    return <Link to="/admin/onboarding" onClick={stop} className={BTN}><Icon size={12} /> {fix.label}</Link>;
+    return <Link to="/admin/onboarding" onClick={stop} className={BTN}><Icon size={14} /> {fix.label}</Link>;
   }
 
   const run = async (e) => {
@@ -85,22 +90,26 @@ export default function FixButton({ item, owner, onDone, onNotice }) {
       return;
     }
     if (fix.kind === 'pause_bot') {
-      // The reason goes into the shop's log for whoever looks next, so it is required.
-      const reason = window.prompt(`سبب إيقاف بوت ${item.name || 'المحل'} مؤقتًا؟ (رسائل الزبائن تبقى تصل لصندوق المحل)`, item.text || '');
-      if (!reason || !reason.trim()) return;
-      setBusy(true);
-      try {
-        await api.patch(`/admin/accounts/${id}/bot`, { enabled: false, reason: reason.trim().slice(0, 300) });
-        say('ok', `أُوقف بوت ${item.name || 'المحل'} مؤقتًا.`);
-        onDone?.();
-      } catch (err) { say('error', err.response?.data?.error || 'تعذّر إيقاف البوت'); }
-      finally { setBusy(false); }
+      // The reason goes into the shop's log for whoever looks next, so the dialog requires it.
+      setPausing(true);
     }
   };
 
   return (
-    <button type="button" onClick={run} disabled={busy} className={BTN}>
-      <Icon size={12} /> {busy ? 'جارٍ…' : fix.label}
-    </button>
+    <>
+      <button type="button" onClick={run} disabled={busy} className={BTN}>
+        <Icon size={14} /> {busy ? 'جارٍ…' : fix.label}
+      </button>
+      {pausing && (
+        <PauseDialog accountId={id} name={item.name} initialReason={item.text || ''}
+          onClose={() => setPausing(false)}
+          onPaused={(data) => {
+            setPausing(false);
+            const until = resumeLabel(data?.resume_at);
+            say('ok', `أُوقف بوت ${item.name || 'المحل'} مؤقتًا${until ? ` ${until}` : ''}.`);
+            onDone?.();
+          }} />
+      )}
+    </>
   );
 }

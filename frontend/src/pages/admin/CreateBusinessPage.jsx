@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { ArrowRight, Check, ChevronDown, Copy, ExternalLink, Send } from 'lucide-react';
+import { Check, Copy, ExternalLink, Send } from 'lucide-react';
+import { Button, PageHeader, btnClass, chipClass, fieldClass, labelClass } from '../../components/admin/ui';
 
 /**
  * «زبون جديد» — /admin/accounts/new (docs/panels/spec.md, «Signup flow» steps 1–2).
@@ -12,11 +13,15 @@ import { ArrowRight, Check, ChevronDown, Copy, ExternalLink, Send } from 'lucide
  * wa.me link, so nothing here costs a paid message. The owner then connects their own number
  * from /join and the profile fills itself from Meta.
  *
- * «متقدم» keeps the old path (POST /api/businesses with ids typed by hand) for numbers wired
+ * After «أنشئ» the page says the link is READY, never that it was sent: nothing leaves SHIFT
+ * until the operator presses «افتح واتساب» (or copies it and says so). «تجديد الرابط» and
+ * «إلغاء الدعوة» are the board's same two calls (POST …/join-link, DELETE …/invite).
+ *
+ * «ربط يدوي» keeps the old path (POST /api/businesses with ids typed by hand) for numbers wired
  * outside Embedded Signup, such as SHIFT's own. It makes no owner and no link.
  */
 
-const inputClass = 'w-full border border-gray-200 rounded-lg px-3 h-11 text-sm focus:outline-none focus:ring-1 focus:ring-green-500';
+const bigField = `${fieldClass} !h-12 !text-base`;
 
 const SECTORS = [
   ['restaurant', 'مطعم'],
@@ -44,79 +49,144 @@ function looksLikeJordanMobile(raw) {
   return /^(?:00962|962|0)?7[789]\d{7}$/.test(d);
 }
 
-function Field({ label, required, children, hint }) {
-  return (
-    <div>
-      <label className="block text-sm text-gray-700 mb-1">
-        {label}{required && <span className="text-red-500 mr-1">*</span>}
-      </label>
-      {children}
-      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
-    </div>
-  );
-}
-
 /** The text SHIFT is about to send, read back from the wa.me link the server built. */
 function messageFrom(waShareUrl) {
   try { return new URL(waShareUrl).searchParams.get('text') || ''; } catch { return ''; }
 }
 
+/** The number the wa.me link opens, as +962…; the server normalised it. */
+function phoneFrom(waShareUrl) {
+  try { const d = new URL(waShareUrl).pathname.replace(/\D/g, ''); return d ? `+${d}` : ''; } catch { return ''; }
+}
+
+const longDate = (iso) => new Date(iso).toLocaleString('ar-JO', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-function ResultCard({ result, ownerName, onAnother }) {
-  const [copied, setCopied] = useState(false);
-  const [shared, setShared] = useState(false);
-  const preview = messageFrom(result.wa_share_url);
+/** The WhatsApp bubble the owner will get. Before the server answers it is only a draft. */
+function InvitePreview({ text, draft }) {
+  return (
+    <aside aria-label="معاينة الدعوة" className="flex-1 basis-[300px] max-w-[420px] min-w-0 flex flex-col gap-2.5">
+      <span className="text-[13.5px] text-shift-body">معاينة الدعوة</span>
+      <div className="rounded-2xl border border-shift-line bg-[#EFE9E1] p-4">
+        <div className="rounded-xl rounded-ss-[3px] bg-white px-3.5 py-3 text-sm leading-[1.75] text-shift-ink whitespace-pre-wrap break-words shadow-[0_1px_1px_rgba(0,0,0,.06)]">
+          {text}
+        </div>
+      </div>
+      <span className="text-[13px] text-shift-body">
+        {draft ? 'مسودة: الرابط ومدة صلاحيته يضعهما الخادم عند الإنشاء.' : 'هذا النص كما يصل لصاحب المحل.'}
+      </span>
+    </aside>
+  );
+}
 
-  const share = () => {
-    // Opened first, inside the click, so the browser does not treat it as an unwanted popup.
-    window.open(result.wa_share_url, '_blank', 'noopener,noreferrer');
-    setShared(true);
+function ResultCard({ result, ownerName, fallbackPhone, onRenewed, onAnother }) {
+  const [sent, setSent] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null); // {tone, text}
+  const phone = phoneFrom(result.wa_share_url) || fallbackPhone;
+
+  const markSent = () => {
+    setSent(true);
     // Moves the board card to «أُرسل الرابط». Telemetry: it never blocks the send.
     api.post(`/admin/accounts/${result.account_id}/events`, { type: 'invite_shared' }).catch(() => {});
   };
 
+  const share = () => {
+    // Opened first, inside the click, so the browser does not treat it as an unwanted popup.
+    window.open(result.wa_share_url, '_blank', 'noopener,noreferrer');
+    markSent();
+    setToast({ tone: 'ok', text: 'فُتح واتساب — اضغط إرسال هناك.' });
+  };
+
+  const copy = async () => {
+    if (await copyText(result.join_url)) setToast({ tone: 'ok', text: 'نُسخ الرابط.' });
+    else setToast({ tone: 'error', text: 'تعذّر النسخ — انسخه من المعاينة.' });
+  };
+
+  const renew = async () => {
+    setBusy(true); setToast(null);
+    try {
+      const res = await api.post(`/admin/accounts/${result.account_id}/join-link`);
+      onRenewed(res.data);
+      setSent(false); setCancelled(false);
+      setToast({ tone: 'ok', text: 'رابط جديد جاهز — الرابط السابق لم يعد يعمل.' });
+    } catch (err) {
+      setToast({ tone: 'error', text: err.response?.data?.error || 'تعذّر إصدار رابط جديد' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancel = async () => {
+    if (!window.confirm(`إلغاء دعوة ${ownerName}؟ يتوقف الرابط ويُعطَّل حساب صاحب المحل الذي لم يُستخدم.`)) return;
+    setBusy(true); setToast(null);
+    try {
+      await api.delete(`/admin/accounts/${result.account_id}/invite`);
+      setCancelled(true);
+      setToast({ tone: 'ok', text: 'أُلغيت الدعوة. «تجديد الرابط» يصدر رابطًا جديدًا إن لزم.' });
+    } catch (err) {
+      setToast({ tone: 'error', text: err.response?.data?.error || 'تعذّر إلغاء الدعوة' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const linkBtn = 'min-h-[40px] bg-transparent border-0 p-0 text-[13.5px] font-medium disabled:opacity-50';
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 space-y-4">
-      <div className="flex items-center gap-2 text-green-700">
-        <Check size={18} />
-        <h2 className="text-lg font-bold text-gray-900">الرابط جاهز — أرسله لـ{ownerName}</h2>
+    <section aria-live="polite" className="flex-1 basis-[440px] max-w-[560px] min-w-0 bg-white border border-shift-line rounded-2xl p-[22px] flex flex-col gap-4">
+      <div>
+        <h2 className="m-0 flex items-center gap-2 font-display text-xl font-semibold text-shift-ink">
+          <Check size={20} className="text-shift-ok shrink-0" />
+          {cancelled ? 'تم إنشاء الزبون. أُلغيت الدعوة.' : 'تم إنشاء الزبون. رابط الدعوة جاهز.'}
+        </h2>
+        {!cancelled && (
+          <p className="mt-1 text-sm text-shift-body">
+            لم يفتح {ownerName} الرابط بعد
+            {result.invite_expires_at && <> · ينتهي <bdi>{longDate(result.invite_expires_at)}</bdi></>}
+          </p>
+        )}
       </div>
 
-      {preview && (
-        <div className="rounded-lg bg-[#e7fbe6] border border-green-100 p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-          {preview}
-        </div>
-      )}
-      {result.invite_expires_at && (
-        <p className="text-xs text-gray-500">
-          صالح حتى {new Date(result.invite_expires_at).toLocaleString('ar-JO', { dateStyle: 'medium', timeStyle: 'short' })}
-        </p>
-      )}
+      <div className="rounded-xl bg-shift-canvas px-3.5 py-3 text-sm text-shift-ink">
+        يُرسل إلى: <b className="font-semibold">{ownerName}</b>
+        {phone && <> · <bdi dir="ltr" className="tabular-nums">{phone}</bdi></>}
+      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <button type="button" onClick={share}
-          className="inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700">
-          <Send size={15} /> {shared ? 'أُرسل — أرسل مرة أخرى' : 'أرسل على واتساب'}
-        </button>
-        <button type="button"
-          onClick={async () => { if (await copyText(result.join_url)) { setCopied(true); setTimeout(() => setCopied(false), 2000); } }}
-          className="inline-flex items-center justify-center gap-2 h-11 rounded-lg border border-gray-200 text-sm text-gray-800 hover:bg-gray-50">
-          <Copy size={15} /> {copied ? 'نُسخ الرابط' : 'نسخ الرابط'}
-        </button>
-        <Link to={`/admin/accounts/${result.account_id}`}
-          className="inline-flex items-center justify-center gap-2 h-11 rounded-lg border border-gray-200 text-sm text-gray-800 hover:bg-gray-50">
+      <div className="flex flex-wrap gap-2.5">
+        {result.wa_share_url && (
+          <button type="button" onClick={share} disabled={cancelled || busy}
+            className="inline-flex items-center gap-2 min-h-[48px] px-5 rounded-xl bg-wa text-[#062B1A] text-[15px] font-semibold hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            <Send size={16} /> افتح واتساب لإرسال الدعوة
+          </button>
+        )}
+        <Button size="lg" onClick={copy} disabled={cancelled || busy}><Copy size={15} /> نسخ الرابط</Button>
+        <Link to={`/admin/accounts/${result.account_id}`} className={btnClass('secondary', 'lg')}>
           <ExternalLink size={15} /> افتح صفحة الزبون
         </Link>
       </div>
 
-      <div className="pt-2 border-t border-gray-100 flex flex-wrap gap-4 text-sm">
-        <button type="button" onClick={onAnother} className="text-gray-600 hover:text-gray-900 underline underline-offset-2">زبون جديد آخر</button>
-        <Link to="/admin/onboarding" className="text-gray-600 hover:text-gray-900 underline underline-offset-2">لوحة الانضمام</Link>
+      <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2 border-t border-shift-line2 pt-3">
+        {!cancelled && (
+          <button type="button" onClick={markSent} disabled={sent || busy} className={`${linkBtn} text-shift-accent`}>
+            {sent ? 'سُجّلت الدعوة كمرسلة ✓' : 'علّمت الدعوة كمرسلة'}
+          </button>
+        )}
+        <button type="button" onClick={renew} disabled={busy} className={`${linkBtn} text-shift-accent`}>تجديد الرابط</button>
+        {!cancelled && (
+          <button type="button" onClick={cancel} disabled={busy} className={`${linkBtn} text-shift-danger`}>إلغاء الدعوة</button>
+        )}
+        <span className="ms-auto flex flex-wrap gap-x-[18px]">
+          <Link to="/admin/onboarding" className={`${linkBtn} inline-flex items-center text-shift-body hover:text-shift-ink`}>لوحة الانضمام</Link>
+          <button type="button" onClick={onAnother} className={`${linkBtn} text-shift-body hover:text-shift-ink`}>زبون آخر</button>
+        </span>
       </div>
-    </div>
+      <span role="status" className={`min-h-[20px] text-[13.5px] ${toast?.tone === 'error' ? 'text-shift-danger' : 'text-shift-ok'}`}>{toast?.text}</span>
+    </section>
   );
 }
 
@@ -124,7 +194,6 @@ export default function CreateBusinessPage() {
   const [form, setForm] = useState(DEFAULTS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [advanced, setAdvanced] = useState(false);
   const [result, setResult] = useState(null);
   const navigate = useNavigate();
 
@@ -140,8 +209,8 @@ export default function CreateBusinessPage() {
     e.preventDefault();
     const basic = validateBasics();
     if (basic) { setError(basic); return; }
-    if (!form.owner_name.trim()) { setError('اكتب اسم صاحب المحل'); return; }
     if (!looksLikeJordanMobile(form.owner_phone)) { setError('موبايل صاحب المحل: رقم أردني يبدأ بـ 077 أو 078 أو 079'); return; }
+    if (!form.owner_name.trim()) { setError('اكتب اسم صاحب المحل'); return; }
     if (form.owner_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.owner_email.trim())) {
       setError('البريد الإلكتروني غير صحيح'); return;
     }
@@ -193,103 +262,118 @@ export default function CreateBusinessPage() {
   };
 
   const ownerFirst = form.owner_name.trim().split(/\s+/)[0] || 'صاحب المحل';
+  const shopName = form.name.trim() || 'المحل';
+  // Before the server answers, only the greeting and the shop are known; the link, its lifetime
+  // and the rest of the message are the server's (invitePayload in adminAccounts.js).
+  const draftText = `مرحبًا ${ownerFirst}، هذا رابط تفعيل كرم بوت لـ${shopName}:\n[الرابط]\n…`;
+  const preview = result ? (result.share_text || messageFrom(result.wa_share_url)) : draftText;
 
   return (
-    <div className="max-w-xl">
-      <div className="flex items-center gap-3 mb-5">
-        <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600" aria-label="رجوع">
-          <ArrowRight size={18} />
-        </Link>
-        <h1 className="text-xl font-bold text-gray-800">زبون جديد</h1>
-      </div>
+    <div className="max-w-[1040px]">
+      <nav aria-label="مسار الصفحة" className="mb-2 text-[13.5px] text-shift-body">
+        <Link to="/admin/accounts" className="text-shift-accent hover:text-shift-ink no-underline">الزبائن</Link>
+        <span aria-hidden="true"> / </span>زبون جديد
+      </nav>
+      <PageHeader title="زبون جديد" sub="أنت تنشئ الدعوة، وصاحب المحل يكمل التفعيل من هاتفه." />
 
-      {result ? (
-        <ResultCard result={result} ownerName={ownerFirst}
-          onAnother={() => { setResult(null); setForm(DEFAULTS); setAdvanced(false); }} />
-      ) : (
-        <form onSubmit={handleInvite} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 sm:p-6 space-y-4">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>
-          )}
-
-          <Field label="اسم المحل" required>
-            <input value={form.name} onChange={(e) => set('name', e.target.value)} className={inputClass} placeholder="مطعم الشام" />
-          </Field>
-
-          <Field label="نوع النشاط" required>
-            <div className="flex flex-wrap gap-2">
-              {SECTORS.map(([value, label]) => (
-                <button key={value} type="button" onClick={() => set('sector', value)}
-                  className={`px-3 h-10 rounded-full border text-sm ${form.sector === value
-                    ? 'border-green-600 bg-green-50 text-green-900'
-                    : 'border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="اسم صاحب المحل" required>
-              <input value={form.owner_name} onChange={(e) => set('owner_name', e.target.value)} className={inputClass} placeholder="أبو خالد" />
-            </Field>
-            <Field label="موبايل صاحب المحل" required hint="يدخل به إلى لوحته، وإليه تصل تنبيهاته">
-              <input value={form.owner_phone} onChange={(e) => set('owner_phone', e.target.value)} className={inputClass}
-                dir="ltr" inputMode="tel" autoComplete="off" placeholder="07XXXXXXXX" />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="البريد الإلكتروني (اختياري)">
-              <input value={form.owner_email} onChange={(e) => set('owner_email', e.target.value)} className={inputClass}
-                dir="ltr" inputMode="email" autoComplete="off" />
-            </Field>
-            <Field label="المدينة">
-              <select value={form.city} onChange={(e) => set('city', e.target.value)} className={inputClass}>
-                {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </Field>
-          </div>
-
-          <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-            العرض: حملة إربد — الشهر الأول مجاني، يبدأ مع أول رد للبوت على زبون.
-          </p>
-
-          <button type="submit" disabled={submitting}
-            className="w-full h-11 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50">
-            {submitting ? 'جارٍ الإنشاء…' : 'أنشئ رابط الانضمام'}
-          </button>
-
-          {/* Hand-wired numbers only. Kept out of the way so the normal path never asks for an id. */}
-          <div className="pt-2 border-t border-gray-100">
-            <button type="button" onClick={() => setAdvanced((a) => !a)}
-              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
-              <ChevronDown size={15} className={advanced ? 'rotate-180 transition-transform' : 'transition-transform'} />
-              متقدم
-            </button>
-            {advanced && (
-              <div className="mt-3 space-y-3">
-                <p className="text-xs text-gray-500">ربط يدوي لرقم موصول مسبقًا: يُنشئ الحساب بالاسم والنوع أعلاه، بلا صاحب محل ولا رابط انضمام.</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Phone Number ID">
-                    <input value={form.wa_phone_number_id} onChange={(e) => set('wa_phone_number_id', e.target.value)}
-                      className={`${inputClass} font-mono`} dir="ltr" placeholder="123456789012345" />
-                  </Field>
-                  <Field label="WABA ID">
-                    <input value={form.wa_business_account_id} onChange={(e) => set('wa_business_account_id', e.target.value)}
-                      className={`${inputClass} font-mono`} dir="ltr" placeholder="987654321098765" />
-                  </Field>
-                </div>
-                <p className="text-xs text-gray-400">مفتاح الوصول يُضاف بعد الإنشاء من صفحة الحساب.</p>
-                <button type="button" onClick={handleManual} disabled={submitting}
-                  className="h-10 px-4 rounded-lg border border-gray-300 text-sm text-gray-800 hover:bg-gray-50 disabled:opacity-50">
-                  أنشئ الحساب بربط يدوي
-                </button>
-              </div>
+      <div className="flex flex-wrap items-start gap-6">
+        {result ? (
+          <ResultCard result={result} ownerName={ownerFirst} fallbackPhone={form.owner_phone.trim()}
+            onRenewed={(payload) => setResult((prev) => ({ ...prev, ...payload }))}
+            onAnother={() => { setResult(null); setForm(DEFAULTS); setError(''); }} />
+        ) : (
+          <form onSubmit={handleInvite} noValidate
+            className="flex-1 basis-[440px] max-w-[560px] min-w-0 bg-white border border-shift-line rounded-2xl p-[22px] flex flex-col gap-5">
+            {error && (
+              <div role="alert" className="rounded-xl border border-shift-dangerLine bg-shift-dangerBg px-4 py-3 text-sm text-shift-danger">{error}</div>
             )}
-          </div>
-        </form>
-      )}
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="nc-name" className="text-sm font-medium text-shift-ink">اسم المحل</label>
+              <input id="nc-name" value={form.name} onChange={(e) => set('name', e.target.value)} className={bigField} />
+            </div>
+
+            <fieldset className="m-0 border-0 p-0">
+              <legend className="mb-2 p-0 text-sm font-medium text-shift-ink">نوع النشاط</legend>
+              <div role="radiogroup" aria-label="نوع النشاط" className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {SECTORS.map(([value, label]) => (
+                  <button key={value} type="button" role="radio" aria-checked={form.sector === value ? 'true' : 'false'}
+                    onClick={() => set('sector', value)} className={`${chipClass(form.sector === value, 'square')} !min-h-[44px]`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="mt-1.5 block text-[13px] text-shift-body">يحدد نوع البوت: طلبات للمطاعم، مواعيد للعيادات، وإجابات لبقية المحلات.</span>
+            </fieldset>
+
+            {/* The server refuses an invite without the owner's name (POST /api/admin/accounts), so it
+                stays beside the mobile instead of under «تفاصيل إضافية». */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <label htmlFor="nc-phone" className="text-sm font-medium text-shift-ink">موبايل صاحب المحل</label>
+                <input id="nc-phone" value={form.owner_phone} onChange={(e) => set('owner_phone', e.target.value)}
+                  className={`${bigField} text-right tabular-nums`} dir="ltr" type="tel" inputMode="tel" autoComplete="off" placeholder="07XXXXXXXX" />
+                <span className="text-[13px] text-shift-body">يصبح رقم دخوله ورقم تنبيهاته</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label htmlFor="nc-owner" className="text-sm font-medium text-shift-ink">اسم صاحب المحل</label>
+                <input id="nc-owner" value={form.owner_name} onChange={(e) => set('owner_name', e.target.value)} className={bigField} />
+                <span className="text-[13px] text-shift-body">به تبدأ رسالة الدعوة</span>
+              </div>
+            </div>
+
+            <details className="border-t border-shift-line2 pt-3">
+              <summary className="cursor-pointer min-h-[40px] flex items-center text-sm font-medium text-shift-ink">تفاصيل إضافية — اختياري</summary>
+              <div className="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3.5">
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="nc-city" className={labelClass}>المدينة</label>
+                  <select id="nc-city" value={form.city} onChange={(e) => set('city', e.target.value)} className={fieldClass}>
+                    {CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="nc-email" className={labelClass}>البريد</label>
+                  <input id="nc-email" type="email" value={form.owner_email} onChange={(e) => set('owner_email', e.target.value)}
+                    className={fieldClass} dir="ltr" inputMode="email" autoComplete="off" />
+                </div>
+              </div>
+            </details>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" variant="primary" size="lg" disabled={submitting} className="!text-base">
+                {submitting ? 'جارٍ الإنشاء…' : 'أنشئ الزبون ورابط الانضمام'}
+              </Button>
+              <span className="text-[13px] text-shift-body">العرض: حملة إربد — الشهر الأول مجاني، يبدأ مع أول رد للبوت على زبون.</span>
+            </div>
+
+            {/* Hand-wired numbers only. Kept out of the way so the normal path never asks for an id. */}
+            <details className="border-t border-shift-line2 pt-3">
+              <summary className="cursor-pointer min-h-[40px] flex items-center text-[13.5px] text-shift-body">ربط يدوي — متقدم</summary>
+              <div className="mt-2.5 flex flex-col gap-3">
+                <p className="text-[13px] text-shift-body">ربط يدوي لرقم موصول مسبقًا: يُنشئ الحساب بالاسم والنوع أعلاه، بلا صاحب محل ولا رابط انضمام.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="flex flex-col gap-2">
+                    <label htmlFor="nc-pnid" className={labelClass}>Phone Number ID</label>
+                    <input id="nc-pnid" value={form.wa_phone_number_id} onChange={(e) => set('wa_phone_number_id', e.target.value)}
+                      className={`${fieldClass} font-mono`} dir="ltr" placeholder="123456789012345" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label htmlFor="nc-waba" className={labelClass}>WABA ID</label>
+                    <input id="nc-waba" value={form.wa_business_account_id} onChange={(e) => set('wa_business_account_id', e.target.value)}
+                      className={`${fieldClass} font-mono`} dir="ltr" placeholder="987654321098765" />
+                  </div>
+                </div>
+                <p className="text-[13px] text-shift-muted">مفتاح الوصول يُضاف بعد الإنشاء من صفحة الحساب.</p>
+                <div>
+                  <Button onClick={handleManual} disabled={submitting}>أنشئ الحساب بربط يدوي</Button>
+                </div>
+              </div>
+            </details>
+          </form>
+        )}
+
+        <InvitePreview text={preview} draft={!result} />
+      </div>
     </div>
   );
 }

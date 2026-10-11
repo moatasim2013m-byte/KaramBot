@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from 'react';
 import api from '../../utils/api';
-import { Panel } from '../shared/Primitives';
+import { Card } from './ui';
 import BusinessKnowledge from '../whatsapp/BusinessKnowledge';
 import KnowledgeGaps from '../whatsapp/KnowledgeGaps';
 import TryTheBot from '../whatsapp/TryTheBot';
@@ -20,6 +20,9 @@ import ClinicPage from '../../pages/ClinicPage';
  * the tab is open, and takes it away when it closes. It is installed in a layout effect and the
  * editors render only after it, because their loads run in their own effects, which would
  * otherwise fire first and go out unscoped.
+ *
+ * Laid out as the design has it: what the bot knows on the wide side, «أسئلة بلا جواب» and
+ * «جرّب البوت» beside it (below it on a phone).
  */
 
 const SCOPED = /^\/?(menu|clinic|knowledge)(\/|\?|$)/;
@@ -47,22 +50,23 @@ export default function AccountKnowledgeTab({ accountId, businessType }) {
 
   return (
     <ShopScope businessId={accountId}>
-      <div className="space-y-4">
-        {/* Restaurants and clinics answer from their menu or service list; the rest from knowledge. */}
-        {isRestaurant && (
-          <Panel title="القائمة"><div className="p-4"><MenuPage /></div></Panel>
-        )}
-        {isClinic && (
-          <Panel title="الخدمات والأطباء"><div className="p-4"><ClinicPage /></div></Panel>
-        )}
-        {!isRestaurant && !isClinic && businessType !== 'shift' && <BusinessKnowledge businessId={accountId} />}
+      <div className="flex flex-wrap gap-4 items-start">
+        <div className="flex-[2_1_480px] min-w-0 flex flex-col gap-4">
+          {/* Restaurants and clinics answer from their menu or service list; the rest from knowledge. */}
+          {isRestaurant && (
+            <Card title="ماذا يعرف البوت · القائمة"><MenuPage /></Card>
+          )}
+          {isClinic && (
+            <Card title="ماذا يعرف البوت · الخدمات والأطباء"><ClinicPage /></Card>
+          )}
+          {!isRestaurant && !isClinic && businessType !== 'shift' && <BusinessKnowledge businessId={accountId} />}
+        </div>
 
-        <Panel title="ما عرف يجاوب">
-          <div className="p-4"><KnowledgeGaps embedded /></div>
-        </Panel>
-
-        {/* The shop's real workflow, nothing sent: the check after an answer is taught. */}
-        <TryTheBot endpoint={`/admin/accounts/${accountId}/test-message`} />
+        <div className="flex-[1_1_280px] min-w-0 flex flex-col gap-4">
+          <Card title="أسئلة بلا جواب"><KnowledgeGaps embedded /></Card>
+          {/* The shop's real workflow, nothing sent: the check after an answer is taught. */}
+          <TryTheBot endpoint={`/admin/accounts/${accountId}/test-message`} />
+        </div>
       </div>
     </ShopScope>
   );

@@ -245,7 +245,8 @@ describe('the waiting rule: a customer wrote after the last reply, 15 minutes to
     expect(call.where.last_inbound_at.lt).toBeInstanceOf(Date);
     expect(call.where.last_inbound_at.gt).toBeInstanceOf(Date);
     expect(call.where.status).toEqual({ in: ['open', 'pending'] });
-    expect(Object.keys(call.select).sort()).toEqual(['ai_enabled', 'business_id', 'last_inbound_at', 'last_outbound_at', 'status']);
+    // id: the oldest waiting thread is what the «unanswered» alert opens.
+    expect(Object.keys(call.select).sort()).toEqual(['ai_enabled', 'business_id', 'id', 'last_inbound_at', 'last_outbound_at', 'status']);
   });
 });
 

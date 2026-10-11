@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Save, Plus, X } from 'lucide-react';
 import api from '../../utils/api';
-import { Panel } from '../shared/Primitives';
 import BotPauseControl from './BotPauseControl';
+import { Button, Card, fieldClass, labelClass } from './ui';
 
 /**
  * «الإعدادات» — the shop's general, AI and policy settings on one tab, aware of its type.
@@ -13,10 +13,13 @@ import BotPauseControl from './BotPauseControl';
  *
  * Each card saves only its own keys. ai_config never carries `enabled`: the pause is its own
  * switch (BotPauseControl), so a form opened before a pause cannot switch the bot back on.
+ *
+ * «طريقة رد البوت» comes first, as on the design: it is what an operator opens this tab for.
  */
 
-const input = 'w-full h-9 border border-gray-200 rounded-md px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-gray-400';
-const area = 'w-full border border-gray-200 rounded-md px-3 py-2 text-[13px] resize-none focus:outline-none focus:ring-1 focus:ring-gray-400';
+const input = fieldClass;
+const area = 'w-full px-3 py-2.5 border border-shift-field rounded-xl text-[15px] text-shift-ink bg-white resize-none placeholder:text-shift-muted';
+const timeInput = 'h-10 px-2 border border-shift-field rounded-[10px] text-sm text-shift-ink bg-white';
 
 const DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
 const MAX_ALERT_NUMBERS = 5;
@@ -34,10 +37,10 @@ function normaliseHours(raw) {
 
 function Field({ label, hint, children }) {
   return (
-    <label className="block">
-      <span className="block text-[12px] text-gray-600 mb-1">{label}</span>
+    <label className="flex flex-col gap-1.5 min-w-0">
+      <span className={labelClass}>{label}</span>
       {children}
-      {hint && <span className="block mt-1 text-[11px] text-gray-400">{hint}</span>}
+      {hint && <span className="text-[12.5px] text-shift-muted">{hint}</span>}
     </label>
   );
 }
@@ -62,13 +65,12 @@ function useSave(accountId, onSaved) {
 
 function SaveBar({ busy, saved, error, onSave }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-t border-gray-100">
-      <button type="button" onClick={onSave} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-[13px] disabled:opacity-50">
-        <Save size={13} /> {busy ? 'جارٍ…' : 'احفظ'}
-      </button>
-      {saved && <span className="text-[12px] text-emerald-700">تم الحفظ</span>}
-      {error && <span className="text-[12px] text-red-700">{error}</span>}
+    <div className="flex flex-wrap items-center gap-3 mt-4">
+      <Button variant="primary" onClick={onSave} disabled={busy}>
+        <Save size={15} /> {busy ? 'جارٍ…' : 'حفظ'}
+      </Button>
+      {saved && <span role="status" className="text-[13px] text-shift-ok">تم الحفظ</span>}
+      {error && <span role="alert" className="text-[13px] text-shift-danger">{error}</span>}
     </div>
   );
 }
@@ -81,8 +83,8 @@ function GeneralCard({ biz, onSaved }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const s = useSave(biz.id, onSaved);
   return (
-    <Panel title="عام">
-      <div className="p-4 grid gap-3 sm:grid-cols-2">
+    <Card title="عام">
+      <div className="grid gap-3.5 sm:grid-cols-2">
         <Field label="اسم المحل"><input value={f.name} onChange={set('name')} className={input} /></Field>
         <Field label="المدينة"><input value={f.city} onChange={set('city')} placeholder="مثال: إربد" className={input} /></Field>
         <Field label="العنوان"><input value={f.address} onChange={set('address')} className={input} /></Field>
@@ -109,7 +111,7 @@ function GeneralCard({ biz, onSaved }) {
         </Field>
       </div>
       <SaveBar {...s} onSave={() => s.save(f)} />
-    </Panel>
+    </Card>
   );
 }
 
@@ -124,20 +126,20 @@ function ListInput({ value, onChange, placeholder, max, ltr }) {
     <div>
       <div className="flex flex-wrap gap-1.5">
         {value.map((v) => (
-          <span key={v} className="inline-flex items-center gap-1 h-7 pr-2.5 pl-1 rounded-full bg-gray-100 text-[12px] text-gray-800">
+          <span key={v} className="inline-flex items-center gap-1 min-h-[32px] pr-3 pl-1 rounded-full bg-shift-line2 text-[13px] text-shift-ink">
             {ltr ? <span dir="ltr" className="tabular-nums">{v}</span> : v}
-            <button type="button" onClick={() => onChange(value.filter((x) => x !== v))} className="p-0.5 text-gray-400 hover:text-red-600" title="حذف">
-              <X size={11} />
+            <button type="button" onClick={() => onChange(value.filter((x) => x !== v))} className="w-8 h-8 grid place-items-center rounded-full text-shift-muted hover:text-shift-danger" title="حذف" aria-label={`حذف ${v}`}>
+              <X size={13} />
             </button>
           </span>
         ))}
       </div>
-      <div className="mt-1.5 flex gap-2">
+      <div className={`${value.length ? 'mt-2' : ''} flex gap-2`}>
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={placeholder} dir={ltr ? 'ltr' : undefined}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} className={input} />
         <button type="button" onClick={add} disabled={!draft.trim() || (max && value.length >= max)}
-          className="shrink-0 inline-flex items-center gap-1 h-9 px-3 rounded-md border border-gray-200 text-[12px] text-gray-700 disabled:opacity-40">
-          <Plus size={12} /> أضف
+          className="shrink-0 inline-flex items-center gap-1 h-11 px-3.5 rounded-xl border border-shift-field bg-white text-sm text-shift-ink hover:bg-[#F1F3F7] disabled:opacity-50">
+          <Plus size={14} /> أضف
         </button>
       </div>
     </div>
@@ -160,23 +162,25 @@ function BotCard({ biz, botEnabled, onBotChange, onSaved }) {
   const s = useSave(biz.id, onSaved);
 
   return (
-    <Panel title="البوت">
-      <div className="p-4 space-y-3">
-        <Field label="حالة البوت">
-          <BotPauseControl accountId={biz.id} enabled={botEnabled} onChange={onBotChange} />
-        </Field>
+    <Card title="طريقة رد البوت">
+      <div className="flex flex-col gap-3.5">
+        {/* A div, not Field's label: a label would press the pause button when its text is clicked. */}
+        <div className="flex flex-col gap-1.5">
+          <span className={labelClass}>حالة البوت</span>
+          <BotPauseControl accountId={biz.id} name={biz.name} enabled={botEnabled} onChange={onBotChange} />
+        </div>
         <Field label="شخصية البوت"><input value={f.personality} onChange={set('personality')} className={input} /></Field>
         <Field label="رسالة الترحيب"><textarea rows={3} value={f.greeting_message} onChange={set('greeting_message')} className={area} /></Field>
         <Field label="رسالة التحويل للموظف"><textarea rows={2} value={f.fallback_message} onChange={set('fallback_message')} className={area} /></Field>
         <div>
-          <span className="block text-[12px] text-gray-600 mb-1">كلمات تحوّل للموظف</span>
+          <span className={`block mb-1.5 ${labelClass}`}>كلمات تحوّل للموظف</span>
           <ListInput value={f.handoff_keywords} onChange={(v) => setF({ ...f, handoff_keywords: v })} placeholder="مثال: موظف" />
         </div>
         <div>
-          <span className="block text-[12px] text-gray-600 mb-1">أرقام التنبيهات</span>
+          <span className={`block mb-1.5 ${labelClass}`}>أرقام تنبيهات المحل</span>
           <ListInput value={f.alert_wa_numbers} onChange={(v) => setF({ ...f, alert_wa_numbers: v })}
             placeholder="0791234567" max={MAX_ALERT_NUMBERS} ltr />
-          <span className="block mt-1 text-[11px] text-gray-400">
+          <span className="block mt-1.5 text-[12.5px] text-shift-muted">
             هنا تصل تنبيهات المحل: زبون يطلب موظفًا، أو رسالة لم يُرد عليها. حتى {MAX_ALERT_NUMBERS} أرقام.
             {!ai.alert_template && ' قالب التنبيه لم يُعتمد بعد عند Meta، فالتنبيه يصل فقط خلال 24 ساعة من آخر رسالة من الرقم.'}
           </span>
@@ -185,20 +189,20 @@ function BotCard({ biz, botEnabled, onBotChange, onSaved }) {
           <textarea rows={2} value={f.out_of_hours_message} onChange={set('out_of_hours_message')} className={area} />
         </Field>
         <div>
-          <span className="block text-[12px] text-gray-600 mb-1">أوقات الدوام</span>
-          <ul className="space-y-1">
+          <span className={`block mb-1.5 ${labelClass}`}>أوقات الدوام</span>
+          <ul className="m-0 p-0 list-none flex flex-col gap-1.5">
             {hours.map((d, i) => (
-              <li key={d.day} className="flex items-center gap-2 text-[13px]">
-                <span className="w-16 shrink-0 text-gray-700">{d.day}</span>
-                {d.closed ? <span className="flex-1 text-gray-400">مغلق</span> : (
+              <li key={d.day} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="w-16 shrink-0 text-shift-ink">{d.day}</span>
+                {d.closed ? <span className="flex-1 text-shift-muted">مغلق</span> : (
                   <span className="flex-1 flex items-center gap-1.5" dir="ltr">
-                    <input type="time" value={d.open} onChange={(e) => setDay(i, { open: e.target.value })} className="h-8 rounded-md border border-gray-200 px-2 text-[12px]" />
-                    <span className="text-gray-400">–</span>
-                    <input type="time" value={d.close} onChange={(e) => setDay(i, { close: e.target.value })} className="h-8 rounded-md border border-gray-200 px-2 text-[12px]" />
+                    <input type="time" value={d.open} onChange={(e) => setDay(i, { open: e.target.value })} aria-label={`${d.day} يفتح`} className={timeInput} />
+                    <span className="text-shift-muted">–</span>
+                    <input type="time" value={d.close} onChange={(e) => setDay(i, { close: e.target.value })} aria-label={`${d.day} يغلق`} className={timeInput} />
                   </span>
                 )}
-                <label className="shrink-0 inline-flex items-center gap-1 text-[12px] text-gray-600">
-                  <input type="checkbox" checked={d.closed} onChange={(e) => setDay(i, { closed: e.target.checked })} /> مغلق
+                <label className="shrink-0 inline-flex items-center gap-1.5 min-h-[40px] text-[13px] text-shift-body">
+                  <input type="checkbox" checked={d.closed} onChange={(e) => setDay(i, { closed: e.target.checked })} className="w-4 h-4" /> مغلق
                 </label>
               </li>
             ))}
@@ -206,7 +210,7 @@ function BotCard({ biz, botEnabled, onBotChange, onSaved }) {
         </div>
       </div>
       <SaveBar {...s} onSave={() => s.save({ ai_config: f, opening_hours: hours })} />
-    </Panel>
+    </Card>
   );
 }
 
@@ -220,8 +224,8 @@ function DeliveryCard({ biz, onSaved }) {
   });
   const s = useSave(biz.id, onSaved);
   return (
-    <Panel title="التوصيل والطلبات">
-      <div className="p-4 grid gap-3 sm:grid-cols-2">
+    <Card title="التوصيل والطلبات">
+      <div className="grid gap-3.5 sm:grid-cols-2">
         <Field label="رسوم التوصيل (د.أ)">
           <input type="number" step="0.1" min="0" dir="ltr" value={f.delivery_fee}
             onChange={(e) => setF({ ...f, delivery_fee: parseFloat(e.target.value) || 0 })} className={input} />
@@ -231,7 +235,7 @@ function DeliveryCard({ biz, onSaved }) {
             onChange={(e) => setF({ ...f, min_order_amount: parseFloat(e.target.value) || 0 })} className={input} />
         </Field>
         <div className="sm:col-span-2">
-          <span className="block text-[12px] text-gray-600 mb-1">طرق الدفع عند الاستلام</span>
+          <span className={`block mb-1.5 ${labelClass}`}>طرق الدفع عند الاستلام</span>
           <ListInput value={f.payment_methods} onChange={(v) => setF({ ...f, payment_methods: v })} placeholder="مثال: نقدًا" />
         </div>
         <div className="sm:col-span-2">
@@ -242,16 +246,16 @@ function DeliveryCard({ biz, onSaved }) {
       </div>
       {/* The whole policies object: the server replaces it, so other keys are carried over. */}
       <SaveBar {...s} onSave={() => s.save({ policies: { ...(biz.policies || {}), ...f } })} />
-    </Panel>
+    </Card>
   );
 }
 
 export default function AccountSettingsTab({ biz, botEnabled, onBotChange, onSaved }) {
   return (
-    <div className="space-y-4">
-      <GeneralCard biz={biz} onSaved={onSaved} />
+    <div className="max-w-[760px] flex flex-col gap-4">
       <BotCard biz={biz} botEnabled={botEnabled} onBotChange={onBotChange} onSaved={onSaved} />
       {biz.business_type === 'restaurant' && <DeliveryCard biz={biz} onSaved={onSaved} />}
+      <GeneralCard biz={biz} onSaved={onSaved} />
     </div>
   );
 }

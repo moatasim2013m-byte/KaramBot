@@ -8,7 +8,19 @@
  * moves on to «يعلّم البوت», so the card itself says SHIFT still has to confirm it, with the
  * button (spec step 11); a shop stuck connecting gets «اربط معه» (the account's «الحالة» tab,
  * where SHIFT runs the attended connect).
+ *
+ * Who acts next is the server's call (deriveCard's next_actor), made from the same facts as the
+ * stage. cardNextActor only falls back to the card's own flags for a card without it (a server
+ * older than the field), and never reads reason_ar's wording.
  */
+
+export function cardNextActor(card, stage) {
+  if (card && Object.prototype.hasOwnProperty.call(card, 'next_actor')) return card.next_actor || null;
+  if (stage === 'live') return null;
+  if (card.payment_claimed || card.needs_operator) return 'shift';
+  if (stage === 'invite_sent' && (!card.invite_expires_at || new Date(card.invite_expires_at).getTime() < Date.now())) return 'shift';
+  return 'owner';
+}
 
 export function cardLines(card) {
   const step = (card && card.last_es_step_ar) || null;

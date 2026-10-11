@@ -618,6 +618,29 @@ function deriveCard({
     else reason = 'لم يفتح الرابط بعد';
   }
 
+  // Who the next move belongs to, from the same facts as the stage and reason, so the board never
+  // has to read it back out of reason_ar's wording. SHIFT: a card to confirm, anything flagged
+  // needs_operator, a link it has yet to make, reissue or share, a connect it runs itself (the
+  // owner's button closed, a revoked grant, a failure on our side of Meta's window). The owner:
+  // everything else short of «يعمل», where nobody owes a move.
+  const inviteShared = latest('invite_shared');
+  const paymentClaimed = Boolean(onboarding && onboarding.payment_method_claimed_at && !onboarding.payment_method_ok);
+  const latestEs = events.find((e) => ES_TYPES.includes(e.type) && e.type !== 'es_started') || null;
+  // A failure after Meta's window closed (data.stage, not the browser's own report) or a number
+  // that is not on the owner's Facebook login is not something pressing «اربط واتساب» again fixes.
+  const esNeedsShift = Boolean(latestEs) && (
+    (latestEs.type === 'es_failed' && (latestEs.data || {}).source !== 'browser')
+    || (latestEs.type === 'es_ownership_mismatch' && (latestEs.data || {}).blocking !== false));
+  let nextActor;
+  if (stage === 'live') nextActor = null;
+  else if (needsOperator || paymentClaimed) nextActor = 'shift';
+  else if (stage === 'invite_sent') {
+    const linkDead = !owner || !invite || new Date(invite.expires_at).getTime() < now.getTime();
+    nextActor = linkDead || (!opened && !inviteShared) ? 'shift' : 'owner';
+  } else if (stage === 'connecting') {
+    nextActor = !ownerConnect || (onboarding && onboarding.revoked_at) || esNeedsShift ? 'shift' : 'owner';
+  } else nextActor = 'owner';
+
   const sinceDate = since ? new Date(since) : null;
   return {
     stage,
@@ -637,7 +660,11 @@ function deriveCard({
       // The «فتحه» sub-badge on «أُرسل الرابط», and what «أعد إرسال الرابط» needs to know.
       opened,
       invite_expires_at: invite ? invite.expires_at : null,
-      payment_claimed: Boolean(onboarding && onboarding.payment_method_claimed_at && !onboarding.payment_method_ok),
+      payment_claimed: paymentClaimed,
+      // 'shift' | 'owner' | null (live): «المطلوب من» on the list.
+      next_actor: nextActor,
+      // When SHIFT last marked the link as sent (invite_shared), null if it never did.
+      invite_shared_at: inviteShared ? inviteShared.created_at : null,
     },
   };
 }

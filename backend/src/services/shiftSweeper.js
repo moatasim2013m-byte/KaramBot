@@ -43,6 +43,8 @@ const tokenHealth = require('./tokenHealth');
 const metaStatus = require('./metaStatus');
 const latePolicy = require('./latePolicy');
 const coexistence = require('./coexistence');
+const accountEvents = require('./accountEvents');
+const { botResumeAt } = require('./accountHealth');
 
 const MINUTE_MS = 60 * 1000;
 // A claimed note with no intent row after this belongs to a sweep that died: another may take it over.
@@ -96,6 +98,7 @@ function emptyReport() {
     reminders_sent: 0, reminders_skipped: 0, reminders_failed: 0, bookings_passed: 0,
     calendly_booked: 0, calendly_rescheduled: 0, calendly_cancelled: 0, calendly_unmatched: 0, calendly_errors: 0,
     weekly_followups_sent: 0, weekly_followups_failed: 0,
+    bot_pauses_lifted: 0,
     // The once-a-day step (sweepDaily): null on every other sweep of the day.
     daily: null,
     errors: [],
@@ -1311,6 +1314,49 @@ async function sweepStuckInbound(now) {
   return reprocessStuckInbound({ olderThanMs: STUCK_INBOUND_AGE_MS, now });
 }
 
+// The markers PATCH /api/admin/accounts/:id/bot removes when SHIFT resumes a bot by hand: an
+// automatic end of a timed pause leaves the shop exactly as that button would.
+const BOT_RESUME_MARKERS = ['paused_by', 'pause_reason', 'prior_pause', 'resume_at'];
+const BOT_PAUSE_ENDED_AR = 'انتهت مدة الإيقاف';
+
+/**
+ * «أوقف البوت 30 دقيقة»: turn the bot back on once SHIFT's timed pause has run out.
+ *
+ * Every shop, not only SHIFT's own: the pause is for customer shops. Filtered in JS, as the
+ * other ai_config reads here are: ten-odd shops, one narrow select a minute.
+ *
+ * Only a pause that is still SHIFT's timed one is lifted (accountHealth.botResumeAt): the owner's
+ * pause and the late policy's never carry a live resume_at, and a pause SHIFT has since renewed
+ * or made open-ended has a different (or no) resume_at. Between this read and the write someone
+ * may press a button, so resume_at is first claimed by compare-and-set against the value read
+ * (a concurrent sweep, or a new pause, makes the claim fail), then the row is read again: a pause
+ * the late policy laid over it in that moment is left alone.
+ */
+async function sweepBotPauses(now = new Date()) {
+  const shops = await prisma.business.findMany({ select: { id: true, ai_config: true } });
+  let lifted = 0;
+  for (const shop of shops) {
+    const resumeAt = botResumeAt(shop.ai_config);
+    if (!resumeAt || Date.parse(resumeAt) > new Date(now).getTime()) continue;
+    try {
+      if (!(await jsonb.casBusinessConfig(shop.id, 'resume_at', resumeAt, null))) continue;
+      const fresh = await prisma.business.findUnique({ where: { id: shop.id }, select: { id: true, ai_config: true } });
+      const cfg = (fresh && fresh.ai_config) || {};
+      if (cfg.enabled !== false || cfg.paused_by !== 'shift' || cfg.pause_reason) continue;
+      const { ok } = await jsonb.patchJson('businesses', shop.id, 'ai_config', { enabled: true }, { remove: BOT_RESUME_MARKERS });
+      if (!ok) continue;
+      await accountEvents.record({
+        businessId: shop.id, actorUserId: null, actorKind: 'system', type: 'bot_resumed',
+        data: { reason: BOT_PAUSE_ENDED_AR, resume_at: resumeAt, automatic: true },
+      });
+      lifted += 1;
+    } catch (err) {
+      console.error(`[sweep] bot_pauses failed for ${shop.id}:`, err.message);
+    }
+  }
+  return lifted;
+}
+
 async function runSweep({ now = new Date() } = {}) {
   // Scheduler and setInterval can overlap inside one instance; the DB claims cover other instances.
   if (running) return { skipped: 'already_running', ...emptyReport() };
@@ -1329,6 +1375,14 @@ async function runSweep({ now = new Date() } = {}) {
       businesses = await prisma.business.findMany({ where: { business_type: 'shift', status: 'active' } });
     } catch (err) {
       report.errors.push(`businesses: ${err.message}`);
+    }
+
+    // Before the SHIFT steps: a timed pause ends on the minute, whatever the sweep does after.
+    try {
+      report.bot_pauses_lifted = await sweepBotPauses(now);
+    } catch (err) {
+      report.errors.push(`bot_pauses: ${err.message}`);
+      console.error('[sweep] bot_pauses failed:', err.message);
     }
 
     for (const business of businesses) {
@@ -1473,4 +1527,5 @@ async function getShiftStatus({ now = new Date() } = {}) {
 
 module.exports = {
   runSweep, getShiftStatus, lastSweep, isCloser, STEPS, sweepDaily, resetDaily, dailyBudgetAfter, DAILY_BUDGET_MS,
+  sweepBotPauses, BOT_RESUME_MARKERS,
 };
