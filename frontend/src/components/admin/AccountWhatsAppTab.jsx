@@ -1,32 +1,35 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, RefreshCw, ChevronDown, Save } from 'lucide-react';
+import { Copy, RefreshCw, Save } from 'lucide-react';
 import api from '../../utils/api';
-import { Panel, Ltr, Timestamp, SkeletonRows } from '../shared/Primitives';
+import { Ltr, Timestamp, SkeletonRows } from '../shared/Primitives';
+import { Button, Card, Tag, fieldClass, labelClass } from './ui';
 
 /**
  * «واتساب وMeta» — the Meta side of one shop, for SHIFT only.
  *
- * «محاولات الربط» is this shop's slice of the onboarding board's attempts (when, by whom, result,
- * step, the Arabic error and Meta's session id, which is what Meta support asks for). Then the ids,
- * copyable, «اسأل Meta», the card confirmation with its undo, and — collapsed, because the
- * attended connect replaced it — the manual id and token form for hand-wired numbers such as
- * SHIFT's own. The token is write-only: what is stored is never sent back to a browser.
+ * First the connection in a line, the ids, copyable one by one or all at once, and «تحديث الحالة»
+ * (ask Meta); then the card confirmation with its undo. «تشخيص الربط» is this shop's slice of the
+ * onboarding board's attempts (when, by whom, result, step, the Arabic error and Meta's session id,
+ * which is what Meta support asks for), folded. Last — folded too, because the attended connect
+ * replaced it — the manual id and token form for hand-wired numbers such as SHIFT's own. The
+ * token is write-only: what is stored is never sent back to a browser.
  */
 
-const input = 'w-full h-9 border border-gray-200 rounded-md px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-gray-400';
-const RESULT_TONE = { اكتمل: 'text-emerald-700', خطأ: 'text-red-700', 'تعارض رقم': 'text-red-700', 'بحاجة لشِفت': 'text-amber-700' };
+const input = fieldClass;
+const RESULT_TONE = { اكتمل: 'text-shift-ok', خطأ: 'text-shift-danger', 'تعارض رقم': 'text-shift-danger', 'بحاجة لشِفت': 'text-shift-warn' };
+const RESULT_TAG = { خطأ: 'critical', 'تعارض رقم': 'critical', 'بحاجة لشِفت': 'warning' };
 const hasArabic = (s) => /[؀-ۿ]/.test(String(s || ''));
 
 function CopyId({ value }) {
   const [copied, setCopied] = useState(false);
-  if (!value) return <span className="text-gray-400">—</span>;
+  if (!value) return <span className="text-shift-muted">—</span>;
   const copy = async () => {
     try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* selectable anyway */ }
   };
   return (
-    <button type="button" onClick={copy} title="نسخ" className="inline-flex items-center gap-1 font-mono text-[12px] text-gray-700 hover:text-gray-900">
-      <Ltr className="max-w-[14rem] truncate">{value}</Ltr> <Copy size={11} />
-      {copied && <span className="font-sans text-emerald-700 text-[11px]">نُسخ</span>}
+    <button type="button" onClick={copy} title="نسخ" className="inline-flex items-center gap-1.5 min-h-[40px] max-w-full font-mono text-[12.5px] text-shift-ink hover:text-shift-accent">
+      <Ltr className="max-w-[14rem] truncate select-all">{value}</Ltr> <Copy size={13} className="shrink-0" />
+      {copied && <span role="status" className="font-sans text-shift-ok text-[12px]">نُسخ</span>}
     </button>
   );
 }
@@ -59,22 +62,20 @@ function ManualForm({ biz }) {
   };
 
   return (
-    <div className="p-4 space-y-3 border-t border-gray-100">
-      <p className="text-[12px] text-gray-500">للأرقام الموصولة يدويًا فقط (مثل رقم شِفت). الربط العادي يتم من «الحالة» مع صاحب المحل.</p>
+    <div className="mt-3 flex flex-col gap-3">
+      <p className="m-0 text-[13px] text-shift-body">للأرقام الموصولة يدويًا فقط (مثل رقم شِفت). الربط العادي يتم من «الحالة» مع صاحب المحل.</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block"><span className="block text-[12px] text-gray-600 mb-1">معرّف الرقم (Phone Number ID)</span>
+        <label className="flex flex-col gap-1.5 min-w-0"><span className={labelClass}>معرّف الرقم (Phone Number ID)</span>
           <input value={phoneId} onChange={(e) => setPhoneId(e.target.value)} dir="ltr" className={`${input} font-mono`} /></label>
-        <label className="block"><span className="block text-[12px] text-gray-600 mb-1">حساب واتساب للأعمال (WABA ID)</span>
+        <label className="flex flex-col gap-1.5 min-w-0"><span className={labelClass}>حساب واتساب للأعمال (WABA ID)</span>
           <input value={wabaId} onChange={(e) => setWabaId(e.target.value)} dir="ltr" className={`${input} font-mono`} /></label>
       </div>
-      <button type="button" onClick={saveIds} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-[12px] disabled:opacity-50"><Save size={12} /> احفظ المعرّفات</button>
-      <label className="block"><span className="block text-[12px] text-gray-600 mb-1">رمز وصول جديد</span>
+      <Button variant="primary" onClick={saveIds} disabled={busy} className="self-start"><Save size={15} /> احفظ المعرّفات</Button>
+      <label className="flex flex-col gap-1.5"><span className={labelClass}>رمز وصول جديد</span>
         <input type="password" value={token} onChange={(e) => setToken(e.target.value)} dir="ltr" autoComplete="new-password" className={input} /></label>
-      <p className="text-[11px] text-gray-400">الرمز المحفوظ لا يُعرض أبدًا؛ ما تكتبه هنا يستبدله ويُخزَّن مشفّرًا.</p>
-      <button type="button" onClick={saveToken} disabled={busy || !token.trim()}
-        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-gray-900 text-white text-[12px] disabled:opacity-50"><Save size={12} /> احفظ رمز الوصول</button>
-      {msg && <p className={`text-[12px] ${msg.tone === 'error' ? 'text-red-700' : 'text-emerald-700'}`}>{msg.text}</p>}
+      <p className="m-0 text-[12.5px] text-shift-muted">الرمز المحفوظ لا يُعرض أبدًا؛ ما تكتبه هنا يستبدله ويُخزَّن مشفّرًا.</p>
+      <Button variant="primary" onClick={saveToken} disabled={busy || !token.trim()} className="self-start"><Save size={15} /> احفظ رمز الوصول</Button>
+      {msg && <p role={msg.tone === 'error' ? 'alert' : 'status'} className={`m-0 text-[13px] ${msg.tone === 'error' ? 'text-shift-danger' : 'text-shift-ok'}`}>{msg.text}</p>}
     </div>
   );
 }
@@ -84,7 +85,7 @@ export default function AccountWhatsAppTab({ accountId, biz }) {
   const [attempts, setAttempts] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [manual, setManual] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/admin/accounts/${accountId}`)
@@ -114,101 +115,110 @@ export default function AccountWhatsAppTab({ accountId, biz }) {
   };
 
   const onb = detail?.onboarding || null;
+  const ids = detail ? [
+    ['معرّف الرقم', onb?.phone_number_id || detail.account?.wa_phone_number_id],
+    ['حساب واتساب للأعمال', onb?.waba_id || detail.account?.wa_business_account_id],
+    ['تطبيق Meta', detail.account?.wa_app_id],
+  ] : [];
+
+  // All the ids in one paste, labelled, for a Meta support ticket.
+  const copyAll = async () => {
+    const text = ids.filter(([, v]) => v).map(([l, v]) => `${l}: ${v}`).join('\n');
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); } catch { /* each id is selectable */ }
+  };
+
+  const card = onb?.payment_blocked_at ? ['critical', 'رفضت واتساب الإرسال بسبب طريقة الدفع']
+    : onb?.payment_method_ok ? [null, 'مؤكَّدة']
+      : onb?.payment_method_claimed_at ? ['warning', null]
+        : ['warning', 'غير مؤكَّدة'];
 
   return (
-    <div className="space-y-4">
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+    <div className="flex flex-col gap-4">
+      {error && <div role="alert" className="bg-shift-dangerBg border border-shift-dangerLine text-shift-danger text-sm rounded-xl px-4 py-3">{error}</div>}
 
-      <Panel title={`محاولات الربط${attempts?.length ? ` · ${attempts.length}` : ''}`}>
-        {!attempts ? <SkeletonRows rows={3} cols={5} /> : attempts.length === 0 ? (
-          <p className="px-4 py-4 text-[13px] text-gray-400">لا محاولات ربط مسجّلة لهذا المحل.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="text-right text-[11px] text-gray-500 border-b border-gray-100">
-                  {['الوقت', 'بدأها', 'النتيجة', 'الخطوة', 'الخطأ', 'رمز جلسة Meta'].map((h) => <th key={h} className="px-4 h-9 font-medium whitespace-nowrap">{h}</th>)}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {attempts.map((a, i) => {
-                  const result = hasArabic(a.result_ar) ? a.result_ar : '—';
-                  return (
-                    <tr key={`${a.at}-${i}`} className="align-top">
-                      <td className="px-4 py-2 whitespace-nowrap text-gray-600"><Timestamp value={a.at} /></td>
-                      <td className="px-4 py-2 text-gray-700">{a.started_by_ar || '—'}</td>
-                      <td className={`px-4 py-2 font-medium ${RESULT_TONE[result] || 'text-gray-700'}`}>{result}</td>
-                      <td className="px-4 py-2 text-gray-700">{a.step_ar || '—'}</td>
-                      <td className="px-4 py-2 text-gray-700">{a.error_ar || '—'}</td>
-                      <td className="px-4 py-2"><CopyId value={a.session_id} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-
-      <Panel title="المعرّفات"
+      <Card title="واتساب وMeta"
         action={(
-          <button type="button" onClick={askMeta} disabled={busy} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 disabled:opacity-40">
-            <RefreshCw size={12} /> {busy ? 'جارٍ…' : 'اسأل Meta'}
-          </button>
+          <Button size="sm" onClick={askMeta} disabled={busy} className="!min-h-[40px]">
+            <RefreshCw size={13} /> {busy ? 'جارٍ…' : 'تحديث الحالة'}
+          </Button>
         )}>
         {!detail ? <SkeletonRows rows={3} cols={2} /> : (
-          <dl className="divide-y divide-gray-50">
-            {[
-              ['معرّف الرقم', onb?.phone_number_id || detail.account?.wa_phone_number_id],
-              ['حساب واتساب للأعمال', onb?.waba_id || detail.account?.wa_business_account_id],
-              ['تطبيق Meta', detail.account?.wa_app_id],
-            ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between gap-3 px-4 h-10">
-                <dt className="text-[13px] text-gray-600">{label}</dt>
-                <dd><CopyId value={value} /></dd>
-              </div>
-            ))}
-            <div className="flex items-center justify-between gap-3 px-4 h-10">
-              <dt className="text-[13px] text-gray-600">رمز الوصول</dt>
-              <dd className="text-[12px] text-gray-700">{detail.account?.has_token ? 'محفوظ (مشفّر)' : 'غير محفوظ'}</dd>
+          <div className="flex flex-col gap-3 text-sm text-shift-ink">
+            <div className="flex flex-wrap gap-x-6 gap-y-1">
+              <span>{detail.account?.connection?.label || '—'}{(biz?.connected_at || detail.account?.connected_at) && <> · متصل منذ <Timestamp value={biz?.connected_at || detail.account.connected_at} /></>}</span>
+              <span>رمز الوصول: {detail.account?.has_token ? 'محفوظ (مشفّر)' : 'غير محفوظ'}</span>
+              {onb?.meta?.checked_at && <span className="text-shift-muted">آخر سؤال لـ Meta <Timestamp value={onb.meta.checked_at} /></span>}
             </div>
-            {onb?.meta?.checked_at && (
-              <div className="flex items-center justify-between gap-3 px-4 h-9">
-                <dt className="text-[11px] text-gray-400">آخر سؤال لـ Meta</dt>
-                <dd><Timestamp value={onb.meta.checked_at} className="text-[11px] text-gray-400" /></dd>
-              </div>
-            )}
-          </dl>
+            <dl className="m-0 flex flex-col">
+              {ids.map(([label, value]) => (
+                <div key={label} className="flex flex-wrap items-center justify-between gap-x-3 border-t border-shift-line2">
+                  <dt className="text-shift-body">{label}</dt>
+                  <dd className="m-0 min-w-0"><CopyId value={value} /></dd>
+                </div>
+              ))}
+            </dl>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={copyAll} disabled={!ids.some(([, v]) => v)}><Copy size={15} /> نسخ المعرّفات</Button>
+              {copiedAll && <span role="status" className="text-[13px] text-shift-ok">نُسخت</span>}
+            </div>
+          </div>
         )}
-      </Panel>
+      </Card>
 
       {onb && (
-        <Panel title="بطاقة الدفع عند Meta">
-          <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] text-gray-700">
-              {onb.payment_blocked_at ? <span className="text-red-700 font-medium">رفضت واتساب الإرسال بسبب طريقة الدفع</span>
-                : onb.payment_method_ok ? <>مؤكَّدة{onb.payment_method_marked_by && <span className="text-gray-400"> — أكّدها {onb.payment_method_marked_by}</span>}</>
-                  : onb.payment_method_claimed_at ? <>قال الزبون «أضفت البطاقة» <Timestamp value={onb.payment_method_claimed_at} /> — بانتظار تأكيد شِفت</>
-                    : 'غير مؤكَّدة'}
+        <Card title="الدفع لدى Meta">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 text-sm text-shift-ink flex flex-wrap items-center gap-2">
+              {card[0] && <Tag tone={card[0]} />}
+              {onb.payment_method_claimed_at && !onb.payment_method_ok && !onb.payment_blocked_at
+                ? <span>قال الزبون «أضفت البطاقة» <Timestamp value={onb.payment_method_claimed_at} /> — بانتظار تأكيد شِفت</span>
+                : <span className={onb.payment_blocked_at ? 'text-shift-danger font-semibold' : ''}>{card[1]}</span>}
+              {onb.payment_method_ok && onb.payment_method_marked_by && <span className="text-shift-muted">— أكّدها {onb.payment_method_marked_by}</span>}
             </p>
             {onb.payment_method_ok ? (
-              <button type="button" onClick={() => setCard(false)} disabled={busy} className="text-[12px] text-gray-500 hover:text-red-600 underline">تراجَع عن التأكيد</button>
+              <button type="button" onClick={() => setCard(false)} disabled={busy} className="min-h-[40px] px-2 text-[13px] text-shift-muted hover:text-shift-danger underline">تراجَع عن التأكيد</button>
             ) : (
-              <button type="button" onClick={() => setCard(true)} disabled={busy}
-                className="h-8 px-3 rounded-md bg-gray-900 text-white text-[12px] disabled:opacity-40">أكّد البطاقة</button>
+              <Button variant="primary" onClick={() => setCard(true)} disabled={busy}>أكّد البطاقة</Button>
             )}
           </div>
-        </Panel>
+        </Card>
       )}
 
-      <Panel>
-        <button type="button" onClick={() => setManual((v) => !v)}
-          className="w-full flex items-center justify-between px-4 h-11 text-[13px] font-semibold text-gray-700">
-          متقدم: إدخال يدوي
-          <ChevronDown size={15} className={`text-gray-400 transition-transform ${manual ? 'rotate-180' : ''}`} />
-        </button>
-        {manual && biz && <ManualForm biz={biz} />}
-      </Panel>
+      <Card>
+        <details>
+          <summary className="cursor-pointer min-h-[40px] flex items-center font-display text-base font-semibold text-shift-ink">
+            تشخيص الربط{attempts ? ` · ${attempts.length === 0 ? 'لا محاولات' : attempts.length === 1 ? 'محاولة واحدة' : `${attempts.length} محاولات`}` : ''}
+          </summary>
+          {!attempts ? <SkeletonRows rows={3} cols={5} /> : attempts.length === 0 ? (
+            <p className="m-0 mt-2 text-sm text-shift-body">لا محاولات ربط مسجّلة لهذا المحل.</p>
+          ) : (
+            <ul className="m-0 mt-2 p-0 list-none">
+              {attempts.map((a, i) => {
+                const result = hasArabic(a.result_ar) ? a.result_ar : '—';
+                return (
+                  <li key={`${a.at}-${i}`} className="py-2.5 border-t border-shift-line2 text-sm text-shift-body flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Timestamp value={a.at} className="text-shift-ink" />
+                    <span>· بدأها {a.started_by_ar || '—'}</span>
+                    <span className={`font-semibold ${RESULT_TONE[result] || 'text-shift-ink'}`}>· {result}</span>
+                    {RESULT_TAG[result] && <Tag tone={RESULT_TAG[result]} />}
+                    {a.step_ar && <span>· الخطوة: {a.step_ar}</span>}
+                    {a.error_ar && <span className="basis-full text-shift-danger">{a.error_ar}</span>}
+                    {a.session_id && <span className="basis-full flex flex-wrap items-center gap-x-2">رمز جلسة Meta <CopyId value={a.session_id} /></span>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </details>
+      </Card>
+
+      <Card>
+        <details>
+          <summary className="cursor-pointer min-h-[40px] flex items-center font-display text-base font-semibold text-shift-ink">متقدم: إدخال يدوي</summary>
+          {biz && <ManualForm biz={biz} />}
+        </details>
+      </Card>
     </div>
   );
 }

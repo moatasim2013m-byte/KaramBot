@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../../utils/api';
-import { Panel, Timestamp, Ltr } from '../shared/Primitives';
+import { Timestamp, Ltr } from '../shared/Primitives';
+import { Button, Card, Tag, fieldClass } from './ui';
 import {
   orphanActions, orphanNumber, needsReplaceConfirm, attachBody,
 } from '../../pages/admin/orphanView';
@@ -73,77 +74,75 @@ export default function OrphanSignups({ accounts, onDone }) {
   const pickable = [...(accounts || [])].sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar'));
 
   return (
-    <Panel title={`ربط بدون حساب${orphans?.length ? ` · ${orphans.length}` : ''}`}>
-      {error && <p className="px-4 py-2 text-[13px] text-red-700 bg-red-50 border-b border-red-100">{error}</p>}
-      <ul className="divide-y divide-gray-100">
+    <Card pad={false} title={`ربط بدون حساب${orphans?.length ? ` · ${orphans.length}` : ''}`}>
+      {error && <p role="alert" className="m-0 px-[18px] py-2.5 text-[13.5px] text-shift-danger bg-shift-dangerBg border-y border-shift-dangerLine">{error}</p>}
+      <ul className="m-0 p-0 list-none">
         {(orphans || []).map((o) => {
           const actions = orphanActions(o);
           const number = orphanNumber(o);
           return (
-          <li key={o.id} className="px-4 py-2.5">
+          <li key={o.id} className="px-[18px] py-3 border-t border-shift-line2">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="text-[13px] font-medium text-gray-900">{o.verified_name || 'بدون اسم عند Meta'}</span>
-              {number.tone === 'number' ? <Ltr className="text-[13px] text-gray-700">{number.text}</Ltr>
-                : <span className={`text-[12px] ${number.tone === 'missing' ? 'text-amber-700' : 'text-gray-500'}`}>{number.text}</span>}
-              <span className="text-[12px] text-gray-500">
+              <span className="text-sm font-semibold text-shift-ink">{o.verified_name || 'بدون اسم عند Meta'}</span>
+              {number.tone === 'number' ? <Ltr className="text-sm text-shift-ink tabular-nums">{number.text}</Ltr>
+                : number.tone === 'missing' ? <Tag tone="warning">{number.text}</Tag>
+                  : <span className="text-[13px] text-shift-muted">{number.text}</span>}
+              <span className="text-[13px] text-shift-body">
                 {o.needs === 'number' ? 'وافق في Meta ولم يُحدَّد الرقم' : (ORPHAN_KIND[o.kind] || '')}
               </span>
-              {o.business_name && <span className="text-[12px] text-gray-700">{o.business_name}</span>}
-              {o.waba_id && <span className="text-[11px] text-gray-400">حساب واتساب <Ltr className="font-mono">{o.waba_id}</Ltr></span>}
-              <Timestamp value={o.created_at} className="text-[11px] text-gray-400" />
+              {o.business_name && <span className="text-[13px] text-shift-ink">{o.business_name}</span>}
+              {o.waba_id && <span className="text-xs text-shift-muted">حساب واتساب <Ltr className="font-mono">{o.waba_id}</Ltr></span>}
+              <Timestamp value={o.created_at} className="text-xs text-shift-muted" />
               <span className="flex-1" />
               {/* orphanView.js: a row with a shop already (needs 'number') is completed, never
                   attached; an unattached row is attached, never completed. */}
               {actions.attach && (
-                <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
+                <Button size="sm" className="!min-h-[40px]"
                   onClick={() => { setOpen({ id: o.id, mode: 'attach' }); setValue(''); setConfirmReplace(null); }}>
                   اربطه بزبون…
-                </button>
+                </Button>
               )}
               {actions.complete && (
-                <button type="button" className="text-[12px] text-gray-700 underline underline-offset-2 hover:text-gray-900"
-                  onClick={() => openComplete(o)}>
+                <Button size="sm" className="!min-h-[40px]" onClick={() => openComplete(o)}>
                   أكمل الربط
-                </button>
+                </Button>
               )}
             </div>
             {open?.id === o.id && (
-              <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); submit(o); }}>
+              <form className="mt-2.5 flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); submit(o); }}>
                 {open.mode === 'attach' ? (
-                  <select value={value} onChange={(e) => setValue(e.target.value)}
-                    className="h-8 min-w-[200px] rounded border border-gray-200 px-2 text-[13px]">
+                  <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="الزبون"
+                    className={`${fieldClass} !w-auto min-w-[220px] max-w-full`}>
                     <option value="">اختر الزبون</option>
                     {pickable.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 ) : numbers && numbers.length > 0 ? (
-                  <select value={value} onChange={(e) => setValue(e.target.value)}
-                    className="h-8 min-w-[200px] rounded border border-gray-200 px-2 text-[13px]">
+                  <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="الرقم"
+                    className={`${fieldClass} !w-auto min-w-[220px] max-w-full`}>
                     <option value="">اختر الرقم</option>
                     {numbers.map((n) => (
                       <option key={n.id} value={n.id}>{[n.display_phone, n.verified_name].filter(Boolean).join(' · ') || n.id}</option>
                     ))}
                   </select>
                 ) : (
-                  <input value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
+                  <input value={value} onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))} aria-label="معرّف الرقم"
                     inputMode="numeric" dir="ltr" placeholder="معرّف الرقم من WhatsApp Manager"
-                    className="h-8 w-64 rounded border border-gray-200 px-2 font-mono text-[13px]" />
+                    className={`${fieldClass} !w-72 max-w-full font-mono`} />
                 )}
-                <button type="submit" disabled={busy || !value}
-                  className="h-8 rounded bg-gray-900 px-3 text-[12px] font-medium text-white disabled:opacity-40">
+                <Button type="submit" variant="primary" disabled={busy || !value}>
                   {busy ? 'جارٍ…' : open.mode === 'attach' ? 'اربط' : 'أكمل'}
-                </button>
-                <button type="button" onClick={() => { setOpen(null); setConfirmReplace(null); }} className="text-[12px] text-gray-500 underline">إلغاء</button>
+                </Button>
+                <Button variant="link" className="min-h-[44px]" onClick={() => { setOpen(null); setConfirmReplace(null); }}>إلغاء</Button>
               </form>
             )}
             {confirmReplace?.id === o.id && open?.id === o.id && (
-              <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-900">
-                <p>{confirmReplace.message} رقمه الحالي يتوقف عن استقبال الرسائل.</p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <button type="button" disabled={busy} onClick={() => submit(o, { replace: true })}
-                    className="h-7 rounded bg-amber-700 px-3 font-medium text-white disabled:opacity-40">
+              <div role="alert" className="mt-2.5 rounded-xl border border-shift-dangerLine bg-shift-dangerBg p-3 text-[13.5px] text-shift-ink">
+                <p className="m-0"><Tag tone="critical">تنبيه</Tag> {confirmReplace.message} رقمه الحالي يتوقف عن استقبال الرسائل.</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button variant="danger" disabled={busy} onClick={() => submit(o, { replace: true })}>
                     {busy ? 'جارٍ…' : 'استبدل الرقم'}
-                  </button>
-                  <button type="button" onClick={() => setConfirmReplace(null)} className="text-gray-600 underline">تراجع</button>
+                  </Button>
+                  <Button variant="link" className="min-h-[44px] !text-shift-body" onClick={() => setConfirmReplace(null)}>تراجع</Button>
                 </div>
               </div>
             )}
@@ -151,6 +150,6 @@ export default function OrphanSignups({ accounts, onDone }) {
           );
         })}
       </ul>
-    </Panel>
+    </Card>
   );
 }

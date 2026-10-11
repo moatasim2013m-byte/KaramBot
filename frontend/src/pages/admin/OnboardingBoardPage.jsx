@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Copy, CreditCard, Link2, MessageCircle, Plus, Send, XCircle } from 'lucide-react';
 import api from '../../utils/api';
-import { EmptyState, Freshness, Ltr, Panel, SkeletonRows, Timestamp, relativeTime } from '../../components/shared/Primitives';
+import { EmptyState, Freshness, SkeletonRows, Timestamp, relativeTime } from '../../components/shared/Primitives';
+import { Card, Footnote, PageHeader, Pill, Tag, btnClass } from '../../components/admin/ui';
 import { cardActions, cardBadges, cardLines } from './boardCardView';
 
 /**
  * «الانضمام» — /admin/onboarding, the October campaign board (docs/panels/spec.md, «Operator
  * panel»).
  *
- * Where each invited shop is between the link and «يعمل», who is stuck and why. The stage is
+ * Where each invited shop is between the link and «يعمل», who acts next and why. The stage is
  * derived on the server from stored data and AccountEvents and never stored, so this page only
- * draws what GET /api/admin/onboarding says. Below the board: every Meta attempt, including the
- * abandoned ones that left no trace before, and a pointer to «ربط بدون حساب».
+ * draws what GET /api/admin/onboarding says.
  *
- * RTL six columns on a wide screen; on a phone the same columns stack as a list grouped by stage.
+ * Two views of the same cards: «قائمة» (the default, ?view=list) is every shop not yet live, one
+ * row each with its step, who the next move belongs to and that move first; «لوحة» (?view=board)
+ * is the six stage columns, scrolling sideways inside their own strip on a phone. Below both, the
+ * Meta attempts, collapsed: they are for diagnosing a stuck connect, not for the daily read.
  */
 
 // The board's order, right to left. The server sends the label too; this is the fallback and the
@@ -43,8 +46,8 @@ const RESULT_AR = {
   ownership_mismatch: 'رقم لا يخص الحساب',
 };
 const RESULT_TONE = {
-  اكتمل: 'text-emerald-700', خطأ: 'text-red-700', 'تعارض رقم': 'text-red-700',
-  'رقم لا يخص الحساب': 'text-red-700', 'بحاجة لشِفت': 'text-amber-700',
+  اكتمل: 'text-shift-ok', خطأ: 'text-shift-danger', 'تعارض رقم': 'text-shift-danger',
+  'رقم لا يخص الحساب': 'text-shift-danger', 'بحاجة لشِفت': 'text-shift-warn', 'أُلغي': 'text-shift-warn',
 };
 const hasArabic = (s) => /[؀-ۿ]/.test(String(s || ''));
 function resultLabel(r) {
@@ -63,92 +66,248 @@ function ownerWaLink(card) {
   return `https://wa.me/${digits}?text=${encodeURIComponent(`${hi}معك شِفت بخصوص تفعيل كرم بوت لـ${card.name}.`)}`;
 }
 
-const BADGE_CLS = {
-  needs_operator: 'bg-amber-100 text-amber-800',
-  payment_claimed: 'bg-violet-50 text-violet-700',
-  opened: 'bg-blue-50 text-blue-700',
-};
-const BTN = 'inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 h-8 text-[12px] text-gray-700 hover:bg-gray-50 disabled:opacity-50';
+const inviteDead = (card) => !card.invite_expires_at || new Date(card.invite_expires_at).getTime() < Date.now();
 
-function StageCard({ card, stage, busy, onResend, onRevoke, onConfirmCard }) {
-  const wa = ownerWaLink(card);
-  const lines = cardLines(card);
-  const badges = cardBadges(card, stage);
+// The two server reasons that put the next move on SHIFT without a flag of their own
+// (deriveCard in backend/src/routes/adminAccounts.js): the link was made but never shared, and
+// the owner's connect button is off so SHIFT connects with them.
+const SHIFT_REASONS = ['الرابط جاهز ولم يُرسل بعد', 'بانتظار ربط واتساب مع شِفت'];
+
+/**
+ * Who the next move belongs to, and which of cardActions is that move. Everything else
+ * cardActions offers stays on the row, after it. Derived only from the card the server sends.
+ */
+function nextMove(card, stage) {
+  const kinds = cardActions(card, stage).map((a) => a.kind);
+  if (card.payment_claimed) return { who: 'shift', primary: 'confirm_card' };
+  if (stage === 'invite_sent') {
+    if (inviteDead(card) || SHIFT_REASONS.includes(card.reason_ar)) return { who: 'shift', primary: 'resend' };
+    return { who: 'owner', primary: 'message' };
+  }
+  if (stage === 'connecting' && (card.needs_operator || SHIFT_REASONS.includes(card.reason_ar))) {
+    return { who: 'shift', primary: kinds.includes('connect_with') ? 'connect_with' : 'message' };
+  }
+  if (card.needs_operator) return { who: 'shift', primary: 'message' };
+  if (stage === 'live') return { who: null, primary: 'message' };
+  return { who: 'owner', primary: 'message' };
+}
+
+const WHO_AR = { shift: 'شِفت', owner: 'صاحب المحل' };
+
+const ACTION_BTN = `${btnClass('secondary', 'sm')} !min-h-[40px]`;
+
+/** One of cardActions as a button or a link. `primary` gets the full-weight outline. */
+function ActionButton({ action, card, busy, primary, onResend, onRevoke, onConfirmCard }) {
+  const cls = primary ? ACTION_BTN : `${ACTION_BTN} !border-shift-line !text-shift-body`;
+  if (action.kind === 'message') {
+    const wa = ownerWaLink(card);
+    return wa ? (
+      <a href={wa} target="_blank" rel="noopener noreferrer" className={cls}><MessageCircle size={14} /> {action.label}</a>
+    ) : (
+      <Link to={`/admin/accounts/${card.account_id}`} className={cls}><MessageCircle size={14} /> {action.label}</Link>
+    );
+  }
+  // A link can be reissued or withdrawn only before the owner signs in: after that the server
+  // answers 409, so these are offered in the first stage only (cardActions).
+  if (action.kind === 'resend') {
+    return <button type="button" disabled={busy} onClick={() => onResend(card)} className={cls}><Send size={14} /> {action.label}</button>;
+  }
+  if (action.kind === 'revoke') {
+    return (
+      <button type="button" disabled={busy} onClick={() => onRevoke(card)}
+        className={`${btnClass('danger', 'sm')} !min-h-[40px] !font-medium`}><XCircle size={14} /> {action.label}</button>
+    );
+  }
+  if (action.kind === 'connect_with') {
+    return <Link to={action.to} className={cls}><Link2 size={14} /> {action.label}</Link>;
+  }
+  if (action.kind === 'confirm_card') {
+    return <button type="button" disabled={busy} onClick={() => onConfirmCard(card)} className={cls}><CreditCard size={14} /> {action.label}</button>;
+  }
+  return null;
+}
+
+function Actions({ card, stage, primary, ...handlers }) {
   const actions = cardActions(card, stage);
+  const ordered = [...actions.filter((a) => a.kind === primary), ...actions.filter((a) => a.kind !== primary)];
   return (
-    <li className={`rounded-lg border bg-white p-3 ${card.stuck ? 'border-red-200 border-r-4 border-r-red-500' : 'border-gray-200'}`}>
-      <div className="flex items-start justify-between gap-2">
-        <Link to={`/admin/accounts/${card.account_id}`} className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-gray-900 hover:underline">{card.name}</p>
-          <p className="text-[12px] text-gray-500">
-            {card.owner_first_name || '—'} · <span title={card.since ? new Date(card.since).toLocaleString('ar-JO') : ''}>{relativeTime(card.since)}</span>
-          </p>
-        </Link>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          {badges.map((b) => (
-            <span key={b.kind} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${BADGE_CLS[b.kind] || 'bg-gray-100 text-gray-700'}`}>{b.label}</span>
-          ))}
-        </div>
-      </div>
+    <div className="flex flex-wrap gap-1.5">
+      {ordered.map((a, i) => <ActionButton key={a.kind} action={a} card={card} primary={i === 0} {...handlers} />)}
+    </div>
+  );
+}
 
-      {/* The server's line already says «توقف عند: …» or «فشل عند: …». */}
-      {lines.step && <p className="mt-1.5 text-[12px] text-gray-700">{lines.step}</p>}
-      {lines.reason && (
-        <p className="mt-1 flex items-start gap-1 text-[12px] text-red-700">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {lines.reason}
+// cardBadges as written tags: «بحاجة لشِفت» and the unconfirmed card are warnings, «فتحه» is info.
+const BADGE_TONE = { needs_operator: 'warning', payment_claimed: 'warning', opened: 'info' };
+
+function Badges({ card, stage }) {
+  const badges = cardBadges(card, stage);
+  return (
+    <>
+      {card.stuck && <Tag tone="warning">بحاجة لمتابعة</Tag>}
+      {badges.map((b) => <Tag key={b.kind} tone={BADGE_TONE[b.kind] || 'info'}>{b.label}</Tag>)}
+    </>
+  );
+}
+
+/** The step's detail: the server's «توقف عند: …» line, else why the card sits where it is. */
+function StepDetail({ card }) {
+  const lines = cardLines(card);
+  const detail = lines.step || card.reason_ar;
+  return (
+    <>
+      {detail && <p className="mt-0.5 text-[13px] text-shift-body">{detail}</p>}
+      {lines.step && lines.reason && (
+        <p className="mt-0.5 flex items-start gap-1 text-[13px] text-shift-danger">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {lines.reason}
         </p>
       )}
+    </>
+  );
+}
 
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {actions.map((a) => {
-          if (a.kind === 'message') {
-            return wa ? (
-              <a key={a.kind} href={wa} target="_blank" rel="noopener noreferrer" className={BTN}>
-                <MessageCircle size={12} /> {a.label}
-              </a>
-            ) : (
-              <Link key={a.kind} to={`/admin/accounts/${card.account_id}`} className={BTN}>
-                <MessageCircle size={12} /> {a.label}
-              </Link>
-            );
-          }
-          // A link can be reissued or withdrawn only before the owner signs in: after that the
-          // server answers 409, so these are offered in the first column only (cardActions).
-          if (a.kind === 'resend') {
-            return <button key={a.kind} type="button" disabled={busy} onClick={() => onResend(card)} className={BTN}><Send size={12} /> {a.label}</button>;
-          }
-          if (a.kind === 'revoke') {
-            return (
-              <button key={a.kind} type="button" disabled={busy} onClick={() => onRevoke(card)}
-                className={`${BTN} text-red-700 hover:bg-red-50`}><XCircle size={12} /> {a.label}</button>
-            );
-          }
-          if (a.kind === 'connect_with') {
-            return <Link key={a.kind} to={a.to} className={BTN}><Link2 size={12} /> {a.label}</Link>;
-          }
-          if (a.kind === 'confirm_card') {
-            return (
-              <button key={a.kind} type="button" disabled={busy} onClick={() => onConfirmCard(card)}
-                className={`${BTN} text-emerald-800 hover:bg-emerald-50`}><CreditCard size={12} /> {a.label}</button>
-            );
-          }
-          return null;
-        })}
+const sinceTitle = (card) => (card.since ? new Date(card.since).toLocaleString('ar-JO') : '');
+
+/** «قائمة»: who acts next, the shops that need a follow-up first and the oldest first among them. */
+function NextList({ rows, handlers, busyId }) {
+  return (
+    <Card pad={false} className="overflow-x-auto">
+      <table className="w-full min-w-[860px] border-collapse text-sm">
+        <thead>
+          <tr className="text-right text-[12.5px] text-shift-body">
+            <th scope="col" className="px-[18px] py-3 font-semibold border-b border-shift-line">الزبون</th>
+            <th scope="col" className="px-2.5 py-3 font-semibold border-b border-shift-line">الخطوة الحالية</th>
+            <th scope="col" className="px-2.5 py-3 font-semibold border-b border-shift-line">المطلوب من</th>
+            <th scope="col" className="px-2.5 py-3 font-semibold border-b border-shift-line">منذ</th>
+            <th scope="col" className="ps-2.5 pe-[18px] py-3 font-semibold border-b border-shift-line">الإجراء التالي</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ card, stage, label, move }) => (
+            <tr key={card.account_id} className="align-top hover:bg-shift-hover">
+              <td className="px-[18px] py-3 border-b border-shift-line2">
+                <Link to={`/admin/accounts/${card.account_id}`} className="font-semibold text-shift-ink no-underline hover:underline">{card.name}</Link>
+                <div className="text-[12.5px] text-shift-body">{card.owner_first_name || '—'}</div>
+              </td>
+              <td className="px-2.5 py-3 border-b border-shift-line2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-shift-ink">{label}</span>
+                  <Badges card={card} stage={stage} />
+                </div>
+                <StepDetail card={card} />
+              </td>
+              <td className="px-2.5 py-3 border-b border-shift-line2 whitespace-nowrap">
+                {move.who ? <Pill tone={move.who === 'shift' ? 'trial' : 'neutral'}>{WHO_AR[move.who]}</Pill> : '—'}
+              </td>
+              <td className="px-2.5 py-3 border-b border-shift-line2 whitespace-nowrap text-shift-body">
+                <span title={sinceTitle(card)}>{relativeTime(card.since)}</span>
+              </td>
+              <td className="ps-2.5 pe-[18px] py-3 border-b border-shift-line2">
+                <Actions card={card} stage={stage} primary={move.primary} busy={busyId === card.account_id} {...handlers} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+function StageCard({ card, stage, busy, handlers }) {
+  return (
+    <li className="flex flex-col gap-1 rounded-xl border border-shift-line bg-white p-3">
+      <Link to={`/admin/accounts/${card.account_id}`} className="min-w-0 text-shift-ink no-underline">
+        <b className="block truncate text-sm font-semibold hover:underline">{card.name}</b>
+        <span className="text-[13px] text-shift-body">
+          {card.owner_first_name || '—'} · <span title={sinceTitle(card)}>{relativeTime(card.since)}</span>
+        </span>
+      </Link>
+      <div className="flex flex-wrap gap-1"><Badges card={card} stage={stage} /></div>
+      {/* The server's line already says «توقف عند: …» or «فشل عند: …». */}
+      <StepDetail card={card} />
+      <div className="mt-1.5">
+        <Actions card={card} stage={stage} primary={nextMove(card, stage).primary} busy={busy} {...handlers} />
       </div>
     </li>
   );
 }
 
+function Board({ columns, handlers, busyId }) {
+  return (
+    <>
+      {/* RTL: the first stage sits on the right. The strip scrolls inside itself, never the page. */}
+      <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-1.5">
+        {columns.map((col) => (
+          <section key={col.stage} aria-label={col.label_ar}
+            className="flex-[0_0_272px] snap-start rounded-2xl bg-shift-line2 p-3 flex flex-col gap-2">
+            <h2 className="m-0 flex justify-between px-1 py-0.5 text-[13.5px] font-semibold text-shift-body">
+              {col.label_ar} <span className="tabular-nums">{col.cards.length}</span>
+            </h2>
+            {col.cards.length === 0 ? (
+              <p className="px-1 text-[13px] text-shift-muted">—</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {col.cards.map((card) => (
+                  <StageCard key={card.account_id} card={card} stage={col.stage} busy={busyId === card.account_id} handlers={handlers} />
+                ))}
+              </ul>
+            )}
+          </section>
+        ))}
+      </div>
+      <p className="m-0 text-[13px] text-shift-body">المراحل يحسبها النظام من البيانات؛ لا تُسحب البطاقات يدويًا.</p>
+    </>
+  );
+}
+
 function SessionId({ id }) {
   const [copied, setCopied] = useState(false);
-  if (!id) return <span className="text-gray-400">—</span>;
+  if (!id) return null;
   return (
-    <button type="button" title="نسخ"
-      onClick={async () => { if (await copyText(id)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}
-      className="inline-flex items-center gap-1 font-mono text-[11px] text-gray-600 hover:text-gray-900">
-      <Ltr className="max-w-[9rem] truncate">{id}</Ltr>
-      <Copy size={11} /> {copied && <span className="font-sans text-emerald-700">نُسخ</span>}
-    </button>
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <bdi dir="ltr" className="font-mono text-[12.5px] text-shift-body select-all break-all">{id}</bdi>
+      <button type="button"
+        onClick={async () => { if (await copyText(id)) { setCopied(true); setTimeout(() => setCopied(false), 1500); } }}
+        className={`${btnClass('secondary', 'sm')} !min-h-[36px] !text-[12.5px]`}>
+        <Copy size={12} /> {copied ? 'نُسخ' : 'نسخ الرمز الكامل'}
+      </button>
+    </span>
+  );
+}
+
+/** «تشخيص الربط مع Meta»: every attempt, including the abandoned ones, collapsed by default. */
+function Attempts({ attempts, loading }) {
+  return (
+    <details className="rounded-2xl border border-shift-line bg-white px-[18px] py-3.5">
+      <summary className="cursor-pointer min-h-[40px] flex items-center font-display text-base font-semibold text-shift-ink">
+        تشخيص الربط مع Meta{attempts.length ? ` · ${attempts.length} محاولة` : ''}
+      </summary>
+      {loading ? (
+        <SkeletonRows rows={3} cols={5} />
+      ) : attempts.length === 0 ? (
+        <EmptyState tone="neutral" title="لا محاولات بعد" hint="كل ضغطة على «اربط واتساب» تظهر هنا، حتى التي لم تكتمل." />
+      ) : (
+        <ul className="mt-2.5 flex flex-col text-sm">
+          {attempts.map((a, i) => {
+            const result = resultLabel(a.result_ar || a.result);
+            return (
+              <li key={`${a.account_id}-${a.at}-${i}`} className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-shift-line2 py-2.5">
+                {a.account_id
+                  ? <Link to={`/admin/accounts/${a.account_id}`} className="font-semibold text-shift-ink no-underline hover:underline">{a.name || '—'}</Link>
+                  : <b className="font-semibold text-shift-ink">{a.name || '—'}</b>}
+                <span className="text-shift-body">
+                  <Timestamp value={a.at} />{a.started_by_ar && <> · بدأها {a.started_by_ar}</>}
+                </span>
+                <span className={`font-medium ${RESULT_TONE[result] || 'text-shift-body'}`}>{result}</span>
+                {a.step_ar && <span className="text-shift-body">الخطوة: {a.step_ar}</span>}
+                {a.error_ar && <span className="text-shift-danger">{a.error_ar}</span>}
+                <SessionId id={a.session_id} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </details>
   );
 }
 
@@ -159,6 +318,8 @@ export default function OnboardingBoardPage() {
   const [at, setAt] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const view = params.get('view') === 'board' ? 'board' : 'list';
 
   const load = useCallback(() => {
     setLoading(true);
@@ -220,6 +381,8 @@ export default function OnboardingBoardPage() {
     }
   };
 
+  const handlers = { onResend: resend, onRevoke: revoke, onConfirmCard: confirmCard };
+
   const byStage = Object.fromEntries((data?.columns || []).map((c) => [c.stage, c]));
   const columns = STAGES.map(([stage, label]) => ({
     stage,
@@ -227,111 +390,79 @@ export default function OnboardingBoardPage() {
     cards: byStage[stage]?.cards || [],
   }));
   const total = columns.reduce((n, c) => n + c.cards.length, 0);
+  const liveCount = columns.find((c) => c.stage === 'live').cards.length;
   const attempts = data?.attempts || [];
   const orphans = data?.orphans_count || 0;
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">الانضمام</h1>
-          <p className="text-xs text-gray-500 mt-0.5">أين كل محل بين رابط الانضمام و«يعمل»، ومن عالق ولماذا.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Freshness at={at} onRefresh={load} loading={loading} />
-          <Link to="/admin/accounts/new"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 h-9 text-sm text-white hover:bg-green-700">
-            <Plus size={15} /> زبون جديد
-          </Link>
-        </div>
-      </div>
+  // The list: every shop not yet live. «بحاجة لمتابعة» (the server's stuck: no progress for more
+  // than a day) and SHIFT's own moves first, then the oldest.
+  const rows = columns.filter((c) => c.stage !== 'live').flatMap((c) => c.cards.map((card) => ({
+    card, stage: c.stage, label: c.label_ar, move: nextMove(card, c.stage),
+  })));
+  const rank = (r) => (r.card.stuck ? 0 : 2) + (r.move.who === 'shift' ? 0 : 1);
+  const time = (r) => (r.card.since ? new Date(r.card.since).getTime() : Infinity);
+  rows.sort((a, b) => rank(a) - rank(b) || time(a) - time(b));
 
-      {error && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+  const setView = (v) => setParams((p) => { const n = new URLSearchParams(p); if (v === 'list') n.delete('view'); else n.set('view', v); return n; }, { replace: true });
+
+  return (
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader title="الانضمام"
+        sub={data ? `${liveCount} اكتمل تفعيلها · ${total - liveCount} قيد التجهيز` : 'أين كل محل بين رابط الانضمام و«يعمل»، ومن عالق ولماذا.'}>
+        <div role="group" aria-label="طريقة العرض" className="flex gap-1 rounded-xl bg-shift-line2 p-1">
+          {[['list', 'قائمة'], ['board', 'لوحة']].map(([id, label]) => (
+            <button key={id} type="button" aria-pressed={view === id ? 'true' : 'false'} onClick={() => setView(id)}
+              className={`min-h-[36px] px-3.5 rounded-[9px] text-[13.5px] font-medium ${view === id
+                ? 'bg-white text-shift-ink shadow-[0_1px_2px_rgba(15,30,56,.12)]' : 'bg-transparent text-shift-body hover:text-shift-ink'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <Freshness at={at} onRefresh={load} loading={loading} />
+        <Link to="/admin/accounts/new" className={btnClass('primary', 'md')}><Plus size={16} /> زبون جديد</Link>
+      </PageHeader>
+
+      {error && <p role="alert" className="m-0 rounded-xl border border-shift-dangerLine bg-shift-dangerBg px-4 py-3 text-sm text-shift-danger">{error}</p>}
       {notice && (
-        <p className={`rounded-lg px-4 py-3 text-sm ${notice.tone === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>{notice.text}</p>
+        <p role="status" className={`m-0 rounded-xl px-4 py-3 text-sm ${notice.tone === 'ok' ? 'bg-shift-okBg text-[#14532D]' : 'border border-shift-dangerLine bg-shift-dangerBg text-shift-danger'}`}>{notice.text}</p>
       )}
 
       {orphans > 0 && (
-        <Link to="/admin/overview" className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
-          <AlertTriangle size={15} />
+        <Link to="/admin/overview" className="flex flex-wrap items-center gap-2 rounded-xl border border-shift-line bg-white px-4 py-3 text-sm text-shift-ink no-underline hover:bg-shift-hover">
+          <Tag tone="warning" />
           <span>ربط بدون حساب: {orphans} — افتح «نظرة عامة» لربطه بزبون</span>
         </Link>
       )}
 
       {!data && loading ? (
-        <Panel><SkeletonRows rows={4} cols={6} /></Panel>
+        <Card pad={false}><SkeletonRows rows={4} cols={5} /></Card>
       ) : data && total === 0 ? (
-        <Panel>
+        <Card>
           <EmptyState tone="neutral" title="لا محلات في الانضمام بعد" hint="أنشئ «زبون جديد» وأرسل له الرابط، وتظهر بطاقته هنا." />
-        </Panel>
+        </Card>
+      ) : data && view === 'board' ? (
+        <Board columns={columns} handlers={handlers} busyId={busyId} />
       ) : data ? (
-        // RTL grid: the first stage sits on the right. Below lg, one column per row (a list
-        // grouped by stage), which is how it reads on a phone.
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-6">
-          {columns.map((col) => (
-            <section key={col.stage} className="rounded-lg bg-gray-100/70 p-2">
-              <header className="flex items-center justify-between px-1 pb-2">
-                <h2 className="text-[13px] font-semibold text-gray-700">{col.label_ar}</h2>
-                <span className="text-[12px] tabular-nums text-gray-500">{col.cards.length}</span>
-              </header>
-              {col.cards.length === 0 ? (
-                <p className="px-1 pb-1 text-[12px] text-gray-400">—</p>
-              ) : (
-                <ul className="space-y-2">
-                  {col.cards.map((card) => (
-                    <StageCard key={card.account_id} card={card} stage={col.stage}
-                      busy={busyId === card.account_id} onResend={resend} onRevoke={revoke} onConfirmCard={confirmCard} />
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
-        </div>
+        rows.length === 0 ? (
+          <Card>
+            <EmptyState tone="good" title="كل المحلات تعمل" hint="لا أحد في منتصف التفعيل. «لوحة» تعرض المحلات التي اكتملت." />
+          </Card>
+        ) : (
+          <>
+            <NextList rows={rows} handlers={handlers} busyId={busyId} />
+            {liveCount > 0 && (
+              <p className="m-0 text-[13px] text-shift-body">
+                و{liveCount} اكتمل تفعيلها —{' '}
+                <button type="button" onClick={() => setView('board')} className="min-h-[40px] bg-transparent border-0 p-0 text-shift-accent hover:text-shift-ink">في عرض اللوحة</button>
+              </p>
+            )}
+          </>
+        )
       ) : null}
 
-      <Panel title={`محاولات الربط مع Meta${attempts.length ? ` · ${attempts.length}` : ''}`}>
-        {!data && loading ? (
-          <SkeletonRows rows={3} cols={6} />
-        ) : attempts.length === 0 ? (
-          <EmptyState tone="neutral" title="لا محاولات بعد" hint="كل ضغطة على «اربط واتساب» تظهر هنا، حتى التي لم تكتمل." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-[13px]">
-              <thead>
-                <tr className="border-b border-gray-100 text-right text-[12px] text-gray-500">
-                  <th className="px-4 py-2 font-medium">الوقت</th>
-                  <th className="px-4 py-2 font-medium">الزبون</th>
-                  <th className="px-4 py-2 font-medium">بدأها</th>
-                  <th className="px-4 py-2 font-medium">النتيجة</th>
-                  <th className="px-4 py-2 font-medium">الخطوة</th>
-                  <th className="px-4 py-2 font-medium">الخطأ</th>
-                  <th className="px-4 py-2 font-medium">رمز جلسة Meta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attempts.map((a, i) => {
-                  const result = resultLabel(a.result_ar || a.result);
-                  return (
-                    <tr key={`${a.account_id}-${a.at}-${i}`} className="border-b border-gray-50 align-top">
-                      <td className="px-4 py-2 whitespace-nowrap text-gray-600"><Timestamp value={a.at} /></td>
-                      <td className="px-4 py-2">
-                        {a.account_id
-                          ? <Link to={`/admin/accounts/${a.account_id}`} className="text-gray-900 hover:underline">{a.name || '—'}</Link>
-                          : <span className="text-gray-900">{a.name || '—'}</span>}
-                      </td>
-                      <td className="px-4 py-2 text-gray-700">{a.started_by_ar || '—'}</td>
-                      <td className={`px-4 py-2 font-medium ${RESULT_TONE[result] || 'text-gray-700'}`}>{result}</td>
-                      <td className="px-4 py-2 text-gray-700">{a.step_ar || '—'}</td>
-                      <td className="px-4 py-2 text-gray-700">{a.error_ar || '—'}</td>
-                      <td className="px-4 py-2"><SessionId id={a.session_id} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+      <Attempts attempts={attempts} loading={!data && loading} />
+
+      <Footnote>«بحاجة لمتابعة»: لا تقدّم منذ أكثر من يوم.</Footnote>
     </div>
   );
 }

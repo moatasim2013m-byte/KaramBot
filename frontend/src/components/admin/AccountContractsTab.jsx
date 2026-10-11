@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, Receipt } from 'lucide-react';
 import api from '../../utils/api';
-import { Panel, Timestamp, Num, SkeletonRows, EmptyState } from '../shared/Primitives';
+import { Timestamp, Num, SkeletonRows, EmptyState } from '../shared/Primitives';
+import { Button, Card, Pill, fieldClass, labelClass } from './ui';
+import { dayMonth } from './operatorView';
 
 /**
  * What this customer bought, and what they have paid for it.
@@ -12,15 +15,32 @@ import { Panel, Timestamp, Num, SkeletonRows, EmptyState } from '../shared/Primi
  * «العقد» also carries the plan's terms that the bot is held to: the monthly reply cap and the end
  * of the free month. A free month turns «فعّال» when its first payment is recorded, and a partial
  * payment does not move the due date a whole cycle (the server decides both).
+ *
+ * Each contract leads with its tiles (plan and price, status, the free month or the next due date,
+ * paid so far), then its actions, terms and payments.
  */
 
 const SOLUTION_LABEL = { karam_bot: 'كرم بوت', automation: 'أتمتة', website: 'موقع', custom: 'حل مخصص' };
 const STATUS_LABEL = { trial: 'فترة مجانية', active: 'فعّال', past_due: 'متأخر', paused: 'موقوف مؤقتًا', cancelled: 'ملغي' };
-const STATUS_CLS = { trial: 'text-gray-600', active: 'text-emerald-700', past_due: 'text-red-700', paused: 'text-amber-700', cancelled: 'text-gray-400' };
+const STATUS_PILL = { trial: 'trial', active: 'ok', past_due: 'bad', paused: 'warn', cancelled: 'neutral' };
 const CYCLE_LABEL = { monthly: 'شهري', quarterly: 'ربع سنوي', yearly: 'سنوي', one_time: 'مرة واحدة' };
 const METHOD_LABEL = { cliq: 'كليك', bank_transfer: 'تحويل بنكي', cash: 'نقدًا', card: 'بطاقة', other: 'أخرى' };
 
-const input = 'h-8 px-3 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400';
+const input = fieldClass;
+const small = 'h-10 px-3 border border-shift-field rounded-[10px] text-sm text-shift-ink bg-white';
+
+function Lbl({ text, children, className = '' }) {
+  return <label className={`flex flex-col gap-1.5 min-w-0 ${className}`}><span className={labelClass}>{text}</span>{children}</label>;
+}
+
+function Tile({ label, children }) {
+  return (
+    <div className="bg-shift-canvas rounded-xl p-3 min-w-0">
+      <div className="text-[13px] text-shift-body">{label}</div>
+      <div className="font-semibold text-shift-ink">{children}</div>
+    </div>
+  );
+}
 
 function NewContract({ accountId, onDone }) {
   const [f, setF] = useState({ solution: 'karam_bot', plan_name: '', amount_jod: '', billing_cycle: 'monthly', status: 'active', starts_at: new Date().toISOString().slice(0, 10), notes: '' });
@@ -38,26 +58,32 @@ function NewContract({ accountId, onDone }) {
   };
 
   return (
-    <form onSubmit={submit} className="p-4 border-b border-gray-100 bg-gray-50 space-y-2.5">
-      <div className="grid gap-2.5 sm:grid-cols-3">
-        <select value={f.solution} onChange={set('solution')} className={input}>
-          {Object.entries(SOLUTION_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <input value={f.plan_name} onChange={set('plan_name')} placeholder="اسم الباقة (اختياري)" className={input} />
-        <input value={f.amount_jod} onChange={set('amount_jod')} placeholder="المبلغ بالدينار" type="number" min="0" step="0.01" required dir="ltr" className={input} />
-        <select value={f.billing_cycle} onChange={set('billing_cycle')} className={input}>
-          {Object.entries(CYCLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <select value={f.status} onChange={set('status')} className={input}>
-          {['trial', 'active'].map((v) => <option key={v} value={v}>{STATUS_LABEL[v]}</option>)}
-        </select>
-        <input value={f.starts_at} onChange={set('starts_at')} type="date" required dir="ltr" className={input} />
+    <form onSubmit={submit} className="mb-3 p-3.5 rounded-xl bg-shift-canvas flex flex-col gap-3">
+      <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(180px,1fr))]">
+        <Lbl text="الحل">
+          <select value={f.solution} onChange={set('solution')} className={input}>
+            {Object.entries(SOLUTION_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Lbl>
+        <Lbl text="اسم الباقة (اختياري)"><input value={f.plan_name} onChange={set('plan_name')} className={input} /></Lbl>
+        <Lbl text="المبلغ بالدينار"><input value={f.amount_jod} onChange={set('amount_jod')} type="number" min="0" step="0.01" required dir="ltr" className={`${input} text-right`} /></Lbl>
+        <Lbl text="الدورة">
+          <select value={f.billing_cycle} onChange={set('billing_cycle')} className={input}>
+            {Object.entries(CYCLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Lbl>
+        <Lbl text="الحالة">
+          <select value={f.status} onChange={set('status')} className={input}>
+            {['trial', 'active'].map((v) => <option key={v} value={v}>{STATUS_LABEL[v]}</option>)}
+          </select>
+        </Lbl>
+        <Lbl text="يبدأ في"><input value={f.starts_at} onChange={set('starts_at')} type="date" required dir="ltr" className={input} /></Lbl>
       </div>
-      <input value={f.notes} onChange={set('notes')} placeholder="ملاحظات — ما اتُّفق عليه بالضبط" className={`${input} w-full`} />
-      {error && <p className="text-[13px] text-red-700">{error}</p>}
-      <button type="submit" disabled={busy} className="bg-gray-900 text-white px-3 h-8 rounded-md text-[13px] hover:bg-gray-800 disabled:opacity-40">
+      <Lbl text="ملاحظات"><input value={f.notes} onChange={set('notes')} placeholder="ما اتُّفق عليه بالضبط" className={input} /></Lbl>
+      {error && <p role="alert" className="m-0 text-[13px] text-shift-danger">{error}</p>}
+      <Button type="submit" variant="primary" disabled={busy} className="self-start">
         {busy ? 'جارٍ...' : 'تسجيل العقد'}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -78,17 +104,19 @@ function RecordPayment({ accountId, sub, onDone }) {
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-2 px-4 py-3 bg-gray-50 border-t border-gray-100">
-      <input value={f.amount_jod} onChange={set('amount_jod')} type="number" min="0.01" step="0.01" required dir="ltr" className={`${input} w-28`} />
-      <select value={f.method} onChange={set('method')} className={input}>
-        {Object.entries(METHOD_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
-      <input value={f.paid_at} onChange={set('paid_at')} type="date" required dir="ltr" className={input} />
-      <input value={f.reference} onChange={set('reference')} placeholder="رقم التحويل / المرجع" dir="ltr" className={`${input} w-44`} />
-      <button type="submit" disabled={busy} className="bg-gray-900 text-white px-3 h-8 rounded-md text-[13px] hover:bg-gray-800 disabled:opacity-40">
+    <form onSubmit={submit} className="mt-3 p-3.5 rounded-xl bg-shift-canvas flex flex-wrap items-end gap-3">
+      <Lbl text="المبلغ (د.أ)" className="basis-28 grow"><input value={f.amount_jod} onChange={set('amount_jod')} type="number" min="0.01" step="0.01" required dir="ltr" className={`${input} text-right`} /></Lbl>
+      <Lbl text="الطريقة" className="basis-32 grow">
+        <select value={f.method} onChange={set('method')} className={input}>
+          {Object.entries(METHOD_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </Lbl>
+      <Lbl text="التاريخ" className="basis-36 grow"><input value={f.paid_at} onChange={set('paid_at')} type="date" required dir="ltr" className={input} /></Lbl>
+      <Lbl text="رقم التحويل / المرجع" className="basis-44 grow"><input value={f.reference} onChange={set('reference')} dir="ltr" className={`${input} text-right`} /></Lbl>
+      <Button type="submit" variant="primary" disabled={busy}>
         {busy ? 'جارٍ...' : 'تسجيل دفعة'}
-      </button>
-      {error && <span className="text-[13px] text-red-700">{error}</span>}
+      </Button>
+      {error && <span role="alert" className="basis-full text-[13px] text-shift-danger">{error}</span>}
     </form>
   );
 }
@@ -119,21 +147,21 @@ function Terms({ accountId, sub, onDone }) {
   };
 
   return (
-    <form onSubmit={save} className="flex flex-wrap items-center gap-2 px-4 py-2 border-t border-gray-50 text-[12px] text-gray-600">
-      <span>ردود الشهر:</span>
-      <input value={cap} onChange={(e) => setCap(e.target.value.replace(/\D/g, ''))} inputMode="numeric" dir="ltr" placeholder="الافتراضي" className={`${input} w-24`} />
+    <form onSubmit={save} className="mt-3 pt-3 border-t border-shift-line2 flex flex-wrap items-center gap-2 text-[13.5px] text-shift-body">
+      <label className="flex items-center gap-2">ردود الشهر:
+        <input value={cap} onChange={(e) => setCap(e.target.value.replace(/\D/g, ''))} inputMode="numeric" dir="ltr" placeholder="الافتراضي" className={`${small} w-28`} />
+      </label>
       {sub.status === 'trial' && (
-        <>
-          <span>نهاية الفترة المجانية:</span>
-          <input value={trialEnd} onChange={(e) => setTrialEnd(e.target.value)} type="date" dir="ltr" className={input} />
-        </>
+        <label className="flex items-center gap-2">نهاية الفترة المجانية:
+          <input value={trialEnd} onChange={(e) => setTrialEnd(e.target.value)} type="date" dir="ltr" className={small} />
+        </label>
       )}
-      <button type="submit" disabled={busy} className="h-8 px-3 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+      <Button type="submit" size="sm" disabled={busy} className="!min-h-[40px]">
         {busy ? 'جارٍ…' : 'احفظ الشروط'}
-      </button>
-      {saved && <span className="text-emerald-700">تم</span>}
-      {error && <span className="text-red-700">{error}</span>}
-      {sub.status === 'trial' && <span className="text-gray-400">تصبح «فعّال» عند تسجيل أول دفعة.</span>}
+      </Button>
+      {saved && <span role="status" className="text-shift-ok">تم</span>}
+      {error && <span role="alert" className="text-shift-danger">{error}</span>}
+      {sub.status === 'trial' && <span className="basis-full text-[13px] text-shift-muted">تصبح «فعّال» عند تسجيل أول دفعة.</span>}
     </form>
   );
 }
@@ -157,59 +185,70 @@ export default function AccountContractsTab({ accountId }) {
     catch (err) { setError(err.response?.data?.error || 'تعذّر تحديث الحالة'); }
   };
 
-  return (
-    <div className="space-y-4">
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+  const link = 'min-h-[40px] px-2 text-[13.5px] underline underline-offset-2';
 
-      <Panel
-        title="العقود"
-        action={<button onClick={() => setAdding((v) => !v)} className="flex items-center gap-1.5 text-xs text-gray-700 hover:text-gray-900"><Plus size={14} /> عقد جديد</button>}
+  return (
+    <div className="flex flex-col gap-4">
+      {error && <div role="alert" className="bg-shift-dangerBg border border-shift-dangerLine text-shift-danger text-sm rounded-xl px-4 py-3">{error}</div>}
+
+      <Card
+        title="الاشتراك والعقد"
+        action={<Button size="sm" onClick={() => setAdding((v) => !v)} aria-expanded={adding ? 'true' : 'false'} className="!min-h-[40px]"><Plus size={15} /> عقد جديد</Button>}
       >
         {adding && <NewContract accountId={accountId} onDone={() => { setAdding(false); load(); }} />}
 
         {!subs ? <SkeletonRows rows={3} cols={5} /> : subs.length === 0 ? (
           <EmptyState icon={Receipt} tone="neutral" title="لا يوجد عقد مسجّل" hint="سجّل ما اتُّفق عليه مع العميل حتى يظهر في لوحة المنصة" />
         ) : (
-          <div className="divide-y divide-gray-100">
-            {subs.map((sub) => (
-              <div key={sub.id}>
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-3">
-                  <div className="min-w-[160px]">
-                    <div className="text-[13px] font-medium text-gray-900">{SOLUTION_LABEL[sub.solution] || sub.solution}{sub.plan_name ? ` — ${sub.plan_name}` : ''}</div>
-                    <div className={`text-[12px] ${STATUS_CLS[sub.status] || ''}`}>{STATUS_LABEL[sub.status] || sub.status}</div>
-                  </div>
-                  <div className="text-[13px] text-gray-700"><Num>{sub.amount_jod}</Num> د.أ <span className="text-gray-400 text-[11px]">/ {CYCLE_LABEL[sub.billing_cycle]}</span></div>
-                  <div className="text-[12px] text-gray-500">منذ <Timestamp value={sub.starts_at} /></div>
-                  <div className="text-[12px] text-gray-500">الدفعة القادمة: {sub.next_due_at ? <Timestamp value={sub.next_due_at} /> : '—'}</div>
-                  <div className="text-[12px] text-gray-500">مدفوع: <Num>{sub.total_paid_jod}</Num> د.أ</div>
-                  <div className="mr-auto flex items-center gap-2">
-                    {sub.status !== 'cancelled' && (
-                      <button onClick={() => setPaying(paying === sub.id ? null : sub.id)} className="text-[12px] text-gray-700 underline underline-offset-2">تسجيل دفعة</button>
-                    )}
-                    {sub.status === 'active' && <button onClick={() => setStatus(sub, 'paused')} className="text-[12px] text-gray-500 underline underline-offset-2">إيقاف مؤقت</button>}
-                    {sub.status === 'paused' && <button onClick={() => setStatus(sub, 'active')} className="text-[12px] text-gray-500 underline underline-offset-2">استئناف</button>}
-                    {sub.status !== 'cancelled' && <button onClick={() => setStatus(sub, 'cancelled')} className="text-[12px] text-red-600 underline underline-offset-2">إلغاء</button>}
-                  </div>
+          <div className="flex flex-col">
+            {subs.map((sub, i) => (
+              <div key={sub.id} className={i > 0 ? 'mt-4 pt-4 border-t border-shift-line' : ''}>
+                <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(180px,1fr))]">
+                  <Tile label="الباقة">
+                    {SOLUTION_LABEL[sub.solution] || sub.solution}{sub.plan_name ? ` — ${sub.plan_name}` : ''} · <Num>{sub.amount_jod}</Num> د.أ <span className="font-normal text-shift-body">/ {CYCLE_LABEL[sub.billing_cycle]}</span>
+                  </Tile>
+                  <Tile label="الحالة"><Pill tone={STATUS_PILL[sub.status] || 'neutral'}>{STATUS_LABEL[sub.status] || sub.status}</Pill></Tile>
+                  {sub.status === 'trial' && sub.trial_ends_at ? (
+                    <Tile label="المجانية">{dayMonth(sub.starts_at)} ← {dayMonth(sub.trial_ends_at)}</Tile>
+                  ) : (
+                    <Tile label="منذ">{dayMonth(sub.starts_at)}</Tile>
+                  )}
+                  <Tile label={sub.status === 'trial' ? 'أول استحقاق' : 'الدفعة القادمة'}>{sub.next_due_at ? dayMonth(sub.next_due_at) : '—'}</Tile>
+                  <Tile label="مدفوع"><Num>{sub.total_paid_jod}</Num> د.أ</Tile>
                 </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  {sub.status !== 'cancelled' && (
+                    <button type="button" onClick={() => setPaying(paying === sub.id ? null : sub.id)} className={`${link} text-shift-accent`}>تسجيل دفعة</button>
+                  )}
+                  {sub.status === 'active' && <button type="button" onClick={() => setStatus(sub, 'paused')} className={`${link} text-shift-body`}>إيقاف مؤقت</button>}
+                  {sub.status === 'paused' && <button type="button" onClick={() => setStatus(sub, 'active')} className={`${link} text-shift-body`}>استئناف</button>}
+                  {sub.status !== 'cancelled' && <button type="button" onClick={() => setStatus(sub, 'cancelled')} className={`${link} text-shift-danger`}>إلغاء</button>}
+                </div>
+
                 {sub.solution === 'karam_bot' && sub.status !== 'cancelled' && <Terms accountId={accountId} sub={sub} onDone={load} />}
                 {paying === sub.id && <RecordPayment accountId={accountId} sub={sub} onDone={() => { setPaying(null); load(); }} />}
-                {sub.payments.length > 0 && (
-                  <ul className="px-4 pb-3 space-y-0.5">
+                {sub.payments.length > 0 ? (
+                  <ul className="m-0 mt-3 p-0 list-none flex flex-col gap-1">
                     {sub.payments.map((p) => (
-                      <li key={p.id} className="text-[12px] text-gray-500 flex gap-3">
-                        <Num className="text-gray-700 w-20">{p.amount_jod} د.أ</Num>
+                      <li key={p.id} className="text-[13px] text-shift-body flex flex-wrap gap-x-3">
+                        <Num className="text-shift-ink w-20">{p.amount_jod} د.أ</Num>
                         <span>{METHOD_LABEL[p.method] || p.method}</span>
                         <Timestamp value={p.paid_at} />
-                        {p.reference && <span dir="ltr" className="font-mono text-[11px]">{p.reference}</span>}
+                        {p.reference && <span dir="ltr" className="font-mono text-[12px]">{p.reference}</span>}
                       </li>
                     ))}
                   </ul>
+                ) : sub.status !== 'cancelled' && (
+                  <p className="m-0 mt-3 text-sm text-shift-body">
+                    لا دفعات بعد. <Link to={`/admin/billing?pay=${encodeURIComponent(accountId)}`} className="text-shift-accent hover:text-shift-ink no-underline">سجّل دفعة من «الاشتراكات والدفعات»</Link>
+                  </p>
                 )}
               </div>
             ))}
           </div>
         )}
-      </Panel>
+      </Card>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { History } from 'lucide-react';
 import api from '../../utils/api';
-import { Panel, SkeletonRows, EmptyState } from '../shared/Primitives';
+import { SkeletonRows, EmptyState } from '../shared/Primitives';
+import { Card } from './ui';
 import { eventTime, eventText } from './operatorView';
 
 /**
@@ -10,6 +11,8 @@ import { eventTime, eventText } from './operatorView';
  * GET /api/admin/events?business_id= merges the AccountEvents (the owner's steps, Meta's webhooks,
  * SHIFT's actions) with admin_access_logs, so «شِفت (معتصم) قرأ محادثة» sits in the same list as
  * the payment it was about. Older pages load with ?before= the oldest time shown.
+ *
+ * Two columns, when and what, with who did it in bold at the head of the what.
  */
 
 const PAGE = 50;
@@ -47,32 +50,34 @@ export default function AccountLogTab({ accountId }) {
   };
 
   return (
-    <Panel title="السجل">
-      {error && <p className="px-4 py-2 text-[13px] text-red-700 bg-red-50 border-b border-red-100">{error}</p>}
+    <Card title="السجل">
+      {error && <p role="alert" className="m-0 mb-2 px-3 py-2 rounded-lg text-[13px] text-shift-danger bg-shift-dangerBg">{error}</p>}
       {!events ? (error ? null : <SkeletonRows rows={6} cols={3} />) : events.length === 0 ? (
         <EmptyState icon={History} tone="neutral" title="لا شيء في السجل بعد" />
       ) : (
         <>
-          <ul className="divide-y divide-gray-50">
+          <ul className="m-0 p-0 list-none text-sm">
             {events.map((e) => (
-              <li key={e.id} className="flex items-baseline gap-3 px-4 py-2 text-[13px]">
-                <span className="w-28 shrink-0 text-[12px] text-gray-400 tabular-nums" title={new Date(e.at || e.created_at).toLocaleString('ar-JO')}>
+              <li key={e.id} className="grid grid-cols-[96px_minmax(0,1fr)] sm:grid-cols-[120px_minmax(0,1fr)] gap-x-4 py-2.5 border-t border-shift-line2">
+                <span className="text-[13px] text-shift-muted tabular-nums" title={new Date(e.at || e.created_at).toLocaleString('ar-JO')}>
                   {eventTime(e.at || e.created_at)}
                 </span>
-                {e.actor_ar && <span className="shrink-0 text-[12px] text-gray-500">{e.actor_ar}</span>}
-                <span className="text-gray-800 min-w-0">{eventText(e)}</span>
+                <span className="text-shift-ink min-w-0 break-words">
+                  {e.actor_ar && <b className="font-semibold">{e.actor_ar} </b>}
+                  {eventText(e)}
+                </span>
               </li>
             ))}
           </ul>
           {more && (
-            <div className="px-4 py-3 border-t border-gray-100">
-              <button type="button" onClick={older} disabled={busy} className="text-[12px] text-gray-600 underline underline-offset-2 disabled:opacity-40">
+            <div className="pt-2 border-t border-shift-line2">
+              <button type="button" onClick={older} disabled={busy} className="min-h-[40px] px-2 text-[13.5px] text-shift-accent hover:text-shift-ink disabled:opacity-50">
                 {busy ? 'جارٍ…' : 'أقدم'}
               </button>
             </div>
           )}
         </>
       )}
-    </Panel>
+    </Card>
   );
 }

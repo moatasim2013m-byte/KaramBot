@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { UserPlus, Copy, Check, RefreshCw, LogIn, MessageCircle, Ban, RotateCcw, KeyRound } from 'lucide-react';
+import { UserPlus, Copy, Check, RefreshCw, MessageCircle, Ban, RotateCcw, KeyRound } from 'lucide-react';
 import api from '../../utils/api';
-import { Panel, Timestamp, Ltr, SkeletonRows, EmptyState } from '../shared/Primitives';
+import { Timestamp, Ltr, SkeletonRows, EmptyState } from '../shared/Primitives';
+import { Button, Card, btnClass, fieldClass, labelClass } from './ui';
 
 /**
  * «الدخول» — who can sign in to this shop, and handing a login over.
@@ -13,10 +14,14 @@ import { Panel, Timestamp, Ltr, SkeletonRows, EmptyState } from '../shared/Primi
  * الدخول» for an owner who is locked out, which deactivates the login, revokes every session and
  * outstanding link, and issues a new activation link — audited on the server, so a reset is
  * never a quiet way in for SHIFT.
+ *
+ * One row per person (name, role, mobile, the login's state in words, its actions), which wraps
+ * on a phone instead of scrolling sideways as the old table did.
  */
 
 const ROLE_LABEL = { business_owner: 'صاحب المحل', manager: 'مدير', staff: 'موظف' };
-const field = 'h-8 px-3 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400';
+// A quiet text action in a person's row, 40px tall for a thumb.
+const ACT = 'inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-[10px] border border-shift-field bg-white text-[13px] text-shift-ink hover:bg-[#F1F3F7] disabled:opacity-50';
 
 function LinkBox({ link, onDone }) {
   const [copied, setCopied] = useState(false);
@@ -33,25 +38,24 @@ function LinkBox({ link, onDone }) {
   };
 
   return (
-    <div className="border border-emerald-200 bg-emerald-50 rounded-md p-3">
-      <p className="text-[13px] font-medium text-emerald-900">الرابط جاهز — أرسله {link.name ? `لـ${link.name}` : ''}</p>
-      <p className="text-[11px] text-emerald-800 mt-0.5">
+    <div role="status" className="border border-[#BFE3CB] bg-shift-okBg rounded-2xl p-4">
+      <p className="m-0 text-sm font-semibold text-[#14532D]">الرابط جاهز — أرسله {link.name ? `لـ${link.name}` : ''}</p>
+      <p className="m-0 mt-0.5 text-[13px] text-[#14532D]">
         يعمل مرة واحدة{link.hours ? ` وينتهي خلال ${link.hours} ساعة` : ''}. يختار كلمة المرور بنفسه.
       </p>
-      <div className="flex flex-wrap gap-2 mt-2">
-        <input readOnly value={url} onFocus={(e) => e.target.select()} dir="ltr"
-          className="flex-1 min-w-[200px] h-8 px-2 text-xs font-mono bg-white border border-emerald-200 rounded" />
-        <button type="button" onClick={copy} className="flex items-center gap-1 px-2.5 h-8 bg-emerald-600 text-white rounded text-xs hover:bg-emerald-700">
-          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'نُسخ' : 'نسخ'}
-        </button>
+      <div className="flex flex-wrap gap-2 mt-2.5">
+        <input readOnly value={url} onFocus={(e) => e.target.select()} dir="ltr" aria-label="رابط التفعيل"
+          className={`${fieldClass} flex-1 basis-52 min-w-0 font-mono text-[13px]`} />
+        <Button variant="primary" onClick={copy}>
+          {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? 'نُسخ' : 'نسخ'}
+        </Button>
         {link.wa && (
-          <a href={link.wa} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-1 px-2.5 h-8 border border-emerald-300 text-emerald-900 rounded text-xs hover:bg-emerald-100">
-            <MessageCircle size={13} /> أرسل على واتساب
+          <a href={link.wa} target="_blank" rel="noopener noreferrer" className={`${btnClass('secondary', 'md')} no-underline`}>
+            <MessageCircle size={15} /> أرسل على واتساب
           </a>
         )}
       </div>
-      <button type="button" onClick={onDone} className="mt-2 text-[11px] text-emerald-800 underline underline-offset-2">تم</button>
+      <button type="button" onClick={onDone} className="mt-1 min-h-[40px] text-[13px] text-[#14532D] underline underline-offset-2">تم</button>
     </div>
   );
 }
@@ -121,35 +125,51 @@ export default function AccountAccessTab({ accountId }) {
     });
   };
 
+  // The login's state in words, with the tone backing them up.
+  const stateOf = (u) => {
+    const off = u.active === false && u.has_signed_in;
+    if (off && u.invitation_pending_until) return ['text-shift-warn', <>بانتظار الرابط الجديد · ينتهي <Timestamp value={u.invitation_pending_until} /></>];
+    if (off) return ['text-shift-danger', 'معطّل'];
+    if (u.has_signed_in) return ['text-shift-ok', <>الدخول مفعّل · آخر دخول <Timestamp value={u.last_login} /></>];
+    if (u.invitation_pending_until) return ['text-shift-warn', <>بانتظار التفعيل · ينتهي الرابط <Timestamp value={u.invitation_pending_until} /></>];
+    return ['text-shift-muted', 'لم يدخل بعد · لا رابط صالح'];
+  };
+
   return (
-    <div className="space-y-4">
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+    <div className="flex flex-col gap-4">
+      {error && <div role="alert" className="bg-shift-dangerBg border border-shift-dangerLine text-shift-danger text-sm rounded-xl px-4 py-3">{error}</div>}
       {link && <LinkBox link={link} onDone={() => setLink(null)} />}
 
-      <Panel
-        title="من يدخل لهذا المحل"
+      <Card
+        title="من يدخل لوحة المحل"
         action={(
-          <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-gray-700 hover:text-gray-900">
-            <UserPlus size={14} /> أضف شخصًا
-          </button>
+          <span className="flex items-center gap-3">
+            {users && <span className="text-[13px] text-shift-body">{users.length} {users.length === 1 ? 'مستخدم' : 'مستخدمين'}</span>}
+            <Button size="sm" onClick={() => setOpen((v) => !v)} aria-expanded={open ? 'true' : 'false'} className="!min-h-[40px]">
+              <UserPlus size={15} /> أضف شخصًا
+            </Button>
+          </span>
         )}
       >
         {open && (
-          <form onSubmit={create} className="p-4 border-b border-gray-100 bg-gray-50 space-y-2.5">
-            <div className="grid gap-2.5 sm:grid-cols-4">
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="الاسم" required className={field} />
-              <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="الموبايل 07…" dir="ltr" inputMode="tel" className={field} />
-              <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="البريد (اختياري)" type="email" dir="ltr" className={field} />
-              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={field}>
-                {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+          <form onSubmit={create} className="mb-3 p-3.5 rounded-xl bg-shift-canvas flex flex-col gap-3">
+            <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(180px,1fr))]">
+              <label className="flex flex-col gap-1.5"><span className={labelClass}>الاسم</span>
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required className={fieldClass} /></label>
+              <label className="flex flex-col gap-1.5"><span className={labelClass}>الموبايل</span>
+                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="07…" dir="ltr" inputMode="tel" className={`${fieldClass} text-right`} /></label>
+              <label className="flex flex-col gap-1.5"><span className={labelClass}>البريد (اختياري)</span>
+                <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" dir="ltr" className={`${fieldClass} text-right`} /></label>
+              <label className="flex flex-col gap-1.5"><span className={labelClass}>الدور</span>
+                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className={fieldClass}>
+                  {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select></label>
             </div>
-            <div className="flex items-center gap-2">
-              <button type="submit" disabled={creating || (!form.phone.trim() && !form.email.trim())}
-                className="bg-gray-900 text-white px-3 h-8 rounded-md text-[13px] hover:bg-gray-800 disabled:opacity-40">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" variant="primary" disabled={creating || (!form.phone.trim() && !form.email.trim())}>
                 {creating ? 'جارٍ...' : 'أضف وأصدر رابطًا'}
-              </button>
-              <span className="text-[11px] text-gray-500">لن تضع كلمة مرور — يختارها بنفسه</span>
+              </Button>
+              <span className="text-[13px] text-shift-body">لن تضع كلمة مرور — يختارها بنفسه</span>
             </div>
           </form>
         )}
@@ -159,81 +179,54 @@ export default function AccountAccessTab({ accountId }) {
         ) : users.length === 0 ? (
           <EmptyState icon={UserPlus} tone="neutral" title="لا يستطيع أحد الدخول لهذا المحل بعد" hint="أضف صاحب المحل وأرسل له الرابط" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="text-gray-500 text-[11px] border-b border-gray-100">
-                  {['الاسم', 'الموبايل', 'الدور', 'دخل فعلًا', 'دعوة معلّقة', ''].map((h) => (
-                    <th key={h} className="text-right font-medium px-4 h-9 whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {users.map((u) => {
-                  const off = u.active === false && u.has_signed_in;
-                  return (
-                    <tr key={u.id} className={off ? 'bg-gray-50 text-gray-400' : 'hover:bg-gray-50'}>
-                      <td className="px-4 h-10 font-medium whitespace-nowrap">
-                        {u.name}
-                        {off && <span className="mr-2 text-[10px] bg-gray-200 text-gray-600 rounded px-1.5 py-0.5">معطّل</span>}
-                        {u.email && <div className="text-[11px] text-gray-400 font-normal"><Ltr>{u.email}</Ltr></div>}
-                      </td>
-                      <td className="px-4 h-10">{u.phone ? <Ltr className="text-xs">{u.phone}</Ltr> : <span className="text-gray-300">—</span>}</td>
-                      <td className="px-4 h-10">
-                        <select value={u.role} onChange={(e) => setRole(u, e.target.value)} disabled={busy === u.id || !ROLE_LABEL[u.role]}
-                          className="h-7 px-1.5 text-[12px] border border-gray-200 rounded bg-white">
-                          {!ROLE_LABEL[u.role] && <option value={u.role}>—</option>}
-                          {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                      </td>
-                      <td className="px-4 h-10 whitespace-nowrap">
-                        {u.has_signed_in
-                          ? <span className="inline-flex items-center gap-1 text-emerald-700"><LogIn size={12} /> <Timestamp value={u.last_login} /></span>
-                          : <span className="text-gray-400">لم يدخل</span>}
-                      </td>
-                      <td className="px-4 h-10 whitespace-nowrap">
-                        {u.invitation_pending_until
-                          ? <span className="text-amber-700">حتى <Timestamp value={u.invitation_pending_until} /></span>
-                          : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 h-10 text-left whitespace-nowrap">
-                        <span className="inline-flex items-center gap-3">
-                          {!u.has_signed_in && (
-                            <button type="button" onClick={() => reinvite(u)} disabled={busy === u.id}
-                              className="inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-900 disabled:opacity-40">
-                              <RefreshCw size={12} /> رابط جديد
-                            </button>
-                          )}
-                          {u.has_signed_in && (
-                            <button type="button" onClick={() => reset(u)} disabled={busy === u.id}
-                              className="inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-900 disabled:opacity-40">
-                              <KeyRound size={12} /> إعادة ضبط الدخول
-                            </button>
-                          )}
-                          {/* After «إعادة ضبط الدخول» the way back in is the new link alone: no «تفعيل» while it waits. */}
-                          {u.active === false && u.has_signed_in && u.invitation_pending_until ? (
-                            <span className="text-[12px] text-amber-700">بانتظار الرابط الجديد</span>
-                          ) : u.active === false && u.has_signed_in ? (
-                            <button type="button" onClick={() => setActive(u, true)} disabled={busy === u.id}
-                              className="inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-900 disabled:opacity-40">
-                              <RotateCcw size={12} /> تفعيل
-                            </button>
-                          ) : (u.active !== false || u.has_signed_in) && (
-                            <button type="button" onClick={() => setActive(u, false)} disabled={busy === u.id}
-                              className="inline-flex items-center gap-1 text-[12px] text-red-600 hover:text-red-800 disabled:opacity-40">
-                              <Ban size={12} /> تعطيل
-                            </button>
-                          )}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="m-0 p-0 list-none">
+            {users.map((u) => {
+              const off = u.active === false && u.has_signed_in;
+              const [cls, text] = stateOf(u);
+              return (
+                <li key={u.id} className={`flex flex-wrap items-center gap-x-4 gap-y-2 py-3 border-t border-shift-line2 text-sm ${off ? 'text-shift-muted' : 'text-shift-ink'}`}>
+                  <div className="flex-1 basis-40 min-w-0">
+                    <b className="font-semibold">{u.name}</b>
+                    {u.email && <div className="text-[12.5px] text-shift-muted"><Ltr>{u.email}</Ltr></div>}
+                  </div>
+                  <select value={u.role} onChange={(e) => setRole(u, e.target.value)} disabled={busy === u.id || !ROLE_LABEL[u.role]}
+                    aria-label={`دور ${u.name}`} className="h-10 px-2 text-[13.5px] border border-shift-field rounded-[10px] bg-white text-shift-ink">
+                    {!ROLE_LABEL[u.role] && <option value={u.role}>—</option>}
+                    {Object.entries(ROLE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                  {u.phone ? <Ltr>{u.phone}</Ltr> : <span className="text-shift-muted">بلا موبايل</span>}
+                  <span className={`text-[13.5px] ${cls}`}>{text}</span>
+                  <span className="flex flex-wrap gap-2 sm:ms-auto">
+                    {!u.has_signed_in && (
+                      <button type="button" onClick={() => reinvite(u)} disabled={busy === u.id} className={ACT}>
+                        <RefreshCw size={14} /> تجديد الرابط
+                      </button>
+                    )}
+                    {u.has_signed_in && (
+                      <button type="button" onClick={() => reset(u)} disabled={busy === u.id} className={ACT}>
+                        <KeyRound size={14} /> إعادة ضبط الدخول
+                      </button>
+                    )}
+                    {/* After «إعادة ضبط الدخول» the way back in is the new link alone: no «تفعيل» while it waits. */}
+                    {u.active === false && u.has_signed_in && u.invitation_pending_until ? null
+                      : u.active === false && u.has_signed_in ? (
+                        <button type="button" onClick={() => setActive(u, true)} disabled={busy === u.id} className={ACT}>
+                          <RotateCcw size={14} /> تفعيل
+                        </button>
+                      ) : (u.active !== false || u.has_signed_in) && (
+                        <button type="button" onClick={() => setActive(u, false)} disabled={busy === u.id}
+                          className={`${ACT} !text-shift-danger !border-shift-dangerLine hover:!bg-shift-dangerBg`}>
+                          <Ban size={14} /> تعطيل
+                        </button>
+                      )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </Panel>
+        <p className="m-0 mt-2 text-[13px] text-shift-body">لا ترى شِفت كلمات المرور أبدًا. إعادة الضبط تعطّل الدخول وترسل رابطًا جديدًا، وتُسجَّل باسمك.</p>
+      </Card>
     </div>
   );
 }

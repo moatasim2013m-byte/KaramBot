@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowRight, MessageCircle, MoreHorizontal, Eye, Ban, Bot } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Eye, Ban, Bot } from 'lucide-react';
 import api from '../../utils/api';
-import { Panel, StatusDot, Ltr, Num, relativeTime } from '../../components/shared/Primitives';
+import { Ltr, relativeTime } from '../../components/shared/Primitives';
 import AccountHealthTab from '../../components/admin/AccountHealthTab';
 import AccountAccessTab from '../../components/admin/AccountAccessTab';
 import AccountContractsTab from '../../components/admin/AccountContractsTab';
@@ -12,17 +12,20 @@ import AccountWhatsAppTab from '../../components/admin/AccountWhatsAppTab';
 import AccountLogTab from '../../components/admin/AccountLogTab';
 import BotPauseControl from '../../components/admin/BotPauseControl';
 import FixButton from '../../components/admin/FixButton';
+import { Button, Card, Pill, Tag, btnClass } from '../../components/admin/ui';
+import { ConversationDrawer } from './AccountWorkspacePage';
 import {
-  attentionItem, fleetRow, maskPhone, sortAttention, waLine, waLink, usageTone,
+  attentionItem, fleetRow, maskPhone, sortAttention, waLine, waLink,
 } from '../../components/admin/operatorView';
 
 /**
  * One shop — /admin/accounts/:id?tab=health|knowledge|access|contract|settings|whatsapp|log.
  *
  * Everything about it: whether it works, what is left, what it knows, who can log in, what they
- * pay and what changed. The header answers the first three at a glance (chips for WhatsApp, the
- * bot and the subscription, the owner's line with «راسله», the number with its name at Meta), and
- * the tab lives in the URL so «اليوم» can open a shop on the tab its problem is about.
+ * pay and what changed. The header answers the first three at a glance (pills for setup, service
+ * and subscription, the owner's line with «راسله», the number with its name at Meta), a customer
+ * left waiting shows right under it, and the tab lives in the URL so «اليوم» can open a shop on
+ * the tab its problem is about.
  *
  * The header reads the shop's row from /admin/overview, the same row «الزبائن» shows, so the two
  * cannot disagree; internal shops are asked for explicitly, since the default hides them.
@@ -32,7 +35,7 @@ const TABS = [
   ['health', 'الحالة'],
   ['knowledge', 'المعرفة'],
   ['access', 'الدخول'],
-  ['contract', 'العقد'],
+  ['contract', 'الاشتراك والعقد'],
   ['settings', 'الإعدادات'],
   ['whatsapp', 'واتساب وMeta'],
   ['log', 'السجل'],
@@ -42,25 +45,14 @@ const TAB_KEYS = TABS.map(([k]) => k);
 const TAB_ALIAS = { contracts: 'contract', general: 'settings', ai: 'settings', policies: 'settings' };
 
 const NAME_STATUS = { APPROVED: 'مقبول', DECLINED: 'مرفوض', PENDING_REVIEW: 'قيد المراجعة' };
-const DOT = { critical: 'down', warning: 'degraded', info: 'idle' };
-const TONE_CHIP = {
-  ok: 'bg-emerald-50 text-emerald-800 border-emerald-100',
-  warn: 'bg-amber-50 text-amber-800 border-amber-100',
-  bad: 'bg-red-50 text-red-700 border-red-100',
-  muted: 'bg-gray-50 text-gray-600 border-gray-200',
-};
-const STATE_TONE = { ok: 'ok', degraded: 'warn', down: 'bad', paused: 'muted', idle: 'muted', unknown: 'muted' };
-
-function Chip({ tone, dot, children }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[12px] ${TONE_CHIP[tone] || TONE_CHIP.muted}`}>
-      {dot && <StatusDot state={dot} />} {children}
-    </span>
-  );
-}
+// Row states and subscription tones, in the kit's pill tones.
+const STATE_PILL = { ok: 'ok', degraded: 'warn', down: 'bad', paused: 'warn', idle: 'neutral', unknown: 'neutral' };
+const SUB_PILL = { ok: 'ok', warn: 'warn', bad: 'bad', muted: 'neutral' };
+// The attention rules that are about a customer waiting in a thread: the alert under the header.
+const URGENT_RULES = ['unanswered', 'handoff_waiting'];
 
 /** ⋯ : the rarer actions, out of the way of the pause. */
-function MoreMenu({ accountId, status, onSuspend }) {
+function MoreMenu({ accountId, status, onSuspend, onTry }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -69,20 +61,24 @@ function MoreMenu({ accountId, status, onSuspend }) {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
+  const item = 'w-full flex items-center gap-2 px-3 min-h-[44px] text-right hover:bg-shift-hover';
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-label="المزيد"
-        className="inline-flex items-center justify-center h-7 w-8 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50">
-        <MoreHorizontal size={15} />
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-label="المزيد" aria-expanded={open ? 'true' : 'false'}
+        className={`${btnClass('secondary', 'md')} w-11 !px-0`}>
+        <MoreHorizontal size={18} />
       </button>
       {open && (
-        <div className="absolute left-0 top-8 z-20 w-56 rounded-md border border-gray-200 bg-white shadow-lg py-1 text-[13px]">
-          <Link to={`/admin/accounts/${accountId}/conversations`} className="flex items-center gap-2 px-3 h-9 text-gray-700 hover:bg-gray-50">
-            <Eye size={14} /> فحص المحادثات (مُسجّل)
+        <div className="absolute left-0 top-12 z-20 w-60 rounded-xl border border-shift-line bg-white shadow-[0_12px_32px_-16px_rgba(15,30,56,.35)] py-1 text-sm text-shift-ink">
+          <button type="button" onClick={() => { setOpen(false); onTry(); }} className={item}>
+            <Bot size={15} /> جرّب البوت
+          </button>
+          <Link to={`/admin/accounts/${accountId}/conversations`} className={`${item} no-underline text-shift-ink`}>
+            <Eye size={15} /> فحص المحادثات (مُسجّل)
           </Link>
           {status !== 'suspended' && (
-            <button type="button" onClick={() => { setOpen(false); onSuspend(); }} className="w-full flex items-center gap-2 px-3 h-9 text-red-700 hover:bg-red-50">
-              <Ban size={14} /> إيقاف الحساب
+            <button type="button" onClick={() => { setOpen(false); onSuspend(); }} className={`${item} text-shift-danger hover:bg-shift-dangerBg`}>
+              <Ban size={15} /> إيقاف الحساب
             </button>
           )}
         </div>
@@ -91,51 +87,25 @@ function MoreMenu({ accountId, status, onSuspend }) {
   );
 }
 
-function ThisMonth({ row }) {
-  if (!row) return null;
-  const u = row.usage;
-  const tone = u ? usageTone(u.ai_replies_month, u.cap) : 'none';
-  return (
-    <Panel title="هذا الشهر">
-      <div className="flex flex-wrap divide-x divide-x-reverse divide-gray-100">
-        <div className="flex-1 min-w-[160px] px-4 py-3">
-          <p className="text-[11px] text-gray-500">ردود البوت / الحد</p>
-          <p className={`text-[15px] font-semibold tabular-nums ${tone === 'bad' ? 'text-red-700' : tone === 'warn' ? 'text-amber-700' : 'text-gray-900'}`} dir="ltr">
-            {u ? `${u.ai_replies_month.toLocaleString('en-US')} / ${u.cap ? u.cap.toLocaleString('en-US') : '—'}` : '—'}
-          </p>
-        </div>
-        <div className="flex-1 min-w-[160px] px-4 py-3">
-          <p className="text-[11px] text-gray-500">محادثات آخر 7 أيام</p>
-          <p className="text-[15px] font-semibold text-gray-900"><Num>{row.conversations_7d ?? '—'}</Num></p>
-        </div>
-        {u && u.media_today !== undefined && u.media_today !== null && (
-          <div className="flex-1 min-w-[160px] px-4 py-3">
-            <p className="text-[11px] text-gray-500">صور وصوتيات اليوم</p>
-            <p className="text-[15px] font-semibold text-gray-900"><Num>{u.media_today}</Num></p>
-          </div>
-        )}
-      </div>
-    </Panel>
-  );
-}
-
 function ShopAttention({ items, owner, onDone }) {
   const [notice, setNotice] = useState(null);
   if (!items.length) return null;
   return (
-    <Panel title={`يحتاج انتباهك · ${items.length}`}>
-      {notice && <p className={`px-4 py-2 text-[12px] ${notice.tone === 'error' ? 'text-red-700 bg-red-50' : 'text-emerald-800 bg-emerald-50'}`}>{notice.text}</p>}
-      <ul className="divide-y divide-gray-100">
+    <Card pad={false} title={`يحتاج انتباهك · ${items.length}`}>
+      {notice && (
+        <p role="status" className={`m-0 px-[18px] py-2 text-[13px] ${notice.tone === 'error' ? 'text-shift-danger bg-shift-dangerBg' : 'text-[#14532D] bg-shift-okBg'}`}>{notice.text}</p>
+      )}
+      <ul className="m-0 p-0 list-none">
         {items.map((it, i) => (
-          <li key={`${it.rule}-${i}`} className="flex items-center gap-3 px-4 min-h-[36px] py-1">
-            <StatusDot state={DOT[it.severity]} />
-            <span className="flex-1 min-w-0 text-[13px] text-gray-700">{it.text}</span>
-            <span className="text-[12px] text-gray-400 shrink-0">{it.since ? relativeTime(it.since) : ''}</span>
+          <li key={`${it.rule}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-[18px] py-2.5 border-t border-shift-line2">
+            <Tag tone={it.severity} />
+            <span className="flex-1 basis-48 min-w-0 text-sm text-shift-ink">{it.text}</span>
+            <span className="text-[12.5px] text-shift-muted shrink-0">{it.since ? relativeTime(it.since) : ''}</span>
             <FixButton item={it} owner={owner} onDone={onDone} onNotice={setNotice} />
           </li>
         ))}
       </ul>
-    </Panel>
+    </Card>
   );
 }
 
@@ -147,6 +117,7 @@ export default function BusinessDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [botEnabled, setBotEnabled] = useState(true);
+  const [convOpen, setConvOpen] = useState(false);
 
   const raw = params.get('tab');
   const tab = TAB_KEYS.includes(raw) ? raw : (TAB_ALIAS[raw] || 'health');
@@ -176,6 +147,7 @@ export default function BusinessDetailPage() {
     return a ? fleetRow(a) : null;
   }, [overview, id]);
   const items = useMemo(() => sortAttention((overview?.attention || []).map(attentionItem).filter((x) => x.account_id === id)), [overview, id]);
+  const urgent = items.find((it) => URGENT_RULES.includes(it.rule)) || null;
 
   const onBotChange = (enabled) => {
     setBotEnabled(enabled);
@@ -194,92 +166,121 @@ export default function BusinessDetailPage() {
     }
   };
 
-  if (loading) return <div className="text-center py-16 text-gray-400">جاري التحميل...</div>;
-  if (error && !biz) return <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">{error}</div>;
+  if (loading) return <div className="text-center py-16 text-shift-muted">جاري التحميل...</div>;
+  if (error && !biz) return <div role="alert" className="bg-shift-dangerBg text-shift-danger text-sm px-4 py-3 rounded-xl">{error}</div>;
   if (!biz) return null;
 
   const owner = row?.owner || null;
   const ownerHref = owner ? waLink(owner.phone, waLine(null, biz.name, owner.first_name)) : null;
-  const sectorCity = [row?.sector_ar, biz.city || row?.city].filter(Boolean).join(' · ');
+  const urgentHref = owner && urgent ? waLink(owner.phone, waLine(urgent.rule, biz.name, owner.first_name)) : ownerHref;
+  const typeCity = [row?.sector_ar, biz.city || row?.city].filter(Boolean).join(' · ');
   const nameStatus = row?.meta_name_status || null;
 
   return (
-    <div className="max-w-[1200px]">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-3 min-w-0">
-          <Link to="/admin/accounts" className="text-gray-400 hover:text-gray-600 mt-1"><ArrowRight size={18} /></Link>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold text-gray-900">{biz.name}</h1>
-            {sectorCity && <p className="text-[12px] text-gray-500">{sectorCity}</p>}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {row && <Chip tone={STATE_TONE[row.wa.state]} dot={row.wa.state}>واتساب: {row.wa.label}</Chip>}
-              {row && <Chip tone={STATE_TONE[row.bot.state]} dot={row.bot.state}>البوت: {row.bot.label}</Chip>}
-              {row && <Chip tone={row.sub.tone}>{row.sub.label}</Chip>}
-              {biz.status && biz.status !== 'active' && <Chip tone="bad">الحساب {biz.status === 'suspended' ? 'موقوف' : 'غير نشط'}</Chip>}
-            </div>
-            <p className="mt-2 text-[12px] text-gray-600 flex flex-wrap items-center gap-x-2 gap-y-1">
-              {owner ? (
-                <>
-                  <span>{owner.first_name || 'صاحب المحل'}</span>
-                  {owner.phone && <>· <Ltr>{maskPhone(owner.phone)}</Ltr></>}
-                  {ownerHref && (
-                    <a href={ownerHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-emerald-700 hover:underline">
-                      · <MessageCircle size={12} /> راسله
-                    </a>
-                  )}
-                </>
-              ) : <button type="button" onClick={() => setTab('access')} className="underline text-gray-500">لا يوجد صاحب محل — أضفه من «الدخول»</button>}
-            </p>
-            {row?.display_phone && (
-              <p className="text-[12px] text-gray-600">
-                <Ltr>{row.display_phone}</Ltr>
-                {row.verified_name && <> · الاسم عند Meta: {row.verified_name}{nameStatus && NAME_STATUS[nameStatus] ? ` (${NAME_STATUS[nameStatus]})` : ''}</>}
-              </p>
-            )}
-          </div>
-        </div>
-        {/* The pause is what an operator reaches for first when a shop's bot misbehaves. */}
-        <div className="flex items-start gap-2">
-          <BotPauseControl accountId={biz.id} enabled={botEnabled} onChange={onBotChange} compact />
-          <button type="button" onClick={() => setTab('knowledge')}
-            className="inline-flex items-center gap-1 border border-gray-200 text-gray-800 px-2.5 h-7 rounded-md text-[12px] hover:bg-gray-50">
-            <Bot size={12} /> جرّب البوت
-          </button>
-          <MoreMenu accountId={biz.id} status={biz.status} onSuspend={suspend} />
-        </div>
+    <div className="max-w-[1200px] flex flex-col gap-4">
+      <div className="text-[13.5px] text-shift-body">
+        <Link to="/admin/accounts" className="text-shift-accent hover:text-shift-ink no-underline">الزبائن</Link>
+        <span aria-hidden="true"> / </span>{biz.name}
       </div>
 
-      {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2 rounded-lg mt-3">{error}</div>}
+      <header className="bg-white border border-shift-line rounded-2xl p-3.5 sm:px-[22px] sm:py-5 flex flex-col gap-2.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div aria-hidden="true" className="hidden sm:grid w-11 h-11 rounded-xl bg-[#F1F3F7] place-items-center font-display font-bold text-lg text-shift-ink">
+            {(biz.name || '—').trim().charAt(0)}
+          </div>
+          <h1 className="m-0 font-display text-[22px] sm:text-[28px] leading-[1.35] font-semibold text-shift-ink min-w-0 break-words">{biz.name}</h1>
+          {typeCity && <span className="text-sm text-shift-body">{typeCity}</span>}
+          {/* The pause is what an operator reaches for first when a shop's bot misbehaves. */}
+          <div className="w-full sm:w-auto sm:ms-auto grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:flex sm:flex-wrap gap-2">
+            {ownerHref ? (
+              <a href={ownerHref} target="_blank" rel="noopener noreferrer" className={`${btnClass('secondary', 'md')} no-underline !px-3 !whitespace-normal leading-tight`}>
+                <MessageCircle size={15} className="hidden sm:block" /> راسل صاحب المحل
+              </a>
+            ) : (
+              <Button onClick={() => setTab('access')} title="لا يوجد موبايل لصاحب المحل" className="!px-3 !whitespace-normal leading-tight">
+                <MessageCircle size={15} className="hidden sm:block" /> أضف صاحب المحل
+              </Button>
+            )}
+            <div className="min-w-0">
+              <BotPauseControl accountId={biz.id} name={biz.name} enabled={botEnabled} onChange={onBotChange} compact />
+            </div>
+            <MoreMenu accountId={biz.id} status={biz.status} onSuspend={suspend} onTry={() => setTab('knowledge')} />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-x-[18px] gap-y-1.5 text-sm text-shift-body">
+          {owner ? (
+            <span>
+              {owner.first_name || 'صاحب المحل'}
+              {owner.phone && <> · <Ltr>{maskPhone(owner.phone)}</Ltr></>}
+            </span>
+          ) : <button type="button" onClick={() => setTab('access')} className="min-h-[32px] text-shift-accent hover:text-shift-ink">لا يوجد صاحب محل — أضفه من «الدخول»</button>}
+          {row?.display_phone && (
+            <span>
+              رقم المحل <Ltr>{row.display_phone}</Ltr>
+              {row.verified_name && <> · الاسم عند Meta «{row.verified_name}»{nameStatus && NAME_STATUS[nameStatus] ? ` ${NAME_STATUS[nameStatus]}` : ''}</>}
+            </span>
+          )}
+          {row && <span>واتساب: {row.wa.label}</span>}
+        </div>
+
+        {(row || (biz.status && biz.status !== 'active')) && (
+          <div className="flex flex-wrap gap-1.5">
+            {row?.stage_ar && <Pill>التفعيل: {row.stage_ar}</Pill>}
+            {row && (
+              <Pill tone={botEnabled ? STATE_PILL[row.bot.state] : 'warn'}>
+                الخدمة: {botEnabled ? row.bot.label : 'الرد الآلي متوقف · الرسائل تصل'}
+              </Pill>
+            )}
+            {row && <Pill tone={SUB_PILL[row.sub.tone] || 'neutral'}>الاشتراك: {row.sub.label}</Pill>}
+            {biz.status && biz.status !== 'active' && <Pill tone="bad">الحساب {biz.status === 'suspended' ? 'موقوف' : 'غير نشط'}</Pill>}
+          </div>
+        )}
+      </header>
+
+      {urgent && (
+        <section role="alert" className="flex flex-wrap items-center gap-3 p-3.5 sm:p-4 rounded-xl bg-white border border-shift-dangerLine border-s-[3px] border-s-[#D92D20]">
+          <div className="flex-1 basis-72 min-w-0">
+            <div className="flex items-center gap-2 font-semibold text-[15px] text-shift-ink"><Tag tone="critical" /> محادثة تحتاج تدخلًا</div>
+            <div className="text-sm text-shift-body">{urgent.text}{urgent.since ? ` · ${relativeTime(urgent.since)}` : ''}</div>
+          </div>
+          <Button variant="primary" onClick={() => setConvOpen(true)} className="w-full sm:w-auto">افتح المحادثة</Button>
+        </section>
+      )}
+
+      {error && <div role="alert" className="bg-shift-dangerBg border border-shift-dangerLine text-shift-danger text-sm px-4 py-2 rounded-xl">{error}</div>}
 
       {/* Tabs: scroll sideways on a phone rather than wrap into two rows. */}
-      <div className="flex gap-1 border-b border-gray-200 mb-5 mt-4 overflow-x-auto">
+      <div role="tablist" aria-label="أقسام الحساب" className="flex gap-0.5 border-b border-shift-line overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
         {TABS.map(([key, label]) => (
-          <button key={key} type="button" onClick={() => setTab(key)}
-            className={`shrink-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === key ? 'border-green-500 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <button key={key} type="button" role="tab" aria-selected={tab === key ? 'true' : 'false'} onClick={() => setTab(key)}
+            className={`shrink-0 min-h-[44px] px-3.5 text-[14.5px] whitespace-nowrap border-b-2 -mb-px ${
+              tab === key ? 'border-shift-ink text-shift-ink font-semibold' : 'border-transparent text-shift-body font-medium hover:text-shift-ink'}`}>
             {label}
           </button>
         ))}
       </div>
 
-      {tab === 'health' && (
-        <div className="space-y-4">
-          <ShopAttention items={items} owner={owner} onDone={loadOverview} />
-          <ThisMonth row={row} />
-          {/* Keyed on the pause so the agent state there is re-read after the switch. */}
-          <AccountHealthTab key={`${biz.id}-${botEnabled}`} accountId={biz.id} />
-        </div>
-      )}
-      {tab === 'knowledge' && <AccountKnowledgeTab accountId={biz.id} businessType={biz.business_type} />}
-      {tab === 'access' && <AccountAccessTab accountId={biz.id} />}
-      {tab === 'contract' && <AccountContractsTab accountId={biz.id} />}
-      {tab === 'settings' && (
-        <AccountSettingsTab key={biz.id} biz={biz} botEnabled={botEnabled} onBotChange={onBotChange}
-          onSaved={(b) => setBiz((prev) => ({ ...prev, ...b }))} />
-      )}
-      {tab === 'whatsapp' && <AccountWhatsAppTab accountId={biz.id} biz={biz} />}
-      {tab === 'log' && <AccountLogTab accountId={biz.id} />}
+      <div role="tabpanel">
+        {tab === 'health' && (
+          <div className="flex flex-col gap-4">
+            <ShopAttention items={items} owner={owner} onDone={loadOverview} />
+            {/* Keyed on the pause so the agent state there is re-read after the switch. */}
+            <AccountHealthTab key={`${biz.id}-${botEnabled}`} accountId={biz.id} row={row} botEnabled={botEnabled} />
+          </div>
+        )}
+        {tab === 'knowledge' && <AccountKnowledgeTab accountId={biz.id} businessType={biz.business_type} />}
+        {tab === 'access' && <AccountAccessTab accountId={biz.id} />}
+        {tab === 'contract' && <AccountContractsTab accountId={biz.id} />}
+        {tab === 'settings' && (
+          <AccountSettingsTab key={biz.id} biz={biz} botEnabled={botEnabled} onBotChange={onBotChange}
+            onSaved={(b) => setBiz((prev) => ({ ...prev, ...b }))} />
+        )}
+        {tab === 'whatsapp' && <AccountWhatsAppTab accountId={biz.id} biz={biz} />}
+        {tab === 'log' && <AccountLogTab accountId={biz.id} />}
+      </div>
+
+      {convOpen && <ConversationDrawer accountId={biz.id} ownerHref={urgentHref} onClose={() => setConvOpen(false)} />}
     </div>
   );
 }
