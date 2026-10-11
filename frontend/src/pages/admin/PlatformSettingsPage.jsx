@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, X, AlertTriangle, Lock } from 'lucide-react';
+import { Plus, X, AlertTriangle, Lock, Check } from 'lucide-react';
 import { Ltr } from '../../components/shared/Primitives';
 import { PageHeader, Button, fieldClass, labelClass, Footnote } from '../../components/admin/ui';
 import api from '../../utils/api';
@@ -13,13 +13,15 @@ import api from '../../utils/api';
  * server writes platform_setting_changed with the before and after for each.
  *
  * Three switches open something wide and never ride on a section's save. Owner self-connect
- * (es_owner_enabled) stays locked until the spare-SIM run (G1) has passed: the server has no G1
- * record to check, so opening it asks the operator to type that G1 passed, on top of the old
- * confirmation. Public self-signup («جرّب مجانًا», P5) and coexistence (P5, off for October —
+ * (es_owner_enabled) stays locked until the spare-SIM run (G1) is on record: the server refuses
+ * to open it before that (409), and records G1 only when it can see an attended connect SHIFT ran
+ * (GET's `g1`, POST/DELETE /admin/platform-settings/g1). The page draws that state and sends the
+ * typed sentence; it decides nothing itself. Public self-signup («جرّب مجانًا», P5) and coexistence (P5, off for October —
  * fresh SIMs only) ask for a sentence the server checks (adminPlatform.js CONFIRM_TO_ENABLE). The
  * Meta ids come from the deployment and are shown read-only. Secrets never appear on this page.
  */
 
+// The server sends its own (g1.confirm); this is only for a response without it.
 const G1_SENTENCE = 'نجحت تجربة الشريحة الاحتياطية';
 const PROVIDER_DOWN_MS = 15 * 60000; // accountHealth.providerDown
 
@@ -171,21 +173,100 @@ function ProviderLine({ status }) {
   );
 }
 
+const longDate = (d) => new Date(d).toLocaleString('ar-JO', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+
+function CheckRow({ done, children }) {
+  return (
+    <li className="flex items-start gap-2.5">
+      {done ? (
+        <span aria-hidden="true" className="mt-0.5 w-[18px] h-[18px] shrink-0 rounded-full bg-shift-ok text-white grid place-items-center"><Check size={12} /></span>
+      ) : (
+        <span aria-hidden="true" className="mt-0.5 w-[18px] h-[18px] shrink-0 rounded-full border-2 border-shift-gold" />
+      )}
+      <span>{children}</span>
+    </li>
+  );
+}
+
 /**
- * «السماح للزبائن بربط واتساب بأنفسهم» (es_owner_enabled). Locked while off: the button that opens
- * it asks for the G1 sentence typed back and then the old confirmation. Closing needs only a
- * confirm — off is the safe side.
+ * G1, as the server sees it: whether an attended connect SHIFT ran is on record (the evidence),
+ * and whether a person recorded that the spare-SIM run passed. «سجّل نجاح التجربة» sends the typed
+ * sentence; the server refuses without the evidence and says why, shown here as it comes.
+ * Undoing it closes owner self-connect (and public self-signup) on the server too.
  */
-function SelfConnect({ on, onSaved }) {
+function G1Check({ g1, onG1 }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const sentence = g1?.confirm || G1_SENTENCE;
+  const passed = Boolean(g1?.passed_at);
+  const ev = g1?.evidence || null;
+
+  const send = async (request) => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await request();
+      onG1(res.data?.g1 || null, res.data?.settings || null);
+      setMsg({ tone: 'ok', text: 'تم الحفظ' });
+    } catch (err) {
+      setMsg({ tone: 'error', text: err.response?.data?.error || 'تعذّر الحفظ' });
+    } finally { setBusy(false); }
+  };
+
+  const record = () => {
+    const typed = window.prompt(`سجّل نجاح G1 فقط إن شاهدت الربط الحقيقي على الشريحة الاحتياطية ينجح حتى النهاية ورد البوت عليه.\n\nللتأكيد اكتب:\n${sentence}`);
+    if (typed === null) return;
+    send(() => api.post('/admin/platform-settings/g1', { confirm: typed }));
+  };
+  const undo = () => {
+    if (!window.confirm('إلغاء تسجيل نجاح التجربة؟ يُغلق الربط الذاتي والتسجيل العام فورًا إن كانا مفتوحين.')) return;
+    send(() => api.delete('/admin/platform-settings/g1'));
+  };
+
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <span className="text-[13px] text-shift-body">قبل فتح الربط الذاتي:</span>
+      <ul className="list-none m-0 p-0 flex flex-col gap-2.5">
+        <CheckRow done={Boolean(ev)}>
+          <b className="font-semibold">ربط حقيقي مكتمل أجراه فريق شِفت عبر نافذة Meta</b>
+          <span className="block text-[12.5px] text-shift-muted">
+            {ev ? `${ev.business_name || 'محل'} · ${longDate(ev.at)}` : 'لم نرَ بعد — شغّل التجربة من تبويب «الحالة» في صفحة الحساب.'}
+          </span>
+        </CheckRow>
+        <CheckRow done={passed}>
+          <b className="font-semibold">تجربة الربط على شريحة احتياطية (G1) نجحت</b>
+          <span className="block text-[12.5px] text-shift-muted">
+            {passed ? `سجّلها ${g1.passed_by?.name || 'شِفت'} · ${longDate(g1.passed_at)}` : 'لم تُسجَّل بعد.'}
+          </span>
+        </CheckRow>
+        <CheckRow done={false}>التحقق من حد Meta للزبائن الجدد أسبوعيًا</CheckRow>
+      </ul>
+      <div className="flex flex-wrap items-center gap-3">
+        {passed ? (
+          <button type="button" onClick={undo} disabled={busy}
+            className="min-h-[40px] p-0 border-0 bg-transparent text-[13px] text-shift-danger disabled:opacity-50">
+            {busy ? 'جارٍ…' : 'ألغِ تسجيل التجربة'}
+          </button>
+        ) : (
+          <Button onClick={record} disabled={busy || !g1}>{busy ? 'جارٍ…' : 'سجّل نجاح التجربة'}</Button>
+        )}
+        <Msg msg={msg} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * «السماح للزبائن بربط واتساب بأنفسهم» (es_owner_enabled). Locked until G1 is recorded on the
+ * server (G1Check); after that, opening asks the old confirmation. Closing needs only a confirm —
+ * off is the safe side. The server holds the same lock, so its 409 is shown if the page is stale.
+ */
+function SelfConnect({ on, g1Passed, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
 
   const flip = async () => {
     if (!on) {
-      const typed = window.prompt(`الربط الذاتي يبقى مغلقًا حتى تنجح تجربة الربط الحقيقي على شريحة احتياطية (G1). بعد الفتح يربط كل صاحب محل واتساب بنفسه من لوحته.\n\nإن نجحت التجربة فعلًا، اكتب للتأكيد:\n${G1_SENTENCE}`);
-      if (typed === null) return;
-      if (typed.replace(/\s+/g, ' ').trim() !== G1_SENTENCE) { setMsg({ tone: 'error', text: 'العبارة غير مطابقة — بقي الربط الذاتي مغلقًا.' }); return; }
-      if (!window.confirm('فتح الربط الذاتي لأصحاب المحلات؟ لا تفتحه قبل نجاح أول ربط حقيقي (G1) على شريحة احتياطية. بعد الفتح يربط كل صاحب محل واتساب بنفسه من لوحته.')) return;
+      if (!window.confirm('فتح الربط الذاتي لأصحاب المحلات؟ بعد الفتح يربط كل صاحب محل واتساب بنفسه من لوحته.')) return;
     } else if (!window.confirm('إغلاق الربط الذاتي؟ لن يرى أصحاب المحلات زر «اربط واتساب»، وتربط شِفت معهم.')) {
       return;
     }
@@ -205,11 +286,15 @@ function SelfConnect({ on, onSaved }) {
         <div className="flex-[1_1_260px]">
           <b className="font-semibold">السماح للزبائن بربط واتساب بأنفسهم</b>
           <div className="text-[13px] text-shift-body">
-            {on ? 'مفتوح — كل صاحب محل يربط واتساب بنفسه من لوحته.' : 'يُفتح بعد نجاح تجربة الشريحة. إلى ذلك الحين تربط شِفت مع صاحب المحل من صفحة المحل.'}
+            {on ? 'مفتوح — كل صاحب محل يربط واتساب بنفسه من لوحته.'
+              : g1Passed ? 'نجحت التجربة — يمكن فتحه الآن. إلى ذلك الحين تربط شِفت مع صاحب المحل من صفحة المحل.'
+                : 'يُفتح بعد تسجيل نجاح تجربة الشريحة أعلاه. إلى ذلك الحين تربط شِفت مع صاحب المحل من صفحة المحل.'}
           </div>
         </div>
         {on ? (
           <Button variant="danger" onClick={flip} disabled={busy}>{busy ? 'جارٍ…' : 'أغلق الربط الذاتي'}</Button>
+        ) : g1Passed ? (
+          <Button onClick={flip} disabled={busy}>{busy ? 'جارٍ…' : 'افتح الربط الذاتي'}</Button>
         ) : (
           <button type="button" disabled aria-disabled="true"
             className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-xl border border-shift-line bg-shift-canvas text-shift-muted text-sm cursor-not-allowed">
@@ -217,12 +302,6 @@ function SelfConnect({ on, onSaved }) {
           </button>
         )}
       </div>
-      {!on && (
-        <button type="button" onClick={flip} disabled={busy}
-          className="self-start min-h-[40px] p-0 border-0 bg-transparent text-[13px] text-shift-accent hover:text-shift-ink disabled:opacity-50">
-          {busy ? 'جارٍ…' : 'نجحت تجربة الشريحة؟ افتح الربط الذاتي…'}
-        </button>
-      )}
       <Msg msg={msg} />
     </div>
   );
@@ -343,11 +422,12 @@ export default function PlatformSettingsPage() {
   const [settings, setSettings] = useState(null);
   const [meta, setMeta] = useState(null);
   const [confirmTexts, setConfirmTexts] = useState({});
+  const [g1, setG1] = useState(null);
   const [error, setError] = useState(null);
 
   const load = useCallback(() => {
     api.get('/admin/platform-settings')
-      .then((res) => { setSettings(res.data?.settings || {}); setConfirmTexts(res.data?.confirm_to_enable || {}); setError(null); })
+      .then((res) => { setSettings(res.data?.settings || {}); setConfirmTexts(res.data?.confirm_to_enable || {}); setG1(res.data?.g1 || null); setError(null); })
       .catch((err) => setError(err.response?.data?.error || 'تعذّر تحميل إعدادات المنصة'));
     api.get('/admin/embedded-signup/config')
       .then((res) => setMeta(res.data))
@@ -357,6 +437,9 @@ export default function PlatformSettingsPage() {
   useEffect(() => { load(); }, [load]);
 
   const onSaved = (key, value) => setSettings((s) => ({ ...s, [key]: value }));
+  // Recording or undoing G1 can change other switches on the server (undo closes self-connect and
+  // self-signup), so the whole settings object it returns replaces ours.
+  const onG1 = (next, all) => { setG1(next); if (all) setSettings(all); };
   const sectionProps = { settings, onSaved };
 
   return (
@@ -425,14 +508,8 @@ export default function PlatformSettingsPage() {
             note="مدة الرابط للروابط الجديدة؛ الروابط المرسلة تبقى على مدتها."
             top={(
               <>
-                <div className="flex flex-col gap-2 text-sm">
-                  <span className="text-[13px] text-shift-body">قبل فتح الربط الذاتي:</span>
-                  <ul className="list-none m-0 p-0 flex flex-col gap-2.5">
-                    <li className="flex items-center gap-2.5"><span aria-hidden="true" className="w-[18px] h-[18px] rounded-full border-2 border-shift-gold" /><b className="font-semibold">تجربة الربط على شريحة احتياطية (G1)</b></li>
-                    <li className="flex items-center gap-2.5"><span aria-hidden="true" className="w-[18px] h-[18px] rounded-full border-2 border-shift-field" />التحقق من حد Meta للزبائن الجدد أسبوعيًا</li>
-                  </ul>
-                </div>
-                <SelfConnect on={settings.es_owner_enabled === true} onSaved={onSaved} />
+                <G1Check g1={g1} onG1={onG1} />
+                <SelfConnect on={settings.es_owner_enabled === true} g1Passed={Boolean(g1?.passed_at)} onSaved={onSaved} />
                 <SelfSignup {...sectionProps} confirmSentence={confirmTexts.self_signup} />
                 <Coexistence value={settings.coexistence} confirmText={confirmTexts.coexistence} onSaved={onSaved} />
                 <details className="text-[13.5px] text-shift-body">

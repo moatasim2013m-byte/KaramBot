@@ -2,7 +2,9 @@
 
 const express = require('express');
 const { authenticate, requireRole } = require('../middleware/auth');
+const prisma = require('../config/prisma');
 const platformSettings = require('../services/platformSettings');
+const accountEvents = require('../services/accountEvents');
 const { normalizePhone } = require('../utils/phone');
 const labels = require('../config/eventLabels');
 const { embeddedSignupAppId } = require('../utils/metaSecrets');
@@ -11,8 +13,10 @@ const { embeddedSignupAppId } = require('../utils/metaSecrets');
  * «إعدادات المنصة» made real (docs/panels/spec.md; decisions-2026-10-08.md): SHIFT's own switches
  * and defaults, stored as PlatformSetting rows and read by the code that obeys them.
  *
- *   GET   /api/admin/platform-settings          {settings, defaults, editable, meta}
- *   PATCH /api/admin/platform-settings {key, value}
+ *   GET    /api/admin/platform-settings          {settings, defaults, editable, meta, g1}
+ *   PATCH  /api/admin/platform-settings {key, value}
+ *   POST   /api/admin/platform-settings/g1 {confirm}   record G1 (the spare-SIM run) as passed
+ *   DELETE /api/admin/platform-settings/g1             undo it; owner self-connect closes with it
  *
  * platformSettings.set already refuses an unknown key or a value of the wrong type. This route
  * checks what a person can get wrong on top: a free month of 0 days, a daily ceiling of -1, an IBAN
@@ -21,7 +25,12 @@ const { embeddedSignupAppId } = require('../utils/metaSecrets');
  * without retyping the campaign. value null restores the code default. Every save is an
  * AccountEvent platform_setting_changed with the value before and after (platformSettings.set).
  *
- * Not editable here, on purpose: provider_status (written by the code when the AI fails).
+ * Not editable here, on purpose: provider_status (written by the code when the AI fails) and
+ * g1_passed_at (only the G1 routes below write it).
+ *
+ * Owner self-connect (es_owner_enabled) opens only after G1, the first attended live Embedded
+ * Signup on a spare SIM. platformSettings.set refuses true while g1_passed_at is empty (409), so
+ * the lock holds for any caller, not only this PATCH.
  *
  * Two switches open something wide, so turning either ON from off needs a sentence typed by a
  * person in the body ({key, value, confirm}) rather than a click (CONFIRM_TO_ENABLE). Turning
@@ -179,10 +188,50 @@ function metaInfo() {
   };
 }
 
+// ── G1 ───────────────────────────────────────────────────────────────────────
+// G1 is recorded by a person who watched it pass, and only when the server can see it happened:
+// an es_connected written by SHIFT's own Embedded Signup routes (routes/adminEmbeddedSignup.js
+// records actor_kind 'shift'). The owner's routes write actor_kind 'owner', which cannot exist
+// before G1 anyway; «اربط بحساب» (attachOnboarding) also writes es_connected but as resumed_from
+// 'orphan', a row someone connected earlier, so it is no live run and does not count.
+const G1_CONFIRM = 'نجحت تجربة الشريحة الاحتياطية';
+const G1_NO_EVIDENCE = 'لا نرى ربطًا مكتملًا أجراه فريق شِفت عبر نافذة Meta. شغّل التجربة على الشريحة الاحتياطية من تبويب «الحالة» في صفحة الحساب، ثم سجّل نجاحها.';
+const G1_EVIDENCE_SCAN = 50;
+
+async function g1Evidence() {
+  const rows = await prisma.accountEvent.findMany({
+    where: { type: 'es_connected', actor_kind: 'shift', business_id: { not: null } },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+    take: G1_EVIDENCE_SCAN,
+  });
+  const hit = rows.find((e) => !(e.data && e.data.resumed_from === 'orphan'));
+  if (!hit) return null;
+  const business = await prisma.business.findUnique({ where: { id: hit.business_id }, select: { name: true } }).catch(() => null);
+  return {
+    event_id: hit.id,
+    at: hit.created_at,
+    business_id: hit.business_id,
+    business_name: business ? business.name : null,
+    actor_user_id: hit.actor_user_id || null,
+  };
+}
+
+/** What the settings page draws as the G1 checklist. */
+async function g1State(settings) {
+  const passed = settings.g1_passed_at && settings.g1_passed_at.at ? settings.g1_passed_at : null;
+  return {
+    passed_at: passed ? passed.at : null,
+    passed_by: passed ? { id: passed.by_user_id || null, name: passed.by_name || null } : null,
+    evidence: await g1Evidence(),
+    confirm: G1_CONFIRM,
+  };
+}
+
 router.get('/', async (req, res) => {
   try {
+    const settings = await platformSettings.getAll();
     res.json({
-      settings: await platformSettings.getAll(),
+      settings,
       defaults: platformSettings.defaults(),
       editable: EDITABLE,
       labels: labels.SETTING_AR,
@@ -191,6 +240,7 @@ router.get('/', async (req, res) => {
       confirm_to_enable: Object.fromEntries(Object.entries(CONFIRM_TO_ENABLE).map(([k, r]) => [k, r.text])),
       // Kept for the coexistence block, which reads it by this name.
       coexistence_confirm: COEXISTENCE_CONFIRM,
+      g1: await g1State(settings),
     });
   } catch (err) {
     console.error(`[admin/platform-settings] read failed: ${err.message}`);
@@ -214,9 +264,68 @@ router.patch('/', async (req, res) => {
     res.json({ key, value: effective, settings: await platformSettings.getAll() });
   } catch (err) {
     if (err instanceof SettingInputError) return res.status(400).json({ error: err.message });
+    if (err && err.code === 'G1_NOT_PASSED') return res.status(409).json({ error: err.message, code: err.code });
     if (err && err.status === 400) return res.status(400).json({ error: 'قيمة الإعداد غير صحيحة' });
     console.error(`[admin/platform-settings] ${key} not saved: ${err.message}`);
     res.status(500).json({ error: 'تعذّر حفظ الإعداد' });
+  }
+});
+
+router.post('/g1', async (req, res) => {
+  const confirm = String((req.body && req.body.confirm) || '').replace(/\s+/g, ' ').trim();
+  if (confirm !== G1_CONFIRM) return res.status(400).json({ error: `للتسجيل اكتب: «${G1_CONFIRM}»` });
+  try {
+    const current = await platformSettings.get('g1_passed_at');
+    // Already recorded: the first record (and who made it) stands.
+    if (current && current.at) {
+      const settings = await platformSettings.getAll();
+      return res.json({ settings, g1: await g1State(settings) });
+    }
+    const evidence = await g1Evidence();
+    if (!evidence) return res.status(409).json({ error: G1_NO_EVIDENCE, code: 'G1_NO_EVIDENCE' });
+    const by = await prisma.user.findUnique({ where: { id: req.user.id }, select: { name: true } }).catch(() => null);
+    await platformSettings.set('g1_passed_at', {
+      at: new Date().toISOString(),
+      by_user_id: req.user.id,
+      by_name: (by && by.name) || null,
+      evidence: { event_id: evidence.event_id, business_id: evidence.business_id, at: evidence.at },
+    }, req.user.id);
+    await accountEvents.record({
+      businessId: null,
+      actorUserId: req.user.id,
+      actorKind: 'shift',
+      type: 'g1_passed',
+      data: { evidence_event_id: evidence.event_id, evidence_business_id: evidence.business_id },
+    });
+    const settings = await platformSettings.getAll();
+    res.json({ settings, g1: await g1State(settings) });
+  } catch (err) {
+    console.error(`[admin/platform-settings] G1 not recorded: ${err.message}`);
+    res.status(500).json({ error: 'تعذّر تسجيل نجاح التجربة' });
+  }
+});
+
+// Undoing G1 closes what it opened, before the record goes: owner self-connect, and public
+// self-signup, which only makes sense while owners can connect alone (SELF_SIGNUP_NEEDS_ES).
+router.delete('/g1', async (req, res) => {
+  try {
+    if (platformSettings.isOn(await platformSettings.get('es_owner_enabled'))) {
+      await platformSettings.set('es_owner_enabled', false, req.user.id);
+    }
+    const signup = await platformSettings.get('self_signup');
+    if (platformSettings.isOn(signup)) await platformSettings.set('self_signup', { ...signup, enabled: false }, req.user.id);
+    const current = await platformSettings.get('g1_passed_at');
+    if (current) {
+      await platformSettings.set('g1_passed_at', null, req.user.id);
+      await accountEvents.record({
+        businessId: null, actorUserId: req.user.id, actorKind: 'shift', type: 'g1_reverted', data: {},
+      });
+    }
+    const settings = await platformSettings.getAll();
+    res.json({ settings, g1: await g1State(settings) });
+  } catch (err) {
+    console.error(`[admin/platform-settings] G1 not undone: ${err.message}`);
+    res.status(500).json({ error: 'تعذّر إلغاء تسجيل التجربة' });
   }
 });
 
@@ -226,3 +335,5 @@ module.exports.EDITABLE = EDITABLE;
 module.exports.CONFIRM_TO_ENABLE = CONFIRM_TO_ENABLE;
 module.exports.COEXISTENCE_CONFIRM = COEXISTENCE_CONFIRM;
 module.exports.SELF_SIGNUP_NEEDS_ES = SELF_SIGNUP_NEEDS_ES;
+module.exports.G1_CONFIRM = G1_CONFIRM;
+module.exports.g1Evidence = g1Evidence;

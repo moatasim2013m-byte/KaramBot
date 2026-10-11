@@ -382,6 +382,7 @@ describe('GET /api/admin/onboarding', () => {
     seedBoard();
     db.store.userActivations[0].expires_at = ago(HOUR);
     db.seed({ accountEvents: [{ business_id: 'b_conn', actor_kind: 'shift', type: 'es_connected', created_at: ago(HOUR) }] });
+    db.seed({ platformSettings: [{ key: 'g1_passed_at', value: { at: '2026-10-11T10:00:00.000Z', by_user_id: 'u_admin' } }] });
     await platformSettings.set('es_owner_enabled', true, 'u_admin');
 
     const res = await request(app).get('/api/admin/onboarding').set(ADMIN());

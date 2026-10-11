@@ -4,7 +4,7 @@ import { AlertTriangle, Copy, CreditCard, Link2, MessageCircle, Plus, Send, XCir
 import api from '../../utils/api';
 import { EmptyState, Freshness, SkeletonRows, Timestamp, relativeTime } from '../../components/shared/Primitives';
 import { Card, Footnote, PageHeader, Pill, Tag, btnClass } from '../../components/admin/ui';
-import { cardActions, cardBadges, cardLines } from './boardCardView';
+import { cardActions, cardBadges, cardLines, cardNextActor } from './boardCardView';
 
 /**
  * «الانضمام» — /admin/onboarding, the October campaign board (docs/panels/spec.md, «Operator
@@ -66,30 +66,17 @@ function ownerWaLink(card) {
   return `https://wa.me/${digits}?text=${encodeURIComponent(`${hi}معك شِفت بخصوص تفعيل كرم بوت لـ${card.name}.`)}`;
 }
 
-const inviteDead = (card) => !card.invite_expires_at || new Date(card.invite_expires_at).getTime() < Date.now();
-
-// The two server reasons that put the next move on SHIFT without a flag of their own
-// (deriveCard in backend/src/routes/adminAccounts.js): the link was made but never shared, and
-// the owner's connect button is off so SHIFT connects with them.
-const SHIFT_REASONS = ['الرابط جاهز ولم يُرسل بعد', 'بانتظار ربط واتساب مع شِفت'];
-
 /**
- * Who the next move belongs to, and which of cardActions is that move. Everything else
- * cardActions offers stays on the row, after it. Derived only from the card the server sends.
+ * Who the next move belongs to (the server's next_actor, through cardNextActor), and which of
+ * cardActions is that move. Everything else cardActions offers stays on the row, after it.
  */
 function nextMove(card, stage) {
   const kinds = cardActions(card, stage).map((a) => a.kind);
-  if (card.payment_claimed) return { who: 'shift', primary: 'confirm_card' };
-  if (stage === 'invite_sent') {
-    if (inviteDead(card) || SHIFT_REASONS.includes(card.reason_ar)) return { who: 'shift', primary: 'resend' };
-    return { who: 'owner', primary: 'message' };
-  }
-  if (stage === 'connecting' && (card.needs_operator || SHIFT_REASONS.includes(card.reason_ar))) {
-    return { who: 'shift', primary: kinds.includes('connect_with') ? 'connect_with' : 'message' };
-  }
-  if (card.needs_operator) return { who: 'shift', primary: 'message' };
-  if (stage === 'live') return { who: null, primary: 'message' };
-  return { who: 'owner', primary: 'message' };
+  const who = cardNextActor(card, stage);
+  if (card.payment_claimed) return { who, primary: 'confirm_card' };
+  if (who === 'shift' && stage === 'invite_sent') return { who, primary: 'resend' };
+  if (who === 'shift' && kinds.includes('connect_with')) return { who, primary: 'connect_with' };
+  return { who, primary: 'message' };
 }
 
 const WHO_AR = { shift: 'شِفت', owner: 'صاحب المحل' };

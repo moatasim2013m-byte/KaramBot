@@ -10,7 +10,7 @@ import AccountKnowledgeTab from '../../components/admin/AccountKnowledgeTab';
 import AccountSettingsTab from '../../components/admin/AccountSettingsTab';
 import AccountWhatsAppTab from '../../components/admin/AccountWhatsAppTab';
 import AccountLogTab from '../../components/admin/AccountLogTab';
-import BotPauseControl from '../../components/admin/BotPauseControl';
+import BotPauseControl, { pauseResumeAt, resumeLabel } from '../../components/admin/BotPauseControl';
 import FixButton from '../../components/admin/FixButton';
 import { Button, Card, Pill, Tag, btnClass } from '../../components/admin/ui';
 import { ConversationDrawer } from './AccountWorkspacePage';
@@ -117,7 +117,10 @@ export default function BusinessDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [botEnabled, setBotEnabled] = useState(true);
-  const [convOpen, setConvOpen] = useState(false);
+  // When SHIFT's timed pause ends («حتى 14:30»); null for an open-ended pause or none.
+  const [resumeAt, setResumeAt] = useState(null);
+  // ?conv=<id>: «اليوم» sends the operator here with the waiting thread named, and it opens at once.
+  const [convOpen, setConvOpen] = useState(() => Boolean(params.get('conv')));
 
   const raw = params.get('tab');
   const tab = TAB_KEYS.includes(raw) ? raw : (TAB_ALIAS[raw] || 'health');
@@ -136,7 +139,11 @@ export default function BusinessDetailPage() {
   useEffect(() => {
     setLoading(true);
     api.get(`/businesses/${id}`)
-      .then((r) => { setBiz(r.data.business); setBotEnabled(r.data.business?.ai_config?.enabled !== false); })
+      .then((r) => {
+        setBiz(r.data.business);
+        setBotEnabled(r.data.business?.ai_config?.enabled !== false);
+        setResumeAt(pauseResumeAt(r.data.business?.ai_config));
+      })
       .catch((e) => setError(e.response?.data?.error || 'لم يتم العثور على المحل'))
       .finally(() => setLoading(false));
     loadOverview();
@@ -146,11 +153,33 @@ export default function BusinessDetailPage() {
     const a = (overview?.accounts || []).find((x) => x.id === id);
     return a ? fleetRow(a) : null;
   }, [overview, id]);
-  const items = useMemo(() => sortAttention((overview?.attention || []).map(attentionItem).filter((x) => x.account_id === id)), [overview, id]);
+  // conversation_id rides along: the server names the thread an unanswered/handoff item is about.
+  const items = useMemo(() => sortAttention((overview?.attention || [])
+    .map((a) => ({ ...attentionItem(a), conversation_id: a.conversation_id || null }))
+    .filter((x) => x.account_id === id)), [overview, id]);
   const urgent = items.find((it) => URGENT_RULES.includes(it.rule)) || null;
+  // The thread to open: named in the link, else the one the alert is about. Without either the
+  // drawer falls back to guessing the newest waiting thread. Every path is the audited read.
+  const linkedConv = params.get('conv');
+  const convId = linkedConv || urgent?.conversation_id || null;
+  const closeConv = () => {
+    setConvOpen(false);
+    if (linkedConv) {
+      const next = new URLSearchParams(params);
+      next.delete('conv');
+      setParams(next, { replace: true });
+    }
+  };
 
-  const onBotChange = (enabled) => {
+  // The overview reloads after the switch, and its bot_resume_at agrees with what the route said.
+  useEffect(() => {
+    const a = (overview?.accounts || []).find((x) => x.id === id);
+    if (a && 'bot_resume_at' in a) setResumeAt(a.bot_resume_at || null);
+  }, [overview, id]);
+
+  const onBotChange = (enabled, data) => {
     setBotEnabled(enabled);
+    setResumeAt(enabled ? null : (data?.resume_at || null));
     setBiz((b) => (b ? { ...b, ai_config: { ...(b.ai_config || {}), enabled } } : b));
     loadOverview();
   };
@@ -202,7 +231,7 @@ export default function BusinessDetailPage() {
               </Button>
             )}
             <div className="min-w-0">
-              <BotPauseControl accountId={biz.id} name={biz.name} enabled={botEnabled} onChange={onBotChange} compact />
+              <BotPauseControl accountId={biz.id} name={biz.name} enabled={botEnabled} resumeAt={resumeAt} onChange={onBotChange} compact />
             </div>
             <MoreMenu accountId={biz.id} status={biz.status} onSuspend={suspend} onTry={() => setTab('knowledge')} />
           </div>
@@ -229,7 +258,7 @@ export default function BusinessDetailPage() {
             {row?.stage_ar && <Pill>التفعيل: {row.stage_ar}</Pill>}
             {row && (
               <Pill tone={botEnabled ? STATE_PILL[row.bot.state] : 'warn'}>
-                الخدمة: {botEnabled ? row.bot.label : 'الرد الآلي متوقف · الرسائل تصل'}
+                الخدمة: {botEnabled ? row.bot.label : `الرد الآلي متوقف${resumeAt ? ` ${resumeLabel(resumeAt)}` : ''} · الرسائل تصل`}
               </Pill>
             )}
             {row && <Pill tone={SUB_PILL[row.sub.tone] || 'neutral'}>الاشتراك: {row.sub.label}</Pill>}
@@ -280,7 +309,7 @@ export default function BusinessDetailPage() {
         {tab === 'log' && <AccountLogTab accountId={biz.id} />}
       </div>
 
-      {convOpen && <ConversationDrawer accountId={biz.id} ownerHref={urgentHref} onClose={() => setConvOpen(false)} />}
+      {convOpen && <ConversationDrawer key={convId || 'guess'} accountId={biz.id} conversationId={convId} ownerHref={urgentHref} onClose={closeConv} />}
     </div>
   );
 }

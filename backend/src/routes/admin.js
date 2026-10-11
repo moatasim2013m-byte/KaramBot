@@ -21,6 +21,7 @@ const {
   connectionState, agentState, lifecycle, isWaiting, isHandoffWaiting,
   UNANSWERED_MINUTES, UNANSWERED_MAX_HOURS, HANDOFF_MINUTES,
   whatsappColumn, botColumn, subscriptionColumn, shopAttention, platformAttention, providerDown, sortAttention,
+  botResumeAt, BOT_PAUSE_MIN_MINUTES, BOT_PAUSE_MAX_MINUTES,
 } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
 const { refresh: refreshMetaStatus, metaAttention } = require('../services/metaStatus');
@@ -121,6 +122,9 @@ function attentionItem(i, business, owner) {
     since: i.since || null,
     action,
     ...(i.ref ? { ref: i.ref } : {}),
+    // The waiting thread an unanswered/handoff item is about. Only its id: opening it still goes
+    // through the audited read (GET /accounts/:id/conversations/:conversationId writes admin_access_logs).
+    ...(i.conversation_id ? { conversation_id: i.conversation_id } : {}),
     // The names this list had before the spec's (the account page's own list still reads them).
     business_id: business ? business.id : null,
     business_name: business ? business.name : 'المنصة',
@@ -242,15 +246,17 @@ router.get('/overview', async (req, res) => {
           gt: new Date(now - UNANSWERED_MAX_HOURS * 3600000),
         },
       },
-      select: { business_id: true, status: true, ai_enabled: true, last_inbound_at: true, last_outbound_at: true },
+      select: { id: true, business_id: true, status: true, ai_enabled: true, last_inbound_at: true, last_outbound_at: true },
       take: WAITING_SCAN_LIMIT,
     });
+    // The oldest waiting thread's id rides along, so «افتح المحادثة» opens the customer the alert
+    // is about instead of guessing at the newest thread the customer wrote last in.
     const waitingByBusiness = new Map();
     for (const c of waitingRows) {
       if (!isWaiting(c, now)) continue;
-      const w = waitingByBusiness.get(c.business_id) || { count: 0, oldest: null };
+      const w = waitingByBusiness.get(c.business_id) || { count: 0, oldest: null, oldest_id: null };
       w.count += 1;
-      if (!w.oldest || new Date(c.last_inbound_at) < new Date(w.oldest)) w.oldest = c.last_inbound_at;
+      if (!w.oldest || new Date(c.last_inbound_at) < new Date(w.oldest)) { w.oldest = c.last_inbound_at; w.oldest_id = c.id; }
       waitingByBusiness.set(c.business_id, w);
     }
 
@@ -261,15 +267,15 @@ router.get('/overview', async (req, res) => {
         needs_attention: true,
         attention_at: { lt: new Date(now - HANDOFF_MINUTES * 60000) },
       },
-      select: { business_id: true, status: true, needs_attention: true, attention_at: true, last_outbound_at: true },
+      select: { id: true, business_id: true, status: true, needs_attention: true, attention_at: true, last_outbound_at: true },
       take: WAITING_SCAN_LIMIT,
     });
     const handoffByBusiness = new Map();
     for (const c of handoffRows) {
       if (!isHandoffWaiting(c, now)) continue;
-      const h = handoffByBusiness.get(c.business_id) || { count: 0, oldest: null };
+      const h = handoffByBusiness.get(c.business_id) || { count: 0, oldest: null, oldest_id: null };
       h.count += 1;
-      if (!h.oldest || new Date(c.attention_at) < new Date(h.oldest)) h.oldest = c.attention_at;
+      if (!h.oldest || new Date(c.attention_at) < new Date(h.oldest)) { h.oldest = c.attention_at; h.oldest_id = c.id; }
       handoffByBusiness.set(c.business_id, h);
     }
 
@@ -414,6 +420,8 @@ router.get('/overview', async (req, res) => {
         connection,
         agent,
         bot_enabled: b.ai_config?.enabled !== false,
+        // When SHIFT's timed pause lifts itself («حتى 14:30»); null for any other pause or none.
+        bot_resume_at: botResumeAt(b.ai_config),
         usage,
         conversations: conv?._count?._all || 0,
         conversations_7d: b.wa_phone_number_id ? conv7ByBusiness.get(b.id) || 0 : null,
@@ -611,6 +619,7 @@ router.get('/accounts/:id', async (req, res) => {
         agent: agentState(business, lastInbound, lastAiReply, knowledgeCount),
         knowledge_count: knowledgeCount,
         bot_enabled: business.ai_config?.enabled !== false,
+        bot_resume_at: botResumeAt(business.ai_config),
         lifecycle: lifecycle(business, onboarding),
         last_inbound_at: lastInbound,
         last_outbound_at: lastOutbound,
@@ -702,6 +711,16 @@ router.patch('/accounts/:id/bot', async (req, res) => {
   const enabled = req.body.enabled;
   const reason = String(req.body?.reason || '').trim().slice(0, 300);
   if (!enabled && !reason) return res.status(400).json({ error: 'اكتب سبب إيقاف البوت' });
+  // «30 دقيقة»: a pause that lifts itself (shiftSweeper.sweepBotPauses). Absent means until SHIFT
+  // resumes it by hand, as before. Only meaningful for a pause; ignored on a resume.
+  const rawDuration = req.body?.duration_minutes;
+  let durationMinutes = null;
+  if (!enabled && rawDuration !== undefined && rawDuration !== null) {
+    durationMinutes = Number(rawDuration);
+    if (!Number.isInteger(durationMinutes) || durationMinutes < BOT_PAUSE_MIN_MINUTES || durationMinutes > BOT_PAUSE_MAX_MINUTES) {
+      return res.status(400).json({ error: `مدة الإيقاف بالدقائق، من ${BOT_PAUSE_MIN_MINUTES} حتى ${BOT_PAUSE_MAX_MINUTES} (يوم كامل)` });
+    }
+  }
 
   try {
     const business = await prisma.business.findUnique({
@@ -710,6 +729,7 @@ router.patch('/accounts/:id/bot', async (req, res) => {
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
     const wasEnabled = business.ai_config?.enabled !== false;
+    const resumeAt = durationMinutes ? new Date(Date.now() + durationMinutes * 60000).toISOString() : null;
     // Pressing «أوقف» twice must not write two pauses into the log.
     // Except over the owner's own pause: SHIFT's pause then takes it over, or the owner's switch
     // could lift what SHIFT just asked to stay off.
@@ -717,19 +737,30 @@ router.patch('/accounts/:id/bot', async (req, res) => {
     // And over the late policy's pause: SHIFT's hand pause replaces it, or the next payment would
     // lift what SHIFT just switched off for another reason (latePolicy.liftLatePause).
     const takesOverLatePause = !enabled && latePolicy.isLatePause(business.ai_config);
-    if (wasEnabled === enabled && !takesOverOwnerPause && !takesOverLatePause) return res.json({ enabled, changed: false });
+    // And over SHIFT's own pause when its length changes (30 minutes from now, or no end at all):
+    // the sweeper lifts by resume_at, so a stale one would end the new pause early.
+    const changesLength = !enabled && !wasEnabled && (resumeAt || botResumeAt(business.ai_config));
+    if (wasEnabled === enabled && !takesOverOwnerPause && !takesOverLatePause && !changesLength) {
+      return res.json({ enabled, changed: false });
+    }
 
     // paused_by marks the pause as SHIFT's, so the owner's switch on /bot cannot lift it; resuming
     // clears it (and the late policy's pause_reason and the pause it covered), and the owner may
-    // pause and resume again.
-    const markers = ['paused_by', 'pause_reason', 'prior_pause'];
+    // pause and resume again. resume_at goes with it: a pause without one waits for a hand resume.
+    // shiftSweeper.sweepBotPauses removes the same markers when a timed pause ends.
+    const markers = ['paused_by', 'pause_reason', 'prior_pause', 'resume_at'];
+    const pause = { enabled, paused_by: 'shift', ...(resumeAt ? { resume_at: resumeAt } : {}) };
     const { ok } = enabled
       ? await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled }, { remove: markers })
-      : await jsonb.patchJson('businesses', business.id, 'ai_config', { enabled, paused_by: 'shift' }, { remove: ['pause_reason', 'prior_pause'] });
+      : await jsonb.patchJson('businesses', business.id, 'ai_config', pause, {
+        remove: ['pause_reason', 'prior_pause', ...(resumeAt ? [] : ['resume_at'])],
+      });
     if (!ok) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
-    await shiftEvent(req, business.id, enabled ? 'bot_resumed' : 'bot_paused', reason ? { reason } : {});
-    res.json({ enabled, changed: true });
+    const data = reason ? { reason } : {};
+    if (resumeAt) Object.assign(data, { resume_at: resumeAt, duration_minutes: durationMinutes });
+    await shiftEvent(req, business.id, enabled ? 'bot_resumed' : 'bot_paused', data);
+    res.json({ enabled, changed: true, ...(resumeAt ? { resume_at: resumeAt } : {}) });
   } catch (err) {
     console.error('[admin/bot] failed:', err.message);
     res.status(500).json({ error: 'تعذّر تغيير حالة البوت' });
