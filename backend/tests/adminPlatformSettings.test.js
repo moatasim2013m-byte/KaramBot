@@ -120,6 +120,8 @@ describe('validation, in Arabic, before anything is stored', () => {
 });
 
 test('a saved switch is what the code reads next', async () => {
+  // Owner self-connect opens only once G1 is on record (tests/g1Gate.test.js).
+  db.seed({ platformSettings: [{ key: 'g1_passed_at', value: { at: '2026-10-11T10:00:00.000Z', by_user_id: 'admin1' } }] });
   await patch({ key: 'es_owner_enabled', value: true });
   expect(await platformSettings.get('es_owner_enabled')).toBe(true);
 });

@@ -127,9 +127,11 @@ function ConversationList({ conversations, onPick, active }) {
 }
 
 /**
- * The read-only side panel for one conversation. Without a conversationId (the account page's
- * «محادثة تحتاج تدخلًا», whose attention row names no thread) it reads the recent list — itself a
+ * The read-only side panel for one conversation. The account page's «محادثة تحتاج تدخلًا» passes
+ * the thread its attention item names (conversation_id, the one waiting longest), and «اليوم»
+ * links to it the same way. Without one (an older payload) it reads the recent list — itself a
  * logged read — and opens the newest thread whose customer is waiting, or lets you pick one.
+ * Either way the thread itself comes through the audited read, never from the alert's payload.
  */
 export function ConversationDrawer({ accountId, conversationId = null, ownerHref = null, onClose }) {
   const { user } = useAuth();

@@ -108,8 +108,11 @@ function AttentionQueue({ items, owners, loading, onDone, onNotice }) {
   ), [items]);
   const shown = sev === 'all' ? items : items.filter((it) => it.severity === sev);
 
+  // A waiting-customer row names its thread (conversation_id): the account page opens that one
+  // straight away, through the same audited read as any other.
   const open = (it) => {
-    if (it.account_id) navigate(`/admin/accounts/${it.account_id}?tab=${tabFor(it)}`);
+    if (it.account_id && it.conversation_id) navigate(`/admin/accounts/${it.account_id}?tab=${tabFor(it)}&conv=${encodeURIComponent(it.conversation_id)}`);
+    else if (it.account_id) navigate(`/admin/accounts/${it.account_id}?tab=${tabFor(it)}`);
     else if (it.rule === 'orphan_connection') navigate('/admin/onboarding');
     else navigate('/admin/settings');
   };
@@ -148,7 +151,7 @@ function AttentionQueue({ items, owners, loading, onDone, onNotice }) {
         <ul className="m-0 p-0 list-none">
           {shown.map((it, i) => (
             <li key={`${it.account_id || 'platform'}-${it.rule}-${i}`}
-              onClick={() => open(it)}
+              onClick={() => open(it)} title={it.conversation_id ? 'افتح المحادثة' : undefined}
               className="flex flex-wrap items-center gap-x-3.5 gap-y-2 py-3 px-1.5 -mx-1.5 border-t border-shift-line2 rounded-lg hover:bg-shift-hover cursor-pointer">
               <div className="flex-1 basis-[280px] min-w-0 flex flex-col gap-0.5">
                 <span className="flex items-center gap-2 min-w-0">
@@ -323,7 +326,8 @@ export default function AdminOverviewPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  const items = useMemo(() => sortAttention((data?.attention || []).map(attentionItem)), [data]);
+  const items = useMemo(() => sortAttention((data?.attention || [])
+    .map((a) => ({ ...attentionItem(a), conversation_id: a.conversation_id || null }))), [data]);
   const rows = useMemo(() => (data?.accounts || []).map(fleetRow), [data]);
   const owners = useMemo(() => new Map(rows.map((r) => [r.id, r.owner])), [rows]);
   const today = new Date().toLocaleDateString('ar-JO-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long' });

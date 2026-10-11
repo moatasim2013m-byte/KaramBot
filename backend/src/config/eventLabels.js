@@ -113,6 +113,7 @@ const SETTING_AR = Object.freeze({
   self_signup: 'التسجيل الذاتي العام',
   coexistence: 'التطبيق والمنصة معًا',
   provider_status: 'حالة مزوّد الذكاء الاصطناعي',
+  g1_passed_at: 'تجربة الشريحة الاحتياطية (G1)',
 });
 
 const ROLE_AR = Object.freeze({
@@ -345,6 +346,8 @@ const EVENT_AR = Object.freeze({
   settings_changed: () => 'عُدّلت إعدادات الحساب',
   token_set: () => 'حُفظ مفتاح وصول واتساب يدويًا',
   platform_setting_changed: (d) => `عُدّلت «${SETTING_AR[d.key] || 'إعدادات المنصة'}»`,
+  g1_passed: () => 'سُجّل نجاح تجربة الشريحة الاحتياطية (G1) — صار ممكنًا فتح الربط الذاتي',
+  g1_reverted: () => 'أُلغي تسجيل تجربة الشريحة الاحتياطية (G1) — أُغلق الربط الذاتي',
   owner_alert_template_submitted: () => 'أُرسل قالب تنبيهات صاحب المحل لمراجعة Meta',
   owner_alert_template_approved: () => 'وافقت Meta على قالب تنبيهات صاحب المحل',
   owner_alert_template_failed: () => 'تعذّر إرسال قالب تنبيهات صاحب المحل',

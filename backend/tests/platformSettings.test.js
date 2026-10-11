@@ -38,7 +38,10 @@ const DEFAULTS = {
   self_signup: { enabled: false, daily_cap: 5 },
   coexistence: { enabled: false },
   provider_status: null,
+  g1_passed_at: null,
 };
+// es_owner_enabled opens only after G1 is on record (tests/g1Gate.test.js).
+const G1_ROW = { key: 'g1_passed_at', value: { at: '2026-10-11T10:00:00.000Z', by_user_id: 'admin1' } };
 
 describe('defaults', () => {
   test('an empty table answers with every decided default', async () => {
@@ -136,6 +139,7 @@ describe('cache', () => {
   });
 
   test('set clears the cache at once', async () => {
+    db.seed({ platformSettings: [G1_ROW] });
     expect(await settings.get('es_owner_enabled')).toBe(false);
     await settings.set('es_owner_enabled', true, 'admin1');
     expect(await settings.get('es_owner_enabled')).toBe(true);
@@ -176,9 +180,10 @@ describe('set', () => {
   });
 
   test('null removes the stored row, which puts the default back', async () => {
+    db.seed({ platformSettings: [G1_ROW] });
     await settings.set('es_owner_enabled', true, 'admin1');
     expect(await settings.set('es_owner_enabled', null, 'admin1')).toBe(false);
-    expect(db.store.platformSettings).toHaveLength(0);
+    expect(db.store.platformSettings.map((r) => r.key)).toEqual(['g1_passed_at']);
     expect(await settings.get('es_owner_enabled')).toBe(false);
     expect(db.store.accountEvents[1].data).toEqual({ key: 'es_owner_enabled', before: true, after: null });
   });

@@ -4,7 +4,7 @@ import { MessageCircle, Link2, CreditCard, Receipt, Send, Pause, Settings, Route
 import api from '../../utils/api';
 import { fixFor, waLine, waLink } from './operatorView';
 import { btnClass } from './ui';
-import { PauseDialog } from './BotPauseControl';
+import { PauseDialog, resumeLabel } from './BotPauseControl';
 
 /**
  * The one fix button an attention row earns (operatorView.RULES), doing the fix where it can:
@@ -103,7 +103,12 @@ export default function FixButton({ item, owner, onDone, onNotice }) {
       {pausing && (
         <PauseDialog accountId={id} name={item.name} initialReason={item.text || ''}
           onClose={() => setPausing(false)}
-          onPaused={() => { setPausing(false); say('ok', `أُوقف بوت ${item.name || 'المحل'} مؤقتًا.`); onDone?.(); }} />
+          onPaused={(data) => {
+            setPausing(false);
+            const until = resumeLabel(data?.resume_at);
+            say('ok', `أُوقف بوت ${item.name || 'المحل'} مؤقتًا${until ? ` ${until}` : ''}.`);
+            onDone?.();
+          }} />
       )}
     </>
   );

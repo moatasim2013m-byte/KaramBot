@@ -39,7 +39,11 @@ function deepFreeze(obj) {
 
 const DEFAULTS = deepFreeze({
   // Owners see «اربط واتساب» only after G1, the first attended live Embedded Signup, has passed.
+  // set() refuses true while g1_passed_at is empty, so no caller can open it around G1.
   es_owner_enabled: false,
+  // G1 recorded by a person ({at, by_user_id, by_name, evidence}), only through
+  // POST /api/admin/platform-settings/g1, which checks for an attended connect first.
+  g1_passed_at: null,
   campaign: {
     name: 'حملة إربد — الشهر الأول مجاني',
     trial_days: 30,
@@ -65,6 +69,8 @@ const DEFAULTS = deepFreeze({
 
 const KEYS = Object.keys(DEFAULTS);
 
+const G1_REQUIRED_AR = 'الربط الذاتي يبقى مغلقًا حتى تُسجَّل تجربة الشريحة الاحتياطية (G1) — سجّلها أولًا من «إعدادات المنصة».';
+
 function settingError(message, code) {
   return Object.assign(new Error(message), { code, status: 400 });
 }
@@ -80,7 +86,7 @@ function assertKnown(key) {
 function assertShape(key, value) {
   const def = DEFAULTS[key];
   let ok;
-  if (def === null) ok = isPlainObject(value); // provider_status
+  if (def === null) ok = isPlainObject(value); // provider_status, g1_passed_at
   else if (Array.isArray(def)) ok = Array.isArray(value);
   else if (isPlainObject(def)) ok = isPlainObject(value);
   else if (typeof def === 'number') ok = typeof value === 'number' && Number.isFinite(value);
@@ -164,6 +170,16 @@ async function set(key, value, actorUserId = null, { actorKind } = {}) {
   assertKnown(key);
   if (value !== null) assertShape(key, value);
 
+  // The G1 lock lives here, not in the route, so a script or a future route cannot open owner
+  // self-connect before the spare-SIM run either. Read from the table, not the cache: another
+  // instance may have just undone G1.
+  if (key === 'es_owner_enabled' && value === true) {
+    const g1 = await prisma.platformSetting.findUnique({ where: { key: 'g1_passed_at' } });
+    if (!g1 || !isPlainObject(g1.value)) {
+      throw Object.assign(new Error(G1_REQUIRED_AR), { code: 'G1_NOT_PASSED', status: 409 });
+    }
+  }
+
   const existing = await prisma.platformSetting.findUnique({ where: { key } });
   const before = existing ? existing.value : null;
   if (value === null) {
@@ -217,4 +233,4 @@ function defaults() {
   return clone(DEFAULTS);
 }
 
-module.exports = { get, getAll, set, requireSetting, isOn, defaults, clearCache, KEYS, CACHE_MS };
+module.exports = { get, getAll, set, requireSetting, isOn, defaults, clearCache, KEYS, CACHE_MS, G1_REQUIRED_AR };
