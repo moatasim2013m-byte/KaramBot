@@ -167,6 +167,22 @@ describe('links open on the shop\'s own door', () => {
     expect(res.body.activation_url.endsWith(res.body.activation_path)).toBe(true);
   });
 
+  test('a login reset opens on the shop\'s own door', async () => {
+    const shift = await request(app).post('/api/admin/accounts/b_shift/users/u_shift_staff/reset').set(as('u_admin'));
+    expect(shift.status).toBe(200);
+    expect(shift.body.join_url).toMatch(/^https:\/\/karambots\.com\/activate#/);
+    const shop = await request(app).post('/api/admin/accounts/b1/users/u_owner/reset').set(as('u_admin'));
+    expect(shop.status).toBe(200);
+    expect(shop.body.join_url).toMatch(/^https:\/\/app\.shifts-ai\.com\/join#/);
+  });
+
+  test('a reissued invite carries its absolute link too', async () => {
+    const added = await addUser('b_shift');
+    const res = await request(app).post(`/api/admin/accounts/b_shift/users/${added.body.user.id}/invite`).set(as('u_admin'));
+    expect(res.status).toBe(200);
+    expect(res.body.activation_url).toMatch(/^https:\/\/karambots\.com\/activate#/);
+  });
+
   test("SHIFT's own team invites from «الفريق» open on karambots.com", async () => {
     db.seed({ users: [{ id: 'u_shift_owner', name: 'SHIFT', email: 'owner@shifts-ai.com', role: 'business_owner', business_id: 'b_shift', password: HASH, active: true }] });
     const res = await request(app).post('/api/team/invite').set(as('u_shift_owner'))

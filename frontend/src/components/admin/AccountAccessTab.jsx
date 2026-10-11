@@ -85,7 +85,7 @@ export default function AccountAccessTab({ accountId }) {
       if (form.phone.trim()) body.phone = form.phone.trim();
       if (form.email.trim()) body.email = form.email.trim();
       const res = await api.post(`/admin/accounts/${accountId}/users`, body);
-      setLink({ url: res.data.activation_path, hours: res.data.expires_in_hours, name: res.data.user?.name });
+      setLink({ url: res.data.activation_url || res.data.activation_path, hours: res.data.expires_in_hours, name: res.data.user?.name });
       setForm({ name: '', phone: '', email: '', role: 'manager' });
       setOpen(false);
       load();
@@ -103,7 +103,7 @@ export default function AccountAccessTab({ accountId }) {
 
   const reinvite = (u) => act(u, async () => {
     const res = await api.post(`/admin/accounts/${accountId}/users/${u.id}/invite`);
-    setLink({ url: res.data.activation_path, hours: res.data.expires_in_hours, name: u.name });
+    setLink({ url: res.data.activation_url || res.data.activation_path, hours: res.data.expires_in_hours, name: u.name });
   });
 
   const setActive = (u, active) => {
@@ -121,7 +121,7 @@ export default function AccountAccessTab({ accountId }) {
     if (!window.confirm(`إعادة ضبط دخول ${u.name}؟ يُعطَّل الدخول الحالي وتُلغى كل الروابط، ويصدر رابط تفعيل جديد يختار به كلمة مرور جديدة. العملية مسجّلة باسمك.`)) return;
     act(u, async () => {
       const res = await api.post(`/admin/accounts/${accountId}/users/${u.id}/reset`);
-      setLink({ url: res.data.join_url || res.data.activation_path, wa: res.data.wa_share_url, hours: res.data.expires_in_hours, name: u.name });
+      setLink({ url: res.data.join_url || res.data.activation_url || res.data.activation_path, wa: res.data.wa_share_url, hours: res.data.expires_in_hours, name: u.name });
     });
   };
 

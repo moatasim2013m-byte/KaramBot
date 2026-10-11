@@ -1126,7 +1126,7 @@ router.patch('/accounts/:id/users/:userId', async (req, res) => {
  */
 router.post('/accounts/:id/users/:userId/reset', async (req, res) => {
   try {
-    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true, owner_phone: true } });
+    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true, owner_phone: true, business_type: true } });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
     const user = await prisma.user.findFirst({
       where: { id: req.params.userId, business_id: business.id },
@@ -1155,7 +1155,8 @@ router.post('/accounts/:id/users/:userId/reset', async (req, res) => {
     });
 
     const path = user.role === 'business_owner' ? 'join' : 'activate';
-    const joinUrl = `${adminAccounts.appOrigin()}/${path}#${link.token}`;
+    // On the shop's own door: SHIFT's own team resets on karambots.com, every customer on the app.
+    const joinUrl = `${originForBusinessType(business.business_type)}/${path}#${link.token}`;
     const greeting = firstName(user.name) ? `مرحبًا ${firstName(user.name)}` : 'مرحبًا';
     const text = `${greeting}، هذا رابط جديد للدخول إلى كرم بوت ${adminAccounts.forShop(business.name)}: ${joinUrl} — `
       + `صالح ${labels.days(ttlDays)}. اختر منه كلمة مرور جديدة. الرابط القديم لم يعد يعمل.`;
