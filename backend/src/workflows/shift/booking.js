@@ -21,6 +21,7 @@
 
 const crypto = require('crypto');
 const calendar = require('../../services/googleCalendar');
+const { OPERATOR_ORIGIN } = require('../../config/surfaces');
 const hours = require('./hours');
 const acks = require('./acks');
 const validators = require('./validators');
@@ -387,7 +388,7 @@ function eventIdFor(conversationId, startIso, seq = 1) {
 }
 
 function inboxUrl() {
-  return (process.env.SHIFT_INBOX_URL || '').trim() || 'https://app.shifts-ai.com/inbox';
+  return (process.env.SHIFT_INBOX_URL || '').trim() || `${OPERATOR_ORIGIN}/inbox`;
 }
 
 const SECTOR_AR = { clinic: 'عيادة', restaurant: 'مطعم/كافيه', store: 'متجر إلكتروني', other: 'نشاط آخر' };

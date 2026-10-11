@@ -270,11 +270,25 @@ describe('when it fires', () => {
     expect(send.mock.calls[0][0].summary).toBe('«مرحبا»\nمن إعلان: بوت واتساب لعيادتك');
   });
 
-  test('SHIFT_INBOX_URL overrides the link', async () => {
+  test("SHIFT_INBOX_URL overrides SHIFT's own link", async () => {
+    process.env.SHIFT_INBOX_URL = 'https://inbox.example.test/inbox';
+    seedBusiness({}, { business_type: 'shift' });
+    await deliver([{ type: 'audio', audio: { id: 'a' } }]);
+    expect(send.mock.calls[0][0]).toMatchObject({ summary: 'رسالة صوتية', link: 'https://inbox.example.test/inbox' });
+  });
+
+  test("a customer shop's link stays on the customers' door, whatever SHIFT_INBOX_URL says", async () => {
     process.env.SHIFT_INBOX_URL = 'https://inbox.example.test/inbox';
     seedBusiness();
     await deliver([{ type: 'audio', audio: { id: 'a' } }]);
-    expect(send.mock.calls[0][0]).toMatchObject({ summary: 'رسالة صوتية', link: 'https://inbox.example.test/inbox' });
+    expect(send.mock.calls[0][0]).toMatchObject({ link: 'https://app.shifts-ai.com/inbox' });
+  });
+
+  test("SHIFT's own shop is linked to karambots.com by default", async () => {
+    delete process.env.SHIFT_INBOX_URL;
+    seedBusiness({}, { business_type: 'shift' });
+    await deliver([{ type: 'audio', audio: { id: 'a' } }]);
+    expect(send.mock.calls[0][0]).toMatchObject({ link: 'https://karambots.com/inbox' });
   });
 
   test('a DB error or a throwing alert resolves (never rejects) and is logged', async () => {

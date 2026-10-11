@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const prisma = require('../config/prisma');
+const { originForBusinessType } = require('../config/surfaces');
 const { authenticate, requireRole } = require('../middleware/auth');
 
 /**
@@ -963,7 +964,7 @@ router.post('/accounts/:id/users', async (req, res) => {
   if (!CUSTOMER_ROLES.includes(role)) return res.status(400).json({ error: 'صلاحية غير مسموحة' });
 
   try {
-    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true } });
+    const business = await prisma.business.findUnique({ where: { id: req.params.id }, select: { id: true, name: true, business_type: true } });
     if (!business) return res.status(404).json({ error: 'لا يوجد حساب بهذا المعرّف' });
 
     const taken = await loginTaken({ email, phone });
@@ -995,6 +996,8 @@ router.post('/accounts/:id/users', async (req, res) => {
       user,
       business: { id: business.id, name: business.name },
       activation_path: `/activate#${token}`,
+      // Absolute, on the shop's own door: a customer's link must not open on karambots.com.
+      activation_url: `${originForBusinessType(business.business_type)}/activate#${token}`,
       expires_in_hours,
     });
   } catch (err) {
@@ -1026,7 +1029,13 @@ router.post('/accounts/:id/users/:userId/invite', async (req, res) => {
     await recordAccess(req, req.params.id, 'user_invite', null);
     const { token, expires_in_hours } = await activation.issue(user.id, req.user.id);
     await shiftEvent(req, req.params.id, 'invite_created', { user_id: user.id, role: user.role, reissued: true });
-    res.json({ user, activation_path: `/activate#${token}`, expires_in_hours });
+    const shop = await prisma.business.findUnique({ where: { id: req.params.id }, select: { business_type: true } });
+    res.json({
+      user,
+      activation_path: `/activate#${token}`,
+      activation_url: `${originForBusinessType(shop && shop.business_type)}/activate#${token}`,
+      expires_in_hours,
+    });
   } catch (err) {
     console.error('[admin/reinvite] failed:', err.message);
     res.status(500).json({ error: err.message });

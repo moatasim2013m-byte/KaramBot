@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Store, Kanban, Receipt, SlidersHorizontal, Search, Menu, X } from 'lucide-react';
+import { Home, Store, Kanban, Receipt, SlidersHorizontal, Search, Menu, X, ArrowLeftRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { ATTENTION_EVENT, fleetRow, matchesSearch } from '../components/admin/operatorView';
@@ -188,6 +188,14 @@ export default function AdminLayout() {
         </nav>
 
         <div className="mt-auto flex flex-col gap-2.5">
+          {/* SHIFT's own shop (كرم بوت) is a shop like the others, with its own panel; the admin who
+              owns it opens it from here, on the same door (karambots.com). */}
+          {user?.business_id && (
+            <NavLink to="/overview" className={navItem({ isActive: false })}>
+              <ArrowLeftRight size={18} strokeWidth={1.75} aria-hidden="true" />
+              <span className="flex-1 text-sm">لوحة محل شِفت</span>
+            </NavLink>
+          )}
           <NavLink to="/admin/settings" className={navItem}>
             <SlidersHorizontal size={18} strokeWidth={1.75} aria-hidden="true" />
             <span className="flex-1 text-sm">إعدادات المنصة</span>

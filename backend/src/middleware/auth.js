@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
+const { wrongSurface } = require('../config/surfaces');
 
 async function authenticate(req, res, next) {
   try {
@@ -49,6 +50,12 @@ async function authenticate(req, res, next) {
         business_type = null;
       }
     }
+
+    // SHIFT works on karambots.com and the shops on app.shifts-ai.com: a session opened on the
+    // other door (an old tab, a forwarded link) is sent home rather than served. 403, not 401, so
+    // the client reads the code instead of treating it as an expired token.
+    const wrong = wrongSurface(req, { role: user.role, business_type });
+    if (wrong) return res.status(403).json(wrong);
 
     req.user = { ...user, business_type };
     next();

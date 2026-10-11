@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import api from '../../utils/api';
 import { navFor, shiftWaLink, helpText } from '../whatsapp/panelView';
 import {
+  ArrowLeftRight,
   Home, MessageSquare, ShoppingBag, UtensilsCrossed, Settings, Users, LogOut, X, Bell,
   Stethoscope, BarChart2, Bot, CreditCard, MoreHorizontal, LifeBuoy, CalendarDays,
 } from 'lucide-react';
@@ -151,6 +152,15 @@ export default function DashboardLayout() {
           </div>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">
+            {/* SHIFT's admin also owns SHIFT's own shop, whose panel this is when they open it; the way
+                back to the platform is here, so the two are never mistaken for each other. */}
+            {role === 'platform_admin' && (
+              <NavLink to="/admin/overview"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800">
+                <ArrowLeftRight size={15} aria-hidden="true" />
+                لوحة التشغيل
+              </NavLink>
+            )}
             {/* The bell opens the waiting chats: the one place an unread count leads. */}
             <button onClick={() => navigate('/inbox')} className="relative text-gray-400 hover:text-gray-600 p-1" title="المحادثات">
               <Bell size={20} />
