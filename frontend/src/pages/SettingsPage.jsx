@@ -340,7 +340,7 @@ function AccountTab({ user }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { user } = useAuth();
-  const owner = user?.role === 'business_owner';
+  const owner = user?.role === 'business_owner' || user?.role === 'platform_admin';
   const admin = user?.role === 'platform_admin';
   const tabs = owner
     ? [{ key: 'whatsapp', label: 'واتساب' }, { key: 'shop', label: 'المحل' }, { key: 'account', label: 'حسابي' }]

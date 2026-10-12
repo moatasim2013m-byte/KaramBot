@@ -77,8 +77,10 @@ describe('platform_admin', () => {
     expect(req.businessId).toBe('b9');
   });
 
-  test('carrying a business_id still must name one — the field is not a default', () => {
-    const { res } = run({ role: 'platform_admin', business_id: 'b1' });
-    expect(res.statusCode).toBe(400);
+  // Owner's decision 2026-10-12: the admin is also the owner of SHIFT's own shop and opens its
+  // panel («لوحة محل شِفت»), whose pages name no account. Its own shop is the default; a named one wins.
+  test('carrying a business_id defaults to its own shop, and a named account still wins', () => {
+    expect(run({ role: 'platform_admin', business_id: 'b1' }).req.businessId).toBe('b1');
+    expect(run({ role: 'platform_admin', business_id: 'b1' }, { query: { businessId: 'b9' } }).req.businessId).toBe('b9');
   });
 });

@@ -558,6 +558,9 @@ router.get('/updates', async (req, res) => {
       req.businessId = user.business_id;
     } else if (req.query.businessId) {
       req.businessId = req.query.businessId;
+    } else if (user.role === 'platform_admin' && user.business_id) {
+      // The admin's own shop (SHIFT's), as in attachBusinessId.
+      req.businessId = user.business_id;
     }
     if (user.role === 'platform_admin' && !req.businessId) {
       return res.status(400).json({ error: 'platform_admin must supply businessId' });

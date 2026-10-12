@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../config/prisma');
-const { authenticate, requireRole, attachBusinessId } = require('../middleware/auth');
+const { authenticate, requireExactRole, attachBusinessId } = require('../middleware/auth');
 const { requireSetting } = require('../services/platformSettings');
 const accountEvents = require('../services/accountEvents');
 const alerts = require('../services/alerts');
@@ -323,7 +323,8 @@ function mountAccountRoutes(r) {
 
 router.use(
   authenticate,
-  requireRole('business_owner'),
+  // The owner in person: these record actorKind 'owner'. SHIFT connects through the admin mirror.
+  requireExactRole('business_owner'),
   attachBusinessId,
   requireSetting('es_owner_enabled', ES_CLOSED_AR),
   refuseBusinessIdInput,
