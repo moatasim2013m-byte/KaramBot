@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { OPERATOR_ORIGIN, currentSurface, goToOrigin } from './utils/surface';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './components/common/DashboardLayout';
 import OverviewPage from './pages/OverviewPage';
@@ -36,6 +37,16 @@ function ProtectedRoute({ children }) {
     </div>
   );
   return user ? children : <Navigate to="/login" replace />;
+}
+
+/**
+ * The platform is SHIFT's, on karambots.com. Opened on the customers' door (app.shifts-ai.com) it
+ * goes to karambots.com with the same path instead of offering SHIFT's login to the shops.
+ */
+function OperatorDoor({ children }) {
+  const customerDoor = currentSurface() === 'customer';
+  useEffect(() => { if (customerDoor) goToOrigin(OPERATOR_ORIGIN); }, [customerDoor]);
+  return customerDoor ? null : children;
 }
 
 function RoleRoute({ roles, children }) {
@@ -124,11 +135,13 @@ export default function App() {
           </Route>
           {/* SHIFT platform — its own tree, its own shell, never mixed with a business dashboard. */}
           <Route path="/admin" element={
-            <ProtectedRoute>
-              <RoleRoute roles={['platform_admin']}>
-                <AdminLayout />
-              </RoleRoute>
-            </ProtectedRoute>
+            <OperatorDoor>
+              <ProtectedRoute>
+                <RoleRoute roles={['platform_admin']}>
+                  <AdminLayout />
+                </RoleRoute>
+              </ProtectedRoute>
+            </OperatorDoor>
           }>
             <Route index element={<Navigate to="/admin/overview" replace />} />
             <Route path="overview" element={<AdminOverviewPage />} />

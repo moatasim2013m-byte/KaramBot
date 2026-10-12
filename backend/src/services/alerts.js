@@ -15,6 +15,7 @@
 
 const axios = require('axios');
 const prisma = require('../config/prisma');
+const { OPERATOR_ORIGIN, APP_ORIGIN } = require('../config/surfaces');
 const { sendText, sendTemplate } = require('./whatsapp');
 const { isWithinServiceWindow } = require('../utils/serviceWindow');
 const { decrypt } = require('../utils/tokenCrypto');
@@ -103,9 +104,11 @@ const ALERT_TEMPLATE_BODY = 'تنبيه لفريق شِفت: {{1}}\nالعميل
 const TEMPLATE_VAR_MAX = 200;
 const TEMPLATE_NAME_RE = /^[a-z0-9_]{1,512}$/;
 
-// Same default as the booking card's link (workflows/shift/booking.js).
-function inboxUrl() {
-  return (process.env.SHIFT_INBOX_URL || '').trim() || 'https://app.shifts-ai.com/inbox';
+// The inbox the alert's «Inbox:» line opens, on the shop's own door: SHIFT's team on karambots.com
+// (SHIFT_INBOX_URL may override it, as on the booking card), every customer shop on app.shifts-ai.com.
+function inboxUrl(business) {
+  if (business && business.business_type && business.business_type !== 'shift') return `${APP_ORIGIN}/inbox`;
+  return (process.env.SHIFT_INBOX_URL || '').trim() || `${OPERATOR_ORIGIN}/inbox`;
 }
 
 // The profile name and summary are the customer's own words. Slack parses <!channel>, <url|label>

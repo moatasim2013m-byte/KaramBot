@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { authenticate } = require('../middleware/auth');
+const { wrongSurface } = require('../config/surfaces');
 const {
   findUserByLogin, normalizeEmail, normalizeLoginPhone, loginTaken, LOGIN_TAKEN_ERROR, maskPhone,
 } = require('../utils/login');
@@ -60,14 +61,19 @@ router.post('/login', async (req, res) => {
 
     if (!user.active) return res.status(403).json({ error: 'هذا الحساب غير مفعّل. تواصل مع شِفت.' });
 
+    const { business_type, business_name } = await businessInfo(user);
+
+    // The right password on the wrong door: no session here, only where this account belongs.
+    // Checked after the password, so the answer tells nothing to someone guessing logins.
+    const wrong = wrongSurface(req, { role: user.role, business_type });
+    if (wrong) return res.status(403).json(wrong);
+
     await prisma.user.update({
       where: { id: user.id },
       data: { last_login: new Date() },
     });
 
     const token = signToken(user.id);
-
-    const { business_type, business_name } = await businessInfo(user);
 
     res.json({
       token,

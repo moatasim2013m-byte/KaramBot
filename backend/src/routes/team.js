@@ -42,10 +42,9 @@ const ERRORS = {
   failed: 'تعذّر الحفظ، حاول مرة أخرى',
 };
 
-// The panel's own origin: the link opens /activate there (the same rule as the /join links).
-function appOrigin() {
-  return String(process.env.APP_ORIGIN || 'https://app.shifts-ai.com').trim().replace(/\/+$/, '');
-}
+// The link opens /activate on the shop's own door: SHIFT's team on karambots.com, every customer
+// shop on app.shifts-ai.com (config/surfaces).
+const { originForBusinessType } = require('../config/surfaces');
 
 async function inviteTtlDays() {
   try {
@@ -64,8 +63,8 @@ const actorKind = (req) => (req.user.role === 'platform_admin' ? 'shift' : req.u
  * The link and the WhatsApp message the owner sends it in. The token sits only in the fragment,
  * which browsers never send to a server. wa.me costs nothing: it is the owner's own WhatsApp.
  */
-async function invitePayload({ member, shopName, token, expiresAt, ttlDays }) {
-  const joinUrl = `${appOrigin()}/activate#${token}`;
+async function invitePayload({ member, shopName, businessType, token, expiresAt, ttlDays }) {
+  const joinUrl = `${originForBusinessType(businessType)}/activate#${token}`;
   const greeting = firstName(member.name) ? `مرحبًا ${firstName(member.name)}` : 'مرحبًا';
   const role = member.role === 'manager' ? 'مديرًا' : 'موظفًا';
   const text = `${greeting}، أضفتك ${role} في كرم بوت${shopName ? ` — ${shopName}` : ''}. افتح الرابط واختر كلمة المرور: ${joinUrl} — صالح ${forDaysAr(ttlDays)}.`;
@@ -138,7 +137,7 @@ router.post('/invite', requireRole('business_owner'), async (req, res) => {
     const taken = await loginTaken({ phone });
     if (taken) return res.status(409).json({ error: LOGIN_TAKEN_ERROR[taken] });
 
-    const business = await prisma.business.findUnique({ where: { id: req.businessId }, select: { name: true } });
+    const business = await prisma.business.findUnique({ where: { id: req.businessId }, select: { name: true, business_type: true } });
     const ttlDays = await inviteTtlDays();
     // The schema needs a password; this one nobody knows. The account opens when the member sets
     // their own on /activate (activation.consume sets active).
@@ -161,7 +160,8 @@ router.post('/invite', requireRole('business_owner'), async (req, res) => {
     });
 
     res.status(201).json(await invitePayload({
-      member, shopName: business && business.name, token: link.token, expiresAt: link.expires_at, ttlDays,
+      member, shopName: business && business.name, businessType: business && business.business_type,
+      token: link.token, expiresAt: link.expires_at, ttlDays,
     }));
   } catch (err) {
     // The unique index is the real guard against two people taking one mobile at once.
@@ -251,11 +251,12 @@ router.post('/:id/resend', requireRole('business_owner'), async (req, res) => {
         return res.status(409).json({ error: ERRORS.seatsFull });
       }
     }
-    const business = await prisma.business.findUnique({ where: { id: req.businessId }, select: { name: true } });
+    const business = await prisma.business.findUnique({ where: { id: req.businessId }, select: { name: true, business_type: true } });
     const ttlDays = await inviteTtlDays();
     const link = await activation.issue(member.id, req.user.id, { ttlHours: ttlDays * 24 });
     res.json(await invitePayload({
-      member, shopName: business && business.name, token: link.token, expiresAt: link.expires_at, ttlDays,
+      member, shopName: business && business.name, businessType: business && business.business_type,
+      token: link.token, expiresAt: link.expires_at, ttlDays,
     }));
   } catch (err) {
     console.error(`[team] resend failed business=${req.businessId}: ${err.message}`);

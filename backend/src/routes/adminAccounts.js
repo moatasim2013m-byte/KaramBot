@@ -92,11 +92,11 @@ function forShop(name) {
   return `لـ ${n}`;
 }
 
-// The panel's own origin: the link opens the /join page there. Not FRONTEND_URL, which is a CORS
-// list and in development points at Vite.
-function appOrigin() {
-  return String(process.env.APP_ORIGIN || 'https://app.shifts-ai.com').trim().replace(/\/+$/, '');
-}
+// The customers' door: the link opens the /join page on app.shifts-ai.com, never on SHIFT's
+// karambots.com (config/surfaces). Not FRONTEND_URL, which is a CORS list and in development
+// points at Vite.
+const { APP_ORIGIN } = require('../config/surfaces');
+const appOrigin = () => APP_ORIGIN;
 
 async function inviteTtlDays() {
   try {

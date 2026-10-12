@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { MessageSquare, Eye, EyeOff } from 'lucide-react';
+import { APP_ORIGIN, currentSurface, isWrongSurface } from '../utils/surface';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -11,10 +12,15 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [forgot, setForgot] = useState(false);
+  // The right password on the wrong door: {message, url}. The server gave no session here.
+  const [elsewhere, setElsewhere] = useState(null);
+  // SHIFT's team signs in at karambots.com, the shops at app.shifts-ai.com (utils/surface).
+  const operatorDoor = currentSurface() === 'operator';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setElsewhere(null);
     setLoading(true);
     try {
       const data = await login(form.login, form.password);
@@ -23,6 +29,11 @@ export default function LoginPage() {
       const role = data?.user?.role;
       navigate(role === 'platform_admin' ? '/admin/overview' : role === 'staff' ? '/inbox' : '/overview');
     } catch (err) {
+      if (isWrongSurface(err)) {
+        setElsewhere({ message: err.response.data.error, url: err.response.data.home_url });
+        setTimeout(() => window.location.replace(err.response.data.home_url), 2500);
+        return;
+      }
       setError(err.response?.data?.error || 'حدث خطأ، يرجى المحاولة مجدداً');
     } finally {
       setLoading(false);
@@ -37,13 +48,20 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-green-500 rounded-2xl mb-4">
             <MessageSquare size={32} className="text-white" />
           </div>
-          <h1 className="text-white text-2xl font-bold">كرم بوت — من شِفت</h1>
-          <p className="text-gray-400 text-sm mt-1">لوحة المحل</p>
+          <h1 className="text-white text-2xl font-bold">{operatorDoor ? 'شِفت — لوحة الفريق' : 'كرم بوت — من شِفت'}</h1>
+          <p className="text-gray-400 text-sm mt-1">{operatorDoor ? 'لفريق شِفت فقط' : 'لوحة المحل'}</p>
         </div>
 
         {/* Form */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <h2 className="text-gray-800 text-xl font-bold mb-6 text-center">تسجيل الدخول</h2>
+
+          {elsewhere && (
+            <div role="status" className="bg-amber-50 text-amber-800 text-sm px-4 py-3 rounded-lg mb-4 text-center">
+              <p>{elsewhere.message}</p>
+              <a href={elsewhere.url} className="mt-2 inline-block font-medium underline underline-offset-2">اذهب الآن</a>
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg mb-4 text-center">
@@ -98,6 +116,12 @@ export default function LoginPage() {
               {loading ? 'جاري الدخول...' : 'دخول'}
             </button>
           </form>
+
+          {operatorDoor && (
+            <p className="mt-5 text-center text-sm text-gray-500">
+              صاحب محل؟ <a href={`${APP_ORIGIN}/login`} className="text-gray-800 underline underline-offset-2" dir="ltr">app.shifts-ai.com</a>
+            </p>
+          )}
 
           {/* No email reset: most owners sign in with a mobile and no OTP exists yet. SHIFT sends a
               new link instead, through «إعادة ضبط الدخول», which is audited. */}

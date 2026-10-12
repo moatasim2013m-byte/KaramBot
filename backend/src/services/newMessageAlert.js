@@ -134,7 +134,7 @@ async function alertOne(business, item, cfg, now) {
     business,
     conversation: { ...conversation, profile_name: profileName },
     summary: alertSummary(item.waMsg),
-    link: alerts.inboxUrl(),
+    link: alerts.inboxUrl(business),
     now,
   });
   return 'alerted';
