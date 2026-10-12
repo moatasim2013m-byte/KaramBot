@@ -191,3 +191,26 @@ describe('links open on the shop\'s own door', () => {
     expect(res.body.join_url).toMatch(/^https:\/\/karambots\.com\/activate#/);
   });
 });
+
+describe("the admin in SHIFT's own shop panel", () => {
+  test('a shop page with no businessId opens the admin\'s own shop', async () => {
+    const res = await request(app).get('/api/team').set(as('u_admin')).set(OPERATOR);
+    expect(res.status).toBe(200);
+    expect(res.body.members.map((m) => m.id)).toEqual(expect.arrayContaining(['u_shift_staff']));
+    expect(res.body.members.map((m) => m.id)).not.toContain('u_owner');
+  });
+
+  test('an owner-only action is open to the admin, in its own shop', async () => {
+    const res = await request(app).post('/api/team/invite').set(as('u_admin')).set(OPERATOR)
+      .send({ name: 'ليلى', phone: '0795551234', role: 'staff' });
+    expect(res.status).toBe(201);
+    expect(db.store.users.find((u) => u.phone === '962795551234')).toMatchObject({ business_id: 'b_shift' });
+  });
+
+  test('an admin with no shop still has to name one', async () => {
+    db.store.users.find((u) => u.id === 'u_admin').business_id = null;
+    const res = await request(app).get('/api/team').set(as('u_admin')).set(OPERATOR);
+    expect(res.status).toBe(400);
+  });
+});
+

@@ -67,7 +67,11 @@ async function authenticate(req, res, next) {
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    if (!roles.includes(req.user.role)) {
+    // An admin who belongs to a shop (SHIFT's own) is that shop's owner too, in «لوحة محل شِفت».
+    // An admin with no shop is not: owner routes have no account to act on for it.
+    const allowed = roles.includes(req.user.role)
+      || (req.user.role === 'platform_admin' && Boolean(req.user.business_id) && roles.includes('business_owner'));
+    if (!allowed) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
     next();
@@ -108,12 +112,22 @@ function attachBusinessId(req, res, next) {
     return next();
   }
 
-  // platform_admin reads across accounts, so the account must be named explicitly.
-  req.businessId = req.params.businessId || req.query.businessId || null;
+  // platform_admin reads across accounts, so the account must be named explicitly — except in
+  // the admin's own shop (SHIFT's, opened from «لوحة محل شِفت»), which is the default when none is named.
+  req.businessId = req.params.businessId || req.query.businessId || req.user.business_id || null;
   if (!req.businessId) {
     return res.status(400).json({ error: 'platform_admin must supply businessId as query param or route param' });
   }
   return next();
 }
 
-module.exports = { authenticate, requireRole, requireBusinessAccess, attachBusinessId };
+/** Exactly these roles, with no admin stand-in — for routes that record the actor as the owner. */
+function requireExactRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Insufficient permissions' });
+    next();
+  };
+}
+
+module.exports = { authenticate, requireRole, requireExactRole, requireBusinessAccess, attachBusinessId };
