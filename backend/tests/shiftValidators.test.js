@@ -1155,6 +1155,17 @@ describe('published figures (owner, 2026-10-05)', () => {
     expect(v.checkDigits('أول ١٠ محلات بإربد الشهر الأول علينا ببلاش.', {}).map((b) => b.detail)).toEqual(['10']);
     // 7 counts only for the trial: a delivery time of 7 days is still invented.
     expect(v.checkDigits('التنفيذ خلال 7 أيام.', {}).map((b) => b.detail)).toEqual(['7']);
+    expect(v.checkDigits('تجربة مجانية 7 أسابيع.', {}).map((b) => b.detail)).toEqual(['7']);
+  });
+
+  test('the ended October offer is never promised again (owner, 2026-10-13)', () => {
+    for (const line of ['السعر 19.99 دينار بالشهر، وأول شهر ببلاش للمحلات بإربد.', 'الشهر الأول مجاني!', 'The first month is free.', 'You get a free month.']) {
+      expect(v.checkEndedOffer(line).map((b) => b.code)).toEqual(['ended_offer']);
+    }
+    // Saying it is over, or the 7-day trial, is fine.
+    expect(v.checkEndedOffer('عرض أكتوبر خلص، بس في تجربة مجانية 7 أيام.')).toEqual([]);
+    expect(v.checkEndedOffer('عرض الشهر المجاني خلص.')).toEqual([]);
+    expect(v.checkEndedOffer('وأول 7 أيام تجربة مجانية.')).toEqual([]);
     expect(v.checkDigits('The basic plan is 19.99 JD per month.', {})).toEqual([]);
     // A published value outside the clause it was published in is still invented.
     expect(v.checkDigits('السعر 10 دنانير بالشهر.', {}).map((b) => b.detail)).toEqual(['10']);
