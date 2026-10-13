@@ -25,8 +25,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const OFFER = {
   startsAt: '2026-10-01T00:00:00+03:00',
-  // «عرض أكتوبر»: midnight Amman at the end of 31 October.
-  endsAt: '2026-11-01T00:00:00+03:00',
+  // «عرض أكتوبر» was planned to run to 31 October; the owner stopped it on 13 October 2026.
+  endsAt: '2026-10-13T00:00:00+03:00',
   places: 10,
 };
 

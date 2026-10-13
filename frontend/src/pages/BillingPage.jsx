@@ -116,7 +116,7 @@ export default function BillingPage() {
             {banner && <p className="mt-2 text-[13px] text-gray-600">{banner.text}</p>}
           </>
         ) : (
-          <p className="text-[14px] text-gray-700">لا يوجد اشتراك بعد. يبدأ الشهر المجاني حين يرد البوت على أول زبون.</p>
+          <p className="text-[14px] text-gray-700">لا يوجد اشتراك بعد. تبدأ التجربة المجانية حين يرد البوت على أول زبون.</p>
         )}
         <a href={shiftWaLink(`${helpText(user)} — أريد تغيير الباقة`)} target="_blank" rel="noopener noreferrer"
           className="inline-block mt-3 text-[12px] text-gray-600 underline underline-offset-2">تواصل مع شِفت لتغيير الباقة</a>

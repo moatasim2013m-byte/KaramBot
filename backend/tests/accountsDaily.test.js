@@ -100,7 +100,7 @@ describe('the free month', () => {
     seedTrial({ connectedDaysAgo: 15, endsInDays: null });
     await runAccountsDaily(NOW);
     const sub = db.store.subscriptions[0];
-    expect(sub.trial_ends_at).toEqual(at(-15 + 14 + 30));
+    expect(sub.trial_ends_at).toEqual(at(-15 + 14 + 7));
     expect(sub.next_due_at).toEqual(sub.trial_ends_at);
   });
 

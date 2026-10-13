@@ -29,7 +29,7 @@ afterEach(() => {
 
 const DEFAULTS = {
   es_owner_enabled: false,
-  campaign: { name: 'حملة إربد — الشهر الأول مجاني', trial_days: 30, trial_starts: 'first_reply', backstop_days: 14 },
+  campaign: { name: 'تجربة مجانية 7 أيام', trial_days: 7, trial_starts: 'first_reply', backstop_days: 14 },
   ai_limits: { reply_month_default: 1000, media_day_default: 30, platform_day_ceiling: 2000, ceiling_policy: 'trials_first' },
   payment_instructions: { cliq_alias: '', iban: '', holder: '' },
   late_policy: { grace_days: 7 },

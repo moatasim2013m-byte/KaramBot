@@ -20,10 +20,10 @@ const DEFAULT_PLAN = Object.freeze({
   billing_cycle: 'monthly',
   ai_replies_month: 1000,
   seats: 3,
-  // Free month: 30 days, starting at the first real AI reply to a non-staff number, or
+  // Free trial: 7 days (owner, 2026-10-13), starting at the first real AI reply to a non-staff number, or
   // trial_backstop_days after connecting, whichever comes first (decision 4). The backstop stops a
   // shop that never goes live from holding a free month open forever.
-  trial_days: 30,
+  trial_days: 7,
   trial_backstop_days: 14,
   media_reads_day: 30,
 });

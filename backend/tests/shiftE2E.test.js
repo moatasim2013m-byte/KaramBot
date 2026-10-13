@@ -1232,7 +1232,7 @@ describe('PR2 sales quality end to end', () => {
 
   test('a price question gets the published price, and it reaches the customer unblocked (owner, 2026-10-05)', async () => {
     seedConversation(seedShiftBusiness(), { workflow_data: { bot_turns: 1, lead: { language: 'ar' } } });
-    script({ reply: 'الاشتراك الأساسي 19.99 دينار بالشهر — كرم بيرد على كل استفسارات زباينك وبيرتّب المواعيد. وأول ١٠ محلات بإربد الشهر الأول ببلاش. شو نوع شغلك؟', stage: 'discovery' });
+    script({ reply: 'الاشتراك الأساسي 19.99 دينار بالشهر — كرم بيرد على كل استفسارات زباينك وبيرتّب المواعيد. وأول 7 أيام تجربة مجانية. شو نوع شغلك؟', stage: 'discovery' });
 
     const parts = await say('كم السعر؟');
 

@@ -19,6 +19,10 @@ const alerts = require('../src/services/alerts');
 const { runSweep } = require('../src/services/shiftSweeper');
 const db = require('./helpers/fakeDb').getFakeDb();
 
+// The owner stopped the offer on 13 October 2026; the sweep is tested inside its original window
+// (weeklyFollowup.test.js checks the real end).
+require('../src/workflows/shift/weeklyFollowup').OFFER.endsAt = '2026-11-01T00:00:00+03:00';
+
 // Tuesday 13 Oct 2026, 13:00 Amman.
 const NOW = new Date('2026-10-13T10:00:00Z');
 const DAY = 24 * 3600 * 1000;

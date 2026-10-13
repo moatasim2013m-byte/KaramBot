@@ -248,7 +248,7 @@ function SignupStep({ onDone }) {
   return (
     <Card>
       <h1 className="text-xl font-bold text-gray-900">جرّب مجانًا</h1>
-      <p className="mt-1 text-[14px] text-gray-700">كرم بوت يرد على زبائن محلك على واتساب. الشهر الأول مجاني، وبعد التسجيل تربط رقم واتساب المحل.</p>
+      <p className="mt-1 text-[14px] text-gray-700">كرم بوت يرد على زبائن محلك على واتساب. أول 7 أيام تجربة مجانية، وبعد التسجيل تربط رقم واتساب المحل.</p>
       <form onSubmit={submit} className="mt-4 space-y-3" noValidate>
         <label className="block">
           <span className="text-[14px] text-gray-800">اسم المحل</span>

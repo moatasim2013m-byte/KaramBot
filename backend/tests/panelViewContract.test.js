@@ -129,9 +129,9 @@ describe('«الرئيسية»: the one honest line', () => {
 describe('the plan banner', () => {
   const DAY = 86400000;
   test('free month counts down in agreeing Arabic', () => {
-    expect(view.planBanner({ status: 'trial', trial_days_left: 18 }).text).toBe('الشهر الأول مجاني — باقي 18 يومًا');
-    expect(view.planBanner({ status: 'trial', trial_days_left: 3 }).text).toBe('الشهر الأول مجاني — باقي 3 أيام');
-    expect(view.planBanner({ status: 'trial', trial_days_left: 1 }).text).toBe('الشهر الأول مجاني — باقي يوم واحد');
+    expect(view.planBanner({ status: 'trial', trial_days_left: 18 }).text).toBe('التجربة المجانية — باقي 18 يومًا');
+    expect(view.planBanner({ status: 'trial', trial_days_left: 3 }).text).toBe('التجربة المجانية — باقي 3 أيام');
+    expect(view.planBanner({ status: 'trial', trial_days_left: 1 }).text).toBe('التجربة المجانية — باقي يوم واحد');
   });
 
   test('paid until a Levantine date', () => {

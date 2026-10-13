@@ -343,7 +343,7 @@ export default function CreateBusinessPage() {
               <Button type="submit" variant="primary" size="lg" disabled={submitting} className="!text-base">
                 {submitting ? 'جارٍ الإنشاء…' : 'أنشئ الزبون ورابط الانضمام'}
               </Button>
-              <span className="text-[13px] text-shift-body">العرض: حملة إربد — الشهر الأول مجاني، يبدأ مع أول رد للبوت على زبون.</span>
+              <span className="text-[13px] text-shift-body">العرض: تجربة مجانية (مدتها من «إعدادات المنصة»)، تبدأ مع أول رد للبوت على زبون.</span>
             </div>
 
             {/* Hand-wired numbers only. Kept out of the way so the normal path never asks for an id. */}

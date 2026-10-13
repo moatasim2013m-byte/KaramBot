@@ -4,6 +4,11 @@
  */
 const wf = require('../src/workflows/shift/weeklyFollowup');
 
+// The owner stopped the offer on 13 October 2026. These tests exercise the series inside the offer's
+// original window, so they put its planned end back; the real end is checked on its own below.
+const REAL_ENDS_AT = wf.OFFER.endsAt;
+wf.OFFER.endsAt = '2026-11-01T00:00:00+03:00';
+
 const DAY = 24 * 3600 * 1000;
 // A Tuesday, 13:00 Amman — inside friendly hours.
 const NOW = new Date('2026-10-13T13:00:00+03:00');
@@ -58,6 +63,17 @@ describe('plan', () => {
 
   test('nothing before the offer begins', () => {
     expect(wf.plan({ conversation: conv(), lastInbound: inbound(4), now: new Date('2026-09-28T13:00:00+03:00') })).toEqual({ skip: 'offer_not_started' });
+  });
+
+  test('the owner stopped the offer on 13 October 2026: nothing goes out from that day on', () => {
+    expect(REAL_ENDS_AT).toBe('2026-10-13T00:00:00+03:00');
+    const saved = wf.OFFER.endsAt;
+    wf.OFFER.endsAt = REAL_ENDS_AT;
+    try {
+      expect(wf.plan({ conversation: conv(), lastInbound: inbound(4), now: NOW })).toEqual({ skip: 'offer_ended' });
+    } finally {
+      wf.OFFER.endsAt = saved;
+    }
   });
 
   test('the offer ending, or all ten places taken, stops everyone', () => {

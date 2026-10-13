@@ -45,8 +45,8 @@ const DEFAULTS = deepFreeze({
   // POST /api/admin/platform-settings/g1, which checks for an attended connect first.
   g1_passed_at: null,
   campaign: {
-    name: 'حملة إربد — الشهر الأول مجاني',
-    trial_days: 30,
+    name: 'تجربة مجانية 7 أيام',
+    trial_days: 7,
     trial_starts: 'first_reply', // 'first_reply' | 'connect'
     backstop_days: 14,
   },

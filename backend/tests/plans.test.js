@@ -22,7 +22,7 @@ describe('the default plan', () => {
       billing_cycle: 'monthly',
       ai_replies_month: 1000,
       seats: 3,
-      trial_days: 30,
+      trial_days: 7,
       trial_backstop_days: 14,
       media_reads_day: 30,
     });
@@ -53,21 +53,21 @@ describe('planSnapshot', () => {
 });
 
 describe('trialEndsAt', () => {
-  test('first reply before the backstop: 30 days from the first reply', () => {
+  test('first reply before the backstop: 7 days from the first reply', () => {
     const firstReplyAt = days(3);
-    expect(trialEndsAt({ connectedAt: CONNECTED, firstReplyAt })).toEqual(days(33));
+    expect(trialEndsAt({ connectedAt: CONNECTED, firstReplyAt })).toEqual(days(10));
   });
 
-  test('no reply yet: the latest it can end, connect + 14 + 30 days', () => {
-    expect(trialEndsAt({ connectedAt: CONNECTED })).toEqual(days(44));
+  test('no reply yet: the latest it can end, connect + 14 + 7 days', () => {
+    expect(trialEndsAt({ connectedAt: CONNECTED })).toEqual(days(21));
   });
 
   test('a first reply after the backstop does not move the start later', () => {
-    expect(trialEndsAt({ connectedAt: CONNECTED, firstReplyAt: days(20) })).toEqual(days(44));
+    expect(trialEndsAt({ connectedAt: CONNECTED, firstReplyAt: days(20) })).toEqual(days(21));
   });
 
   test("trial_starts 'connect' starts the month at connect", () => {
-    expect(trialEndsAt({ connectedAt: CONNECTED, firstReplyAt: days(3), trialStarts: 'connect' })).toEqual(days(30));
+    expect(trialEndsAt({ connectedAt: CONNECTED, firstReplyAt: days(3), trialStarts: 'connect' })).toEqual(days(7));
   });
 
   test('a campaign can override the lengths', () => {
@@ -75,7 +75,7 @@ describe('trialEndsAt', () => {
   });
 
   test('accepts ISO strings', () => {
-    expect(trialEndsAt({ connectedAt: CONNECTED.toISOString(), firstReplyAt: days(1).toISOString() })).toEqual(days(31));
+    expect(trialEndsAt({ connectedAt: CONNECTED.toISOString(), firstReplyAt: days(1).toISOString() })).toEqual(days(8));
   });
 
   test('needs connectedAt', () => {
@@ -96,8 +96,8 @@ describe('trialSubscriptionData', () => {
       seats: 3,
       status: 'trial',
       starts_at: CONNECTED,
-      trial_ends_at: days(44),
-      next_due_at: days(44),
+      trial_ends_at: days(21),
+      next_due_at: days(21),
       campaign: 'irbid-2026-10',
       created_by: 'u1',
     });
@@ -111,7 +111,7 @@ describe('trialSubscriptionData', () => {
 
   test('with a first reply the month runs from it', () => {
     const data = trialSubscriptionData({ businessId: 'b1', connectedAt: CONNECTED, firstReplyAt: days(2) });
-    expect(data.trial_ends_at).toEqual(days(32));
+    expect(data.trial_ends_at).toEqual(days(9));
   });
 
   test('needs a business', () => {

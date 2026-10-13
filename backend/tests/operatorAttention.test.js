@@ -183,7 +183,7 @@ describe('warning rules', () => {
   test('trial_ending: within 3 days and nothing paid', () => {
     const trial = (ends) => ({ status: 'trial', amount_jod: 19.99, trial_ends_at: ends, next_due_at: ends });
     expect(run({ contract: trial(ahead(2 * D + H)) }).find((i) => i.rule === 'trial_ending'))
-      .toMatchObject({ severity: 'warning', text_ar: 'الشهر المجاني ينتهي خلال 3 أيام — لا دفعة مسجّلة' });
+      .toMatchObject({ severity: 'warning', text_ar: 'التجربة المجانية تنتهي خلال 3 أيام — لا دفعة مسجّلة' });
     expect(rules(run({ contract: trial(ahead(4 * D)) }))).not.toContain('trial_ending');
     expect(rules(run({ contract: trial(ahead(2 * D)), trialPaid: true }))).not.toContain('trial_ending');
     // Not also «دفعة مستحقة»: one line per fact.

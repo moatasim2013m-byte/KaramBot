@@ -340,7 +340,8 @@ const PUBLISHED_FIGURES = [
   { value: 39.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 79.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 149.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
-  { value: 10, clause: /محلات|محل|عيادات|مطاعم|متاجر|منشآت|منشات|أماكن|اماكن|مكان|shops?|businesses|clinics|restaurants|stores|places|spots/i },
+  // The free trial (owner, 2026-10-13). The October offer's «أول ١٠ محلات» ended with it.
+  { value: 7, clause: /تجرب|مجان|ببلاش|trial|free/i },
 ];
 
 function isPublishedFigure(text, n) {

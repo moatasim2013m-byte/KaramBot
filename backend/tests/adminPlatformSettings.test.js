@@ -38,7 +38,7 @@ test('GET returns every effective setting, the defaults, what is editable and th
   const res = await request(app).get('/api/admin/platform-settings').set(auth());
   expect(res.status).toBe(200);
   expect(res.body.settings).toMatchObject({ es_owner_enabled: false, late_policy: { grace_days: 7 }, ai_limits: { platform_day_ceiling: 2000 } });
-  expect(res.body.defaults.campaign.trial_days).toBe(30);
+  expect(res.body.defaults.campaign.trial_days).toBe(7);
   expect(res.body.editable).toEqual(expect.arrayContaining(['campaign', 'ai_limits', 'late_policy', 'payment_instructions']));
   expect(res.body.editable).not.toContain('provider_status');
   // P5: coexistence is editable, behind a typed confirmation the page shows as given here.
