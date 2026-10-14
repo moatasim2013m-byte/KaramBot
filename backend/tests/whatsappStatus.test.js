@@ -270,6 +270,13 @@ describe('the home page numbers (P3)', () => {
     expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({ business_id: 'b1' });
   });
 
+  test("SHIFT's own shop shows its reply count with no cap it is never held to", async () => {
+    setup({ business: biz({ business_type: 'shift', wa_display_phone: '+962 7 9000 0000' }), onboarding: { step: 'done', payment_method_ok: true }, contract: trial() });
+    prisma.message.count.mockResolvedValue(4200);
+    const res = await get();
+    expect(res.body.usage).toMatchObject({ ai_replies_month: 4200, cap: null });
+  });
+
   // «آخر رد من البوت» in «الإعدادات» read last_outbound_at, which staff sends and stored alerts
   // also stamp: a dead bot covered by hand read as a fresh bot reply.
   test('the bot\'s own newest reply is returned apart from the last outbound of any kind', async () => {

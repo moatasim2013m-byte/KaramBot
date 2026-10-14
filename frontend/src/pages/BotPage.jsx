@@ -7,6 +7,8 @@ import KnowledgeByGroup from '../components/whatsapp/KnowledgeByGroup';
 import KnowledgeGaps from '../components/whatsapp/KnowledgeGaps';
 import TryTheBot from '../components/whatsapp/TryTheBot';
 import { Ltr } from '../components/shared/Primitives';
+import ReplyMeter from '../components/whatsapp/ReplyMeter';
+import { isConnected } from '../components/whatsapp/panelView';
 
 /**
  * «البوت» — everything about what the bot says, on one page.
@@ -303,6 +305,7 @@ export default function BotPage() {
   const [biz, setBiz] = useState(null);
   const [error, setError] = useState(null);
   const [menuCount, setMenuCount] = useState(null);
+  const [status, setStatus] = useState(null);
   const owner = user?.role === 'business_owner' || user?.role === 'platform_admin';
   const bizType = user?.business_type;
 
@@ -314,6 +317,12 @@ export default function BotPage() {
   }, [user?.business_id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // «ردود هذا الشهر»: the same numbers as the home page. Best effort: the settings below do not need it.
+  useEffect(() => {
+    if (!user?.business_id) return;
+    api.get('/whatsapp/status').then((r) => setStatus(r.data)).catch(() => setStatus(null));
+  }, [user?.business_id]);
 
   useEffect(() => {
     if (bizType !== 'restaurant') return;
@@ -341,6 +350,12 @@ export default function BotPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <h1 className="text-xl font-bold text-gray-800">البوت</h1>
+
+      {status?.usage && isConnected(status) && (
+        <Card title="ردود هذا الشهر">
+          <ReplyMeter usage={status.usage} plan={status.plan} />
+        </Card>
+      )}
 
       {owner && <PauseCard biz={biz} onSaved={onSaved} />}
 
