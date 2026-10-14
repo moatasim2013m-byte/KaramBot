@@ -62,6 +62,19 @@ afterEach(() => {
 });
 
 describe('formatAlertText', () => {
+  test('an account notice to the owner names no customer and is signed by Karam Bot, not SHIFT', () => {
+    for (const reason of ['owner_cap_80', 'owner_cap_reached', 'trial_reminder']) {
+      const text = formatAlertText({ reason, business: business(), conversation: { id: null, profile_name: 'صيدلية النور', customer_wa_id: null }, summary: 'استهلك البوت 80% من ردود هذا الشهر (800 / 1,000).' });
+      expect(text.startsWith('🔔 كرم بوت — ')).toBe(true);
+      expect(text).not.toContain('العميل');
+      expect(text).not.toContain('SHIFT');
+      expect(alertTemplateParams({ reason, conversation: { profile_name: 'صيدلية النور' }, summary: 'x' })[1]).toBe('-');
+    }
+    // The owner notices never reach SHIFT's private webhook.
+    expect(PLATFORM_REASONS).not.toContain('owner_cap_80');
+    expect(PLATFORM_REASONS).not.toContain('owner_cap_reached');
+  });
+
   test('plain text with label, customer, summary and conversation id', () => {
     expect(formatAlertText({ reason: 'quote', business: business(), conversation, summary: 'عيادة أسنان، بدها عرض سعر' }))
       .toBe('🔔 SHIFT bot — طلب عرض سعر\nالعميل: محمد (+962791111111)\nعيادة أسنان، بدها عرض سعر');

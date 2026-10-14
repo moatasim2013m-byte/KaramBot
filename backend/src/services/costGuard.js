@@ -197,18 +197,46 @@ const memo = new Set();
 
 const fmt = (n) => Number(n).toLocaleString('en-US');
 
-async function oncePerPeriod({ businessId, type, since, memoKey, data, alert }) {
+// The owner hears it from their own shop's number, like the trial reminder (accountsDaily). Skipped
+// for a shop with no number yet; sendStaffAlert itself skips quietly when the shop has no alert
+// numbers or no approved template outside the 24 h window.
+// The event log is not an atomic claim (two instances can both find no row and both write one,
+// which only duplicates a log line), so the owner's message is claimed on its own: claimOnce is a
+// compare-and-set on the shop's ai_config, and only the instance that wins it sends.
+async function notifyOwner(business, ownerAlert, memoKey, now) {
+  if (!ownerAlert || !business || isExempt(business) || !business.wa_phone_number_id || !business.wa_access_token) return;
+  // No alert numbers saved yet: nothing to send, so nothing is claimed (the claim is never released).
+  const numbers = business.ai_config && business.ai_config.alert_wa_numbers;
+  if (!Array.isArray(numbers) || !numbers.length) return;
+  // Late require, as for alerts: accountsDaily reaches alerts.js and whatsapp.js.
+  if (!(await require('./accountsDaily').claimOnce(business.id, `owner:${memoKey}`, new Date(now)))) return;
+  await require('./alerts').sendStaffAlert({
+    reason: ownerAlert.reason,
+    business,
+    conversation: { id: null, profile_name: business.name || '', customer_wa_id: null },
+    summary: ownerAlert.summary,
+    now,
+  });
+}
+
+async function oncePerPeriod({ businessId, type, since, memoKey, data, alert, business = null, ownerAlert = null, now = new Date() }) {
   if (memo.has(memoKey)) return false;
   const existing = await prisma.accountEvent.findFirst({
     where: { business_id: businessId, type, created_at: { gte: since } },
     select: { id: true },
   });
+  if (existing) {
+    memo.add(memoKey);
+    return false;
+  }
+  // record() answers false instead of throwing: a failed write is retried on the next message, and
+  // nobody is told about an event that is not in the log.
+  if (!(await accountEvents.record({ businessId, actorKind: 'system', type, data }))) return false;
   memo.add(memoKey);
-  if (existing) return false;
-  await accountEvents.record({ businessId, actorKind: 'system', type, data });
   // Required here, not at the top: alerts.js reaches whatsapp.js, which the message path's tests
   // replace; a late require keeps this module loadable on its own.
   Promise.resolve(require('./alerts').notifyShift({ businessId, ...alert })).catch(() => {});
+  Promise.resolve(notifyOwner(business, ownerAlert, memoKey, now)).catch(() => {});
   return true;
 }
 
@@ -216,9 +244,10 @@ async function noteMonthly(business, used, limits, now) {
   const cap = limits.replyMonth;
   const month = ammanMonth(now);
   const since = monthStart(now);
-  if (used >= cap) {
+  const capped = used >= cap;
+  if (capped) {
     await oncePerPeriod({
-      businessId: business.id, type: 'cap_reached', since, memoKey: `${business.id}:cap_reached:${month}`,
+      now, businessId: business.id, type: 'cap_reached', since, memoKey: `${business.id}:cap_reached:${month}`,
       data: { used, cap, month, trial: limits.trial },
       alert: {
         reason: 'cap_reached', shopName: business.name || '',
@@ -226,13 +255,29 @@ async function noteMonthly(business, used, limits, now) {
           ? `وصل حد ردود الشهر (${fmt(used)} / ${fmt(cap)}) — البوت يحوّل الزبائن للفريق`
           : `وصل حد ردود الشهر (${fmt(used)} / ${fmt(cap)}) — اشتراك مدفوع، البوت مستمر`,
       },
+      business,
+      ownerAlert: {
+        reason: 'owner_cap_reached',
+        summary: limits.trial
+          ? `وصل البوت إلى حدّ ردود هذا الشهر (${fmt(used)} / ${fmt(cap)}). الرسائل الجديدة بانتظار فريقك حتى أول الشهر. تفاصيل الاشتراك في صفحة «الاشتراك».`
+          : `وصل البوت إلى حدّ ردود هذا الشهر (${fmt(used)} / ${fmt(cap)}). البوت مستمر بالرد، وفريق شِفت رح يتواصل معك بخصوص الباقة.`,
+      },
     });
   }
   if (used >= Math.ceil(cap * WARN_RATIO)) {
     await oncePerPeriod({
-      businessId: business.id, type: 'cap_80', since, memoKey: `${business.id}:cap_80:${month}`,
+      now, businessId: business.id, type: 'cap_80', since, memoKey: `${business.id}:cap_80:${month}`,
       data: { used, cap, month },
       alert: { reason: 'cap_80', shopName: business.name || '', summary: `استهلك 80% من ردود الشهر (${fmt(used)} / ${fmt(cap)})` },
+      business,
+      // A shop that went past the cap between two reads hears only the cap: «80%… when you reach
+      // the cap» after «you reached it» would be out of date on arrival.
+      ownerAlert: capped ? null : {
+        reason: 'owner_cap_80',
+        summary: limits.trial
+          ? `استهلك البوت 80% من ردود هذا الشهر (${fmt(used)} / ${fmt(cap)}). عند الحد تنتظر الرسائل الجديدة فريقك حتى أول الشهر.`
+          : `استهلك البوت 80% من ردود هذا الشهر (${fmt(used)} / ${fmt(cap)}). تتجدد الردود أول كل شهر.`,
+      },
     });
   }
 }

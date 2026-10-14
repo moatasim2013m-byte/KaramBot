@@ -6,8 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import SetupGuide from '../components/whatsapp/SetupGuide';
 import KnowledgeGaps from '../components/whatsapp/KnowledgeGaps';
 import { ConnectInline } from '../components/whatsapp/OwnerSetupActions';
+import ReplyMeter from '../components/whatsapp/ReplyMeter';
 import {
-  statusLine, planBanner, graceDaysOf, isConnected, ownerCanConnect, countAr, shiftWaLink, helpText,
+  statusLine, planBanner, graceDaysOf, isConnected, ownerCanConnect, shiftWaLink, helpText,
 } from '../components/whatsapp/panelView';
 
 /**
@@ -192,7 +193,6 @@ export default function OverviewPage() {
   const banner = planBanner(status.plan, { graceDays: graceDaysOf(status.late_policy) });
   const today = status.today || null;
   const usage = status.usage || null;
-  const pct = usage?.cap ? Math.min(100, Math.round((Number(usage.ai_replies_month) / Number(usage.cap)) * 100)) : 0;
 
   return (
     <div className="max-w-3xl mx-auto space-y-4">
@@ -230,15 +230,7 @@ export default function OverviewPage() {
 
           {usage && (
             <Card title="هذا الشهر">
-              <p className="text-[14px] text-gray-800">
-                <span className="font-bold tabular-nums">{countAr(usage.ai_replies_month)}</span> ردًا تلقائيًا
-                {usage.cap ? <> من <span className="tabular-nums">{countAr(usage.cap)}</span></> : null}
-              </p>
-              {usage.cap ? (
-                <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={`h-full ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
-                </div>
-              ) : null}
+              <ReplyMeter usage={usage} plan={status.plan} />
               {week && week.length > 0 && (
                 <div className="mt-3">
                   <Sparkline values={week} />

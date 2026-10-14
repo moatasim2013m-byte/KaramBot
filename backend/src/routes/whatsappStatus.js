@@ -7,7 +7,8 @@ const alerts = require('../services/alerts');
 const platformSettings = require('../services/platformSettings');
 const { connectionState, agentState, lifecycle } = require('../services/accountHealth');
 const { dryRun } = require('../services/dryRun');
-const { dayStart } = require('../services/costGuard');
+const costGuard = require('../services/costGuard');
+const { dayStart } = costGuard;
 const account = require('./account');
 // The payment wording lives in one place (no dates: the «30 أيلول» copies read as a missed
 // deadline once October came).
@@ -177,7 +178,7 @@ router.get('/', async (req, res) => {
     const business = await prisma.business.findUnique({
       where: { id: req.businessId },
       select: {
-        id: true, name: true, status: true, business_type: true,
+        id: true, name: true, status: true, business_type: true, is_internal: true,
         wa_phone_number_id: true, wa_business_account_id: true, wa_access_token: true, ai_config: true,
         wa_display_phone: true, wa_verified_name: true,
       },
@@ -219,7 +220,7 @@ router.get('/', async (req, res) => {
     ]);
 
     const ownerConnect = await ownerConnectEnabled();
-    const panel = await homeNumbers(business.id);
+    const panel = await homeNumbers(business);
     // A shop wired by hand has no onboarding row: its owner's «أضفت البطاقة» is kept as the event.
     const paymentClaimed = onboarding
       ? Boolean(onboarding.payment_method_claimed_at)
@@ -286,12 +287,15 @@ router.get('/', async (req, res) => {
  * the server's clock zone. Best effort as a block: the connection card above is what this route is
  * for, and a failed count must not take it down, so each part answers null when it cannot be read.
  */
-async function homeNumbers(businessId) {
+async function homeNumbers(business) {
+  const businessId = business.id;
   const out = { plan: null, usage: null, today: null, gaps_open: null, late_policy: null };
   try {
     const contract = await account.contractOf(businessId);
     out.plan = account.planView(contract);
     out.usage = await account.usageView(businessId, contract);
+    // SHIFT's own shop is never held to a cap (costGuard.isExempt): no «من 1,000» it will never meet.
+    if (out.usage && costGuard.isExempt(business)) out.usage.cap = null;
     // The same grace days /billing reads, so the home banner's «يتوقف الرد الآلي بعد …» and the
     // billing page's cannot disagree when SHIFT changes PlatformSetting late_policy.
     out.late_policy = await account.latePolicy();

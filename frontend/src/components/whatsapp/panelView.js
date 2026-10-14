@@ -132,6 +132,39 @@ export function capReached(status) {
   return Boolean(u && u.cap && Number(u.ai_replies_month) >= Number(u.cap));
 }
 
+/**
+ * «ردود هذا الشهر»: the bar and the one sentence under it. The cap stops the bot only during the
+ * free trial (costGuard: hard for 'trial', soft for paying shops and shops with no contract), so
+ * the 100% sentence says which one this shop is. No cap (SHIFT's own shop): the count alone.
+ */
+export function meterView(usage, plan) {
+  if (!usage) return null;
+  const used = Number(usage.ai_replies_month) || 0;
+  const cap = Number(usage.cap) || 0;
+  if (!cap) return { used, cap: null, pct: 0, tone: 'good', note: null };
+  // Floored, so the bar never shows 80% or 100% before the shop is there; the warning uses the
+  // cost guard's own threshold (costGuard WARN_RATIO: used >= ceil(cap × 0.8)).
+  const pct = Math.min(100, Math.floor((used / cap) * 100));
+  const trial = plan?.status === 'trial';
+  if (used >= cap) {
+    return {
+      used, cap, pct, tone: 'bad',
+      note: trial
+        ? 'وصل البوت إلى حدّ ردود هذا الشهر — الرسائل الجديدة بانتظار فريقك حتى أول الشهر.'
+        : 'وصل البوت إلى حدّ ردود هذا الشهر — البوت مستمر بالرد، وفريق شِفت رح يتواصل معك بخصوص الباقة.',
+    };
+  }
+  if (used >= Math.ceil(cap * 0.8)) {
+    return {
+      used, cap, pct, tone: 'warn',
+      note: trial
+        ? 'استهلك البوت 80% من ردود الشهر. عند الحد تنتظر الرسائل الجديدة فريقك حتى أول الشهر.'
+        : 'استهلك البوت 80% من ردود الشهر. تتجدد الردود أول كل شهر.',
+    };
+  }
+  return { used, cap, pct, tone: 'good', note: null };
+}
+
 export function isRevoked(status) {
   return Boolean(status?.revoked || status?.onboarding?.revoked || status?.connection?.revoked);
 }
@@ -173,7 +206,8 @@ export function statusLine(status, { role = 'business_owner' } = {}) {
   if (status.agent?.state === 'paused') {
     return { key: 'paused', tone: 'warn', text: 'البوت موقوف مؤقتًا — الرسائل تصلك', action: owner ? 'resume' : null };
   }
-  if (capReached(status)) {
+  // Only a free-trial shop's bot stops at the cap; a paying shop's keeps answering (costGuard).
+  if (capReached(status) && status.plan?.status === 'trial') {
     return { key: 'cap', tone: 'warn', text: 'وصل البوت إلى حد ردود هذا الشهر — الرسائل الجديدة بانتظار فريقك', action: 'inbox' };
   }
   if (status.agent?.state === 'down') {

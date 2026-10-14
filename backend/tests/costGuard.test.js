@@ -11,7 +11,7 @@ require('./setup');
 
 jest.mock('../src/config/prisma', () => require('./helpers/fakeDb').getFakeDb().prisma);
 jest.mock('../src/db/jsonb', () => require('./helpers/fakeDb').getFakeDb().jsonb);
-jest.mock('../src/services/alerts', () => ({ notifyShift: jest.fn() }));
+jest.mock('../src/services/alerts', () => ({ notifyShift: jest.fn(), sendStaffAlert: jest.fn() }));
 
 const db = require('./helpers/fakeDb').getFakeDb();
 const alerts = require('../src/services/alerts');
@@ -55,6 +55,9 @@ function limits(value) {
 }
 
 const events = (type) => db.store.accountEvents.filter((e) => e.type === type);
+const OWNER_NUMBERS = { alert_wa_numbers: ['962790000001'] };
+// The owner's message is sent after an async claim: let it land.
+const settle = async () => { for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r)); };
 
 beforeEach(() => {
   db.reset();
@@ -62,6 +65,7 @@ beforeEach(() => {
   guard.clearCache();
   platformSettings.clearCache();
   alerts.notifyShift.mockReset().mockResolvedValue(null);
+  alerts.sendStaffAlert.mockReset().mockResolvedValue(null);
   jest.spyOn(console, 'error').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -186,6 +190,101 @@ describe('allow', () => {
     expect((await guard.limitsFor('shop')).replyMonth).toBe(300);
   });
 
+  test('the owner hears 80% and the cap from their own number, once each, worded by plan', async () => {
+    const b = shop({ wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    contract({ status: 'trial', ai_replies_month: 10 });
+    messages(8);
+    await guard.allow(b, 'reply', { now: NOW });
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    expect(alerts.sendStaffAlert).toHaveBeenCalledTimes(1);
+    expect(alerts.sendStaffAlert.mock.calls[0][0]).toMatchObject({ reason: 'owner_cap_80', business: b });
+    expect(alerts.sendStaffAlert.mock.calls[0][0].summary).toContain('(8 / 10)');
+    expect(alerts.sendStaffAlert.mock.calls[0][0].summary).toContain('تنتظر الرسائل الجديدة فريقك');
+
+    messages(2);
+    guard.clearCache();
+    await guard.allow(b, 'reply', { now: new Date(NOW.getTime() + 2 * MIN) });
+    await settle();
+    expect(alerts.sendStaffAlert).toHaveBeenCalledTimes(2);
+    expect(alerts.sendStaffAlert.mock.calls[1][0]).toMatchObject({ reason: 'owner_cap_reached' });
+    expect(alerts.sendStaffAlert.mock.calls[1][0].summary).toContain('بانتظار فريقك حتى أول الشهر');
+  });
+
+  test('a paying shop at the cap is told its bot keeps answering', async () => {
+    const b = shop({ wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    contract({ status: 'active', ai_replies_month: 10 });
+    messages(10);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    const capCall = alerts.sendStaffAlert.mock.calls.find(([a]) => a.reason === 'owner_cap_reached');
+    expect(capCall[0].summary).toContain('البوت مستمر بالرد');
+    expect(capCall[0].summary).not.toContain('بانتظار فريقك');
+  });
+
+  test("SHIFT's own shop never gets an owner cap alert", async () => {
+    const b = shop({ business_type: 'shift', wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    contract({ status: 'trial', ai_replies_month: 10 });
+    messages(10);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    expect(alerts.sendStaffAlert).not.toHaveBeenCalled();
+  });
+
+  test('an internal shop never gets one either', async () => {
+    const b = shop({ is_internal: true, wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    contract({ status: 'trial', ai_replies_month: 10 });
+    messages(10);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    expect(alerts.sendStaffAlert).not.toHaveBeenCalled();
+  });
+
+  test('straight past the cap between two reads: the owner hears the cap only', async () => {
+    const b = shop({ wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    contract({ status: 'trial', ai_replies_month: 10 });
+    messages(11);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    expect(events('cap_80')).toHaveLength(1); // SHIFT's log keeps both
+    expect(alerts.sendStaffAlert.mock.calls.map(([a]) => a.reason)).toEqual(['owner_cap_reached']);
+  });
+
+  test('a shop with no contract is told its bot keeps answering', async () => {
+    const b = shop({ wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    limits({ reply_month_default: 10 });
+    messages(10);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    expect(alerts.sendStaffAlert.mock.calls.find(([a]) => a.reason === 'owner_cap_reached')[0].summary).toContain('البوت مستمر بالرد');
+  });
+
+  test('a shop with no alert numbers saved: nothing is sent and nothing is claimed', async () => {
+    const b = shop({ wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: {} });
+    contract({ status: 'trial', ai_replies_month: 10 });
+    messages(10);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    expect(alerts.sendStaffAlert).not.toHaveBeenCalled();
+    expect(JSON.stringify(db.store.businesses[0].ai_config || {})).not.toContain('owner:');
+  });
+
+  test('two instances writing the same event still send the owner one message', async () => {
+    const b = shop({ wa_phone_number_id: 'pn1', wa_access_token: 'enc', ai_config: OWNER_NUMBERS });
+    contract({ status: 'trial', ai_replies_month: 10 });
+    messages(10);
+    await guard.allow(b, 'reply', { now: NOW });
+    await settle();
+    // A second instance that raced past the event check: it writes the event again…
+    db.store.accountEvents = db.store.accountEvents.filter((e) => e.type !== 'cap_reached');
+    guard.clearCache();
+    await guard.allow(b, 'reply', { now: new Date(NOW.getTime() + MIN) });
+    await settle();
+    expect(events('cap_reached')).toHaveLength(1);
+    // …but loses the owner's claim.
+    expect(alerts.sendStaffAlert.mock.calls.filter(([a]) => a.reason === 'owner_cap_reached')).toHaveLength(1);
+  });
+
   test('80% and the cap are each logged and told to SHIFT once a month', async () => {
     const b = shop();
     contract({ status: 'trial', ai_replies_month: 10 });
@@ -205,6 +304,9 @@ describe('allow', () => {
     expect(events('cap_reached')).toHaveLength(1);
     expect(alerts.notifyShift).toHaveBeenCalledTimes(2);
     expect(alerts.notifyShift.mock.calls[1][0].summary).toContain('البوت يحوّل الزبائن للفريق');
+
+    // This shop has no WhatsApp number on the row: SHIFT hears it, the owner cannot.
+    expect(alerts.sendStaffAlert).not.toHaveBeenCalled();
 
     // Next month starts clean.
     const nov = new Date('2026-11-02T09:00:00Z');

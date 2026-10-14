@@ -37,7 +37,9 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
   // A shop SHIFT never met signed itself up on the public page (P5, routes/publicSignup.js).
   'self_signup',
   // To a shop's owner, from the shop's own number: their free month is ending (shiftSweeper daily).
-  'trial_reminder'];
+  'trial_reminder',
+  // To a shop's owner, from the shop's own number: the bot used 80% / all of the month's replies (costGuard).
+  'owner_cap_80', 'owner_cap_reached'];
 
 // The reasons notifyShift sends. They describe a shop or the platform, never an end customer's
 // conversation, so they are the only ones besides SHIFT's own sales bot that may reach
@@ -45,6 +47,10 @@ const ALERT_REASONS = ['handoff', 'quote', 'needs_team', 'meeting', 'ai_failure'
 const PLATFORM_REASONS = Object.freeze(['join_opened', 'customer_connected', 'connect_failed', 'needs_operator',
   'went_live', 'partner_removed', 'payment_blocked', 'provider_down', 'cap_80', 'cap_reached', 'platform_ceiling',
   'trial_ending', 'payment_claimed', 'self_signup']);
+
+// Notices to a shop's own owner about their account, not about one customer's chat: no «العميل»
+// line (it would name the shop itself as the customer) and Karam Bot's name, not SHIFT's, on top.
+const OWNER_NOTICE_REASONS = Object.freeze(['trial_reminder', 'owner_cap_80', 'owner_cap_reached']);
 
 const ALERT_LABELS = {
   handoff: 'طلب شخص من الفريق',
@@ -88,6 +94,8 @@ const ALERT_LABELS = {
   payment_claimed: 'زبون قال إنه أضاف بطاقة الدفع لدى Meta — بانتظار تأكيدك',
   self_signup: 'محل سجّل بنفسه من صفحة «جرّب مجانًا»',
   trial_reminder: 'تذكير بالفترة المجانية لكرم بوت',
+  owner_cap_80: 'البوت استهلك 80% من ردود الشهر',
+  owner_cap_reached: 'البوت وصل حد ردود الشهر',
 };
 
 const WEBHOOK_TIMEOUT_MS = 5000;
@@ -136,6 +144,9 @@ function formatAlertText({ reason, business, conversation, summary, link }, { fo
   const conv = conversation || {};
   const label = ALERT_LABELS[reason] || reason;
   const safe = (v) => (forWebhook ? escapeForWebhook(v) : v);
+  if (OWNER_NOTICE_REASONS.includes(reason)) {
+    return [`🔔 كرم بوت — ${label}`, safe(summary || ''), link ? `Inbox: ${link}` : ''].filter((l) => String(l).trim()).join('\n');
+  }
   const lines = [
     `🔔 SHIFT bot — ${label}`,
     forWebhook && business?.name ? `الحساب: ${safe(business.name)}` : '',
@@ -165,7 +176,8 @@ function templateVar(value, max = TEMPLATE_VAR_MAX) {
 function alertTemplateParams({ reason, conversation, summary }) {
   const conv = conversation || {};
   const name = conv.profile_name || '-';
-  const customer = conv.customer_wa_id ? `${name} (+${conv.customer_wa_id})` : name;
+  // An account notice has no customer: «الزبون: -» rather than the shop's own name.
+  const customer = OWNER_NOTICE_REASONS.includes(reason) ? '-' : conv.customer_wa_id ? `${name} (+${conv.customer_wa_id})` : name;
   return [templateVar(ALERT_LABELS[reason] || reason), templateVar(customer), templateVar(summary)];
 }
 
@@ -440,6 +452,7 @@ async function notifyShift({ reason, businessId = null, shopName = '', phone = '
 }
 
 module.exports = {
+  OWNER_NOTICE_REASONS,
   ALERT_REASONS,
   PLATFORM_REASONS,
   notifyShift,

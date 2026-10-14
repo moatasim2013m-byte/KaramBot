@@ -103,12 +103,39 @@ describe('«الرئيسية»: the one honest line', () => {
     expect(view.paymentCardAr(s).key).toBe('blocked');
   });
 
-  test('cap reached: said, and the waiting chats are the button', () => {
-    const s = statusFor({ onboarding: DONE_OK, extra: { usage: { ai_replies_month: 1000, cap: 1000, seats_used: 1, seats: 3 } } });
+  test('cap reached on a free trial: said, and the waiting chats are the button', () => {
+    const s = statusFor({ onboarding: DONE_OK, extra: { plan: { status: 'trial' }, usage: { ai_replies_month: 1000, cap: 1000, seats_used: 1, seats: 3 } } });
     const line = view.statusLine(s);
     expect(line.key).toBe('cap');
     expect(line.text).toContain('وصل البوت إلى حد ردود هذا الشهر');
     expect(line.action).toBe('inbox');
+  });
+
+  test('cap reached on a paid plan: the bot keeps answering, so no «waiting for your team» line', () => {
+    for (const plan of [{ status: 'active' }, null]) {
+      const s = statusFor({ onboarding: DONE_OK, extra: { plan, usage: { ai_replies_month: 1000, cap: 1000, seats_used: 1, seats: 3 } } });
+      expect(view.statusLine(s).key).not.toBe('cap');
+    }
+  });
+
+  test('the reply meter: tone and sentence by plan, nothing invented without a cap', () => {
+    const u = (n, cap = 1000) => ({ ai_replies_month: n, cap });
+    expect(view.meterView(u(500), { status: 'trial' })).toMatchObject({ pct: 50, tone: 'good', note: null });
+    expect(view.meterView(u(800), { status: 'trial' })).toMatchObject({ tone: 'warn' });
+    expect(view.meterView(u(800), { status: 'trial' }).note).toContain('تنتظر الرسائل الجديدة فريقك');
+    expect(view.meterView(u(800), { status: 'active' }).note).toBe('استهلك البوت 80% من ردود الشهر. تتجدد الردود أول كل شهر.');
+    expect(view.meterView(u(1200), { status: 'trial' })).toMatchObject({ pct: 100, tone: 'bad' });
+    expect(view.meterView(u(1000), { status: 'trial' }).note).toContain('بانتظار فريقك');
+    expect(view.meterView(u(1000), { status: 'trial' }).note).toContain('وصل البوت إلى حدّ');
+    expect(view.meterView(u(1000), null).note).toContain('البوت مستمر بالرد');
+    expect(view.meterView(u(1000), { status: 'active' }).note).not.toContain('بانتظار فريقك');
+    expect(view.meterView({ ai_replies_month: 40, cap: null }, null)).toMatchObject({ used: 40, cap: null, note: null });
+    expect(view.meterView(null, null)).toBeNull();
+    // The cost guard's own 80% threshold, never a rounded-up one: 796 of 1,000 is not yet 80%.
+    expect(view.meterView(u(796), { status: 'trial' })).toMatchObject({ pct: 79, tone: 'good', note: null });
+    expect(view.meterView(u(75, 94), { status: 'trial' }).note).toBeNull();
+    expect(view.meterView(u(76, 94), { status: 'trial' }).tone).toBe('warn');
+    expect(view.meterView(u(999), { status: 'trial' })).toMatchObject({ pct: 99, tone: 'warn' });
   });
 
   test('revoked at Meta: «أعد الربط» comes first, whatever else is true', () => {
