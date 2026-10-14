@@ -96,7 +96,7 @@ test('the first reply to a customer makes the shop live, starts the free month, 
   expect(liveAt).toBeInstanceOf(Date);
 
   const sub = db.store.subscriptions[0];
-  expect(Math.abs(sub.trial_ends_at.getTime() - (liveAt.getTime() + 30 * DAY))).toBeLessThan(1000);
+  expect(Math.abs(sub.trial_ends_at.getTime() - (liveAt.getTime() + 7 * DAY))).toBeLessThan(1000);
   expect(sub.next_due_at.getTime()).toBe(sub.trial_ends_at.getTime());
 
   expect(db.store.accountEvents.filter((e) => e.type === 'went_live')).toEqual([

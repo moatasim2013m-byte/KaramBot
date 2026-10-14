@@ -85,9 +85,9 @@ export function planBanner(plan, { graceDays = 7, now = Date.now() } = {}) {
   if (!plan || !plan.status || plan.status === 'none') return null;
   if (plan.status === 'trial') {
     const left = plan.trial_days_left;
-    if (left == null) return { tone: 'info', text: 'الشهر الأول مجاني' };
-    if (left <= 0) return { tone: 'warn', text: 'انتهى الشهر المجاني — تواصل مع شِفت لتبدأ الاشتراك' };
-    return { tone: 'info', text: `الشهر الأول مجاني — باقي ${daysAr(left)}` };
+    if (left == null) return { tone: 'info', text: 'التجربة المجانية' };
+    if (left <= 0) return { tone: 'warn', text: 'انتهت التجربة المجانية — تواصل مع شِفت لتبدأ الاشتراك' };
+    return { tone: 'info', text: `التجربة المجانية — باقي ${daysAr(left)}` };
   }
   if (plan.status === 'active') {
     return plan.next_due_at ? { tone: 'good', text: `مدفوع حتى ${dateAr(plan.next_due_at)}` } : { tone: 'good', text: 'اشتراكك فعّال' };

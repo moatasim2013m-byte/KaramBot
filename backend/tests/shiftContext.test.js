@@ -307,10 +307,11 @@ describe('objectiveFor — the 18 rows', () => {
     expect(obj({ stage: 'captured', locked: true, wd: {}, batchTexts: ['قديش بتكلف؟'] })).not.toContain('19.99');
   });
 
-  test('16b. naming the free-month offer gets it confirmed, with the price after it', () => {
+  test('16b. naming the old free-month offer: it is over, the 7-day trial and the price follow (owner, 2026-10-13)', () => {
     for (const text of ['مرحبا، شفت العرض تبع الشهر المجاني وبدي أعرف أكثر', 'شو هو المجاني', 'ببلاش؟']) {
       const objective = obj({ stage: 'opening', wd: {}, batchTexts: [text] });
-      expect(objective).toContain('أكّد العرض');
+      expect(objective).toContain('عرض أكتوبر خلص');
+      expect(objective).toContain('تجربة مجانية 7 أيام');
       expect(objective).toContain('19.99 دينار بالشهر');
       expect(objective).not.toContain('مين بيرد على واتساب');
     }

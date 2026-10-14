@@ -183,9 +183,9 @@ describe('the free month is created once, at connect', () => {
       solution: 'karam_bot', status: 'trial', amount_jod: 19.99, ai_replies_month: 1000, seats: 3, campaign: 'irbid-2026-10',
     });
     // trial_starts 'first_reply': until the first reply, the latest the free month can end
-    // (connect + 14-day backstop + 30 days).
+    // (connect + 14-day backstop + 7 days).
     const days = (subs[0].trial_ends_at - business().connected_at) / 86400000;
-    expect(Math.round(days)).toBe(44);
+    expect(Math.round(days)).toBe(21);
   });
 
   test('a reconnect, a retry or a direct second call never adds a second one', async () => {

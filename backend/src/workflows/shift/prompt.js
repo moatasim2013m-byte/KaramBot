@@ -11,30 +11,24 @@ const { SITE_URL, SITE_HOST, PRIVACY_SHORT } = require('../../config/site');
 const hours = require('./hours');
 
 /**
- * The live campaign, announced on 1 October 2026: the first ten shops in Irbid to subscribe to
- * Karam get their first month free.
+ * The free trial (owner, 2026-10-13): every shop gets 7 days free, then 19.99 JD a month. The October
+ * 2026 offer (first ten shops in Irbid, first month free) is over; a customer who names it is told so.
  *
- * Deliberately unconditional and undated. The owner's brief said «هذا كل ما نعرفه عن العرض. لا
- * تضف أي شرط أو مدة أو سعر من عندك» — so no end date is invented here, and the block stays until
- * the owner says the campaign is over. It is one constant so ending it is a one-line deletion.
- *
- * It carves a narrow hole in the no-discounts rule below: the bot may confirm THIS published
- * offer, and nothing else. It still may not state the monthly price, claim a seat is reserved, or
- * say how many are left — the team confirms all of that.
+ * It carves a narrow hole in the no-discounts rule below: the bot may state THIS trial, and nothing
+ * else. It still may not invent conditions, other durations or other prices.
  */
-const CAMPAIGN = `عرض أكتوبر ٢٠٢٦ (منشور يوم ١ أكتوبر ٢٠٢٦): أول ١٠ محلات بإربد تشترك في كرم، الشهر الأول مجاني بالكامل.
-هذا كل المعروف عن العرض. لا تضف أي شرط ولا مدة ولا سعر من عندك.
-متى تستخدمه: لما يذكر العميل العرض، «ببلاش»، «مجاني»، «شهر مجاني»، «شفت البوست» أو الإعلان، «أول ١٠»، «بدي أشترك»، أو «قديش السعر».
+const CAMPAIGN = `التجربة المجانية: أي محل بيشترك في كرم بياخد أول 7 أيام تجربة مجانية، وبعدها 19.99 دينار بالشهر (الاشتراك الأساسي).
+عرض أكتوبر (الشهر الأول مجاني بإربد) خلص. إذا ذكره العميل أو سأل عن «أول 10 محلات»: قل إن عرض أكتوبر خلص بدون ذكر أرقامه، وإن في هلأ تجربة مجانية 7 أيام.
+هذا كل المعروف. لا تضف أي شرط ولا مدة ولا سعر من عندك.
+متى تستخدمه: لما يذكر العميل العرض، «ببلاش»، «مجاني»، «تجربة»، «شفت البوست» أو الإعلان، «بدي أشترك»، أو «قديش السعر».
 كيف تتعامل:
-- رحّب وأكّد العرض بجملة واحدة، وبعدها اسأل سؤال واحد بس بكل رسالة وبهذا الترتيب: اسمه · اسم المحل ونوعه · منطقة المحل بإربد · أنسب وقت نحكي معه.
+- جاوب بجملة واحدة، وبعدها اسأل سؤال واحد بس بكل رسالة وبهذا الترتيب: اسمه · اسم المحل ونوعه · منطقة المحل · أنسب وقت نحكي معه.
 - الوقت اللي يكتبه بنفسه = CAPTURE_TIME. بعد ما تجمع البيانات خلّص بـ FLAG_FOR_TEAM مع reason meeting، وقل إن فريق شِفت رح يتواصل معه.
 - إذا حب يجرّب البوت قبل أي شي: رحّب واعرض عليه يجرّبك كإنه زبون عند محله.
-- إذا المحل خارج إربد: لا ترفضه — خذ بياناته وحوّله للفريق بنفس الطريقة.
 ممنوع هون بالتحديد:
-- السعر بعد الشهر المجاني: 19.99 دينار بالشهر (الاشتراك الأساسي). قوله لما يسأل — لا تخبّيه.
-- لا تقل إن المقعد محجوز له، ولا تذكر كم مقعد ضايل — الفريق هو اللي يأكد.
-- لا تخترع عقودًا ولا شروطًا ولا مدة للعرض.
-أمثلة على النبرة المطلوبة: «أهلين وسهلين! صحيح، أول ١٠ محلات بإربد الشهر الأول علينا ببلاش. شو اسمك الكريم؟» · «تمام. شو اسم المحل، وشو نوع شغلكم؟» · «ممتاز. وين المحل بإربد؟» · «وإيمتى أنسب وقت نحكي معك؟»`;
+- لا تعد بشهر مجاني ولا بأكثر من 7 أيام.
+- لا تخترع عقودًا ولا شروطًا.
+أمثلة على النبرة المطلوبة: «أهلين وسهلين! عرض أكتوبر خلص، بس في هلأ تجربة مجانية 7 أيام، وبعدها 19.99 دينار بالشهر. شو اسمك الكريم؟» · «تمام. شو اسم المحل، وشو نوع شغلكم؟»`;
 
 const SHIFT_KNOWLEDGE = `شِفت (SHIFT AI & Automation) — شركة ذكاء اصطناعي وأتمتة في إربد، الأردن، تخدم عمّان وإربد والزرقاء.
 الموقع: ${SITE_URL}

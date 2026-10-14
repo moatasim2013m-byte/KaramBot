@@ -9,7 +9,7 @@ here overrides `spec.md` where they differ.
 | 1 | First 10: invite or public? | Invite link only. Public sign-up is built (P5) but off. | `PlatformSetting self_signup.enabled = false` |
 | 2 | Who connects WhatsApp first? | SHIFT, attended, for the spare-SIM run (G1) and shops 1–2. Owners alone after that. | Operational; `PlatformSetting es_owner_enabled = false` until G1 passes |
 | 3 | Owner login | Mobile + password, email optional | Migration 2 (P2) |
-| 4 | Free month start | First real AI reply to a non-staff number, or 14 days after connect, whichever comes first. 30 days long. | `PlatformSetting campaign {trial_days: 30, trial_starts: 'first_reply', backstop_days: 14}` |
+| 4 | Free trial start | First real AI reply to a non-staff number, or 14 days after connect, whichever comes first. **7 days long** (owner, 2026-10-13; was 30). The October offer, first ten shops in Irbid with the first month free, ended on 2026-10-13. | `PlatformSetting campaign {trial_days: 7, trial_starts: 'first_reply', backstop_days: 14}` |
 | 5 | Price after the free month | **19.99 JD/month**. This is the published price the sales bot already quotes (`workflows/shift/objectives.js`). 1,000 bot replies a month, 3 users. | `backend/src/config/plans.js` (snapshotted on each Subscription) |
 | 6 | Monthly reply cap reached | Hard during the free month: chats go to the shop's staff, with at most one holding reply per conversation per day. Soft for paying shops: alerts only. | `plans.js` + `costGuard` |
 | 7 | Daily AI ceiling, all shops | 2,000 replies a day. Free-trial shops stop first. | `PlatformSetting ai_limits` |

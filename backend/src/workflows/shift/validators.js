@@ -340,7 +340,9 @@ const PUBLISHED_FIGURES = [
   { value: 39.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 79.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 149.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
-  { value: 10, clause: /محلات|محل|عيادات|مطاعم|متاجر|منشآت|منشات|أماكن|اماكن|مكان|shops?|businesses|clinics|restaurants|stores|places|spots/i },
+  // The free trial (owner, 2026-10-13). The October offer's «أول ١٠ محلات» ended with it.
+  // Both the day unit and the trial word: «7 أسابيع ببلاش» or «التنفيذ خلال 7 أيام» are still invented.
+  { value: 7, clause: /^(?=.*(?:أيام|ايام|يوم|days?\b))(?=.*(?:تجرب|مجان|ببلاش|trial|free))/i },
 ];
 
 function isPublishedFigure(text, n) {
@@ -434,6 +436,17 @@ const GUARANTEE_EXTRA_RE = new RegExp([
   '\\b(?:double|triple|2x|3x|5x|10x)\\s+(?:your|their)\\b',
   '\\b(?:the )?majority of\\b',
 ].join('|'), 'i');
+
+// The October offer ended on 2026-10-13 (owner): a free month, or the first ten shops, is no longer
+// promised. checkDigits cannot see «أول شهر ببلاش» — it has no digit.
+const ENDED_OFFER_RE = /(?:أول|اول)\s+شهر\s+(?:ببلاش|مجان|علينا)|(?:الشهر|شهر)\s+(?:الأول|الاول)\s+(?:ببلاش|مجان|علينا)|شهرًا?\s+مجان(?:ي|يًا|ا)|شهر\s+ببلاش|first\s+month\s+(?:is\s+)?(?:free|on us)|(?:a\s+)?free\s+month/i;
+
+function checkEndedOffer(line) {
+  const s = String(line || '');
+  if (/خلص|انتهى|انتهت|ended|is over/i.test(s)) return [];
+  const m = ENDED_OFFER_RE.exec(s);
+  return m ? [{ code: 'ended_offer', detail: m[0] }] : [];
+}
 
 function checkGuarantee(line, vctx = {}) {
   const s = String(line || '');
@@ -1430,6 +1443,7 @@ function checkModelLine(input, vctx, attempt) {
 
   events.push(...regen(checkDigits(line, vctx)));
   events.push(...regen(checkGuarantee(line, vctx)));
+  events.push(...regen(checkEndedOffer(line)));
   events.push(...regen(checkOverclaim(line, vctx)));
   events.push(...regen(checkClaimedAction(line, vctx)));
   events.push(...regen(checkAppointmentTime(line, vctx)));
@@ -1732,6 +1746,7 @@ module.exports = {
   PUBLISHED_FIGURES,
   checkDigits,
   checkGuarantee,
+  checkEndedOffer,
   checkOverclaim,
   checkTrainingClaim,
   checkClaimedAction,

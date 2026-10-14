@@ -418,8 +418,8 @@ function shopAttention(c) {
     if (left >= 0 && left <= TRIAL_ENDING_DAYS * DAY_MS) {
       const n = Math.ceil(left / DAY_MS);
       push('trial_ending', n <= 0
-        ? 'الشهر المجاني ينتهي اليوم — لا دفعة مسجّلة'
-        : `الشهر المجاني ينتهي خلال ${labels.days(n)} — لا دفعة مسجّلة`, bot.trial_ends_at);
+        ? 'التجربة المجانية تنتهي اليوم — لا دفعة مسجّلة'
+        : `التجربة المجانية تنتهي خلال ${labels.days(n)} — لا دفعة مسجّلة`, bot.trial_ends_at);
     }
   }
   const dueInDays = contract && contract.next_due_at ? Math.ceil((time(contract.next_due_at) - now) / DAY_MS) : null;

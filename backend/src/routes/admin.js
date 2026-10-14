@@ -1376,7 +1376,7 @@ router.patch('/accounts/:id/subscriptions/:sid', async (req, res) => {
   }
   if (b.trial_ends_at !== undefined) {
     const ends = dateOrNull(b.trial_ends_at);
-    if (ends && !validDate(ends)) return res.status(400).json({ error: 'تاريخ نهاية الشهر المجاني غير صالح' });
+    if (ends && !validDate(ends)) return res.status(400).json({ error: 'تاريخ نهاية التجربة المجانية غير صالح' });
     data.trial_ends_at = ends;
   }
 
