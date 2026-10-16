@@ -311,7 +311,7 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
                 el.classList.add('wa-flash');
                 setTimeout(() => el.classList.remove('wa-flash'), 1300);
               }}
-              className={`mb-1 rounded-md px-2.5 py-1.5 border-s-4 text-xs cursor-pointer bg-black/5 ${msg.reply_to.direction === 'inbound' ? 'border-[#53BDEB]' : 'border-shift-ink'}`}
+              className={`mb-1 rounded-md px-2.5 py-1.5 border-s-4 text-xs cursor-pointer bg-black/5 ${msg.reply_to.direction === 'inbound' ? 'border-[#1F4FC2]' : 'border-shift-ink'}`}
               dir="auto"
             >
               <p className={`font-semibold text-[11px] mb-0.5 ${msg.reply_to.direction === 'inbound' ? 'text-[#2E9BC7]' : 'text-shift-ink'}`}>

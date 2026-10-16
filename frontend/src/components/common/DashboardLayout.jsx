@@ -115,7 +115,7 @@ export default function DashboardLayout() {
             if (item.href) {
               return (
                 <a key={item.key} href={helpHref} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-3 h-11 rounded-xl text-[14px] text-shift-ok font-medium hover:bg-shift-okBg">
+                  className="flex items-center gap-3 px-3 h-11 rounded-xl text-[14px] text-shift-ok font-medium hover:bg-shift-okBg hover:text-[#116B32]">
                   <Icon size={18} aria-hidden="true" />
                   <span className="flex-1">{item.label}</span>
                 </a>

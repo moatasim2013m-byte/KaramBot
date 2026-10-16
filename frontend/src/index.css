@@ -49,7 +49,7 @@ body {
 .badge-draft { @apply bg-yellow-100 text-yellow-700; }
 
 /* ─── Inbox v2 — WhatsApp look, ported from the Peekaboo staff inbox ─────────────────────────────── */
-@keyframes waFlash { 0% { background-color: rgba(0, 128, 105, 0.18); } 100% { background-color: transparent; } }
+@keyframes waFlash { 0% { background-color: rgba(31, 107, 255, 0.18); } 100% { background-color: transparent; } }
 .wa-flash { animation: waFlash 1.2s ease-out; border-radius: 12px; }
 /* The chat wallpaper: WhatsApp's beige under an original doodle tile (no Meta asset). */
 .inbox-messages-bg {

@@ -18,7 +18,7 @@ export const TickError = ({ className = '' }) => (
 );
 
 export function StatusTick({ status }) {
-  if (status === 'read') return <TickDouble className="text-[#53BDEB]" />;
+  if (status === 'read') return <TickDouble className="text-[#1F4FC2]" />;
   if (status === 'delivered') return <TickDouble className="text-[#667781]" />;
   if (status === 'sent' || status === 'answered') return <TickSingle className="text-[#667781]" />;
   if (status === 'failed') return <TickError className="text-red-500" />;

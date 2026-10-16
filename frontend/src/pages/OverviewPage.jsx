@@ -24,14 +24,14 @@ import {
 const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 
 const LINE_TONE = {
-  good: { box: 'border-shift-okBg bg-shift-okBg', text: 'text-shift-ok', Icon: CheckCircle2 },
+  good: { box: 'border-shift-okBg bg-shift-okBg', text: 'text-[#116B32]', Icon: CheckCircle2 },
   warn: { box: 'border-[#F1D29A] bg-shift-warnBg', text: 'text-shift-warn', Icon: AlertTriangle },
   bad: { box: 'border-shift-dangerLine bg-shift-dangerBg', text: 'text-shift-danger', Icon: XCircle },
 };
 
 const BANNER_TONE = {
   info: 'bg-white border-shift-selLine text-shift-selText',
-  good: 'bg-shift-okBg border-shift-okBg text-shift-ok',
+  good: 'bg-shift-okBg border-shift-okBg text-[#116B32]',
   warn: 'bg-shift-warnBg border-[#F1D29A] text-shift-warn',
   bad: 'bg-shift-dangerBg border-shift-dangerLine text-shift-danger',
 };
