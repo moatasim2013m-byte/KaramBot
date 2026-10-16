@@ -11,7 +11,7 @@ const STATUS_AR = {
 };
 
 const STATUS_COLOR = {
-  confirmed: 'bg-shift-okBg text-shift-ok',
+  confirmed: 'bg-shift-okBg text-[#116B32]',
   completed: 'bg-shift-line2 text-shift-body',
   cancelled: 'bg-shift-dangerBg text-shift-danger',
   no_show: 'bg-yellow-100 text-yellow-700',
@@ -203,13 +203,13 @@ export default function ClinicPage() {
         <div className="flex items-center gap-2">
           {tab === 'services' && (
             <button onClick={() => setModal({ type: 'service', item: null })}
-              className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:bg-shift-ok">
+              className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">
               <Plus size={16} /> إضافة خدمة
             </button>
           )}
           {tab === 'doctors' && (
             <button onClick={() => setModal({ type: 'doctor', item: null })}
-              className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:bg-shift-ok">
+              className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:opacity-90">
               <Plus size={16} /> إضافة طبيب
             </button>
           )}
@@ -265,7 +265,7 @@ export default function ClinicPage() {
                 {appt.status === 'confirmed' && (
                   <div className="flex gap-2 mt-2">
                     <button onClick={() => updateAppointmentStatus(appt.id, 'completed')}
-                      className="text-xs bg-shift-okBg text-shift-ok px-3 py-1.5 rounded-lg hover:bg-shift-okBg">
+                      className="text-xs bg-shift-okBg text-[#116B32] px-3 py-1.5 rounded-lg">
                       منتهي
                     </button>
                     <button onClick={() => updateAppointmentStatus(appt.id, 'no_show')}
@@ -273,7 +273,7 @@ export default function ClinicPage() {
                       لم يحضر
                     </button>
                     <button onClick={() => updateAppointmentStatus(appt.id, 'cancelled')}
-                      className="text-xs bg-shift-dangerBg text-shift-danger px-3 py-1.5 rounded-lg hover:bg-shift-dangerBg">
+                      className="text-xs bg-shift-dangerBg text-shift-danger px-3 py-1.5 rounded-lg">
                       إلغاء
                     </button>
                   </div>

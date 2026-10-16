@@ -47,7 +47,7 @@ function SaveBar({ busy, saved, error, onSave, label = 'احفظ' }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-t border-shift-line2">
       <button type="button" onClick={onSave} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-accent text-white text-[13px] font-semibold disabled:opacity-50">
+        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-selText text-white text-[13px] font-semibold disabled:opacity-50">
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {label}
       </button>
       {saved && <span className="text-[12px] text-shift-ok">تم الحفظ</span>}

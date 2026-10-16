@@ -290,7 +290,7 @@ export default function MenuPage() {
         )}
         <button
           onClick={() => tab === 'items' ? setModal('add') : setModal({ type: 'modifier', group: null })}
-          className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:bg-shift-ok"
+          className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:opacity-90"
         >
           <Plus size={16} />
           {tab === 'items' ? 'إضافة صنف' : 'إضافة مجموعة إضافات'}
@@ -324,7 +324,7 @@ export default function MenuPage() {
                 <span className="text-shift-muted font-normal mr-2">({cat.items?.length})</span>
               </div>
               {cat.items?.length === 0 && (
-                <div className="text-center py-6 text-shift-field text-sm">لا يوجد أصناف في هذه الفئة</div>
+                <div className="text-center py-6 text-shift-muted text-sm">لا يوجد أصناف في هذه الفئة</div>
               )}
               {cat.items?.map(item => (
                 <div key={item.id} className="flex items-center justify-between px-4 py-3 border-b border-shift-canvas last:border-0 hover:bg-shift-canvas">
@@ -341,7 +341,7 @@ export default function MenuPage() {
                     <button onClick={() => toggleAvailable(item)} title={item.available ? 'إخفاء' : 'إظهار'}>
                       {item.available
                         ? <ToggleRight size={20} className="text-shift-ok" />
-                        : <ToggleLeft size={20} className="text-shift-field" />}
+                        : <ToggleLeft size={20} className="text-shift-muted" />}
                     </button>
                     <button onClick={() => setModal(item)} className="text-shift-muted hover:text-blue-500">
                       <Edit2 size={15} />

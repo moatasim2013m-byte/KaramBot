@@ -17,7 +17,7 @@ export function ConnectInline({ onDone, label = CONTROL_LABEL.connect }) {
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 mt-1.5 rounded-md bg-shift-ok px-3 h-9 text-[13px] font-medium text-white hover:bg-shift-ok">
+        className="inline-flex items-center gap-1.5 mt-1.5 rounded-md bg-shift-ok px-3 h-9 text-[13px] font-medium text-white hover:opacity-90">
         <MessageCircle size={14} /> {label}
       </button>
     );

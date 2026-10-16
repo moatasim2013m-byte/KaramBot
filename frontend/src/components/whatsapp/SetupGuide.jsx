@@ -84,7 +84,7 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
               <div className="flex items-start gap-3">
                 {/* Done: a green check. Next: the blue number. Later: a grey number. */}
                 <span className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-display font-bold ${
-                  step.done ? 'bg-shift-okBg text-shift-ok' : current ? 'bg-shift-accent text-white' : 'bg-shift-line2 text-shift-muted'}`}>
+                  step.done ? 'bg-shift-okBg text-[#116B32]' : current ? 'bg-shift-selText text-white' : 'bg-shift-line2 text-shift-muted'}`}>
                   {step.done ? <Check size={14} strokeWidth={3} /> : i + 1}
                 </span>
 

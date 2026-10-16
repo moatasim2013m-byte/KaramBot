@@ -18,13 +18,6 @@ const METHOD_AR = {
   cliq: 'كليك', CliQ: 'كليك', bank: 'تحويل بنكي', bank_transfer: 'تحويل بنكي', cash: 'نقدًا', card: 'بطاقة',
 };
 
-const CHIP = {
-  trial: 'bg-shift-sel text-shift-selText',
-  active: 'bg-shift-okBg text-shift-ok',
-  past_due: 'bg-shift-warnBg text-shift-warn',
-  paused: 'bg-shift-dangerBg text-shift-danger',
-};
-
 function Card({ title, children }) {
   return (
     <section className="rounded-2xl border border-shift-line bg-white">

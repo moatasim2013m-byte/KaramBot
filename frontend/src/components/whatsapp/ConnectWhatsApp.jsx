@@ -173,7 +173,7 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-shift-ok px-4 h-10 text-sm font-medium text-white hover:bg-shift-ok disabled:opacity-50 disabled:cursor-not-allowed';
+const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-shift-ok px-4 h-10 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed';
 const btnSecondary = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-shift-line bg-white px-3 h-9 text-[13px] text-shift-ink hover:bg-shift-canvas disabled:opacity-50';
 
 function StepList({ reached, failedAt, working }) {

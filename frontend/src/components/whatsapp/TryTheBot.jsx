@@ -116,7 +116,7 @@ export default function TryTheBot({ endpoint = '/whatsapp/status/test', suggesti
           placeholder="اكتب كزبون…"
           className="flex-1 h-9 px-3 text-[13px] border border-shift-line rounded-md focus:outline-none focus:ring-1 focus:ring-shift-muted disabled:bg-shift-canvas"
         />
-        <button type="submit" disabled={busy || !text.trim()} className="flex items-center gap-1.5 bg-shift-ink text-white px-3 h-9 rounded-md text-[13px] hover:bg-shift-ink disabled:opacity-40">
+        <button type="submit" disabled={busy || !text.trim()} className="flex items-center gap-1.5 bg-shift-ink text-white px-3 h-9 rounded-md text-[13px] hover:bg-shift-ink2 disabled:opacity-40">
           <Send size={13} /> {busy ? 'جارٍ…' : 'إرسال'}
         </button>
       </form>

@@ -125,7 +125,7 @@ export default function KnowledgeByGroup({ sector }) {
           <div className="flex flex-wrap gap-2">
             {chips.map((q) => (
               <button key={q} type="button" onClick={() => setAdding({ kind: 'faq', preset: q })}
-                className="h-8 px-3 rounded-full border border-green-200 bg-shift-okBg text-[12px] text-shift-ok hover:bg-shift-okBg">
+                className="h-8 px-3 rounded-full border border-green-200 bg-shift-okBg text-[12px] text-shift-ok">
                 + {q}
               </button>
             ))}

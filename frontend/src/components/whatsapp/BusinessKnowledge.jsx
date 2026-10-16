@@ -97,7 +97,7 @@ export default function BusinessKnowledge({ businessId }) {
         />
         <div className="flex items-center gap-2">
           <button type="submit" disabled={busy || !form.content.trim()}
-            className="flex items-center gap-1.5 bg-shift-ink text-white px-3 h-8 rounded-md text-[13px] hover:bg-shift-ink disabled:opacity-40">
+            className="flex items-center gap-1.5 bg-shift-ink text-white px-3 h-8 rounded-md text-[13px] hover:bg-shift-ink2 disabled:opacity-40">
             <Plus size={14} /> {busy ? 'جارٍ…' : 'أضف'}
           </button>
           <span className="text-[11px] text-shift-muted">اكتبها كما تقولها لزبون على الهاتف.</span>

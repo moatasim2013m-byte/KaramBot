@@ -23,7 +23,7 @@ function Explainer({ clinic }) {
 
 const APPT_STATUS_AR = { draft: 'مسودة', confirmed: 'مؤكد', completed: 'منتهي', cancelled: 'ملغى', no_show: 'لم يحضر' };
 const APPT_STATUS_COLOR = {
-  confirmed: 'bg-shift-okBg text-shift-ok',
+  confirmed: 'bg-shift-okBg text-[#116B32]',
   completed: 'bg-shift-line2 text-shift-body',
   cancelled: 'bg-shift-dangerBg text-shift-danger',
   no_show: 'bg-yellow-100 text-yellow-700',
@@ -90,7 +90,7 @@ function Appointments() {
               <div className="flex gap-2 flex-wrap mt-3">
                 {APPT_NEXT[a.status].map((next) => (
                   <button key={next} onClick={() => setStatus(a.id, next)}
-                    className={`text-xs px-3 py-1.5 rounded-lg font-medium ${next === 'cancelled' ? 'bg-shift-dangerBg text-shift-danger' : 'bg-shift-okBg text-shift-ok'}`}>
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium ${next === 'cancelled' ? 'bg-shift-dangerBg text-shift-danger' : 'bg-shift-okBg text-[#116B32]'}`}>
                     {APPT_STATUS_AR[next]}
                   </button>
                 ))}
@@ -118,7 +118,7 @@ const STATUS_AR = {
 const STATUS_COLOR = {
   draft: 'bg-yellow-100 text-yellow-700',
   awaiting_confirmation: 'bg-yellow-100 text-yellow-700',
-  confirmed: 'bg-shift-okBg text-shift-ok',
+  confirmed: 'bg-shift-okBg text-[#116B32]',
   preparing: 'bg-blue-100 text-blue-700',
   ready: 'bg-purple-100 text-purple-700',
   out_for_delivery: 'bg-orange-100 text-orange-700',
@@ -253,8 +253,8 @@ function Orders() {
                         onClick={() => updateStatus(order.id, nextStatus)}
                         className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                           nextStatus === 'cancelled'
-                            ? 'bg-shift-dangerBg text-shift-danger hover:bg-shift-dangerBg'
-                            : 'bg-shift-okBg text-shift-ok hover:bg-shift-okBg'
+                            ? 'bg-shift-dangerBg text-shift-danger'
+                            : 'bg-shift-okBg text-[#116B32]'
                         }`}
                       >
                         {STATUS_AR[nextStatus]}

@@ -59,7 +59,7 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 /* Bubble tails on the first bubble of a group. The page is RTL: outbound sits at the physical left. */
-.wa-tail-out::before { content: ""; position: absolute; top: 0; left: -7px; width: 8px; height: 12px; background: #D9FDD3; clip-path: polygon(100% 0, 0 0, 100% 100%); }
+.wa-tail-out::before { content: ""; position: absolute; top: 0; left: -7px; width: 8px; height: 12px; background: #E8F0FF; clip-path: polygon(100% 0, 0 0, 100% 100%); }
 .wa-tail-in::before { content: ""; position: absolute; top: 0; right: -7px; width: 8px; height: 12px; background: #FFFFFF; clip-path: polygon(0 0, 100% 0, 0 100%); }
 .inbox-shell, .inbox-shell * { -webkit-tap-highlight-color: transparent; }
 @keyframes waSlideIn { from { transform: translateX(-14px); opacity: 0.6; } to { transform: translateX(0); opacity: 1; } }

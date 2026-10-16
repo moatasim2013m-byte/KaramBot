@@ -16,7 +16,7 @@ import { countAr, shiftWaLink, helpText } from '../components/whatsapp/panelView
 
 const ROLE_AR = { business_owner: 'صاحب المحل', manager: 'مدير', staff: 'موظف', platform_admin: 'شِفت' };
 const STATUS_AR = {
-  active: { label: 'فعّال', cls: 'bg-shift-okBg text-shift-ok' },
+  active: { label: 'فعّال', cls: 'bg-shift-okBg text-[#116B32]' },
   pending: { label: 'بانتظار التفعيل', cls: 'bg-shift-warnBg text-shift-warn' },
   disabled: { label: 'معطّل', cls: 'bg-shift-line2 text-shift-body' },
 };
@@ -273,7 +273,7 @@ function MemberActions({ m, busy, onToggle, onResend }) {
     <span className="inline-flex items-center gap-1.5">
       {neverIn && (
         <button type="button" onClick={onResend} disabled={busy}
-          className="h-9 px-3 rounded-md text-[12px] font-medium bg-shift-okBg text-shift-ok disabled:opacity-50">
+          className="h-9 px-3 rounded-md text-[12px] font-medium bg-shift-okBg text-[#116B32] disabled:opacity-50">
           أرسل رابطًا جديدًا
         </button>
       )}
@@ -287,7 +287,7 @@ function ActiveButton({ m, busy, onToggle }) {
   const disabled = m.status === 'disabled';
   return (
     <button type="button" onClick={onToggle} disabled={busy}
-      className={`h-9 px-3 rounded-md text-[12px] font-medium disabled:opacity-50 ${disabled ? 'bg-shift-okBg text-shift-ok' : 'border border-shift-line text-shift-body'}`}>
+      className={`h-9 px-3 rounded-md text-[12px] font-medium disabled:opacity-50 ${disabled ? 'bg-shift-okBg text-[#116B32]' : 'border border-shift-line text-shift-body'}`}>
       {disabled ? 'فعّل' : 'عطّل'}
     </button>
   );

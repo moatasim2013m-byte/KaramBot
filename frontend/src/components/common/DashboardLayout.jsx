@@ -189,7 +189,7 @@ export default function DashboardLayout() {
             return (
               <NavLink key={item.key} to={item.to}
                 className={({ isActive }) =>
-                  `relative flex-1 flex flex-col items-center justify-center gap-1 text-[11px] ${isActive ? 'text-shift-accent font-bold' : 'text-shift-muted font-medium'}`
+                  `relative flex-1 flex flex-col items-center justify-center gap-1 text-[11px] ${isActive ? 'text-shift-selText font-bold' : 'text-shift-muted font-medium'}`
                 }>
                 <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
                 <span className="truncate max-w-full px-1">{item.label}</span>
@@ -202,7 +202,7 @@ export default function DashboardLayout() {
             );
           })}
           <button type="button" onClick={() => setMoreOpen(true)}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 text-[11px] ${moreActive ? 'text-shift-accent font-bold' : 'text-shift-muted font-medium'}`}>
+            className={`flex-1 flex flex-col items-center justify-center gap-1 text-[11px] ${moreActive ? 'text-shift-selText font-bold' : 'text-shift-muted font-medium'}`}>
             <MoreHorizontal size={22} strokeWidth={1.8} aria-hidden="true" />
             <span>المزيد</span>
           </button>

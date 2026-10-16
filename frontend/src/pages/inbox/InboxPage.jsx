@@ -109,7 +109,7 @@ function ConversationRow({ conv, active, onOpen }) {
                 <span key={l} className="flex-shrink-0 text-[10px] font-medium bg-shift-sel text-shift-selText border border-shift-selLine rounded-full px-1.5">{l}</span>
               ))}
             </span>
-            <span className={`text-xs flex-shrink-0 ${conv.unread_count > 0 ? 'text-shift-accent font-semibold' : 'text-shift-muted'}`}>
+            <span className={`text-xs flex-shrink-0 ${conv.unread_count > 0 ? 'text-shift-selText font-semibold' : 'text-shift-muted'}`}>
               {formatListTime(m ? m.at : conv.last_message_at)}
             </span>
           </div>
@@ -121,7 +121,7 @@ function ConversationRow({ conv, active, onOpen }) {
             <span className="flex items-center gap-1 flex-shrink-0">
               {snoozed && <Clock className="h-3.5 w-3.5 text-shift-muted" />}
               {conv.assigned_staff && (
-                <span title={`مسندة إلى ${conv.assigned_staff.name}`} className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-shift-warnBg text-shift-warn text-[10px] font-bold border border-[#F2E533]">
+                <span title={`مسندة إلى ${conv.assigned_staff.name}`} className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-shift-warnBg text-shift-warn text-[10px] font-bold border border-[#F1D29A]">
                   {conv.assigned_staff.name.charAt(0)}
                 </span>
               )}
@@ -856,7 +856,7 @@ export default function InboxPage() {
         {!conv ? (
           <div className="flex-1 flex items-center justify-center bg-shift-canvas">
             <div className="text-center text-shift-muted">
-              <div className="w-20 h-20 rounded-full bg-shift-sel flex items-center justify-center mx-auto mb-4"><MessageSquare className="h-10 w-10 text-shift-field" /></div>
+              <div className="w-20 h-20 rounded-full bg-shift-sel flex items-center justify-center mx-auto mb-4"><MessageSquare className="h-10 w-10 text-shift-muted" /></div>
               <p className="font-medium text-shift-muted">اختر محادثة</p>
               <p className="text-sm mt-1">اختر محادثة من القائمة للرد</p>
             </div>
@@ -906,7 +906,7 @@ export default function InboxPage() {
               </div>
               {win && (
                 <span title="نافذة الـ24 ساعة: بعدها ما بتوصل إلا القوالب المعتمدة"
-                  className={`ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${win.expired || win.urgent ? 'bg-shift-dangerBg text-shift-danger border-shift-dangerLine' : win.warn ? 'bg-shift-warnBg text-shift-warn border-[#F1D29A]' : 'bg-shift-okBg text-shift-ok border-green-200'}`}>
+                  className={`ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${win.expired || win.urgent ? 'bg-shift-dangerBg text-shift-danger border-shift-dangerLine' : win.warn ? 'bg-shift-warnBg text-shift-warn border-[#F1D29A]' : 'bg-shift-okBg text-[#116B32] border-green-200'}`}>
                   <Clock className="h-3 w-3" />{win.label}
                 </span>
               )}
@@ -993,7 +993,7 @@ export default function InboxPage() {
                       className="flex-1 min-w-0 resize-none rounded-[24px] bg-white px-4 py-3 text-[16px] lg:text-[15px] leading-6 min-h-[48px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-shift-ink/40 disabled:opacity-50"
                     />
                     <button type="submit" disabled={sending || !replyText.trim()}
-                      className="flex-shrink-0 w-12 h-12 rounded-full bg-shift-ink hover:bg-shift-ink disabled:bg-shift-field flex items-center justify-center transition-colors" aria-label="إرسال">
+                      className="flex-shrink-0 w-12 h-12 rounded-full bg-shift-ink hover:bg-shift-ink2 disabled:bg-shift-field flex items-center justify-center transition-colors" aria-label="إرسال">
                       {sending ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white -scale-x-100" />}
                     </button>
                   </form>

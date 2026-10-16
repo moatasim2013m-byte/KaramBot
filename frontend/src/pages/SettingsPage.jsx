@@ -207,7 +207,7 @@ function ShopTab({ user }) {
   const footer = (
     <div className="flex items-center gap-3 px-4 py-3 border-t border-shift-line2">
       <button type="button" onClick={save} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-accent text-white text-[13px] font-semibold disabled:opacity-50">
+        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-selText text-white text-[13px] font-semibold disabled:opacity-50">
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ
       </button>
       {saved && <span className="text-[12px] text-emerald-700">تم الحفظ</span>}
@@ -309,7 +309,7 @@ function PasswordForm() {
       </Field>
       <div className="flex items-center gap-3">
         <button type="submit" disabled={busy || !current || next.length < 10}
-          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-accent text-white text-[13px] font-semibold disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-selText text-white text-[13px] font-semibold disabled:opacity-50">
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ كلمة المرور
         </button>
         <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-[13px] text-shift-muted">إلغاء</button>
