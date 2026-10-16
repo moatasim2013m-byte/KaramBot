@@ -95,7 +95,9 @@ function ConsoleRoute({ children }) {
 /** «محادثات شِفت» and «بوت شِفت» exist only for an account that carries SHIFT's shop. */
 function ShiftShopRoute({ roles, children }) {
   const { user } = useAuth();
-  if (!user?.business_id) return <Navigate to="/admin/overview" replace />;
+  // Only an admin has «اليوم» to go to; a team account that somehow carries no shop has no page
+  // in the console at all (and AdminOnly would send it straight back here).
+  if (!user?.business_id) return user?.role === 'platform_admin' ? <Navigate to="/admin/overview" replace /> : <WrongDoorExit />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/admin/inbox" replace />;
   return children;
 }
