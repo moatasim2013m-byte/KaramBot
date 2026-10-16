@@ -1,10 +1,11 @@
 /**
- * The two doors into the same panel.
+ * The two doors.
  *
- * SHIFT (the platform admin and SHIFT's own shop team) signs in at karambots.com. Customer shops
- * sign in at app.shifts-ai.com. Both serve the same app from the same Cloud Run service; the split
- * is about who uses which address, so a shop owner never lands on SHIFT's login and SHIFT's
- * admin login is never offered on the customers' address.
+ * SHIFT (the platform admin and SHIFT's own shop team) signs in at karambots.com and sees only the
+ * console (/admin, with SHIFT's own sales-bot inbox inside it). Customer shops sign in at
+ * app.shifts-ai.com and see only the shop panel. Both are served by the same Cloud Run service;
+ * the split is about who uses which address and what each address shows, so a shop owner never
+ * sees SHIFT's login or console and SHIFT's team never works in customer-panel screens.
  *
  * Which door a request came through: the browser's Origin header first (sent on every POST, and
  * a page cannot change it), then X-Forwarded-Host (app.shifts-ai.com reaches Cloud Run through

@@ -233,7 +233,7 @@ describe('book on tap', () => {
       reminders: { useDefault: true },
     });
     expect(event.description).toContain('القطاع: مطعم/كافيه');
-    expect(event.description).toContain('https://karambots.com/inbox');
+    expect(event.description).toContain('https://karambots.com/admin/inbox');
 
     expect(r.kind).toBe('button');
     expect(r.action).toBe('BOOK_CALL');

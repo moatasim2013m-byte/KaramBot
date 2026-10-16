@@ -27,7 +27,7 @@ export default function LoginPage() {
       // Each role lands where its work is: SHIFT on the platform, staff in the conversations,
       // owners and managers on the overview.
       const role = data?.user?.role;
-      navigate(role === 'platform_admin' ? '/admin/overview' : role === 'staff' ? '/inbox' : '/overview');
+      navigate(role === 'platform_admin' ? '/admin/overview' : operatorDoor ? '/admin/inbox' : role === 'staff' ? '/inbox' : '/overview');
     } catch (err) {
       if (isWrongSurface(err)) {
         setElsewhere({ message: err.response.data.error, url: err.response.data.home_url });
