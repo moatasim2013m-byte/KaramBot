@@ -14,6 +14,14 @@
 .shift-admin .font-mono { font-family: ui-monospace, Menlo, monospace; }
 .shift-admin :focus-visible { outline: 2px solid #1F6BFF; outline-offset: 2px; }
 
+/* The shop's own panel (DashboardLayout) shares the console's type: Plex for reading, Alexandria
+   for headings and figures. Scoped like .shift-admin, so the login and join pages keep theirs. */
+.karam-app { font-family: 'IBM Plex Sans Arabic', 'Cairo', system-ui, sans-serif; }
+.karam-app * { font-family: inherit; }
+.karam-app .font-display, .karam-app h1, .karam-app h2, .karam-app h3 { font-family: 'Alexandria', 'IBM Plex Sans Arabic', sans-serif; }
+.karam-app .font-mono { font-family: ui-monospace, Menlo, monospace; }
+.karam-app :focus-visible { outline: 2px solid #1F6BFF; outline-offset: 2px; }
+
 body {
   direction: rtl;
   text-align: right;
@@ -41,7 +49,7 @@ body {
 .badge-draft { @apply bg-yellow-100 text-yellow-700; }
 
 /* ─── Inbox v2 — WhatsApp look, ported from the Peekaboo staff inbox ─────────────────────────────── */
-@keyframes waFlash { 0% { background-color: rgba(0, 128, 105, 0.18); } 100% { background-color: transparent; } }
+@keyframes waFlash { 0% { background-color: rgba(31, 107, 255, 0.18); } 100% { background-color: transparent; } }
 .wa-flash { animation: waFlash 1.2s ease-out; border-radius: 12px; }
 /* The chat wallpaper: WhatsApp's beige under an original doodle tile (no Meta asset). */
 .inbox-messages-bg {
@@ -51,7 +59,7 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 /* Bubble tails on the first bubble of a group. The page is RTL: outbound sits at the physical left. */
-.wa-tail-out::before { content: ""; position: absolute; top: 0; left: -7px; width: 8px; height: 12px; background: #D9FDD3; clip-path: polygon(100% 0, 0 0, 100% 100%); }
+.wa-tail-out::before { content: ""; position: absolute; top: 0; left: -7px; width: 8px; height: 12px; background: #E8F0FF; clip-path: polygon(100% 0, 0 0, 100% 100%); }
 .wa-tail-in::before { content: ""; position: absolute; top: 0; right: -7px; width: 8px; height: 12px; background: #FFFFFF; clip-path: polygon(0 0, 100% 0, 0 100%); }
 .inbox-shell, .inbox-shell * { -webkit-tap-highlight-color: transparent; }
 @keyframes waSlideIn { from { transform: translateX(-14px); opacity: 0.6; } to { transform: translateX(0); opacity: 1; } }

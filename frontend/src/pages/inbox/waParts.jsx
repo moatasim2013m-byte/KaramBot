@@ -18,10 +18,10 @@ export const TickError = ({ className = '' }) => (
 );
 
 export function StatusTick({ status }) {
-  if (status === 'read') return <TickDouble className="text-[#53BDEB]" />;
+  if (status === 'read') return <TickDouble className="text-[#1F4FC2]" />;
   if (status === 'delivered') return <TickDouble className="text-[#667781]" />;
   if (status === 'sent' || status === 'answered') return <TickSingle className="text-[#667781]" />;
-  if (status === 'failed') return <TickError className="text-red-500" />;
+  if (status === 'failed') return <TickError className="text-shift-danger" />;
   return <TickClock className="text-[#667781]" />;
 }
 
@@ -52,7 +52,7 @@ export function windowState(lastInboundAt, now = Date.now()) {
 export function Avatar({ name, size = 'w-11 h-11 text-base' }) {
   const ch = String(name || '?').trim().charAt(0).toUpperCase() || '?';
   return (
-    <div className={`${size} rounded-full bg-gradient-to-br from-[#00A884] to-[#008069] flex items-center justify-center text-white font-bold flex-shrink-0`}>{ch}</div>
+    <div className={`${size} rounded-full bg-shift-sel text-shift-selText flex items-center justify-center font-bold flex-shrink-0`}>{ch}</div>
   );
 }
 

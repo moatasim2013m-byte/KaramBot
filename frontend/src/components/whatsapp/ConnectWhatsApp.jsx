@@ -173,8 +173,8 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-green-600 px-4 h-10 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed';
-const btnSecondary = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 h-9 text-[13px] text-gray-800 hover:bg-gray-50 disabled:opacity-50';
+const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-shift-ok px-4 h-10 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed';
+const btnSecondary = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-shift-line bg-white px-3 h-9 text-[13px] text-shift-ink hover:bg-shift-canvas disabled:opacity-50';
 
 function StepList({ reached, failedAt, working }) {
   return (
@@ -184,11 +184,11 @@ function StepList({ reached, failedAt, working }) {
         const failed = failedAt === i;
         return (
           <li key={key} className="flex items-center gap-2 text-[13px]">
-            {done ? <Check size={14} className="text-emerald-600" />
-              : failed ? <X size={14} className="text-red-500" />
-                : working ? <Loader2 size={14} className="animate-spin text-gray-400" />
-                  : <span className="inline-block h-3.5 w-3.5 rounded-full border border-gray-300" />}
-            <span className={done ? 'text-gray-500' : failed ? 'text-red-700' : 'text-gray-700'}>{label}</span>
+            {done ? <Check size={14} className="text-[#116B32]" />
+              : failed ? <X size={14} className="text-shift-danger" />
+                : working ? <Loader2 size={14} className="animate-spin text-shift-muted" />
+                  : <span className="inline-block h-3.5 w-3.5 rounded-full border border-shift-field" />}
+            <span className={done ? 'text-shift-muted' : failed ? 'text-shift-danger' : 'text-shift-body'}>{label}</span>
           </li>
         );
       })}
@@ -444,13 +444,13 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
   const canLaunch = Boolean(sdkReady && config && base) && !busy;
   const coexFirst = preferCoexistence && Boolean(config?.coexistence);
 
-  const frame = framed ? 'rounded-xl border border-gray-200 bg-white p-4' : 'p-4';
+  const frame = framed ? 'rounded-2xl border border-shift-line bg-white p-4' : 'p-4';
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (!remote && !loadError) {
     return (
       <div className={frame} dir="rtl">
-        <p className="flex items-center gap-2 text-[13px] text-gray-500"><Loader2 size={14} className="animate-spin" /> جارٍ قراءة حالة الربط…</p>
+        <p className="flex items-center gap-2 text-[13px] text-shift-muted"><Loader2 size={14} className="animate-spin" /> جارٍ قراءة حالة الربط…</p>
       </div>
     );
   }
@@ -463,27 +463,27 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
     return (
       <div className={frame} dir="rtl">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100"><Check size={14} className="text-emerald-700" /></span>
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-shift-okBg"><Check size={14} className="text-[#116B32]" /></span>
           <div className="min-w-0">
-            <p className="text-[14px] font-semibold text-gray-900">
+            <p className="text-[14px] font-semibold text-shift-ink">
               واتساب متصل{onb?.display_phone && <>: <bdi dir="ltr">{onb.display_phone}</bdi></>}
             </p>
             {onb?.verified_name && (
-              <p className="mt-0.5 text-[13px] text-gray-600">
-                الاسم الذي يراه الزبائن: {onb.verified_name}{nameLabel && <span className="text-gray-400"> ({nameLabel})</span>}
+              <p className="mt-0.5 text-[13px] text-shift-body">
+                الاسم الذي يراه الزبائن: {onb.verified_name}{nameLabel && <span className="text-shift-muted"> ({nameLabel})</span>}
               </p>
             )}
             {onb?.name_status === 'PENDING_REVIEW' && (
-              <p className="mt-0.5 text-[12px] text-gray-500">تراجع Meta الاسم، عادة خلال يوم أو يومين.</p>
+              <p className="mt-0.5 text-[12px] text-shift-muted">تراجع Meta الاسم، عادة خلال يوم أو يومين.</p>
             )}
             {onb?.name_status === 'DECLINED' && (
-              <p className="mt-0.5 text-[12px] text-red-700">رفضت Meta الاسم — يرى الزبائن الرقم بدل الاسم.</p>
+              <p className="mt-0.5 text-[12px] text-shift-danger">رفضت Meta الاسم — يرى الزبائن الرقم بدل الاسم.</p>
             )}
           </div>
         </div>
 
         {onb?.coexistence && (
-          <div className="mt-3 rounded-lg bg-blue-50 p-3 text-[13px] text-blue-900">
+          <div className="mt-3 rounded-lg bg-shift-sel p-3 text-[13px] text-shift-selText">
             <p className="font-medium">الرقم يعمل على تطبيق واتساب للأعمال وعلى كرم بوت معًا.</p>
             <p className="mt-1 text-[12px]">{COEX_NOTICE.inactivity}</p>
             <p className="mt-1 text-[12px]">{COEX_NOTICE.owner_hold}</p>
@@ -493,7 +493,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
         {/* The last step is the customer's own, and it is the one that silently blocks
             sending, so it sits in the open rather than in a footnote. */}
         {notice && (
-          <div className={`mt-3 rounded-lg p-3 text-[13px] ${pay === 'blocked' ? 'bg-red-50 text-red-900' : 'bg-amber-50 text-amber-900'}`}>
+          <div className={`mt-3 rounded-lg p-3 text-[13px] ${pay === 'blocked' ? 'bg-shift-dangerBg text-shift-danger' : 'bg-shift-warnBg text-shift-warn'}`}>
             <p className="font-medium">{notice.short}</p>
             <p className="mt-1 text-[12px]">{notice.long}</p>
             <a href={WHATSAPP_MANAGER_URL} target="_blank" rel="noopener noreferrer"
@@ -514,16 +514,16 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
   return (
     <div className={frame} dir="rtl">
       {loadError && (
-        <div className="mb-3 rounded-lg bg-red-50 p-3 text-[13px] text-red-800">{loadError}</div>
+        <div className="mb-3 rounded-lg bg-shift-dangerBg p-3 text-[13px] text-shift-danger">{loadError}</div>
       )}
 
       {!started && view.kind === 'steps' && beforeConnectNote && !busy && (
-        <p className="mb-3 rounded-lg bg-gray-50 p-3 text-[13px] text-gray-700">{beforeConnectNote}</p>
+        <p className="mb-3 rounded-lg bg-shift-canvas p-3 text-[13px] text-shift-body">{beforeConnectNote}</p>
       )}
 
       {inApp ? (
         // Meta's popup does not work in WhatsApp's or Facebook's own browser, so no button here.
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-[13px] text-amber-900">
+        <div className="rounded-lg border border-[#F1D29A] bg-shift-warnBg p-4 text-[13px] text-shift-warn">
           <p className="font-medium">افتح الرابط في Chrome أو Safari لتتمكن من ربط واتساب.</p>
           <p className="mt-1 text-[12px]">متصفح واتساب أو فيسبوك أو إنستغرام لا يفتح نافذة الربط من Meta.</p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -537,19 +537,19 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
           </div>
         </div>
       ) : busy === 'popup' ? (
-        <div className="rounded-lg bg-blue-50 p-4 text-[13px] text-blue-900">
+        <div className="rounded-lg bg-shift-sel p-4 text-[13px] text-shift-selText">
           <p className="flex items-center gap-2 font-medium"><Loader2 size={14} className="animate-spin" /> أكمل الخطوات في نافذة فيسبوك — لا تغلق هذه الصفحة.</p>
         </div>
       ) : busy === 'exchanging' || busy === 'retrying' ? (
         <div>
-          <p className="flex items-center gap-2 text-[14px] font-medium text-gray-900"><Loader2 size={15} className="animate-spin" /> جارٍ الربط…</p>
+          <p className="flex items-center gap-2 text-[14px] font-medium text-shift-ink"><Loader2 size={15} className="animate-spin" /> جارٍ الربط…</p>
           <StepList reached={busy === 'retrying' ? reached : -1} failedAt={null} working />
         </div>
       ) : view.kind === 'revoked' || view.kind === 'needs_number' ? (
         // Their own cards, with no step list: a revoked shop's steps were all done once and
         // would show four green ticks, and a WABA with no number has no step to stop at.
         <div>
-          <div className={`rounded-lg p-4 text-[13px] ${view.kind === 'revoked' ? 'bg-red-50 text-red-900' : 'bg-amber-50 text-amber-900'}`}>
+          <div className={`rounded-lg p-4 text-[13px] ${view.kind === 'revoked' ? 'bg-shift-dangerBg text-shift-danger' : 'bg-shift-warnBg text-shift-warn'}`}>
             <p className="font-medium">
               {view.kind === 'revoked'
                 ? 'انفصل كرم بوت عن حساب Meta — البوت لا يستقبل الرسائل.'
@@ -564,22 +564,22 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
               <a href={SUPPORT_WA} target="_blank" rel="noopener noreferrer" className={btnSecondary}>تواصل مع شِفت</a>
             )}
             {!sdkReady && !sdkFailed && !loadError && (
-              <span className="flex items-center gap-1 text-[12px] text-gray-400"><Loader2 size={12} className="animate-spin" /> جارٍ تجهيز نافذة فيسبوك…</span>
+              <span className="flex items-center gap-1 text-[12px] text-shift-muted"><Loader2 size={12} className="animate-spin" /> جارٍ تجهيز نافذة فيسبوك…</span>
             )}
           </div>
           {sdkFailed && (
-            <div className="mt-3 rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">
+            <div className="mt-3 rounded-lg bg-shift-warnBg p-3 text-[13px] text-shift-warn">
               <p>تعذّر تحميل فيسبوك. أوقف مانع الإعلانات لهذا الموقع أو جرّب متصفحًا آخر.</p>
               <button type="button" onClick={retryLoadSdk} className="mt-2 font-medium underline">حاول التحميل مرة أخرى</button>
             </div>
           )}
         </div>
       ) : waitingOperator ? (
-        <div className="rounded-lg bg-amber-50 p-4 text-[13px] text-amber-900">
+        <div className="rounded-lg bg-shift-warnBg p-4 text-[13px] text-shift-warn">
           <p className="font-medium">وصل الربط إلى خطوة يكملها فريق شِفت — لا داعي لإعادة الخطوات.</p>
           {onb?.last_error_ar && <p className="mt-1 text-[12px]">{onb.last_error_ar}</p>}
           {isStaff && (
-            <p className="mt-2 text-[12px] text-amber-800">
+            <p className="mt-2 text-[12px] text-shift-warn">
               أكمله من «ربط بدون حساب» في صفحة «نظرة عامة»: «أكمل الربط» ثم معرّف الرقم من WhatsApp Manager.
             </p>
           )}
@@ -591,17 +591,17 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
         <div>
           {(status === 'in_progress' || status === 'failed') && onb?.step && (
             <>
-              <p className="text-[14px] font-medium text-gray-900">توقف الربط عند: {failedStepLabel(onb)}</p>
+              <p className="text-[14px] font-medium text-shift-ink">توقف الربط عند: {failedStepLabel(onb)}</p>
               <StepList reached={reached} failedAt={failedAt} />
             </>
           )}
 
           {onb?.last_error_ar && !problem && (
-            <p className="mt-3 rounded-lg bg-red-50 p-3 text-[13px] text-red-800">{onb.last_error_ar}</p>
+            <p className="mt-3 rounded-lg bg-shift-dangerBg p-3 text-[13px] text-shift-danger">{onb.last_error_ar}</p>
           )}
 
           {problem && (
-            <div className={`mt-3 rounded-lg p-3 text-[13px] ${problem.kind === 'abandoned' || problem.kind === 'closed' ? 'bg-gray-50 text-gray-800' : 'bg-red-50 text-red-800'}`}>
+            <div className={`mt-3 rounded-lg p-3 text-[13px] ${problem.kind === 'abandoned' || problem.kind === 'closed' ? 'bg-shift-canvas text-shift-ink' : 'bg-shift-dangerBg text-shift-danger'}`}>
               <p>{problem.text}</p>
               {problem.sessionId && (
                 <button type="button" onClick={() => copySession(problem.sessionId)}
@@ -614,14 +614,14 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
 
           {/* Two-step verification already set elsewhere: Meta accepts only that PIN. */}
           {onb?.needs_pin && (
-            <form className="mt-3 rounded-lg border border-gray-200 p-3"
+            <form className="mt-3 rounded-lg border border-shift-line p-3"
               onSubmit={(e) => { e.preventDefault(); if (/^\d{6}$/.test(pin)) retry(pin); }}>
-              <label htmlFor="es-pin" className="block text-[13px] font-medium text-gray-800">رمز التحقق بخطوتين لرقمك</label>
-              <p className="mt-0.5 text-[12px] text-gray-500">إذا لم تعرفه: WhatsApp Manager ← الرقم ← التحقق بخطوتين.</p>
+              <label htmlFor="es-pin" className="block text-[13px] font-medium text-shift-ink">رمز التحقق بخطوتين لرقمك</label>
+              <p className="mt-0.5 text-[12px] text-shift-muted">إذا لم تعرفه: WhatsApp Manager ← الرقم ← التحقق بخطوتين.</p>
               <div className="mt-2 flex items-center gap-2">
                 <input id="es-pin" inputMode="numeric" autoComplete="one-time-code" maxLength={6} dir="ltr"
                   value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className="w-32 rounded-lg border border-gray-200 px-3 h-9 text-center font-mono tracking-[0.3em] focus:outline-none focus:ring-1 focus:ring-green-500"
+                  className="w-32 rounded-lg border border-shift-line px-3 h-9 text-center font-mono tracking-[0.3em] focus:outline-none focus:ring-1 focus:ring-shift-ok"
                   placeholder="••••••" />
                 <button type="submit" disabled={pin.length !== 6} className={btnPrimary}>أكمل الربط</button>
               </div>
@@ -642,13 +642,13 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
                 <a href={SUPPORT_WA} target="_blank" rel="noopener noreferrer" className={btnSecondary}>تواصل مع شِفت</a>
               )}
               {!resumeOnServer && !sdkReady && !sdkFailed && !loadError && (
-                <span className="flex items-center gap-1 text-[12px] text-gray-400"><Loader2 size={12} className="animate-spin" /> جارٍ تجهيز نافذة فيسبوك…</span>
+                <span className="flex items-center gap-1 text-[12px] text-shift-muted"><Loader2 size={12} className="animate-spin" /> جارٍ تجهيز نافذة فيسبوك…</span>
               )}
             </div>
           )}
 
           {sdkFailed && !resumeOnServer && (
-            <div className="mt-3 rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">
+            <div className="mt-3 rounded-lg bg-shift-warnBg p-3 text-[13px] text-shift-warn">
               <p>تعذّر تحميل فيسبوك. أوقف مانع الإعلانات لهذا الموقع أو جرّب متصفحًا آخر.</p>
               <button type="button" onClick={retryLoadSdk} className="mt-2 font-medium underline">حاول التحميل مرة أخرى</button>
             </div>
@@ -657,12 +657,12 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
           {/* P5, only once SHIFT has switched coexistence on: the shop's current number, kept on
               the owner's phone. The button above stays the way for a new SIM. */}
           {config?.coexistence && !coexFirst && !resumeOnServer && !onb?.needs_pin && (
-            <div className="mt-4 rounded-lg border border-gray-200 p-3">
-              <p className="text-[13px] font-medium text-gray-900">رقم المحل الحالي وعليه واتساب؟</p>
-              <p className="mt-1 text-[12px] text-gray-600">
+            <div className="mt-4 rounded-lg border border-shift-line p-3">
+              <p className="text-[13px] font-medium text-shift-ink">رقم المحل الحالي وعليه واتساب؟</p>
+              <p className="mt-1 text-[12px] text-shift-body">
                 اربطه دون أن تتركه: يبقى تطبيق واتساب للأعمال على هاتفك ومعه محادثاتك، ويرد كرم بوت على الزبائن معك.
               </p>
-              <ul className="mt-2 list-disc space-y-1 pr-4 text-[12px] text-gray-600">
+              <ul className="mt-2 list-disc space-y-1 pr-4 text-[12px] text-shift-body">
                 <li>{COEX_NOTICE.inactivity}</li>
                 <li>{COEX_NOTICE.owner_hold}</li>
                 <li>{COEX_NOTICE.throughput}</li>

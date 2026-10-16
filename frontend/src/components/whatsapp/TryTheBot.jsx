@@ -53,27 +53,27 @@ export default function TryTheBot({ endpoint = '/whatsapp/status/test', suggesti
   const hints = suggestions || ['مرحبا، شو أسعاركم؟', 'بدي أحجز', 'وين موقعكم؟'];
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white">
-      <header className="flex items-center justify-between px-4 h-11 border-b border-gray-100">
+    <section className="rounded-lg border border-shift-line bg-white">
+      <header className="flex items-center justify-between px-4 h-11 border-b border-shift-line2">
         <div className="flex items-center gap-2">
-          <Bot size={15} className="text-gray-500" />
-          <h3 className="text-[13px] font-semibold text-gray-700">جرّب البوت</h3>
-          <span className="text-[11px] text-gray-400">— تجربة فقط، لا يُرسَل شيء ولا يُحفَظ</span>
+          <Bot size={15} className="text-shift-muted" />
+          <h3 className="text-[13px] font-semibold text-shift-body">جرّب البوت</h3>
+          <span className="text-[11px] text-shift-muted">— تجربة فقط، لا يُرسَل شيء ولا يُحفَظ</span>
         </div>
         {turns.length > 0 && (
-          <button onClick={reset} className="flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-800">
+          <button onClick={reset} className="flex items-center gap-1 text-[12px] text-shift-muted hover:text-shift-ink">
             <RotateCcw size={12} /> محادثة جديدة
           </button>
         )}
       </header>
 
       {meta?.has_workflow === false && (
-        <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-[12px] text-amber-900">
+        <div className="px-4 py-2.5 bg-shift-warnBg border-b border-shift-warnBg text-[12px] text-shift-warn">
           هذا الحساب بلا مسار عمل بعد: البوت يرد على الجميع بالترحيب الثابت فقط. ما تراه هنا هو ما يراه الزبون فعلًا.
         </div>
       )}
       {meta?.ai_enabled === false && (
-        <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-[12px] text-amber-900">
+        <div className="px-4 py-2.5 bg-shift-warnBg border-b border-shift-warnBg text-[12px] text-shift-warn">
           الرد الآلي موقوف لهذا الحساب — الزبائن لن يصلهم هذا الرد حتى يُعاد تشغيله.
         </div>
       )}
@@ -81,26 +81,26 @@ export default function TryTheBot({ endpoint = '/whatsapp/status/test', suggesti
       <div className="px-4 py-3 space-y-2.5 min-h-[140px] max-h-[380px] overflow-y-auto">
         {turns.length === 0 && (
           <div className="text-center py-6">
-            <p className="text-[13px] text-gray-600">اكتب ما قد يكتبه زبون، وشاهد ردّ البوت كما سيصله بالضبط.</p>
+            <p className="text-[13px] text-shift-body">اكتب ما قد يكتبه زبون، وشاهد ردّ البوت كما سيصله بالضبط.</p>
             <div className="flex flex-wrap justify-center gap-2 mt-3">
               {hints.map((h) => (
-                <button key={h} onClick={() => send(h)} className="text-[12px] px-2.5 h-7 rounded-full border border-gray-200 text-gray-700 hover:bg-gray-50">{h}</button>
+                <button key={h} onClick={() => send(h)} className="text-[12px] px-2.5 h-7 rounded-full border border-shift-line text-shift-body hover:bg-shift-canvas">{h}</button>
               ))}
             </div>
           </div>
         )}
         {turns.map((t, i) => (
           <div key={i} className={`flex ${t.from === 'bot' ? 'justify-start' : 'justify-end'}`}>
-            <div className={`max-w-[80%] rounded-lg px-3 py-2 ${t.from === 'bot' ? 'bg-gray-100' : 'bg-emerald-50'}`}>
-              <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-gray-500">
+            <div className={`max-w-[80%] rounded-lg px-3 py-2 ${t.from === 'bot' ? 'bg-shift-line2' : 'bg-shift-okBg'}`}>
+              <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-shift-muted">
                 {t.from === 'bot' ? <><Bot size={10} /> البوت</> : <><User size={10} /> الزبون (أنت)</>}
               </div>
-              <p className="text-[13px] text-gray-800 whitespace-pre-wrap leading-relaxed">{t.text || <span className="text-gray-400">(بدون رد)</span>}</p>
+              <p className="text-[13px] text-shift-ink whitespace-pre-wrap leading-relaxed">{t.text || <span className="text-shift-muted">(بدون رد)</span>}</p>
               {t.from === 'bot' && ACTION_LABEL[t.action] && (
-                <p className="mt-1 text-[11px] text-emerald-800">✓ {ACTION_LABEL[t.action]} — لم يحدث لأنها تجربة</p>
+                <p className="mt-1 text-[11px] text-[#116B32]">✓ {ACTION_LABEL[t.action]} — لم يحدث لأنها تجربة</p>
               )}
               {t.from === 'bot' && t.handed && (
-                <p className="mt-1 text-[11px] text-amber-800">↪ البوت حوّل المحادثة لموظف من هنا</p>
+                <p className="mt-1 text-[11px] text-shift-warn">↪ البوت حوّل المحادثة لموظف من هنا</p>
               )}
             </div>
           </div>
@@ -108,15 +108,15 @@ export default function TryTheBot({ endpoint = '/whatsapp/status/test', suggesti
         <div ref={endRef} />
       </div>
 
-      {error && <p className="px-4 pb-2 text-[12px] text-red-700">{error}</p>}
+      {error && <p className="px-4 pb-2 text-[12px] text-shift-danger">{error}</p>}
 
-      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2 px-4 py-3 border-t border-gray-100">
+      <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2 px-4 py-3 border-t border-shift-line2">
         <input
           value={text} onChange={(e) => setText(e.target.value)} disabled={busy}
           placeholder="اكتب كزبون…"
-          className="flex-1 h-9 px-3 text-[13px] border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:bg-gray-50"
+          className="flex-1 h-9 px-3 text-[13px] border border-shift-line rounded-md focus:outline-none focus:ring-1 focus:ring-shift-muted disabled:bg-shift-canvas"
         />
-        <button type="submit" disabled={busy || !text.trim()} className="flex items-center gap-1.5 bg-gray-900 text-white px-3 h-9 rounded-md text-[13px] hover:bg-gray-800 disabled:opacity-40">
+        <button type="submit" disabled={busy || !text.trim()} className="flex items-center gap-1.5 bg-shift-ink text-white px-3 h-9 rounded-md text-[13px] hover:bg-shift-ink2 disabled:opacity-40">
           <Send size={13} /> {busy ? 'جارٍ…' : 'إرسال'}
         </button>
       </form>

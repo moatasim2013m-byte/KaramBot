@@ -33,9 +33,9 @@ const TABS = [
   { key: 'unread', label: 'غير مقروءة' },
   { key: 'mine', label: 'لي' },
   { key: 'unassigned', label: 'غير مسندة' },
-  { key: 'attention', label: '🚨 انتباه' },
-  { key: 'snoozed', label: '💤 مؤجّلة' },
-  { key: 'resolved', label: '✅ مغلقة' },
+  { key: 'attention', label: 'انتباه' },
+  { key: 'snoozed', label: 'مؤجّلة' },
+  { key: 'resolved', label: 'مغلقة' },
 ];
 
 const STATUS_OPTIONS = [
@@ -95,52 +95,52 @@ function ConversationRow({ conv, active, onOpen }) {
   return (
     <button
       onClick={() => onOpen(conv)}
-      className={`w-full text-start px-4 py-3 border-b border-gray-100 transition-colors hover:bg-[#F5F6F6] ${active ? 'bg-[#F0F2F5]' : ''} ${conv.status === 'resolved' ? 'opacity-60' : ''}`}
+      className={`w-full text-start px-4 py-3 border-b border-shift-line2 transition-colors hover:bg-shift-hover ${active ? 'bg-shift-canvas' : ''} ${conv.status === 'resolved' ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start gap-3">
         <Avatar name={conv.display_name} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-0.5 gap-1">
-            <span className="font-semibold text-[15px] truncate text-gray-800 flex items-center gap-1 min-w-0">
-              {(conv.needs_attention || conv.team_request) && <span title="يحتاج الفريق" className="flex-shrink-0">🚨</span>}
-              {conv.status === 'resolved' && <CheckCircle className="h-3 w-3 text-green-500 flex-shrink-0" />}
+            <span className="font-semibold text-[15px] truncate text-shift-ink flex items-center gap-1 min-w-0">
+              {(conv.needs_attention || conv.team_request) && <span title="يحتاج الفريق" aria-label="يحتاج الفريق" className="flex-shrink-0 w-2 h-2 rounded-full bg-shift-warn" />}
+              {conv.status === 'resolved' && <CheckCircle className="h-3 w-3 text-shift-ok flex-shrink-0" />}
               <span className="truncate">{conv.display_name}</span>
               {conv.labels.slice(0, 1).map((l) => (
-                <span key={l} className="flex-shrink-0 text-[9px] font-medium bg-[#008069]/10 text-[#008069] border border-[#008069]/20 rounded-full px-1.5">{l}</span>
+                <span key={l} className="flex-shrink-0 text-[10px] font-medium bg-shift-sel text-shift-selText border border-shift-selLine rounded-full px-1.5">{l}</span>
               ))}
             </span>
-            <span className={`text-xs flex-shrink-0 ${conv.unread_count > 0 ? 'text-[#1FA855] font-semibold' : 'text-gray-400'}`}>
+            <span className={`text-xs flex-shrink-0 ${conv.unread_count > 0 ? 'text-shift-selText font-semibold' : 'text-shift-muted'}`}>
               {formatListTime(m ? m.at : conv.last_message_at)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-1">
-            <p className={`text-[13px] truncate flex items-center gap-1 ${conv.unread_count > 0 ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
-              {m && m.direction === 'outbound' && (m.is_ai_generated ? <Bot className="h-3.5 w-3.5 text-[#667781] flex-shrink-0" /> : <TickDouble className="text-[#667781] flex-shrink-0 scale-90" />)}
+            <p className={`text-[13px] truncate flex items-center gap-1 ${conv.unread_count > 0 ? 'text-shift-ink font-medium' : 'text-shift-muted'}`}>
+              {m && m.direction === 'outbound' && (m.is_ai_generated ? <Bot className="h-3.5 w-3.5 text-shift-muted flex-shrink-0" /> : <TickDouble className="text-shift-muted flex-shrink-0 scale-90" />)}
               <span className="truncate" dir="auto">{previewText(conv)}</span>
             </p>
             <span className="flex items-center gap-1 flex-shrink-0">
-              {snoozed && <Clock className="h-3.5 w-3.5 text-gray-400" />}
+              {snoozed && <Clock className="h-3.5 w-3.5 text-shift-muted" />}
               {conv.assigned_staff && (
-                <span title={`مسندة إلى ${conv.assigned_staff.name}`} className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-[#F2E533]/60 text-yellow-900 text-[10px] font-bold border border-[#F2E533]">
+                <span title={`مسندة إلى ${conv.assigned_staff.name}`} className="inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-shift-warnBg text-shift-warn text-[10px] font-bold border border-[#F1D29A]">
                   {conv.assigned_staff.name.charAt(0)}
                 </span>
               )}
               {conv.unread_count > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-[#25D366] text-white text-[11px] font-bold px-1">{conv.unread_count}</span>
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-shift-danger text-white text-[11px] font-bold px-1">{conv.unread_count}</span>
               )}
             </span>
           </div>
           {(conv.team_request || conv.current_state || sub) && (
             <div className="flex items-center gap-1 mt-1 flex-wrap">
               {conv.team_request && (
-                <span className="text-[10px] font-medium bg-orange-50 text-orange-700 border border-orange-200 rounded-full px-1.5">
+                <span className="text-[10px] font-medium bg-shift-warnBg text-shift-warn border border-[#F1D29A] rounded-full px-1.5">
                   يحتاج الفريق: {NEEDS_TEAM_LABELS[conv.team_request.reason] || conv.team_request.reason || 'طلب'}
                 </span>
               )}
               {conv.current_state && STAGE_LABELS[conv.current_state] && (
-                <span className="text-[10px] text-gray-500 bg-gray-100 rounded-full px-1.5">{STAGE_LABELS[conv.current_state]}</span>
+                <span className="text-[10px] text-shift-muted bg-shift-line2 rounded-full px-1.5">{STAGE_LABELS[conv.current_state]}</span>
               )}
-              {sub && <span className="text-[10px] text-gray-400 truncate max-w-[140px]">{sub}</span>}
+              {sub && <span className="text-[10px] text-shift-muted truncate max-w-[140px]">{sub}</span>}
             </div>
           )}
         </div>
@@ -193,20 +193,20 @@ function MediaAttachment({ convId, msg }) {
   const label = MEDIA_LABELS[type] || `[${type}]`;
   let content;
   if (!msg.media_id) {
-    content = <p className="text-sm text-[#54656F]">{label}</p>;
+    content = <p className="text-sm text-shift-body">{label}</p>;
   } else if (state === 'gone') {
-    content = <p className="text-sm text-[#54656F]">{label} — <span className="text-xs">ما عاد متوفر على واتساب</span></p>;
+    content = <p className="text-sm text-shift-body">{label} — <span className="text-xs">ما عاد متوفر على واتساب</span></p>;
   } else if (state === 'error') {
     content = (
-      <button type="button" onClick={() => { setState('idle'); setTimeout(load, 0); }} className="text-sm text-[#027EB5] underline">
+      <button type="button" onClick={() => { setState('idle'); setTimeout(load, 0); }} className="text-sm text-shift-selText underline">
         {label} — تعذّر التحميل، جرّب مرة ثانية
       </button>
     );
   } else if (state !== 'ready') {
     content = wantsAuto ? (
-      <p className="text-sm text-[#54656F] flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> {label}</p>
+      <p className="text-sm text-shift-body flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> {label}</p>
     ) : (
-      <button type="button" onClick={load} className="text-sm text-[#027EB5] flex items-center gap-1.5">
+      <button type="button" onClick={load} className="text-sm text-shift-selText flex items-center gap-1.5">
         {state === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} {label} — اضغط للعرض
       </button>
     );
@@ -228,7 +228,7 @@ function MediaAttachment({ convId, msg }) {
   } else if (type === 'video') {
     content = <video controls preload="metadata" src={url} className="rounded-md max-h-80 max-w-full" />;
   } else {
-    content = <a href={url} download className="text-sm text-[#027EB5] underline">{label} — تنزيل</a>;
+    content = <a href={url} download className="text-sm text-shift-selText underline">{label} — تنزيل</a>;
   }
 
   return (
@@ -236,7 +236,7 @@ function MediaAttachment({ convId, msg }) {
       {content}
       {read && (
         <div className="mt-1.5 rounded-md bg-black/[0.04] px-2 py-1">
-          <p className="text-[11px] text-[#54656F] font-medium">{READ_LABELS[type] || 'كرم قرأ'}:</p>
+          <p className="text-[11px] text-shift-body font-medium">{READ_LABELS[type] || 'كرم قرأ'}:</p>
           <p className="text-[12.5px] text-[#3B4A54] whitespace-pre-wrap break-words" dir="auto">{read}</p>
         </div>
       )}
@@ -252,8 +252,8 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
   const out = msg.direction === 'outbound';
   const kindTag = KIND_TAGS[msg.kind];
   const bubble = `relative rounded-lg px-2.5 py-1.5 [box-shadow:0_1px_0.5px_rgba(11,20,26,0.13)] max-w-[88%] sm:max-w-[80%] lg:max-w-[72%] ${
-    out ? `bg-[#D9FDD3] text-[#111B21] ${!grouped ? 'wa-tail-out rounded-se-none' : ''}`
-      : `bg-white text-gray-800 ${!grouped ? 'wa-tail-in rounded-ss-none' : ''}`
+    out ? `bg-shift-sel text-[#111B21] ${!grouped ? 'wa-tail-out rounded-se-none' : ''}`
+      : `bg-white text-shift-ink ${!grouped ? 'wa-tail-in rounded-ss-none' : ''}`
   }`;
   const body = (() => {
     const text = msg.text_body || '';
@@ -265,7 +265,7 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
           {Array.isArray(msg.template_buttons) && msg.template_buttons.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {msg.template_buttons.map((b) => (
-                <span key={b} className="text-[12px] text-[#027EB5] bg-white/70 border border-[#027EB5]/20 rounded-full px-2 py-0.5">{b}</span>
+                <span key={b} className="text-[12px] text-shift-selText bg-white/70 border border-shift-selLine/20 rounded-full px-2 py-0.5">{b}</span>
               ))}
             </div>
           )}
@@ -280,7 +280,7 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
     if (MEDIA_LABELS[msg.message_type]) {
       return (
         <div>
-          {convId ? <MediaAttachment convId={convId} msg={msg} /> : <p className="text-sm text-[#54656F]">{MEDIA_LABELS[msg.message_type]}</p>}
+          {convId ? <MediaAttachment convId={convId} msg={msg} /> : <p className="text-sm text-shift-body">{MEDIA_LABELS[msg.message_type]}</p>}
           {text && !/^\[(?:صورة|image)\]\s*$/.test(text) ? <p className="text-[14.5px] mt-1 whitespace-pre-wrap break-words" dir="auto"><WaText text={text.replace(/^\[(?:صورة|image)\]\s*/, '')} /></p> : null}
         </div>
       );
@@ -293,13 +293,13 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
     <div id={`msg-${msg.meta_message_id || msg.id}`} className={grouped ? 'mt-0.5' : 'mt-3'}>
       {dayChange && (
         <div className="flex justify-center my-2">
-          <span className="text-[12px] font-medium text-[#54656F] bg-white rounded-lg px-3 py-1 shadow-sm">{formatDaySeparator(msg.created_at)}</span>
+          <span className="text-[12px] font-medium text-shift-body bg-white rounded-lg px-3 py-1 shadow-sm">{formatDaySeparator(msg.created_at)}</span>
         </div>
       )}
       <div className={`group flex items-end gap-1 ${out ? 'justify-end' : 'justify-start'} ${msg.reactions.length ? 'mb-3.5' : ''}`}>
         {out && <ReplyButton onClick={() => onReply(msg)} />}
         <div className={bubble}>
-          {kindTag && <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 mb-1 rounded bg-emerald-100 text-emerald-700">{kindTag}</span>}
+          {kindTag && <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 mb-1 rounded bg-shift-okBg text-[#116B32]">{kindTag}</span>}
           {msg.reply_to && (
             <div
               role="button"
@@ -311,30 +311,30 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
                 el.classList.add('wa-flash');
                 setTimeout(() => el.classList.remove('wa-flash'), 1300);
               }}
-              className={`mb-1 rounded-md px-2.5 py-1.5 border-s-4 text-xs cursor-pointer bg-black/5 ${msg.reply_to.direction === 'inbound' ? 'border-[#53BDEB]' : 'border-[#008069]'}`}
+              className={`mb-1 rounded-md px-2.5 py-1.5 border-s-4 text-xs cursor-pointer bg-black/5 ${msg.reply_to.direction === 'inbound' ? 'border-[#1F4FC2]' : 'border-shift-ink'}`}
               dir="auto"
             >
-              <p className={`font-semibold text-[11px] mb-0.5 ${msg.reply_to.direction === 'inbound' ? 'text-[#2E9BC7]' : 'text-[#008069]'}`}>
+              <p className={`font-semibold text-[11px] mb-0.5 ${msg.reply_to.direction === 'inbound' ? 'text-[#2E9BC7]' : 'text-shift-ink'}`}>
                 {msg.reply_to.direction === 'inbound' ? customerName : 'نحن'}
               </p>
-              <p className="line-clamp-2 text-[#54656F]">{msg.reply_to.text || `[${msg.reply_to.message_type || 'رسالة'}]`}</p>
+              <p className="line-clamp-2 text-shift-body">{msg.reply_to.text || `[${msg.reply_to.message_type || 'رسالة'}]`}</p>
             </div>
           )}
           {body}
-          <div className={`flex items-center gap-1 mt-0.5 text-[11px] text-[#667781] ${out ? 'justify-end' : ''}`}>
+          <div className={`flex items-center gap-1 mt-0.5 text-[11px] text-shift-muted ${out ? 'justify-end' : ''}`}>
             {out && msg.is_ai_generated && <Bot className="h-3 w-3" title="رد آلي" />}
             {out && msg.sent_by && <span className="truncate max-w-[90px]">{msg.sent_by.name} ·</span>}
             <span>{formatClock(msg.created_at)}</span>
             {out && <span className="ms-0.5 inline-flex items-center"><StatusTick status={msg.status} /></span>}
           </div>
           {out && msg.status === 'failed' && (
-            <p className="mt-0.5 text-[10px] text-red-600 text-end" dir="auto">⚠ لم تصل الرسالة{msg.error_message ? `: ${msg.error_message.slice(0, 80)}` : ''}</p>
+            <p className="mt-0.5 text-[10px] text-shift-danger text-end" dir="auto">⚠ لم تصل الرسالة{msg.error_message ? `: ${msg.error_message.slice(0, 80)}` : ''}</p>
           )}
           {msg.reactions.length > 0 && (
             <div className={`absolute -bottom-4 ${out ? 'start-1' : 'end-1'} z-[1]`}>
-              <span className="inline-flex items-center gap-0.5 text-[13px] leading-none bg-white rounded-full ps-1.5 pe-2 py-[3px] shadow-[0_1px_3px_rgba(11,20,26,0.25)] border border-gray-100">
+              <span className="inline-flex items-center gap-0.5 text-[13px] leading-none bg-white rounded-full ps-1.5 pe-2 py-[3px] shadow-[0_1px_3px_rgba(11,20,26,0.25)] border border-shift-line2">
                 {[...new Set(msg.reactions.map((r) => r.emoji))].slice(0, 3).join('')}
-                {msg.reactions.length > 1 && <span className="text-[10px] text-[#667781] font-medium">{msg.reactions.length}</span>}
+                {msg.reactions.length > 1 && <span className="text-[10px] text-shift-muted font-medium">{msg.reactions.length}</span>}
               </span>
             </div>
           )}
@@ -352,7 +352,7 @@ function ReplyButton({ onClick }) {
       title="رد على هذه الرسالة"
       onClick={onClick}
       // Faint and small on a phone (it sat beside every bubble and crowded the thread), hover-only from lg.
-      className="opacity-30 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity self-center w-6 h-6 lg:w-7 lg:h-7 rounded-full lg:bg-white/90 lg:border lg:border-gray-200 lg:shadow-sm flex items-center justify-center text-[#54656F] hover:text-[#008069] text-xs flex-shrink-0"
+      className="opacity-30 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity self-center w-6 h-6 lg:w-7 lg:h-7 rounded-full lg:bg-white/90 lg:border lg:border-shift-line lg:shadow-sm flex items-center justify-center text-shift-body hover:text-shift-ink text-xs flex-shrink-0"
     >↩</button>
   );
 }
@@ -368,7 +368,7 @@ function LabelPicker({ labels, onToggle }) {
         const active = labels.includes(name);
         return (
           <button key={name} onClick={() => onToggle(name)}
-            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${active ? 'bg-[#008069] text-white border-[#008069]' : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-[#008069]'}`}>
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${active ? 'bg-shift-ink text-white border-shift-ink' : 'bg-shift-canvas text-shift-body border-shift-line hover:border-shift-field'}`}>
             {preset ? `${preset.emoji} ` : ''}{name}
           </button>
         );
@@ -387,25 +387,25 @@ function ContactPanel({ conv, onSaveNotes, onSaveLabel, onChanged, isShift }) {
     <div className="space-y-4" dir="rtl">
       <div className="flex flex-col items-center text-center pt-2">
         <Avatar name={conv.display_name} size="w-20 h-20 text-3xl" />
-        <p className="mt-2 font-semibold text-gray-800">{conv.display_name}</p>
-        <p className="text-sm text-gray-500" dir="ltr">+{conv.customer_wa_id}</p>
+        <p className="mt-2 font-semibold text-shift-ink">{conv.display_name}</p>
+        <p className="text-sm text-shift-muted" dir="ltr">+{conv.customer_wa_id}</p>
       </div>
       <div>
-        <p className="text-[11px] font-bold text-gray-400 mb-1">اسم مخصص</p>
+        <p className="text-[11px] font-bold text-shift-muted mb-1">اسم مخصص</p>
         <div className="flex gap-2">
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="مثلًا: أبو أحمد — مطعم الساحة"
-            className="flex-1 min-w-0 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#008069]" />
-          <button onClick={async () => { if (await onSaveLabel(label)) flash('تم الحفظ'); }} className="text-sm bg-[#008069] text-white px-3 rounded-xl">حفظ</button>
+            className="flex-1 min-w-0 text-sm border border-shift-line rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-shift-accent" />
+          <button onClick={async () => { if (await onSaveLabel(label)) flash('تم الحفظ'); }} className="text-sm bg-shift-ink text-white px-3 rounded-xl">حفظ</button>
         </div>
       </div>
       <div>
-        <p className="text-[11px] font-bold text-gray-400 mb-1">ملاحظات عن العميل (للفريق فقط)</p>
+        <p className="text-[11px] font-bold text-shift-muted mb-1">ملاحظات عن العميل (للفريق فقط)</p>
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} maxLength={2000}
           placeholder="مثلًا: بيفضّل التواصل الصبح، عنده فرعين…"
-          className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-[#008069]" />
-        <button onClick={async () => { if (await onSaveNotes(notes)) flash('تم الحفظ'); }} className="mt-1 text-sm bg-[#008069] text-white px-4 py-1.5 rounded-xl">حفظ الملاحظات</button>
+          className="w-full text-sm border border-shift-line rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-shift-accent" />
+        <button onClick={async () => { if (await onSaveNotes(notes)) flash('تم الحفظ'); }} className="mt-1 text-sm bg-shift-ink text-white px-4 py-1.5 rounded-xl">حفظ الملاحظات</button>
       </div>
-      {saved && <p className="text-xs text-green-600">{saved} ✓</p>}
+      {saved && <p className="text-xs text-shift-ok">{saved} ✓</p>}
       {isShift && conv.workflow_data && (
         <div className="-mx-4 border-t">
           {/* key: a half-edited field for one customer can never be saved into the next one's lead —
@@ -793,7 +793,7 @@ export default function InboxPage() {
   );
   const botButton = (cls = '') => (
     <button onClick={toggleBot}
-      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${botActive ? 'bg-white text-gray-600 border-gray-200 hover:border-[#008069]' : 'bg-orange-50 text-orange-700 border-orange-300'} ${cls}`}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${botActive ? 'bg-white text-shift-body border-shift-line hover:border-shift-field' : 'bg-shift-warnBg text-shift-warn border-[#F1D29A]'} ${cls}`}
       title="تشغيل/إيقاف البوت لهذه المحادثة">
       {botActive ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
       {botActive ? 'البوت يرد' : 'أنت ترد — البوت متوقف'}
@@ -804,32 +804,31 @@ export default function InboxPage() {
   const customerName = conv ? conv.display_name : '';
 
   return (
-    <div className="inbox-shell h-full min-h-0 flex lg:gap-3 lg:p-3 bg-[#F0F2F5] lg:bg-transparent" dir="rtl">
+    <div className="inbox-shell h-full min-h-0 flex lg:gap-3 lg:p-3 bg-shift-canvas lg:bg-transparent" dir="rtl">
       {/* ── list ── */}
-      <section className={`w-full lg:w-[380px] xl:w-[400px] lg:flex-none flex flex-col min-h-0 min-w-0 bg-white lg:rounded-2xl lg:border lg:shadow-sm overflow-hidden ${mobileThread ? 'hidden lg:flex' : 'flex'}`}>
-        <div className="px-4 py-3 border-b bg-[#F0F2F5] flex items-center justify-between">
+      <section className={`w-full lg:w-[380px] xl:w-[400px] lg:flex-none flex flex-col min-h-0 min-w-0 bg-white lg:rounded-2xl lg:border lg:border-shift-line overflow-hidden ${mobileThread ? 'hidden lg:flex' : 'flex'}`}>
+        <div className="px-4 py-3 border-b border-shift-line bg-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-[#008069] flex items-center justify-center"><MessageSquare className="h-4 w-4 text-white" /></div>
-            <span className="font-semibold">المحادثات</span>
-            {stats?.unread > 0 && <span className="inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-[#25D366] text-white text-xs font-bold px-1">{stats.unread}</span>}
+            <span className="font-display text-[18px] font-semibold text-shift-ink">المحادثات</span>
+            {stats?.unread > 0 && <span className="inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-shift-danger text-white text-xs font-bold px-1">{stats.unread}</span>}
           </div>
-          <button onClick={() => { loadList(); loadStats(); }} className="w-8 h-8 rounded-full hover:bg-[#008069]/10 flex items-center justify-center" title="تحديث">
-            <RefreshCw className="h-4 w-4 text-[#008069]" />
+          <button onClick={() => { loadList(); loadStats(); }} className="w-8 h-8 rounded-full hover:bg-shift-line2 flex items-center justify-center" title="تحديث">
+            <RefreshCw className="h-4 w-4 text-shift-ink" />
           </button>
         </div>
         <div className="px-3 py-2 space-y-2 border-b bg-white">
           <div className="relative">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-shift-muted" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث بالاسم أو الرقم…"
-              className="w-full ps-9 pe-3 py-2 text-sm bg-[#F0F2F5] rounded-full focus:outline-none focus:ring-2 focus:ring-[#008069]/30" />
+              className="w-full ps-9 pe-3 h-11 text-[14px] text-shift-ink bg-shift-canvas rounded-xl focus:outline-none focus:ring-2 focus:ring-shift-accent/40" />
           </div>
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
             {TABS.map((tab) => (
               <button key={tab.key} onClick={() => setFilter(tab.key)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${filter === tab.key ? 'bg-[#D9FDD3] text-[#008069]' : 'bg-[#F0F2F5] text-gray-600 hover:bg-gray-200'}`}>
+                className={`flex items-center gap-1 h-[34px] px-3.5 rounded-full text-[13px] whitespace-nowrap transition-colors ${filter === tab.key ? 'bg-shift-ink text-white font-semibold' : 'bg-white border border-shift-line text-shift-body hover:border-shift-field'}`}>
                 {tab.label}
                 {tabBadge(tab.key) > 0 && (
-                  <span className={`inline-flex items-center justify-center min-w-[16px] h-4 rounded-full text-[10px] font-bold px-1 ${filter === tab.key ? 'bg-[#008069] text-white' : 'bg-[#25D366] text-white'}`}>{tabBadge(tab.key)}</span>
+                  <span className={`inline-flex items-center justify-center min-w-[16px] h-4 rounded-full text-[10px] font-bold px-1 ${filter === tab.key ? 'bg-white/20 text-white' : 'bg-shift-warnBg text-shift-warn'}`}>{tabBadge(tab.key)}</span>
                 )}
               </button>
             ))}
@@ -837,15 +836,15 @@ export default function InboxPage() {
         </div>
         <div className="flex-1 overflow-y-auto inbox-scroll">
           {listLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-[#008069]" /></div>
+            <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-shift-ink" /></div>
           ) : conversations.length === 0 ? (
-            <div className="text-center py-16 text-gray-400"><MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" /><p className="text-sm">لا توجد محادثات هون</p></div>
+            <div className="text-center py-16 text-shift-muted"><MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-20" /><p className="text-sm">لا توجد محادثات هون</p></div>
           ) : (
             conversations.map((c) => <ConversationRow key={c.id} conv={c} active={c.id === selectedId} onOpen={openConversation} />)
           )}
           {!listLoading && cursor && (
             <button onClick={async () => { setLoadingMore(true); try { await loadList({ more: true }); } finally { setLoadingMore(false); } }}
-              disabled={loadingMore} className="w-full py-3 text-xs font-medium text-[#008069] hover:bg-[#F5F6F6] flex items-center justify-center gap-1.5">
+              disabled={loadingMore} className="w-full py-3 text-xs font-medium text-shift-ink hover:bg-shift-hover flex items-center justify-center gap-1.5">
               {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />} تحميل المزيد
             </button>
           )}
@@ -853,26 +852,26 @@ export default function InboxPage() {
       </section>
 
       {/* ── thread ── */}
-      <section className={`flex-1 flex flex-col min-h-0 min-w-0 bg-white lg:rounded-2xl lg:border lg:shadow-sm overflow-hidden ${mobileThread ? 'flex wa-thread-enter' : 'hidden lg:flex'}`}>
+      <section className={`flex-1 flex flex-col min-h-0 min-w-0 bg-white lg:rounded-2xl lg:border lg:border-shift-line overflow-hidden ${mobileThread ? 'flex wa-thread-enter' : 'hidden lg:flex'}`}>
         {!conv ? (
-          <div className="flex-1 flex items-center justify-center bg-[#F0F2F5]">
-            <div className="text-center text-gray-400">
-              <div className="w-20 h-20 rounded-full bg-[#008069]/10 flex items-center justify-center mx-auto mb-4"><MessageSquare className="h-10 w-10 text-[#008069]/40" /></div>
-              <p className="font-medium text-gray-500">اختر محادثة</p>
+          <div className="flex-1 flex items-center justify-center bg-shift-canvas">
+            <div className="text-center text-shift-muted">
+              <div className="w-20 h-20 rounded-full bg-shift-sel flex items-center justify-center mx-auto mb-4"><MessageSquare className="h-10 w-10 text-shift-muted" /></div>
+              <p className="font-medium text-shift-muted">اختر محادثة</p>
               <p className="text-sm mt-1">اختر محادثة من القائمة للرد</p>
             </div>
           </div>
         ) : (
           <>
-            <header className="px-2 sm:px-4 py-2.5 border-b bg-[#F0F2F5] flex items-center gap-2 flex-shrink-0">
-              <button onClick={closeThread} className="lg:hidden w-9 h-9 rounded-full hover:bg-[#008069]/10 flex items-center justify-center flex-shrink-0" aria-label="رجوع">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#008069]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+            <header className="px-2 sm:px-4 py-2.5 border-b bg-shift-canvas flex items-center gap-2 flex-shrink-0">
+              <button onClick={closeThread} className="lg:hidden w-9 h-9 rounded-full hover:bg-shift-line2 flex items-center justify-center flex-shrink-0" aria-label="رجوع">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-shift-ink" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
               </button>
               <button onClick={() => (window.innerWidth >= 1280 ? setShowPanel((p) => !p) : setShowSheet(true))} className="flex items-center gap-2.5 min-w-0 flex-1 text-start">
                 <Avatar name={conv.display_name} size="w-10 h-10 text-base" />
                 <div className="min-w-0">
-                  <p className="font-semibold text-gray-800 leading-tight truncate">{conv.display_name}</p>
-                  <p className="text-xs text-gray-500 truncate">
+                  <p className="font-semibold text-shift-ink leading-tight truncate">{conv.display_name}</p>
+                  <p className="text-xs text-shift-muted truncate">
                     <span dir="ltr">+{conv.customer_wa_id}</span>
                     {conv.current_state && STAGE_LABELS[conv.current_state] ? ` · ${STAGE_LABELS[conv.current_state]}` : ''}
                     {botActive ? ' · 🤖 البوت يرد' : ' · 👤 مع الفريق'}
@@ -880,42 +879,42 @@ export default function InboxPage() {
                 </div>
               </button>
               <div className="hidden sm:flex items-center gap-1.5">{botButton()}</div>
-              <button onClick={() => setShowSheet(true)} className="xl:hidden w-9 h-9 rounded-full hover:bg-[#008069]/10 flex items-center justify-center text-gray-600 flex-shrink-0" aria-label="خيارات">
+              <button onClick={() => setShowSheet(true)} className="xl:hidden w-9 h-9 rounded-full hover:bg-shift-line2 flex items-center justify-center text-shift-body flex-shrink-0" aria-label="خيارات">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" /></svg>
               </button>
             </header>
 
             {/* Desktop workflow bar: on phones these live in the «⋮» sheet. */}
-            <div className="hidden sm:flex px-3 py-2 border-b bg-gray-50/80 items-center gap-2 flex-wrap flex-shrink-0">
-              {assignSelect('text-[11px] border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#008069] max-w-[140px]')}
-              {statusSelect('text-[11px] border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#008069]')}
+            <div className="hidden sm:flex px-3 py-2 border-b bg-shift-canvas/80 items-center gap-2 flex-wrap flex-shrink-0">
+              {assignSelect('text-[11px] border border-shift-line rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-shift-accent max-w-[140px]')}
+              {statusSelect('text-[11px] border border-shift-line rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-shift-accent')}
               <div className="relative">
                 <button onClick={() => { setShowLabels(!showLabels); setShowSnooze(false); }}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${showLabels ? 'bg-[#008069] text-white border-[#008069]' : 'bg-white text-gray-600 border-gray-200 hover:border-[#008069]'}`}>
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${showLabels ? 'bg-shift-ink text-white border-shift-ink' : 'bg-white text-shift-body border-shift-line hover:border-shift-field'}`}>
                   🏷️ {conv.labels.slice(0, 2).join('، ')}
                 </button>
                 {showLabels && <div className="absolute top-8 end-0 z-30 bg-white border rounded-xl shadow-lg p-2 w-64"><LabelPicker labels={conv.labels} onToggle={toggleLabel} /></div>}
               </div>
               <div className="relative">
                 <button onClick={() => { setShowSnooze(!showSnooze); setShowLabels(false); }}
-                  className={`px-2 py-1 rounded-lg text-[11px] font-medium border ${conv.snoozed_until && new Date(conv.snoozed_until) > new Date() ? 'bg-purple-50 text-purple-700 border-purple-300' : 'bg-white text-gray-600 border-gray-200 hover:border-[#008069]'}`} title="تأجيل">💤</button>
+                  className={`px-2 py-1 rounded-lg text-[11px] font-medium border ${conv.snoozed_until && new Date(conv.snoozed_until) > new Date() ? 'bg-shift-sel text-shift-selText border-shift-selLine' : 'bg-white text-shift-body border-shift-line hover:border-shift-field'}`} title="تأجيل">💤</button>
                 {showSnooze && (
                   <div className="absolute top-8 end-0 z-30 bg-white border rounded-xl shadow-lg p-1.5 w-36">
-                    {SNOOZE_OPTIONS.map((o) => <button key={o.minutes} onClick={() => snooze(o.minutes)} className="w-full text-right text-[12px] px-2 py-1.5 rounded-lg hover:bg-gray-50">{o.label}</button>)}
+                    {SNOOZE_OPTIONS.map((o) => <button key={o.minutes} onClick={() => snooze(o.minutes)} className="w-full text-right text-[12px] px-2 py-1.5 rounded-lg hover:bg-shift-canvas">{o.label}</button>)}
                   </div>
                 )}
               </div>
               {win && (
                 <span title="نافذة الـ24 ساعة: بعدها ما بتوصل إلا القوالب المعتمدة"
-                  className={`ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${win.expired || win.urgent ? 'bg-red-50 text-red-700 border-red-200' : win.warn ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                  className={`ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${win.expired || win.urgent ? 'bg-shift-dangerBg text-shift-danger border-shift-dangerLine' : win.warn ? 'bg-shift-warnBg text-shift-warn border-[#F1D29A]' : 'bg-shift-okBg text-[#116B32] border-shift-okBg'}`}>
                   <Clock className="h-3 w-3" />{win.label}
                 </span>
               )}
             </div>
 
             {(conv.needs_attention || conv.team_request) && (
-              <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-2 flex-shrink-0">
-                <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 min-w-0">
+              <div className="px-4 py-2 bg-shift-warnBg border-b border-[#F1D29A] flex items-center justify-between gap-2 flex-shrink-0">
+                <p className="text-xs font-semibold text-shift-warn flex items-center gap-1.5 min-w-0">
                   <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="truncate">
                     {conv.team_request
@@ -923,7 +922,7 @@ export default function InboxPage() {
                       : `يحتاج انتباه${ATTENTION_LABELS[conv.attention_reason] ? `: ${ATTENTION_LABELS[conv.attention_reason]}` : ''}`}
                   </span>
                 </p>
-                {conv.needs_attention && <button onClick={clearAttention} className="text-[11px] font-bold text-amber-800 bg-white border border-amber-300 rounded-lg px-2.5 py-1 flex-shrink-0">تم ✓</button>}
+                {conv.needs_attention && <button onClick={clearAttention} className="text-[11px] font-bold text-shift-warn bg-white border border-[#F1D29A] rounded-lg px-2.5 py-1 flex-shrink-0">تم ✓</button>}
               </div>
             )}
 
@@ -932,15 +931,15 @@ export default function InboxPage() {
                 {hasOlder && (
                   <div className="flex justify-center">
                     <button onClick={loadOlder} disabled={loadingOlder}
-                      className="text-[11px] font-medium text-[#008069] bg-white/90 border border-gray-200 rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 disabled:opacity-60">
+                      className="text-[11px] font-medium text-shift-ink bg-white/90 border border-shift-line rounded-full px-3 py-1 shadow-sm flex items-center gap-1.5 disabled:opacity-60">
                       {loadingOlder ? <Loader2 className="h-3 w-3 animate-spin" /> : <ChevronUp className="h-3 w-3" />} تحميل الأقدم
                     </button>
                   </div>
                 )}
                 {threadLoading && !messages.length ? (
-                  <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-[#008069]" /></div>
+                  <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-shift-ink" /></div>
                 ) : messages.length === 0 ? (
-                  <div className="text-center text-gray-500 py-12 text-sm">لا توجد رسائل بعد</div>
+                  <div className="text-center text-shift-muted py-12 text-sm">لا توجد رسائل بعد</div>
                 ) : (
                   messages.map((m, i) => (
                     <MessageBubble key={m.id} msg={m} convId={selectedId} prev={i > 0 ? messages[i - 1] : null} customerName={customerName}
@@ -950,7 +949,7 @@ export default function InboxPage() {
                 {showJump && (
                   <div className="sticky bottom-1 flex justify-end pointer-events-none">
                     <button onClick={() => { atBottomRef.current = true; endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }}
-                      className="pointer-events-auto w-10 h-10 rounded-full bg-white shadow-md border border-gray-200 text-[#008069] flex items-center justify-center" title="آخر الرسائل">
+                      className="pointer-events-auto w-10 h-10 rounded-full bg-white shadow-md border border-shift-line text-shift-ink flex items-center justify-center" title="آخر الرسائل">
                       <ChevronDown className="h-5 w-5" />
                     </button>
                   </div>
@@ -965,21 +964,21 @@ export default function InboxPage() {
             </div>
 
             {/* Composer — pb includes the iPhone home-indicator inset. */}
-            <div className="border-t bg-[#F0F2F5] px-2 sm:px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex-shrink-0">
-              {notice && <p className="mb-1.5 text-[12px] text-center text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">{notice}</p>}
+            <div className="border-t bg-shift-canvas px-2 sm:px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex-shrink-0">
+              {notice && <p className="mb-1.5 text-[12px] text-center text-shift-warn bg-shift-warnBg border border-[#F1D29A] rounded-lg px-2 py-1">{notice}</p>}
               {win && win.expired ? (
-                <div className="bg-white border border-red-200 rounded-2xl px-3 py-2.5 text-center">
-                  <p className="text-xs text-red-700 font-medium">⏳ انتهت نافذة الـ24 ساعة — الرسائل الحرة ما بتوصل للعميل لحتى يكتبلك هو.</p>
+                <div className="bg-white border border-shift-dangerLine rounded-2xl px-3 py-2.5 text-center">
+                  <p className="text-xs text-shift-danger font-medium">⏳ انتهت نافذة الـ24 ساعة — الرسائل الحرة ما بتوصل للعميل لحتى يكتبلك هو.</p>
                 </div>
               ) : (
                 <>
                   {replyingTo && (
-                    <div className="mb-2 flex items-center gap-2 bg-white border-s-4 border-[#008069] rounded-lg px-3 py-1.5">
+                    <div className="mb-2 flex items-center gap-2 bg-white border-s-4 border-shift-ink rounded-lg px-3 py-1.5">
                       <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-bold text-[#008069]">↩ رد على {replyingTo.direction === 'inbound' ? customerName : 'رسالتنا'}</p>
-                        <p className="text-xs text-gray-600 truncate" dir="auto">{replyingTo.text_body || `[${replyingTo.message_type}]`}</p>
+                        <p className="text-[11px] font-bold text-shift-ink">↩ رد على {replyingTo.direction === 'inbound' ? customerName : 'رسالتنا'}</p>
+                        <p className="text-xs text-shift-body truncate" dir="auto">{replyingTo.text_body || `[${replyingTo.message_type}]`}</p>
                       </div>
-                      <button onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
+                      <button onClick={() => setReplyingTo(null)} className="text-shift-muted hover:text-shift-body"><X className="h-4 w-4" /></button>
                     </div>
                   )}
                   <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end gap-2">
@@ -991,10 +990,10 @@ export default function InboxPage() {
                       placeholder="اكتب رسالة"
                       rows={1}
                       disabled={sending}
-                      className="flex-1 min-w-0 resize-none rounded-[24px] bg-white px-4 py-3 text-[16px] lg:text-[15px] leading-6 min-h-[48px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-[#00A884]/40 disabled:opacity-50"
+                      className="flex-1 min-w-0 resize-none rounded-[24px] bg-white px-4 py-3 text-[16px] lg:text-[15px] leading-6 min-h-[48px] max-h-40 overflow-y-auto focus:outline-none focus:ring-2 focus:ring-shift-ink/40 disabled:opacity-50"
                     />
                     <button type="submit" disabled={sending || !replyText.trim()}
-                      className="flex-shrink-0 w-12 h-12 rounded-full bg-[#00A884] hover:bg-[#008069] disabled:bg-gray-300 flex items-center justify-center transition-colors" aria-label="إرسال">
+                      className="flex-shrink-0 w-12 h-12 rounded-full bg-shift-ink hover:bg-shift-ink2 disabled:bg-shift-field flex items-center justify-center transition-colors" aria-label="إرسال">
                       {sending ? <Loader2 className="h-5 w-5 text-white animate-spin" /> : <Send className="h-5 w-5 text-white -scale-x-100" />}
                     </button>
                   </form>
@@ -1008,30 +1007,30 @@ export default function InboxPage() {
                 <div className="absolute inset-0 bg-black/40" />
                 <div className="absolute bottom-0 inset-x-0 max-h-[85dvh] overflow-y-auto bg-white rounded-t-3xl inbox-scroll pb-[env(safe-area-inset-bottom)]" onClick={(e) => e.stopPropagation()}>
                   <div className="sticky top-0 bg-white px-4 pt-3 pb-2 flex items-center justify-between border-b z-10">
-                    <div className="mx-auto absolute top-1.5 inset-x-0 w-10 h-1 rounded-full bg-gray-300" />
-                    <p className="font-bold text-gray-800 truncate mt-1">{conv.display_name}</p>
-                    <button onClick={() => setShowSheet(false)} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 mt-1"><X className="h-5 w-5" /></button>
+                    <div className="mx-auto absolute top-1.5 inset-x-0 w-10 h-1 rounded-full bg-shift-field" />
+                    <p className="font-bold text-shift-ink truncate mt-1">{conv.display_name}</p>
+                    <button onClick={() => setShowSheet(false)} className="w-8 h-8 rounded-full hover:bg-shift-line2 flex items-center justify-center text-shift-muted mt-1"><X className="h-5 w-5" /></button>
                   </div>
                   <div className="p-4 space-y-4">
                     <div>
-                      <p className="text-[11px] font-bold text-gray-400 mb-1.5">الرد</p>
+                      <p className="text-[11px] font-bold text-shift-muted mb-1.5">الرد</p>
                       {botButton('!text-sm !px-3 !py-2 !rounded-full')}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <div><p className="text-[11px] font-bold text-gray-400 mb-1">الحالة</p>{statusSelect('w-full text-sm border border-gray-200 rounded-xl px-2 py-2 bg-white')}</div>
-                      <div><p className="text-[11px] font-bold text-gray-400 mb-1">الإسناد</p>{assignSelect('w-full text-sm border border-gray-200 rounded-xl px-2 py-2 bg-white')}</div>
+                      <div><p className="text-[11px] font-bold text-shift-muted mb-1">الحالة</p>{statusSelect('w-full text-sm border border-shift-line rounded-xl px-2 py-2 bg-white')}</div>
+                      <div><p className="text-[11px] font-bold text-shift-muted mb-1">الإسناد</p>{assignSelect('w-full text-sm border border-shift-line rounded-xl px-2 py-2 bg-white')}</div>
                     </div>
                     <div>
-                      <p className="text-[11px] font-bold text-gray-400 mb-1.5">التأجيل</p>
+                      <p className="text-[11px] font-bold text-shift-muted mb-1.5">التأجيل</p>
                       <div className="flex flex-wrap gap-2">
-                        {SNOOZE_OPTIONS.map((o) => <button key={o.minutes} onClick={() => snooze(o.minutes)} className="px-3 py-1.5 rounded-full text-xs font-medium border bg-white text-gray-600 border-gray-200">💤 {o.label}</button>)}
+                        {SNOOZE_OPTIONS.map((o) => <button key={o.minutes} onClick={() => snooze(o.minutes)} className="px-3 py-1.5 rounded-full text-xs font-medium border bg-white text-shift-body border-shift-line">💤 {o.label}</button>)}
                       </div>
                     </div>
                     <div>
-                      <p className="text-[11px] font-bold text-gray-400 mb-1.5">التصنيفات</p>
+                      <p className="text-[11px] font-bold text-shift-muted mb-1.5">التصنيفات</p>
                       <LabelPicker labels={conv.labels} onToggle={toggleLabel} />
                     </div>
-                    {win && <p className="text-xs text-gray-500 flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> نافذة الرد: {win.label}</p>}
+                    {win && <p className="text-xs text-shift-muted flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> نافذة الرد: {win.label}</p>}
                     <div className="border-t pt-3">
                       <ContactPanel key={conv.id} conv={conv} onSaveNotes={saveNotes} onSaveLabel={saveLabel} onChanged={refreshOpen} isShift={isShift} />
                     </div>

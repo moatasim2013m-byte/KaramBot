@@ -17,7 +17,7 @@ export function ConnectInline({ onDone, label = CONTROL_LABEL.connect }) {
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 mt-1.5 rounded-md bg-green-600 px-3 h-9 text-[13px] font-medium text-white hover:bg-green-700">
+        className="inline-flex items-center gap-1.5 mt-1.5 rounded-md bg-shift-ok px-3 h-9 text-[13px] font-medium text-white hover:opacity-90">
         <MessageCircle size={14} /> {label}
       </button>
     );
@@ -25,7 +25,7 @@ export function ConnectInline({ onDone, label = CONTROL_LABEL.connect }) {
   return (
     <div className="mt-2">
       <div className="flex justify-end">
-        <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-700" title="إغلاق">
+        <button type="button" onClick={() => setOpen(false)} className="text-shift-muted hover:text-shift-body" title="إغلاق">
           <X size={15} />
         </button>
       </div>
@@ -56,10 +56,10 @@ export function ClaimCardButton({ onDone }) {
   return (
     <span className="inline-flex flex-col items-start">
       <button type="button" onClick={claim} disabled={busy}
-        className="inline-flex items-center gap-1.5 mt-1.5 rounded-md border border-amber-300 bg-white px-3 h-8 text-[12px] font-medium text-amber-900 hover:bg-amber-50 disabled:opacity-50">
+        className="inline-flex items-center gap-1.5 mt-1.5 rounded-md border border-[#F1D29A] bg-white px-3 h-8 text-[12px] font-medium text-shift-warn hover:bg-shift-warnBg disabled:opacity-50">
         {busy ? <Loader2 size={12} className="animate-spin" /> : <CreditCard size={12} />} {CONTROL_LABEL.claim}
       </button>
-      {error && <span className="mt-1 text-[12px] text-red-600">{error}</span>}
+      {error && <span className="mt-1 text-[12px] text-shift-danger">{error}</span>}
     </span>
   );
 }
