@@ -38,7 +38,8 @@ const NAV = [
 // SHIFT's own shop: the sales bot's chats and its settings.
 const SHIFT_NAV = [
   { to: '/admin/inbox', icon: MessageSquare, label: 'محادثات شِفت', unread: true },
-  { to: '/admin/bot', icon: Bot, label: 'بوت شِفت' },
+  // The shop's own /bot roles: SHIFT's staff see the inbox only.
+  { to: '/admin/bot', icon: Bot, label: 'بوت شِفت', roles: ['platform_admin', 'business_owner', 'manager'] },
 ];
 
 /** The attention count for the nav badge: announced by «اليوم», asked for elsewhere (admins only). */
@@ -223,7 +224,7 @@ export default function AdminLayout() {
           {hasShiftShop && (
             <>
               <span className={`px-[15px] ${isAdmin ? 'pt-4' : ''} pb-1 text-[11px] font-semibold tracking-wide text-shift-navMuted`}>شِفت</span>
-              {SHIFT_NAV.map(({ to, icon: Icon, label, unread: showUnread }) => (
+              {SHIFT_NAV.filter(({ roles }) => !roles || roles.includes(user?.role)).map(({ to, icon: Icon, label, unread: showUnread }) => (
                 <NavLink key={to} to={to} className={navItem}>
                   <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
                   <span className="flex-1">{label}</span>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { currentSurface } from './utils/surface';
@@ -56,11 +56,24 @@ function OperatorDoor({ children }) {
 const CONSOLE_TWIN = { '/inbox': '/admin/inbox', '/bot': '/admin/bot' };
 function CustomerDoor({ children }) {
   const { user } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
   if (currentSurface() !== 'operator') return children;
-  const twin = Object.keys(CONSOLE_TWIN).find((p) => pathname === p || pathname.startsWith(`${p}/`));
-  const fallback = user?.role === 'platform_admin' ? '/admin/overview' : '/admin/inbox';
-  return <Navigate to={twin ? CONSOLE_TWIN[twin] : fallback} replace />;
+  // A shop's session on SHIFT's door has no page here at all (the server refuses it too).
+  if (!isShiftTeam(user)) return <WrongDoorExit />;
+  // The twins need SHIFT's shop; an admin row without one has only «اليوم».
+  const twin = user.business_id && Object.keys(CONSOLE_TWIN).find((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const fallback = user.role === 'platform_admin' ? '/admin/overview' : '/admin/inbox';
+  return <Navigate to={twin ? `${CONSOLE_TWIN[twin]}${search}${hash}` : fallback} replace />;
+}
+
+/**
+ * A session that belongs on the other door: signed out here, back to this door's login. Never a
+ * redirect into the other tree, which would bounce straight back (the loop both reviewers found).
+ */
+function WrongDoorExit() {
+  const { logout } = useAuth();
+  useEffect(() => { logout(); }, [logout]);
+  return <Navigate to="/login" replace />;
 }
 
 /** SHIFT's own shop team (business_type 'shift') may enter the console for its own inbox and bot. */
@@ -74,7 +87,16 @@ function RoleRoute({ roles, children, fallback = '/overview' }) {
 
 function ConsoleRoute({ children }) {
   const { user } = useAuth();
-  if (!isShiftTeam(user)) return <Navigate to="/overview" replace />;
+  if (isShiftTeam(user)) return children;
+  // On SHIFT's door the shop panel is not there to fall back to.
+  return currentSurface() === 'operator' ? <WrongDoorExit /> : <Navigate to="/overview" replace />;
+}
+
+/** «محادثات شِفت» and «بوت شِفت» exist only for an account that carries SHIFT's shop. */
+function ShiftShopRoute({ roles, children }) {
+  const { user } = useAuth();
+  if (!user?.business_id) return <Navigate to="/admin/overview" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/admin/inbox" replace />;
   return children;
 }
 
@@ -88,8 +110,11 @@ function ConsoleRoute({ children }) {
 function HomeRedirect() {
   const { user } = useAuth();
   // Staff answer chats; their home is the inbox (spec «الرئيسية»).
-  const home = user?.role === 'platform_admin' ? '/admin/overview'
-    : currentSurface() === 'operator' ? '/admin/inbox'
+  // The door first, then the role: an admin's session on the customers' door must not be sent to
+  // /admin there, which only comes back here.
+  const surface = currentSurface();
+  const home = user?.role === 'platform_admin' && surface !== 'customer' ? '/admin/overview'
+    : surface === 'operator' ? '/admin/inbox'
       : user?.role === 'staff' ? '/inbox' : '/overview';
   return <Navigate to={home} replace />;
 }
@@ -195,8 +220,9 @@ export default function App() {
             <Route path="settings" element={<AdminOnly><PlatformSettingsPage /></AdminOnly>} />
             {/* SHIFT's own sales bot: the same inbox and bot pages a shop has, scoped to SHIFT's shop
                 (attachBusinessId defaults to the caller's own business). */}
-            <Route path="inbox" element={<InboxPage />} />
-            <Route path="bot" element={<BotPage />} />
+            <Route path="inbox" element={<ShiftShopRoute><InboxPage /></ShiftShopRoute>} />
+            {/* The same roles as the shop's own /bot: SHIFT's staff answer chats, they do not tune the bot. */}
+            <Route path="bot" element={<ShiftShopRoute roles={['platform_admin', 'business_owner', 'manager']}><BotPage /></ShiftShopRoute>} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
