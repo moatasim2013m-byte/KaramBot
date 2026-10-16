@@ -43,11 +43,11 @@ function Summary() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold text-shift-ink">التقارير</h1>
-        <div className="flex bg-shift-line2 rounded-lg p-1 gap-1">
+        <h1 className="font-display text-[22px] font-semibold text-shift-ink">التقارير</h1>
+        <div role="group" aria-label="المدة" className="flex bg-shift-line2 rounded-[10px] p-[3px] gap-1">
           {PERIODS.map((p) => (
-            <button key={p.days} type="button" onClick={() => setDays(p.days)}
-              className={`px-3 h-8 text-[13px] rounded-md ${days === p.days ? 'bg-white shadow-sm text-shift-ink' : 'text-shift-muted'}`}>
+            <button key={p.days} type="button" onClick={() => setDays(p.days)} aria-pressed={days === p.days}
+              className={`px-3 h-[34px] text-[12px] rounded-lg ${days === p.days ? 'bg-white text-shift-ink font-semibold' : 'text-shift-muted'}`}>
               {p.label}
             </button>
           ))}
@@ -59,7 +59,7 @@ function Summary() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             <StatCard label="محادثات" value={countAr(total('conversations'))} color="blue" />
             <StatCard label="ردود البوت" value={countAr(total('bot_replies'))} color="green" />
             <StatCard label="ردود فريقك" value={countAr(total('team_replies'))} color="purple" />
@@ -67,11 +67,11 @@ function Summary() {
           </div>
 
           <section className="rounded-2xl border border-shift-line bg-white p-4">
-            <h2 className="text-[14px] font-semibold text-shift-ink mb-3">محادثات يوميًا</h2>
+            <h2 className="font-display text-[14px] font-semibold text-shift-ink mb-3">محادثات يوميًا</h2>
             <div className="flex items-end gap-1 h-28">
               {perDay.map((d) => (
                 <div key={d.date} className="flex-1 flex flex-col items-center gap-1 min-w-0" title={`${d.conversations}`}>
-                  <div className="w-full bg-sky-400 rounded-t-sm" style={{ height: `${((Number(d.conversations) || 0) / maxConv) * 100}%`, minHeight: d.conversations ? 3 : 0 }} />
+                  <div className="w-full bg-shift-selLine rounded-t-md" style={{ height: `${((Number(d.conversations) || 0) / maxConv) * 100}%`, minHeight: d.conversations ? 3 : 0 }} />
                 </div>
               ))}
             </div>
@@ -86,10 +86,10 @@ function Summary() {
 
           <section className="rounded-2xl border border-shift-line bg-white p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[14px] font-semibold text-shift-ink">ردود البوت مقابل ردود فريقك</h2>
+              <h2 className="font-display text-[14px] font-semibold text-shift-ink">ردود البوت مقابل ردود فريقك</h2>
               <span className="flex items-center gap-3 text-[11px] text-shift-muted">
-                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> البوت</span>
-                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-violet-400" /> فريقك</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-shift-accent" /> البوت</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-shift-gold" /> فريقك</span>
               </span>
             </div>
             <div className="flex items-end gap-1 h-28">
@@ -98,8 +98,8 @@ function Summary() {
                 const team = Number(d.team_replies) || 0;
                 return (
                   <div key={d.date} className="flex-1 flex flex-col justify-end min-w-0 h-full" title={`البوت ${bot} · فريقك ${team}`}>
-                    <div className="w-full bg-violet-400" style={{ height: `${(team / maxReplies) * 100}%` }} />
-                    <div className="w-full bg-emerald-500 rounded-b-sm" style={{ height: `${(bot / maxReplies) * 100}%` }} />
+                    <div className="w-full bg-shift-gold rounded-t-md" style={{ height: `${(team / maxReplies) * 100}%` }} />
+                    <div className="w-full bg-shift-accent" style={{ height: `${(bot / maxReplies) * 100}%` }} />
                   </div>
                 );
               })}
@@ -108,8 +108,8 @@ function Summary() {
 
           <section className="rounded-2xl border border-shift-line bg-white">
             <header className="flex items-center gap-2 px-4 h-11 border-b border-shift-line2">
-              <HelpCircle size={15} className="text-amber-600" />
-              <h2 className="text-[14px] font-semibold text-shift-ink">أكثر ما لم يعرفه البوت</h2>
+              <HelpCircle size={15} className="text-shift-warn" />
+              <h2 className="font-display text-[14px] font-semibold text-shift-ink">أكثر ما لم يعرفه البوت</h2>
             </header>
             {(data.top_gaps || []).length === 0 ? (
               <p className="px-4 py-5 text-center text-[13px] text-shift-muted">لا أسئلة بلا جواب في هذه الفترة.</p>
@@ -144,17 +144,14 @@ export default function ReportsPage() {
   );
 }
 
-function StatCard({ label, value, sub, color = 'green' }) {
-  const colors = {
-    green: 'bg-shift-okBg text-shift-ok',
-    blue: 'bg-blue-50 text-blue-700',
-    purple: 'bg-purple-50 text-purple-700',
-  };
+// One white tile per figure; the figure in the display face, the label under it. `color` is kept
+// for the restaurant charts' calls and no longer paints anything: the numbers are the colour.
+function StatCard({ label, value, sub }) {
   return (
-    <div className={`rounded-xl p-4 ${colors[color]}`}>
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="text-sm mt-1 opacity-80">{label}</div>
-      {sub && <div className="text-xs mt-0.5 opacity-60">{sub}</div>}
+    <div className="rounded-2xl border border-shift-line bg-white px-3.5 py-3">
+      <div className="text-[12px] text-shift-muted">{label}</div>
+      <div className="font-display text-[24px] leading-tight font-bold tabular-nums text-shift-ink mt-0.5">{value}</div>
+      {sub && <div className="text-[11px] text-shift-muted mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -167,7 +164,7 @@ function DailyBar({ day, maxRevenue }) {
       <div className="text-xs text-shift-muted font-medium">{day.revenue.toFixed(0)}</div>
       <div className="w-full bg-shift-line2 rounded-t-md overflow-hidden" style={{ height: 80 }}>
         <div
-          className="w-full bg-green-400 rounded-t-md transition-all duration-500"
+          className="w-full bg-shift-accent rounded-t-md transition-all duration-500"
           style={{ height: `${pct}%`, minHeight: pct > 0 ? 4 : 0 }}
         />
       </div>
@@ -225,7 +222,7 @@ function OrdersReports() {
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-bold text-shift-ink">الطلبات</h2>
+        <h2 className="font-display text-[18px] font-semibold text-shift-ink">الطلبات</h2>
         <div className="flex items-center gap-2">
           <div className="flex bg-shift-line2 rounded-lg p-1 gap-1">
             <button

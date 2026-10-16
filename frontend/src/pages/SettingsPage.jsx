@@ -22,14 +22,14 @@ import {
 const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 const TYPE_AR = { restaurant: 'مطعم', clinic: 'عيادة', generic: 'محل', shift: 'شِفت' };
 
-const inputClass = 'w-full rounded-md border border-shift-line px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-shift-ok';
+const inputClass = 'w-full rounded-[10px] border border-shift-field px-3 py-2 text-[14px] focus:outline-none focus:ring-2 focus:ring-shift-accent focus:border-shift-accent';
 
 function Card({ title, children, footer }) {
   return (
     <section className="rounded-2xl border border-shift-line bg-white mb-4">
       {title && (
         <header className="flex items-center px-4 h-11 border-b border-shift-line2">
-          <h3 className="text-[14px] font-semibold text-shift-ink">{title}</h3>
+          <h3 className="font-display text-[15px] font-semibold text-shift-ink">{title}</h3>
         </header>
       )}
       <div className="p-4 space-y-3">{children}</div>
@@ -153,7 +153,7 @@ function SupportCode({ code }) {
       <div className="mt-3 flex items-center gap-3">
         {code ? (
           <button type="button" onClick={copy}
-            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-md border border-shift-line text-[13px] text-shift-body">
+            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-[10px] border border-shift-field text-[13px] font-semibold text-shift-ink">
             <Copy size={13} /> انسخ رمز الدعم
           </button>
         ) : (
@@ -207,7 +207,7 @@ function ShopTab({ user }) {
   const footer = (
     <div className="flex items-center gap-3 px-4 py-3 border-t border-shift-line2">
       <button type="button" onClick={save} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium disabled:opacity-50">
+        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-accent text-white text-[13px] font-semibold disabled:opacity-50">
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ
       </button>
       {saved && <span className="text-[12px] text-emerald-700">تم الحفظ</span>}
@@ -292,7 +292,7 @@ function PasswordForm() {
     return (
       <div className="flex items-center gap-3">
         <button type="button" onClick={() => { setOpen(true); setDone(false); }}
-          className="h-10 px-4 rounded-md border border-shift-line text-[13px] font-medium text-shift-body">
+          className="h-10 px-4 rounded-[10px] border border-shift-field text-[13px] font-medium text-shift-body">
           غيّر كلمة المرور
         </button>
         {done && <span className="text-[12px] text-emerald-700">تم تغيير كلمة المرور</span>}
@@ -309,7 +309,7 @@ function PasswordForm() {
       </Field>
       <div className="flex items-center gap-3">
         <button type="submit" disabled={busy || !current || next.length < 10}
-          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-accent text-white text-[13px] font-semibold disabled:opacity-50">
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ كلمة المرور
         </button>
         <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-[13px] text-shift-muted">إلغاء</button>
@@ -355,7 +355,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h1 className="text-xl font-bold text-shift-ink mb-4">{tabs.length === 1 ? 'حسابي' : 'الإعدادات'}</h1>
+      <h1 className="font-display text-[22px] font-semibold text-shift-ink mb-4">{tabs.length === 1 ? 'حسابي' : 'الإعدادات'}</h1>
 
       {/* SHIFT connects a shop's WhatsApp from the account's own page, where the account comes
           from the URL, never from whichever business an admin session happens to hold. */}
@@ -371,7 +371,7 @@ export default function SettingsPage() {
           {tabs.map(({ key, label }) => (
             <button key={key} type="button" onClick={() => setTab(key)}
               className={`px-4 h-11 text-[14px] font-medium border-b-2 -mb-px transition-colors ${
-                tab === key ? 'border-shift-ok text-shift-ok' : 'border-transparent text-shift-muted hover:text-shift-body'
+                tab === key ? 'border-shift-accent text-shift-ink font-semibold' : 'border-transparent text-shift-muted hover:text-shift-body'
               }`}>
               {label}
             </button>

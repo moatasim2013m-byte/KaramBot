@@ -87,7 +87,7 @@ export default function DashboardLayout() {
 
   // The brand tile: the shop's first letter on SHIFT ink, as on the operator console's rows.
   const initial = (brandShop || 'ك').trim().charAt(0) || 'ك';
-  const Brand = ({ compact = false }) => (
+  const brand = (compact = false) => (
     <div className="flex items-center gap-2.5 min-w-0">
       <span aria-hidden="true" className={`${compact ? 'w-9 h-9 text-[15px]' : 'w-10 h-10 text-[16px]'} shrink-0 rounded-[10px] bg-shift-ink text-shift-gold flex items-center justify-center font-display font-bold`}>
         {initial}
@@ -106,7 +106,7 @@ export default function DashboardLayout() {
       {/* Sidebar: desktop only. Phones use the bottom bar and the «المزيد» sheet. */}
       <aside className="hidden lg:flex w-64 bg-white border-l border-shift-line flex-col shrink-0">
         <div className="px-4 pt-5 pb-4">
-          <Brand />
+          {brand()}
         </div>
 
         <nav className="flex-1 px-3 py-1 overflow-y-auto space-y-0.5" aria-label="القائمة">
@@ -158,7 +158,7 @@ export default function DashboardLayout() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top bar. On phones it carries the brand, since there is no sidebar to hold it. */}
         <header className="bg-white border-b border-shift-line px-4 h-[60px] flex items-center justify-between gap-3 shrink-0">
-          <div className="lg:hidden min-w-0"><Brand compact /></div>
+          <div className="lg:hidden min-w-0">{brand(true)}</div>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">
             {/* The bell opens the waiting chats: the one place an unread count leads. */}

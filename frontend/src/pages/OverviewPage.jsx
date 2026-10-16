@@ -24,14 +24,14 @@ import {
 const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 
 const LINE_TONE = {
-  good: { box: 'border-emerald-200 bg-emerald-50', text: 'text-emerald-900', Icon: CheckCircle2 },
+  good: { box: 'border-shift-okBg bg-shift-okBg', text: 'text-shift-ok', Icon: CheckCircle2 },
   warn: { box: 'border-[#F1D29A] bg-shift-warnBg', text: 'text-shift-warn', Icon: AlertTriangle },
   bad: { box: 'border-shift-dangerLine bg-shift-dangerBg', text: 'text-shift-danger', Icon: XCircle },
 };
 
 const BANNER_TONE = {
-  info: 'bg-sky-50 border-sky-200 text-sky-900',
-  good: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+  info: 'bg-white border-shift-selLine text-shift-selText',
+  good: 'bg-shift-okBg border-shift-okBg text-shift-ok',
   warn: 'bg-shift-warnBg border-[#F1D29A] text-shift-warn',
   bad: 'bg-shift-dangerBg border-shift-dangerLine text-shift-danger',
 };
@@ -40,7 +40,7 @@ function Card({ title, children, action }) {
   return (
     <section className="rounded-2xl border border-shift-line bg-white">
       <header className="flex items-center justify-between px-4 h-11 border-b border-shift-line2">
-        <h3 className="text-[14px] font-semibold text-shift-ink">{title}</h3>
+        <h3 className="font-display text-[15px] font-semibold text-shift-ink">{title}</h3>
         {action}
       </header>
       <div className="p-4">{children}</div>
@@ -48,11 +48,12 @@ function Card({ title, children, action }) {
   );
 }
 
-function Figure({ value, label, tone = 'text-shift-ink' }) {
+/** One of the day's tiles; `warn` (chats waiting) turns it amber so the eye lands on it first. */
+function Figure({ value, label, warn = false }) {
   return (
-    <div className="flex-1 min-w-0 text-center">
-      <div className={`text-2xl font-bold tabular-nums ${tone}`}>{value ?? '—'}</div>
-      <div className="text-[12px] text-shift-muted mt-0.5">{label}</div>
+    <div className={`min-w-0 rounded-xl px-3 py-2.5 ${warn ? 'bg-shift-warnBg' : 'bg-shift-canvas'}`}>
+      <div className={`font-display text-[24px] leading-tight font-bold tabular-nums ${warn ? 'text-shift-warn' : 'text-shift-ink'}`}>{value ?? '—'}</div>
+      <div className={`text-[12px] mt-0.5 ${warn ? 'text-shift-warn' : 'text-shift-muted'}`}>{label}</div>
     </div>
   );
 }
@@ -64,7 +65,7 @@ function Sparkline({ values }) {
   return (
     <div className="flex items-end gap-1 h-8" aria-hidden="true">
       {values.map((v, i) => (
-        <div key={i} className="flex-1 bg-emerald-400/80 rounded-sm" style={{ height: `${Math.max(6, (v / max) * 100)}%` }} />
+        <div key={i} className="flex-1 bg-shift-selLine rounded-sm" style={{ height: `${Math.max(6, (v / max) * 100)}%` }} />
       ))}
     </div>
   );
@@ -92,7 +93,7 @@ function StatusLine({ status, role, businessId, onReload, who }) {
   };
 
   return (
-    <section className={`rounded-xl border px-4 py-3 ${tone.box}`}>
+    <section className={`rounded-2xl border px-4 py-3 ${tone.box}`}>
       <div className="flex items-start gap-2.5">
         <tone.Icon size={18} className={`mt-0.5 shrink-0 ${tone.text}`} />
         <p className={`flex-1 text-[15px] font-semibold leading-relaxed ${tone.text}`}>{line.text}</p>
@@ -198,12 +199,12 @@ export default function OverviewPage() {
     <div className="max-w-3xl mx-auto space-y-4">
       {banner && (
         owner ? (
-          <Link to="/billing" className={`flex items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium ${BANNER_TONE[banner.tone]}`}>
+          <Link to="/billing" className={`flex items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-[13px] font-semibold ${BANNER_TONE[banner.tone]}`}>
             <span>{banner.text}</span>
             <ArrowLeft size={14} className="shrink-0" />
           </Link>
         ) : (
-          <div className={`rounded-xl border px-4 py-2.5 text-[13px] font-medium ${BANNER_TONE[banner.tone]}`}>{banner.text}</div>
+          <div className={`rounded-2xl border px-4 py-3 text-[13px] font-semibold ${BANNER_TONE[banner.tone]}`}>{banner.text}</div>
         )
       )}
 
@@ -215,14 +216,14 @@ export default function OverviewPage() {
       {connected ? (
         <>
           <Card title="اليوم">
-            <div className="flex items-stretch divide-x divide-x-reverse divide-shift-line2">
+            <div className={`grid gap-2 ${todayExtra ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
               <Figure value={today?.inbound} label="زبائن راسلوك" />
               <Figure value={today?.ai_replies} label="ردّ عليهم البوت" />
-              <Figure value={today?.waiting} label="بانتظارك" tone={today?.waiting > 0 ? 'text-shift-warn' : 'text-shift-ink'} />
+              <Figure value={today?.waiting} label="بانتظارك" warn={today?.waiting > 0} />
               {todayExtra && <Figure value={todayExtra.value} label={todayExtra.label} />}
             </div>
             {today?.waiting > 0 && (
-              <Link to="/inbox" className="mt-3 flex items-center justify-center gap-1.5 h-11 rounded-md bg-shift-warnBg text-shift-warn text-[14px] font-medium">
+              <Link to="/inbox" className="mt-3 flex items-center justify-center gap-1.5 h-11 rounded-xl bg-shift-ink text-white text-[14px] font-semibold">
                 افتح المحادثات بانتظارك <ArrowLeft size={14} />
               </Link>
             )}

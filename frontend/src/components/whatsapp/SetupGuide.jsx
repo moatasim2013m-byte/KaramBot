@@ -19,7 +19,7 @@ import { ClaimCardButton, ConnectInline } from './OwnerSetupActions';
 
 const OWNER_BADGE = {
   you: { label: 'عليك', cls: 'bg-shift-warnBg text-shift-warn' },
-  shift: { label: 'على شِفت', cls: 'bg-shift-line2 text-shift-body' },
+  shift: { label: 'على شِفت', cls: 'bg-shift-sel text-shift-selText' },
   nobody: { label: 'تلقائي', cls: 'bg-shift-line2 text-shift-muted' },
 };
 
@@ -54,39 +54,43 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
   const done = setup.steps.filter((s) => s.done).length;
 
   return (
-    <section className="rounded-lg border border-shift-line bg-white overflow-hidden">
-      <header className="px-4 py-3 border-b border-shift-line2">
+    <section className="rounded-2xl border border-shift-line bg-white overflow-hidden">
+      {/* The dark header is the one place on the page that says how far along the shop is. */}
+      <header className="px-4 py-4 bg-shift-ink text-white">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-[14px] font-semibold text-shift-ink">خطوات تشغيل البوت</h3>
-          <span className="text-[12px] text-shift-muted tabular-nums">{done} من {total}</span>
+          <h3 className="font-display text-[16px] font-semibold">خطوات تشغيل البوت</h3>
+          <span className="text-[12px] text-shift-navText tabular-nums">{done} من {total}</span>
         </div>
         {setup.next ? (
-          <p className="text-[13px] text-shift-body mt-1">
-            التالي: <strong className="font-medium text-shift-ink">{setup.next.label}</strong>
+          <p className="text-[13px] text-shift-navText mt-1.5 leading-relaxed">
+            التالي: <strong className="font-semibold text-white">{setup.next.label}</strong>
           </p>
         ) : setup.waiting_for_first_message ? (
-          <p className="text-[13px] text-emerald-800 mt-1">
+          <p className="text-[13px] text-shift-navText mt-1.5 leading-relaxed">
             كل ما عليك تمّ — البوت جاهز وبانتظار أول زبون يراسلك.
           </p>
         ) : null}
-        <div className="mt-2 h-1 bg-shift-line2 rounded-full overflow-hidden">
-          <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${(done / total) * 100}%` }} />
+        <div className="mt-3 h-1.5 bg-shift-ink2 rounded-full overflow-hidden">
+          <div className="h-full bg-shift-gold transition-all duration-500" style={{ width: `${(done / total) * 100}%` }} />
         </div>
       </header>
 
       <ol className="divide-y divide-shift-canvas">
-        {setup.steps.map((step) => {
+        {setup.steps.map((step, i) => {
           const badge = OWNER_BADGE[step.owner] || OWNER_BADGE.nobody;
+          const current = !step.done && setup.next && setup.next.key === step.key;
           return (
-            <li key={step.key} className={`px-4 py-3 ${step.done ? 'bg-shift-canvas/50' : ''}`}>
+            <li key={step.key} className="px-4 py-3">
               <div className="flex items-start gap-3">
-                <span className={`mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${step.done ? 'bg-emerald-500' : 'border border-shift-field'}`}>
-                  {step.done && <Check size={11} className="text-white" strokeWidth={3} />}
+                {/* Done: a green check. Next: the blue number. Later: a grey number. */}
+                <span className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-display font-bold ${
+                  step.done ? 'bg-shift-okBg text-shift-ok' : current ? 'bg-shift-accent text-white' : 'bg-shift-line2 text-shift-muted'}`}>
+                  {step.done ? <Check size={14} strokeWidth={3} /> : i + 1}
                 </span>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[13px] ${step.done ? 'text-shift-muted line-through decoration-shift-field' : 'font-medium text-shift-ink'}`}>
+                    <span className={`text-[14px] ${step.done ? 'text-shift-muted line-through decoration-shift-field' : 'font-semibold text-shift-ink'}`}>
                       {step.label}
                     </span>
                     {!step.done && (
@@ -135,7 +139,7 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
 
       <footer className="px-4 py-2.5 bg-shift-canvas border-t border-shift-line2">
         <p className="text-[11px] text-shift-muted flex items-center gap-1.5">
-          <CheckCircle2 size={11} className="text-emerald-600" />
+          <CheckCircle2 size={11} className="text-shift-ok" />
           تختفي هذه القائمة تلقائيًا عندما تكتمل الخطوات.
         </p>
       </footer>

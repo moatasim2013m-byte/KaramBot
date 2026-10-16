@@ -19,13 +19,13 @@ import { isConnected } from '../components/whatsapp/panelView';
  * anyone else, so hiding those cards is honesty, not the protection).
  */
 
-const input = 'w-full rounded-md border border-shift-line px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-shift-ok';
+const input = 'w-full rounded-[10px] border border-shift-field px-3 py-2 text-[14px] text-shift-ink focus:outline-none focus:ring-2 focus:ring-shift-accent focus:border-shift-accent';
 
 function Card({ title, children, footer }) {
   return (
     <section className="rounded-2xl border border-shift-line bg-white">
       <header className="flex items-center px-4 h-11 border-b border-shift-line2">
-        <h3 className="text-[14px] font-semibold text-shift-ink">{title}</h3>
+        <h3 className="font-display text-[15px] font-semibold text-shift-ink">{title}</h3>
       </header>
       <div className="p-4 space-y-3">{children}</div>
       {footer}
@@ -47,10 +47,10 @@ function SaveBar({ busy, saved, error, onSave, label = 'احفظ' }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-t border-shift-line2">
       <button type="button" onClick={onSave} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium disabled:opacity-50">
+        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-accent text-white text-[13px] font-semibold disabled:opacity-50">
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {label}
       </button>
-      {saved && <span className="text-[12px] text-emerald-700">تم الحفظ</span>}
+      {saved && <span className="text-[12px] text-shift-ok">تم الحفظ</span>}
       {error && <span className="text-[12px] text-shift-danger">{error}</span>}
     </div>
   );
@@ -95,7 +95,7 @@ function PauseCard({ biz, onSaved }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[14px] font-medium text-shift-ink">البوت يرد على الزبائن</p>
-          <p className={`text-[12px] mt-0.5 ${enabled ? 'text-emerald-700' : 'text-shift-warn'}`}>
+          <p className={`text-[12px] mt-0.5 ${enabled ? 'text-shift-ok' : 'text-shift-warn'}`}>
             {enabled ? 'يعمل ويرد على كل رسالة.'
               : shiftPaused ? 'أوقف فريق شِفت البوت — تواصل معهم لإعادة تشغيله. الرسائل تصلك في «المحادثات».'
                 : 'موقوف مؤقتًا — الرسائل تصلك في «المحادثات».'}
@@ -143,7 +143,7 @@ function KeywordChips({ value, onChange }) {
     <div>
       <div className="flex flex-wrap gap-2">
         {value.map((w) => (
-          <span key={w} className="inline-flex items-center gap-1 h-8 pr-3 pl-1 rounded-full bg-shift-line2 text-[13px] text-shift-ink">
+          <span key={w} className="inline-flex items-center gap-1 h-8 pr-3 pl-1 rounded-full bg-shift-sel text-[13px] font-medium text-shift-selText">
             {w}
             <button type="button" onClick={() => onChange(value.filter((x) => x !== w))} className="p-1 text-shift-muted hover:text-shift-danger" title="حذف">
               <X size={12} />
@@ -155,7 +155,7 @@ function KeywordChips({ value, onChange }) {
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="مثال: موظف"
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} className={input} />
         <button type="button" onClick={add} disabled={!draft.trim()}
-          className="shrink-0 inline-flex items-center gap-1 h-10 px-3 rounded-md border border-shift-line text-[13px] text-shift-body disabled:opacity-40">
+          className="shrink-0 inline-flex items-center gap-1 h-10 px-3 rounded-[10px] border border-shift-field text-[13px] font-semibold text-shift-ink disabled:opacity-40">
           <Plus size={13} /> أضف
         </button>
       </div>
@@ -272,7 +272,7 @@ function AlertsCard({ biz, ownerPhone, onSaved }) {
       )}
       <ul className="space-y-1.5">
         {numbers.map((n) => (
-          <li key={n} className="flex items-center justify-between h-10 px-3 rounded-md bg-shift-canvas">
+          <li key={n} className="flex items-center justify-between h-11 px-3 rounded-xl bg-shift-canvas">
             <Ltr className="text-[14px] text-shift-ink">{n}</Ltr>
             <button type="button" onClick={() => setNumbers(numbers.filter((x) => x !== n))} className="p-1.5 text-shift-muted hover:text-shift-danger" title="حذف">
               <X size={14} />
@@ -292,7 +292,7 @@ function AlertsCard({ biz, ownerPhone, onSaved }) {
         </div>
       )}
       <p className="flex items-center gap-1.5 text-[12px] text-shift-body">
-        <Bell size={12} className={templateReady ? 'text-emerald-600' : 'text-amber-600'} />
+        <Bell size={12} className={templateReady ? 'text-shift-ok' : 'text-shift-warn'} />
         التنبيهات خارج 24 ساعة: {templateReady ? 'مفعّلة' : 'بانتظار موافقة Meta على القالب'}
       </p>
     </Card>
@@ -349,7 +349,7 @@ export default function BotPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-4">
-      <h1 className="text-xl font-bold text-shift-ink">البوت</h1>
+      <h1 className="font-display text-[22px] font-semibold text-shift-ink">البوت</h1>
 
       {status?.usage && isConnected(status) && (
         <Card title="ردود هذا الشهر">

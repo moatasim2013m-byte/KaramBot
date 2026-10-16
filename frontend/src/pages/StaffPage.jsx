@@ -16,12 +16,12 @@ import { countAr, shiftWaLink, helpText } from '../components/whatsapp/panelView
 
 const ROLE_AR = { business_owner: 'صاحب المحل', manager: 'مدير', staff: 'موظف', platform_admin: 'شِفت' };
 const STATUS_AR = {
-  active: { label: 'فعّال', cls: 'bg-emerald-100 text-emerald-900' },
+  active: { label: 'فعّال', cls: 'bg-shift-okBg text-shift-ok' },
   pending: { label: 'بانتظار التفعيل', cls: 'bg-shift-warnBg text-shift-warn' },
   disabled: { label: 'معطّل', cls: 'bg-shift-line2 text-shift-body' },
 };
 
-const input = 'w-full rounded-md border border-shift-line px-3 h-11 text-[14px] focus:outline-none focus:ring-1 focus:ring-shift-ok';
+const input = 'w-full rounded-[10px] border border-shift-field px-3 h-11 text-[14px] text-shift-ink focus:outline-none focus:ring-2 focus:ring-shift-accent focus:border-shift-accent';
 
 // `initial` opens the sheet on an already-issued link («أرسل رابطًا جديدًا» for someone who never signed in).
 function InviteSheet({ onClose, onInvited, initial = null }) {
@@ -55,7 +55,7 @@ function InviteSheet({ onClose, onInvited, initial = null }) {
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full sm:max-w-md bg-white rounded-t-2xl sm:rounded-2xl p-5 space-y-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between">
-          <h3 className="text-[16px] font-semibold text-shift-ink">{result ? 'أرسل الرابط' : 'أضف عضوًا'}</h3>
+          <h3 className="font-display text-[16px] font-semibold text-shift-ink">{result ? 'أرسل الرابط' : 'أضف عضوًا'}</h3>
           <button type="button" onClick={onClose} className="p-2 text-shift-muted" title="إغلاق"><X size={18} /></button>
         </div>
 
@@ -64,7 +64,7 @@ function InviteSheet({ onClose, onInvited, initial = null }) {
             <p className="text-[13px] text-shift-body leading-relaxed">
               أرسل هذا الرابط لـ {form.name}. يفتحه على هاتفه، يختار كلمة مرور، ويدخل مباشرة. الرابط صالح لأيام قليلة ولمرة واحدة.
             </p>
-            <div className="rounded-md bg-shift-canvas px-3 py-2"><Ltr className="text-[12px] text-shift-body break-all">{result.join_url}</Ltr></div>
+            <div className="rounded-xl bg-shift-canvas px-3 py-2"><Ltr className="text-[12px] text-shift-body break-all">{result.join_url}</Ltr></div>
             {result.wa_share_url && (
               <a href={result.wa_share_url} target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-1.5 h-11 rounded-md bg-shift-ok text-white text-[14px] font-medium">
@@ -72,7 +72,7 @@ function InviteSheet({ onClose, onInvited, initial = null }) {
               </a>
             )}
             <button type="button" onClick={copy}
-              className="w-full flex items-center justify-center gap-1.5 h-11 rounded-md border border-shift-line text-[14px] text-shift-body">
+              className="w-full flex items-center justify-center gap-1.5 h-11 rounded-xl border border-shift-field text-[14px] font-semibold text-shift-ink">
               {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />} {copied ? 'تم النسخ' : 'انسخ الرابط'}
             </button>
           </>
@@ -92,7 +92,7 @@ function InviteSheet({ onClose, onInvited, initial = null }) {
             </div>
             {error && <p className="text-[13px] text-shift-danger">{error}</p>}
             <button type="submit" disabled={busy || !form.name.trim() || !form.phone.trim()}
-              className="w-full flex items-center justify-center gap-1.5 h-11 rounded-md bg-shift-ok text-white text-[14px] font-medium disabled:opacity-40">
+              className="w-full flex items-center justify-center gap-1.5 h-11 rounded-xl bg-shift-ok text-white text-[14px] font-semibold disabled:opacity-40">
               {busy && <Loader2 size={14} className="animate-spin" />} أنشئ رابط الانضمام
             </button>
           </form>
@@ -156,10 +156,10 @@ export default function StaffPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold text-shift-ink">الفريق</h1>
+        <h1 className="font-display text-[22px] font-semibold text-shift-ink">الفريق</h1>
         {owner && !full && (
           <button type="button" onClick={() => setInviting(true)}
-            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium">
+            className="inline-flex items-center gap-1.5 h-11 px-4 rounded-[10px] bg-shift-ink text-white text-[13px] font-semibold">
             <UserPlus size={15} /> أضف عضوًا
           </button>
         )}
