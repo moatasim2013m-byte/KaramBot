@@ -22,14 +22,14 @@ import {
 const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 const TYPE_AR = { restaurant: 'مطعم', clinic: 'عيادة', generic: 'محل', shift: 'شِفت' };
 
-const inputClass = 'w-full rounded-md border border-gray-200 px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-green-500';
+const inputClass = 'w-full rounded-md border border-shift-line px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-shift-ok';
 
 function Card({ title, children, footer }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white mb-4">
+    <section className="rounded-2xl border border-shift-line bg-white mb-4">
       {title && (
-        <header className="flex items-center px-4 h-11 border-b border-gray-100">
-          <h3 className="text-[14px] font-semibold text-gray-800">{title}</h3>
+        <header className="flex items-center px-4 h-11 border-b border-shift-line2">
+          <h3 className="text-[14px] font-semibold text-shift-ink">{title}</h3>
         </header>
       )}
       <div className="p-4 space-y-3">{children}</div>
@@ -41,7 +41,7 @@ function Card({ title, children, footer }) {
 function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="block text-[13px] text-gray-600 mb-1">{label}</span>
+      <span className="block text-[13px] text-shift-body mb-1">{label}</span>
       {children}
     </label>
   );
@@ -49,9 +49,9 @@ function Field({ label, children }) {
 
 function Row({ label, children }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 border-b border-gray-50 last:border-0">
-      <dt className="text-[13px] text-gray-500">{label}</dt>
-      <dd className="text-[14px] text-gray-900 flex items-center gap-1.5">{children}</dd>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 border-b border-shift-canvas last:border-0">
+      <dt className="text-[13px] text-shift-muted">{label}</dt>
+      <dd className="text-[14px] text-shift-ink flex items-center gap-1.5">{children}</dd>
     </div>
   );
 }
@@ -68,8 +68,8 @@ function WhatsAppTab({ user }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  if (error) return <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
-  if (!status) return <div className="text-center py-16 text-gray-400">جاري التحميل...</div>;
+  if (error) return <div className="rounded-xl border border-shift-dangerLine bg-shift-dangerBg px-4 py-3 text-sm text-shift-danger">{error}</div>;
+  if (!status) return <div className="text-center py-16 text-shift-muted">جاري التحميل...</div>;
 
   const connected = isConnected(status);
   const revoked = isRevoked(status);
@@ -84,13 +84,13 @@ function WhatsAppTab({ user }) {
       <Card title="رقم واتساب المحل">
         {!connected || revoked ? (
           <>
-            <p className="text-[14px] text-gray-800">
+            <p className="text-[14px] text-shift-ink">
               {revoked ? 'انفصل كرم بوت عن حسابك في Meta — أعد الربط ليعود البوت للرد.' : 'واتساب غير مربوط بعد.'}
             </p>
             {canConnect ? (
               <ConnectInline onDone={load} label={revoked ? 'أعد الربط' : 'اربط واتساب'} />
             ) : (
-              <p className="text-[13px] text-gray-600">فريق شِفت يربط الرقم معك — لا شيء عليك هنا.</p>
+              <p className="text-[13px] text-shift-body">فريق شِفت يربط الرقم معك — لا شيء عليك هنا.</p>
             )}
           </>
         ) : (
@@ -98,7 +98,7 @@ function WhatsAppTab({ user }) {
             <Row label="رقم المحل">{number.display ? <Ltr>{number.display}</Ltr> : '—'}</Row>
             <Row label="الاسم الذي يراه زبائنك">
               {number.verified_name || '—'}
-              {nameStatus && <span className="text-[12px] text-gray-500">— {nameStatus}</span>}
+              {nameStatus && <span className="text-[12px] text-shift-muted">— {nameStatus}</span>}
             </Row>
             <Row label="جودة الرقم لدى Meta"><StatusDot state={quality.state} /> {quality.label}</Row>
             <Row label="بطاقة الدفع لدى Meta"><StatusDot state={card.state} /> {card.label}</Row>
@@ -111,7 +111,7 @@ function WhatsAppTab({ user }) {
         {connected && !revoked && (card.key === 'missing' || card.key === 'blocked') && (
           <div className="flex flex-wrap items-center gap-3">
             <a href={MANAGER_URL} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 mt-1.5 text-[13px] font-medium text-amber-900 underline underline-offset-2">
+              className="inline-flex items-center gap-1.5 mt-1.5 text-[13px] font-medium text-shift-warn underline underline-offset-2">
               افتح WhatsApp Manager <ExternalLink size={12} />
             </a>
             {card.key === 'missing' && <ClaimCardButton onDone={load} />}
@@ -121,10 +121,10 @@ function WhatsAppTab({ user }) {
 
       <SupportCode code={status.support_code} />
 
-      <p className="text-[12px] text-gray-500 px-1">
+      <p className="text-[12px] text-shift-muted px-1">
         لتغيير رقم المحل أو أي مشكلة في الربط{' '}
         <a href={shiftWaLink(`${helpText(user)} — بخصوص رقم واتساب المحل`)} target="_blank" rel="noopener noreferrer"
-          className="text-green-700 underline underline-offset-2">راسل شِفت على واتساب</a>.
+          className="text-shift-ok underline underline-offset-2">راسل شِفت على واتساب</a>.
       </p>
     </>
   );
@@ -146,18 +146,18 @@ function SupportCode({ code }) {
     }
   };
   return (
-    <details className="mb-4 rounded-xl border border-gray-200 bg-white px-4 py-3 group">
-      <summary className="flex items-center justify-between cursor-pointer list-none text-[13px] text-gray-600">
-        للدعم الفني <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+    <details className="mb-4 rounded-2xl border border-shift-line bg-white px-4 py-3 group">
+      <summary className="flex items-center justify-between cursor-pointer list-none text-[13px] text-shift-body">
+        للدعم الفني <ChevronDown size={14} className="text-shift-muted transition-transform group-open:rotate-180" />
       </summary>
       <div className="mt-3 flex items-center gap-3">
         {code ? (
           <button type="button" onClick={copy}
-            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-md border border-gray-200 text-[13px] text-gray-700">
+            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-md border border-shift-line text-[13px] text-shift-body">
             <Copy size={13} /> انسخ رمز الدعم
           </button>
         ) : (
-          <span className="text-[12px] text-gray-500">لا يوجد رمز دعم لهذا الربط بعد.</span>
+          <span className="text-[12px] text-shift-muted">لا يوجد رمز دعم لهذا الربط بعد.</span>
         )}
         {copied && <span className="text-[12px] text-emerald-700">تم النسخ — أرسله لفريق الدعم</span>}
       </div>
@@ -202,16 +202,16 @@ function ShopTab({ user }) {
     }
   };
 
-  if (!biz) return error ? <p className="text-sm text-red-700">{error}</p> : <div className="text-center py-16 text-gray-400">جاري التحميل...</div>;
+  if (!biz) return error ? <p className="text-sm text-shift-danger">{error}</p> : <div className="text-center py-16 text-shift-muted">جاري التحميل...</div>;
 
   const footer = (
-    <div className="flex items-center gap-3 px-4 py-3 border-t border-gray-100">
+    <div className="flex items-center gap-3 px-4 py-3 border-t border-shift-line2">
       <button type="button" onClick={save} disabled={busy}
-        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-green-600 text-white text-[13px] font-medium disabled:opacity-50">
+        className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium disabled:opacity-50">
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ
       </button>
       {saved && <span className="text-[12px] text-emerald-700">تم الحفظ</span>}
-      {error && <span className="text-[12px] text-red-700">{error}</span>}
+      {error && <span className="text-[12px] text-shift-danger">{error}</span>}
     </div>
   );
 
@@ -222,7 +222,7 @@ function ShopTab({ user }) {
           <input value={biz.name || ''} onChange={(e) => set('name', e.target.value)} className={inputClass} />
         </Field>
         <Field label="النوع">
-          <input value={TYPE_AR[biz.business_type] || 'محل'} disabled className={`${inputClass} bg-gray-50 text-gray-500`} />
+          <input value={TYPE_AR[biz.business_type] || 'محل'} disabled className={`${inputClass} bg-shift-canvas text-shift-muted`} />
         </Field>
         <Field label="المدينة">
           <input value={biz.city || ''} onChange={(e) => set('city', e.target.value)} placeholder="مثال: إربد" className={inputClass} />
@@ -292,7 +292,7 @@ function PasswordForm() {
     return (
       <div className="flex items-center gap-3">
         <button type="button" onClick={() => { setOpen(true); setDone(false); }}
-          className="h-10 px-4 rounded-md border border-gray-200 text-[13px] font-medium text-gray-700">
+          className="h-10 px-4 rounded-md border border-shift-line text-[13px] font-medium text-shift-body">
           غيّر كلمة المرور
         </button>
         {done && <span className="text-[12px] text-emerald-700">تم تغيير كلمة المرور</span>}
@@ -309,12 +309,12 @@ function PasswordForm() {
       </Field>
       <div className="flex items-center gap-3">
         <button type="submit" disabled={busy || !current || next.length < 10}
-          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-green-600 text-white text-[13px] font-medium disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium disabled:opacity-50">
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ كلمة المرور
         </button>
-        <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-[13px] text-gray-500">إلغاء</button>
+        <button type="button" onClick={() => { setOpen(false); setError(null); }} className="text-[13px] text-shift-muted">إلغاء</button>
       </div>
-      {error && <p className="text-[12px] text-red-700">{error}</p>}
+      {error && <p className="text-[12px] text-shift-danger">{error}</p>}
     </form>
   );
 }
@@ -328,10 +328,10 @@ function AccountTab({ user }) {
         {user?.email && <Row label="البريد الإلكتروني"><Ltr>{user.email}</Ltr></Row>}
       </dl>
       <PasswordForm />
-      <p className="text-[12px] text-gray-500">
+      <p className="text-[12px] text-shift-muted">
         نسيت كلمة المرور؟{' '}
         <a href={shiftWaLink(`${helpText(user)} — أريد رابطًا جديدًا لكلمة المرور`)} target="_blank" rel="noopener noreferrer"
-          className="text-green-700 underline underline-offset-2">راسل شِفت على واتساب</a> ونرسل لك رابطًا جديدًا.
+          className="text-shift-ok underline underline-offset-2">راسل شِفت على واتساب</a> ونرسل لك رابطًا جديدًا.
       </p>
     </Card>
   );
@@ -350,28 +350,28 @@ export default function SettingsPage() {
   const [tab, setTab] = useState(tabs[0].key);
 
   if (!user?.business_id && !admin) {
-    return <p className="text-center py-16 text-gray-500 text-sm">لا يوجد حساب محل مرتبط بهذا المستخدم.</p>;
+    return <p className="text-center py-16 text-shift-muted text-sm">لا يوجد حساب محل مرتبط بهذا المستخدم.</p>;
   }
 
   return (
     <div className="max-w-3xl mx-auto">
-      <h1 className="text-xl font-bold text-gray-800 mb-4">{tabs.length === 1 ? 'حسابي' : 'الإعدادات'}</h1>
+      <h1 className="text-xl font-bold text-shift-ink mb-4">{tabs.length === 1 ? 'حسابي' : 'الإعدادات'}</h1>
 
       {/* SHIFT connects a shop's WhatsApp from the account's own page, where the account comes
           from the URL, never from whichever business an admin session happens to hold. */}
       {admin && user?.business_id && (
-        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700">
+        <div className="mb-4 rounded-2xl border border-shift-line bg-white p-4 text-sm text-shift-body">
           ربط واتساب لهذا المحل يتم من صفحة الحساب في لوحة شِفت.{' '}
-          <Link to={`/admin/accounts/${user.business_id}`} className="font-medium text-green-600 hover:underline">افتح «ربط واتساب»</Link>
+          <Link to={`/admin/accounts/${user.business_id}`} className="font-medium text-shift-ok hover:underline">افتح «ربط واتساب»</Link>
         </div>
       )}
 
       {tabs.length > 1 && (
-        <div className="flex gap-1 border-b border-gray-200 mb-4">
+        <div className="flex gap-1 border-b border-shift-line mb-4">
           {tabs.map(({ key, label }) => (
             <button key={key} type="button" onClick={() => setTab(key)}
               className={`px-4 h-11 text-[14px] font-medium border-b-2 -mb-px transition-colors ${
-                tab === key ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                tab === key ? 'border-shift-ok text-shift-ok' : 'border-transparent text-shift-muted hover:text-shift-body'
               }`}>
               {label}
             </button>

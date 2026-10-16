@@ -14,6 +14,14 @@
 .shift-admin .font-mono { font-family: ui-monospace, Menlo, monospace; }
 .shift-admin :focus-visible { outline: 2px solid #1F6BFF; outline-offset: 2px; }
 
+/* The shop's own panel (DashboardLayout) shares the console's type: Plex for reading, Alexandria
+   for headings and figures. Scoped like .shift-admin, so the login and join pages keep theirs. */
+.karam-app { font-family: 'IBM Plex Sans Arabic', 'Cairo', system-ui, sans-serif; }
+.karam-app * { font-family: inherit; }
+.karam-app .font-display, .karam-app h1, .karam-app h2, .karam-app h3 { font-family: 'Alexandria', 'IBM Plex Sans Arabic', sans-serif; }
+.karam-app .font-mono { font-family: ui-monospace, Menlo, monospace; }
+.karam-app :focus-visible { outline: 2px solid #1F6BFF; outline-offset: 2px; }
+
 body {
   direction: rtl;
   text-align: right;

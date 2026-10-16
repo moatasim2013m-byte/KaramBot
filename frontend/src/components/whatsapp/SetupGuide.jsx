@@ -18,9 +18,9 @@ import { ClaimCardButton, ConnectInline } from './OwnerSetupActions';
  */
 
 const OWNER_BADGE = {
-  you: { label: 'عليك', cls: 'bg-amber-100 text-amber-900' },
-  shift: { label: 'على شِفت', cls: 'bg-gray-100 text-gray-600' },
-  nobody: { label: 'تلقائي', cls: 'bg-gray-100 text-gray-500' },
+  you: { label: 'عليك', cls: 'bg-shift-warnBg text-shift-warn' },
+  shift: { label: 'على شِفت', cls: 'bg-shift-line2 text-shift-body' },
+  nobody: { label: 'تلقائي', cls: 'bg-shift-line2 text-shift-muted' },
 };
 
 // A page that already read GET /whatsapp/status («الرئيسية») passes its `setup` and its own
@@ -54,39 +54,39 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
   const done = setup.steps.filter((s) => s.done).length;
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-      <header className="px-4 py-3 border-b border-gray-100">
+    <section className="rounded-lg border border-shift-line bg-white overflow-hidden">
+      <header className="px-4 py-3 border-b border-shift-line2">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-[14px] font-semibold text-gray-900">خطوات تشغيل البوت</h3>
-          <span className="text-[12px] text-gray-500 tabular-nums">{done} من {total}</span>
+          <h3 className="text-[14px] font-semibold text-shift-ink">خطوات تشغيل البوت</h3>
+          <span className="text-[12px] text-shift-muted tabular-nums">{done} من {total}</span>
         </div>
         {setup.next ? (
-          <p className="text-[13px] text-gray-600 mt-1">
-            التالي: <strong className="font-medium text-gray-900">{setup.next.label}</strong>
+          <p className="text-[13px] text-shift-body mt-1">
+            التالي: <strong className="font-medium text-shift-ink">{setup.next.label}</strong>
           </p>
         ) : setup.waiting_for_first_message ? (
           <p className="text-[13px] text-emerald-800 mt-1">
             كل ما عليك تمّ — البوت جاهز وبانتظار أول زبون يراسلك.
           </p>
         ) : null}
-        <div className="mt-2 h-1 bg-gray-100 rounded-full overflow-hidden">
+        <div className="mt-2 h-1 bg-shift-line2 rounded-full overflow-hidden">
           <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${(done / total) * 100}%` }} />
         </div>
       </header>
 
-      <ol className="divide-y divide-gray-50">
+      <ol className="divide-y divide-shift-canvas">
         {setup.steps.map((step) => {
           const badge = OWNER_BADGE[step.owner] || OWNER_BADGE.nobody;
           return (
-            <li key={step.key} className={`px-4 py-3 ${step.done ? 'bg-gray-50/50' : ''}`}>
+            <li key={step.key} className={`px-4 py-3 ${step.done ? 'bg-shift-canvas/50' : ''}`}>
               <div className="flex items-start gap-3">
-                <span className={`mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${step.done ? 'bg-emerald-500' : 'border border-gray-300'}`}>
+                <span className={`mt-0.5 shrink-0 w-4 h-4 rounded-full flex items-center justify-center ${step.done ? 'bg-emerald-500' : 'border border-shift-field'}`}>
                   {step.done && <Check size={11} className="text-white" strokeWidth={3} />}
                 </span>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[13px] ${step.done ? 'text-gray-500 line-through decoration-gray-300' : 'font-medium text-gray-900'}`}>
+                    <span className={`text-[13px] ${step.done ? 'text-shift-muted line-through decoration-shift-field' : 'font-medium text-shift-ink'}`}>
                       {step.label}
                     </span>
                     {!step.done && (
@@ -95,7 +95,7 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
                   </div>
 
                   {!step.done && step.hint && (
-                    <p className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">{step.hint}</p>
+                    <p className="text-[12px] text-shift-muted mt-0.5 leading-relaxed">{step.hint}</p>
                   )}
 
                   {stepControls(step).map((c) => {
@@ -104,7 +104,7 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
                     if (c.kind === 'manager') {
                       return (
                         <a key={c.kind} href={c.href} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 mt-1.5 me-3 text-[12px] font-medium text-amber-900 underline underline-offset-2">
+                          className="inline-flex items-center gap-1 mt-1.5 me-3 text-[12px] font-medium text-shift-warn underline underline-offset-2">
                           {c.label} <ExternalLink size={11} />
                         </a>
                       );
@@ -112,14 +112,14 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
                     if (c.kind === 'where') {
                       return (
                         <Link key={c.kind} to={c.to}
-                          className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-gray-900 underline underline-offset-2">
+                          className="inline-flex items-center gap-1 mt-1.5 text-[12px] font-medium text-shift-ink underline underline-offset-2">
                           {c.label} <ArrowLeft size={11} />
                         </Link>
                       );
                     }
                     if (c.kind === 'shift_wait') {
                       return (
-                        <p key={c.kind} className="inline-flex items-center gap-1 mt-1.5 text-[12px] text-gray-500">
+                        <p key={c.kind} className="inline-flex items-center gap-1 mt-1.5 text-[12px] text-shift-muted">
                           <Clock size={11} /> {c.label}
                         </p>
                       );
@@ -133,8 +133,8 @@ export default function SetupGuide({ setup: given, onReload } = {}) {
         })}
       </ol>
 
-      <footer className="px-4 py-2.5 bg-gray-50 border-t border-gray-100">
-        <p className="text-[11px] text-gray-500 flex items-center gap-1.5">
+      <footer className="px-4 py-2.5 bg-shift-canvas border-t border-shift-line2">
+        <p className="text-[11px] text-shift-muted flex items-center gap-1.5">
           <CheckCircle2 size={11} className="text-emerald-600" />
           تختفي هذه القائمة تلقائيًا عندما تكتمل الخطوات.
         </p>

@@ -31,7 +31,7 @@ export const SUGGESTIONS = {
   other: ['هل عندكم توصيل؟', 'ما طرق الدفع؟', 'متى تفتحون؟', 'أين موقعكم بالضبط؟'],
 };
 
-const input = 'w-full rounded-md border border-gray-200 px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-green-500';
+const input = 'w-full rounded-md border border-shift-line px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-shift-ok';
 
 function AddForm({ group, preset, onSaved, onCancel }) {
   const [question, setQuestion] = useState(preset || '');
@@ -54,21 +54,21 @@ function AddForm({ group, preset, onSaved, onCancel }) {
   };
 
   return (
-    <form onSubmit={save} className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3">
+    <form onSubmit={save} className="mt-2 space-y-2 rounded-lg bg-shift-canvas p-3">
       {needsQuestion && (
         <input value={question} onChange={(e) => setQuestion(e.target.value)} required
           placeholder="سؤال الزبون — كما يكتبه هو" className={input} />
       )}
       <textarea value={content} onChange={(e) => setContent(e.target.value)} required rows={2} autoFocus={!needsQuestion || Boolean(preset)}
         placeholder={group.hint} className={`${input} resize-none`} />
-      <p className="text-[11px] text-gray-500">اكتبها كما تقولها لزبونك على الهاتف.</p>
-      {error && <p className="text-[12px] text-red-700">{error}</p>}
+      <p className="text-[11px] text-shift-muted">اكتبها كما تقولها لزبونك على الهاتف.</p>
+      {error && <p className="text-[12px] text-shift-danger">{error}</p>}
       <div className="flex gap-2">
         <button type="submit" disabled={busy || !content.trim() || (needsQuestion && !question.trim())}
-          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-green-600 text-white text-[13px] font-medium disabled:opacity-40">
+          className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-shift-ok text-white text-[13px] font-medium disabled:opacity-40">
           {busy && <Loader2 size={13} className="animate-spin" />} احفظ
         </button>
-        <button type="button" onClick={onCancel} className="h-10 px-3 text-[13px] text-gray-600">إلغاء</button>
+        <button type="button" onClick={onCancel} className="h-10 px-3 text-[13px] text-shift-body">إلغاء</button>
       </div>
     </form>
   );
@@ -104,28 +104,28 @@ export default function KnowledgeByGroup({ sector }) {
   const faqGroup = GROUPS.find((g) => g.kind === 'faq');
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white">
-      <header className="flex items-center justify-between px-4 h-11 border-b border-gray-100">
+    <section className="rounded-2xl border border-shift-line bg-white">
+      <header className="flex items-center justify-between px-4 h-11 border-b border-shift-line2">
         <div className="flex items-center gap-2">
-          <BookOpen size={15} className="text-gray-500" />
-          <h3 className="text-[14px] font-semibold text-gray-800">ماذا يعرف البوت عن محلك</h3>
+          <BookOpen size={15} className="text-shift-muted" />
+          <h3 className="text-[14px] font-semibold text-shift-ink">ماذا يعرف البوت عن محلك</h3>
         </div>
-        {items && <span className="text-[11px] text-gray-400">{activeCount} مفعّلة</span>}
+        {items && <span className="text-[11px] text-shift-muted">{activeCount} مفعّلة</span>}
       </header>
 
       {items && activeCount === 0 && (
-        <p className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-[12px] text-amber-900">
+        <p className="px-4 py-2.5 bg-shift-warnBg border-b border-shift-warnBg text-[12px] text-shift-warn">
           بدون هذه المعلومات يرد البوت بالترحيب فقط ولا يجيب عن أي سؤال.
         </p>
       )}
 
       {chips.length > 0 && (
-        <div className="px-4 py-3 border-b border-gray-100">
-          <p className="text-[12px] text-gray-500 mb-2">اقتراحات لمحلات مثل محلك</p>
+        <div className="px-4 py-3 border-b border-shift-line2">
+          <p className="text-[12px] text-shift-muted mb-2">اقتراحات لمحلات مثل محلك</p>
           <div className="flex flex-wrap gap-2">
             {chips.map((q) => (
               <button key={q} type="button" onClick={() => setAdding({ kind: 'faq', preset: q })}
-                className="h-8 px-3 rounded-full border border-green-200 bg-green-50 text-[12px] text-green-800 hover:bg-green-100">
+                className="h-8 px-3 rounded-full border border-green-200 bg-shift-okBg text-[12px] text-shift-ok hover:bg-shift-okBg">
                 + {q}
               </button>
             ))}
@@ -137,24 +137,24 @@ export default function KnowledgeByGroup({ sector }) {
         </div>
       )}
 
-      {error && <p className="px-4 py-2 text-[13px] text-red-700">{error}</p>}
+      {error && <p className="px-4 py-2 text-[13px] text-shift-danger">{error}</p>}
 
       {!items ? (
-        <div className="px-4 py-4 animate-pulse"><div className="h-3 w-1/2 bg-gray-100 rounded" /></div>
+        <div className="px-4 py-4 animate-pulse"><div className="h-3 w-1/2 bg-shift-line2 rounded" /></div>
       ) : (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-shift-line2">
           {GROUPS.map((group) => {
             const rows = items.filter((i) => i.kind === group.kind);
             const open = adding?.kind === group.kind && !adding.preset;
             return (
               <div key={group.kind} className="px-4 py-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-[13px] font-semibold text-gray-700">
-                    {group.label} {rows.length > 0 && <span className="text-gray-400 font-normal">({rows.length})</span>}
+                  <h4 className="text-[13px] font-semibold text-shift-body">
+                    {group.label} {rows.length > 0 && <span className="text-shift-muted font-normal">({rows.length})</span>}
                   </h4>
                   {!open && (
                     <button type="button" onClick={() => setAdding({ kind: group.kind })}
-                      className="inline-flex items-center gap-1 h-8 px-2 text-[12px] font-medium text-green-700">
+                      className="inline-flex items-center gap-1 h-8 px-2 text-[12px] font-medium text-shift-ok">
                       <Plus size={13} /> أضف
                     </button>
                   )}
@@ -164,13 +164,13 @@ export default function KnowledgeByGroup({ sector }) {
                     {rows.map((item) => (
                       <li key={item.id} className={`flex items-start gap-2 py-1 ${item.active ? '' : 'opacity-50'}`}>
                         <div className="flex-1 min-w-0">
-                          {item.question && <p className="text-[12px] text-gray-500">س: {item.question}</p>}
-                          <p className="text-[13px] text-gray-800 whitespace-pre-wrap">{item.content}</p>
+                          {item.question && <p className="text-[12px] text-shift-muted">س: {item.question}</p>}
+                          <p className="text-[13px] text-shift-ink whitespace-pre-wrap">{item.content}</p>
                         </div>
-                        <button onClick={() => toggle(item)} className="p-1.5 text-gray-400 hover:text-gray-700 shrink-0" title={item.active ? 'إيقاف مؤقت' : 'تفعيل'}>
+                        <button onClick={() => toggle(item)} className="p-1.5 text-shift-muted hover:text-shift-body shrink-0" title={item.active ? 'إيقاف مؤقت' : 'تفعيل'}>
                           {item.active ? <Eye size={14} /> : <EyeOff size={14} />}
                         </button>
-                        <button onClick={() => remove(item)} className="p-1.5 text-gray-400 hover:text-red-600 shrink-0" title="حذف">
+                        <button onClick={() => remove(item)} className="p-1.5 text-shift-muted hover:text-shift-danger shrink-0" title="حذف">
                           <Trash2 size={14} />
                         </button>
                       </li>

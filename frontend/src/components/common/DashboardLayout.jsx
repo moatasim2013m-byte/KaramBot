@@ -85,27 +85,38 @@ export default function DashboardLayout() {
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
+  // The brand tile: the shop's first letter on SHIFT ink, as on the operator console's rows.
+  const initial = (brandShop || 'ك').trim().charAt(0) || 'ك';
+  const Brand = ({ compact = false }) => (
+    <div className="flex items-center gap-2.5 min-w-0">
+      <span aria-hidden="true" className={`${compact ? 'w-9 h-9 text-[15px]' : 'w-10 h-10 text-[16px]'} shrink-0 rounded-[10px] bg-shift-ink text-shift-gold flex items-center justify-center font-display font-bold`}>
+        {initial}
+      </span>
+      <span className="flex flex-col min-w-0 leading-tight">
+        <span className="font-display font-semibold text-[15px] text-shift-ink truncate">{brandShop || 'كرم بوت'}</span>
+        <span className="text-[11px] text-shift-muted truncate">{brandShop ? 'كرم بوت' : user?.name}</span>
+      </span>
+    </div>
+  );
+
   return (
     // 100dvh, not h-screen: on a phone 100vh includes the browser's address bar, which pushed the
     // bottom of every page — the inbox composer first — off the screen.
-    <div className="flex h-[100dvh] bg-gray-50 overflow-hidden">
+    <div className="karam-app flex h-[100dvh] bg-shift-canvas text-shift-ink overflow-hidden">
       {/* Sidebar: desktop only. Phones use the bottom bar and the «المزيد» sheet. */}
-      <aside className="hidden lg:flex w-64 bg-gray-900 text-white flex-col shrink-0">
-        <div className="p-5 border-b border-gray-700">
-          <div className="text-green-400 font-bold text-lg leading-tight">
-            كرم بوت{brandShop && <span className="text-white font-semibold"> · {brandShop}</span>}
-          </div>
-          <div className="text-gray-400 text-xs mt-0.5">{user?.name}</div>
+      <aside className="hidden lg:flex w-64 bg-white border-l border-shift-line flex-col shrink-0">
+        <div className="px-4 pt-5 pb-4">
+          <Brand />
         </div>
 
-        <nav className="flex-1 py-4 overflow-y-auto">
+        <nav className="flex-1 px-3 py-1 overflow-y-auto space-y-0.5" aria-label="القائمة">
           {nav.side.map((item) => {
             const Icon = iconFor(item);
             if (item.href) {
               return (
                 <a key={item.key} href={helpHref} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-5 py-3 text-sm text-gray-300 hover:bg-gray-800 hover:text-white">
-                  <Icon size={18} />
+                  className="flex items-center gap-3 px-3 h-11 rounded-xl text-[14px] text-shift-ok font-medium hover:bg-shift-okBg">
+                  <Icon size={18} aria-hidden="true" />
                   <span className="flex-1">{item.label}</span>
                 </a>
               );
@@ -116,15 +127,15 @@ export default function DashboardLayout() {
                 key={item.key}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-5 py-3 text-sm transition-colors ${
-                    isActive ? 'bg-green-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                  `flex items-center gap-3 px-3 h-11 rounded-xl text-[14px] transition-colors ${
+                    isActive ? 'bg-shift-sel text-shift-selText font-semibold' : 'text-shift-body hover:bg-shift-hover hover:text-shift-ink'
                   }`
                 }
               >
-                <Icon size={18} />
+                <Icon size={18} aria-hidden="true" />
                 <span className="flex-1">{item.label}</span>
                 {badge > 0 && (
-                  <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[20px] text-center font-medium">
+                  <span className="bg-shift-danger text-white text-[11px] rounded-full px-1.5 min-w-[20px] h-5 flex items-center justify-center font-bold">
                     {badge > 99 ? '99+' : badge}
                   </span>
                 )}
@@ -133,10 +144,11 @@ export default function DashboardLayout() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-700">
+        <div className="p-3 border-t border-shift-line2">
+          <div className="px-3 pb-2 text-[12px] text-shift-muted truncate">{user?.name}</div>
           <button onClick={handleLogout}
-            className="flex items-center gap-3 text-gray-400 hover:text-white text-sm w-full px-1 py-2">
-            <LogOut size={16} />
+            className="flex items-center gap-3 px-3 h-10 w-full rounded-xl text-[13px] text-shift-body hover:bg-shift-hover">
+            <LogOut size={16} aria-hidden="true" />
             تسجيل الخروج
           </button>
         </div>
@@ -145,48 +157,44 @@ export default function DashboardLayout() {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top bar. On phones it carries the brand, since there is no sidebar to hold it. */}
-        <header className="bg-white border-b border-gray-200 px-4 h-14 flex items-center justify-between shrink-0">
-          <div className="lg:hidden min-w-0 truncate text-[15px] font-bold text-green-700">
-            كرم بوت{brandShop && <span className="text-gray-900 font-semibold"> · {brandShop}</span>}
-          </div>
+        <header className="bg-white border-b border-shift-line px-4 h-[60px] flex items-center justify-between gap-3 shrink-0">
+          <div className="lg:hidden min-w-0"><Brand compact /></div>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-3">
             {/* The bell opens the waiting chats: the one place an unread count leads. */}
-            <button onClick={() => navigate('/inbox')} className="relative text-gray-400 hover:text-gray-600 p-1" title="المحادثات">
-              <Bell size={20} />
+            <button onClick={() => navigate('/inbox')} aria-label="المحادثات"
+              className="relative w-11 h-11 flex items-center justify-center rounded-xl text-shift-body hover:bg-shift-hover">
+              <Bell size={21} aria-hidden="true" />
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center font-medium">
+                <span className="absolute top-2 left-2 min-w-[16px] h-4 px-1 bg-shift-danger rounded-full text-white text-[10px] flex items-center justify-center font-bold">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </button>
-            <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center text-white text-sm font-bold">
-              {user?.name?.[0] || 'م'}
-            </div>
           </div>
         </header>
 
         {/* The inbox runs edge to edge at the real screen height, like WhatsApp: no page padding, and
             the inbox scrolls its own panes instead of the page. Elsewhere the bottom padding keeps
             the last card clear of the phone's tab bar. */}
-        <main className={fullBleed ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto p-4 pb-24 lg:p-6 lg:pb-6'}>
+        <main className={fullBleed ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto p-4 pb-24 lg:p-8 lg:pb-8'}>
           <Outlet />
         </main>
 
-        {/* Bottom tab bar, phones only. 56px tall, so each target is a full thumb. */}
-        <nav className="lg:hidden shrink-0 bg-white border-t border-gray-200 flex items-stretch h-14 pb-[env(safe-area-inset-bottom)]">
+        {/* Bottom tab bar, phones only. 64px tall, so each target is a full thumb. */}
+        <nav aria-label="القائمة" className="lg:hidden shrink-0 bg-white border-t border-shift-line flex items-stretch h-16 pb-[env(safe-area-inset-bottom)]">
           {nav.tabs.map((item) => {
             const Icon = iconFor(item);
             const badge = badgeFor(item);
             return (
               <NavLink key={item.key} to={item.to}
                 className={({ isActive }) =>
-                  `relative flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] ${isActive ? 'text-green-700 font-semibold' : 'text-gray-500'}`
+                  `relative flex-1 flex flex-col items-center justify-center gap-1 text-[11px] ${isActive ? 'text-shift-accent font-bold' : 'text-shift-muted font-medium'}`
                 }>
-                <Icon size={20} />
+                <Icon size={22} strokeWidth={1.8} aria-hidden="true" />
                 <span className="truncate max-w-full px-1">{item.label}</span>
                 {badge > 0 && (
-                  <span className="absolute top-1 left-1/2 ml-2 bg-red-500 text-white text-[10px] rounded-full px-1 min-w-[16px] text-center">
+                  <span className="absolute top-1.5 left-1/2 ml-2 bg-shift-danger text-white text-[10px] font-bold rounded-full px-1 min-w-[16px] h-4 flex items-center justify-center">
                     {badge > 99 ? '99+' : badge}
                   </span>
                 )}
@@ -194,8 +202,8 @@ export default function DashboardLayout() {
             );
           })}
           <button type="button" onClick={() => setMoreOpen(true)}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px] ${moreActive ? 'text-green-700 font-semibold' : 'text-gray-500'}`}>
-            <MoreHorizontal size={20} />
+            className={`flex-1 flex flex-col items-center justify-center gap-1 text-[11px] ${moreActive ? 'text-shift-accent font-bold' : 'text-shift-muted font-medium'}`}>
+            <MoreHorizontal size={22} strokeWidth={1.8} aria-hidden="true" />
             <span>المزيد</span>
           </button>
         </nav>
@@ -203,22 +211,23 @@ export default function DashboardLayout() {
 
       {/* «المزيد»: everything that is not a tab, plus help and signing out. */}
       {moreOpen && (
-        <div className="lg:hidden fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMoreOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 bg-white rounded-t-2xl pb-[env(safe-area-inset-bottom)] max-h-[80dvh] overflow-y-auto">
-            <div className="flex items-center justify-between px-4 h-12 border-b border-gray-100">
-              <span className="text-[14px] font-semibold text-gray-900">المزيد</span>
-              <button onClick={() => setMoreOpen(false)} className="text-gray-400 p-2" title="إغلاق"><X size={18} /></button>
+        <div className="karam-app lg:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-shift-ink/40" onClick={() => setMoreOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 bg-shift-canvas rounded-t-3xl pb-[env(safe-area-inset-bottom)] max-h-[80dvh] overflow-y-auto">
+            <div className="flex items-center justify-between px-4 h-14">
+              <span className="font-display text-[16px] font-semibold text-shift-ink">المزيد</span>
+              <button onClick={() => setMoreOpen(false)} aria-label="إغلاق" className="w-11 h-11 flex items-center justify-center rounded-xl text-shift-muted"><X size={18} /></button>
             </div>
-            <ul className="py-1">
+            <ul className="mx-4 mb-4 bg-white border border-shift-line rounded-2xl overflow-hidden divide-y divide-shift-line2">
               {nav.more.map((item) => {
                 const Icon = iconFor(item);
                 if (item.href) {
                   return (
                     <li key={item.key}>
                       <a href={helpHref} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-3 px-4 h-12 text-[14px] text-gray-800 active:bg-gray-50">
-                        <Icon size={18} className="text-green-600" /> {item.label}
+                        className="flex items-center gap-3 px-4 h-14 text-[14px] font-semibold text-shift-ok active:bg-shift-hover">
+                        <span className="w-9 h-9 rounded-[10px] bg-shift-okBg flex items-center justify-center"><Icon size={18} aria-hidden="true" /></span>
+                        {item.label}
                       </a>
                     </li>
                   );
@@ -226,15 +235,17 @@ export default function DashboardLayout() {
                 return (
                   <li key={item.key}>
                     <NavLink to={item.to}
-                      className={({ isActive }) => `flex items-center gap-3 px-4 h-12 text-[14px] ${isActive ? 'text-green-700 font-semibold bg-green-50' : 'text-gray-800 active:bg-gray-50'}`}>
-                      <Icon size={18} className="text-gray-500" /> {item.label}
+                      className={({ isActive }) => `flex items-center gap-3 px-4 h-14 text-[14px] ${isActive ? 'text-shift-selText font-semibold bg-shift-sel' : 'text-shift-ink font-medium active:bg-shift-hover'}`}>
+                      <span className="w-9 h-9 rounded-[10px] bg-shift-sel text-shift-selText flex items-center justify-center"><Icon size={18} aria-hidden="true" /></span>
+                      {item.label}
                     </NavLink>
                   </li>
                 );
               })}
-              <li className="border-t border-gray-100 mt-1">
-                <button onClick={handleLogout} className="flex items-center gap-3 px-4 h-12 w-full text-[14px] text-gray-600">
-                  <LogOut size={18} className="text-gray-400" /> تسجيل الخروج
+              <li>
+                <button onClick={handleLogout} className="flex items-center gap-3 px-4 h-14 w-full text-[14px] text-shift-danger">
+                  <span className="w-9 h-9 rounded-[10px] bg-shift-dangerBg flex items-center justify-center"><LogOut size={18} aria-hidden="true" /></span>
+                  تسجيل الخروج
                 </button>
               </li>
             </ul>

@@ -25,22 +25,22 @@ const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 
 const LINE_TONE = {
   good: { box: 'border-emerald-200 bg-emerald-50', text: 'text-emerald-900', Icon: CheckCircle2 },
-  warn: { box: 'border-amber-200 bg-amber-50', text: 'text-amber-900', Icon: AlertTriangle },
-  bad: { box: 'border-red-200 bg-red-50', text: 'text-red-900', Icon: XCircle },
+  warn: { box: 'border-[#F1D29A] bg-shift-warnBg', text: 'text-shift-warn', Icon: AlertTriangle },
+  bad: { box: 'border-shift-dangerLine bg-shift-dangerBg', text: 'text-shift-danger', Icon: XCircle },
 };
 
 const BANNER_TONE = {
   info: 'bg-sky-50 border-sky-200 text-sky-900',
   good: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-  warn: 'bg-amber-50 border-amber-200 text-amber-900',
-  bad: 'bg-red-50 border-red-200 text-red-900',
+  warn: 'bg-shift-warnBg border-[#F1D29A] text-shift-warn',
+  bad: 'bg-shift-dangerBg border-shift-dangerLine text-shift-danger',
 };
 
 function Card({ title, children, action }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white">
-      <header className="flex items-center justify-between px-4 h-11 border-b border-gray-100">
-        <h3 className="text-[14px] font-semibold text-gray-800">{title}</h3>
+    <section className="rounded-2xl border border-shift-line bg-white">
+      <header className="flex items-center justify-between px-4 h-11 border-b border-shift-line2">
+        <h3 className="text-[14px] font-semibold text-shift-ink">{title}</h3>
         {action}
       </header>
       <div className="p-4">{children}</div>
@@ -48,11 +48,11 @@ function Card({ title, children, action }) {
   );
 }
 
-function Figure({ value, label, tone = 'text-gray-900' }) {
+function Figure({ value, label, tone = 'text-shift-ink' }) {
   return (
     <div className="flex-1 min-w-0 text-center">
       <div className={`text-2xl font-bold tabular-nums ${tone}`}>{value ?? '—'}</div>
-      <div className="text-[12px] text-gray-500 mt-0.5">{label}</div>
+      <div className="text-[12px] text-shift-muted mt-0.5">{label}</div>
     </div>
   );
 }
@@ -102,13 +102,13 @@ function StatusLine({ status, role, businessId, onReload, who }) {
         {line.action === 'reconnect' && <ConnectInline onDone={onReload} label="أعد الربط" />}
         {line.action === 'resume' && (
           <button type="button" onClick={resume} disabled={busy}
-            className="inline-flex items-center gap-1.5 mt-2 h-10 px-4 rounded-md bg-green-600 text-white text-[14px] font-medium disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 mt-2 h-10 px-4 rounded-md bg-shift-ok text-white text-[14px] font-medium disabled:opacity-50">
             {busy && <Loader2 size={14} className="animate-spin" />} شغّل البوت
           </button>
         )}
         {line.action === 'manager' && (
           <a href={MANAGER_URL} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 mt-2 text-[13px] font-medium underline underline-offset-2 text-red-900">
+            className="inline-flex items-center gap-1.5 mt-2 text-[13px] font-medium underline underline-offset-2 text-shift-danger">
             افتح WhatsApp Manager <ExternalLink size={12} />
           </a>
         )}
@@ -128,7 +128,7 @@ function StatusLine({ status, role, businessId, onReload, who }) {
             راسل شِفت على واتساب <ExternalLink size={12} />
           </a>
         )}
-        {error && <p className="mt-1 text-[12px] text-red-700">{error}</p>}
+        {error && <p className="mt-1 text-[12px] text-shift-danger">{error}</p>}
       </div>
     </section>
   );
@@ -177,12 +177,12 @@ export default function OverviewPage() {
   // Staff answer chats; their home is the inbox (spec «الرئيسية»: staff go to /inbox).
   if (role === 'staff') return <Navigate to="/inbox" replace />;
 
-  if (error) return <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
+  if (error) return <div className="rounded-xl border border-shift-dangerLine bg-shift-dangerBg px-4 py-3 text-sm text-shift-danger">{error}</div>;
   if (!status) {
     return (
       <div className="space-y-3 animate-pulse">
-        <div className="h-14 rounded-xl bg-white border border-gray-200" />
-        <div className="h-28 rounded-xl bg-white border border-gray-200" />
+        <div className="h-14 rounded-xl bg-white border border-shift-line" />
+        <div className="h-28 rounded-xl bg-white border border-shift-line" />
       </div>
     );
   }
@@ -215,14 +215,14 @@ export default function OverviewPage() {
       {connected ? (
         <>
           <Card title="اليوم">
-            <div className="flex items-stretch divide-x divide-x-reverse divide-gray-100">
+            <div className="flex items-stretch divide-x divide-x-reverse divide-shift-line2">
               <Figure value={today?.inbound} label="زبائن راسلوك" />
               <Figure value={today?.ai_replies} label="ردّ عليهم البوت" />
-              <Figure value={today?.waiting} label="بانتظارك" tone={today?.waiting > 0 ? 'text-amber-700' : 'text-gray-900'} />
+              <Figure value={today?.waiting} label="بانتظارك" tone={today?.waiting > 0 ? 'text-shift-warn' : 'text-shift-ink'} />
               {todayExtra && <Figure value={todayExtra.value} label={todayExtra.label} />}
             </div>
             {today?.waiting > 0 && (
-              <Link to="/inbox" className="mt-3 flex items-center justify-center gap-1.5 h-11 rounded-md bg-amber-100 text-amber-900 text-[14px] font-medium">
+              <Link to="/inbox" className="mt-3 flex items-center justify-center gap-1.5 h-11 rounded-md bg-shift-warnBg text-shift-warn text-[14px] font-medium">
                 افتح المحادثات بانتظارك <ArrowLeft size={14} />
               </Link>
             )}
@@ -234,7 +234,7 @@ export default function OverviewPage() {
               {week && week.length > 0 && (
                 <div className="mt-3">
                   <Sparkline values={week} />
-                  <p className="mt-1 text-[11px] text-gray-400">ردود البوت في آخر 7 أيام</p>
+                  <p className="mt-1 text-[11px] text-shift-muted">ردود البوت في آخر 7 أيام</p>
                 </div>
               )}
             </Card>
@@ -243,7 +243,7 @@ export default function OverviewPage() {
       ) : (
         // Not connected: no zeros. The one thing that makes the numbers mean anything is the link.
         <Card title="بعد ربط واتساب">
-          <p className="text-[13px] text-gray-600 leading-relaxed">
+          <p className="text-[13px] text-shift-body leading-relaxed">
             هنا ترى كل يوم كم زبونًا راسلك، وكم ردّ عليهم البوت، ومن ينتظر ردك أنت.
           </p>
           {owner && ownerCanConnect(status) && statusLine(status, { role }).action !== 'connect' && (
@@ -255,8 +255,8 @@ export default function OverviewPage() {
       <KnowledgeGaps limit={3} onChange={load} />
 
       <a href={shiftWaLink(helpText(user))} target="_blank" rel="noopener noreferrer"
-        className="flex items-center justify-center gap-1.5 py-3 text-[13px] text-gray-600">
-        <MessageCircle size={14} className="text-green-600" /> تحتاج مساعدة؟ راسل شِفت
+        className="flex items-center justify-center gap-1.5 py-3 text-[13px] text-shift-body">
+        <MessageCircle size={14} className="text-shift-ok" /> تحتاج مساعدة؟ راسل شِفت
       </a>
     </div>
   );

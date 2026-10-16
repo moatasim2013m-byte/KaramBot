@@ -27,37 +27,37 @@ function ItemModal({ item, categories, onSave, onClose }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
         <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold text-gray-800">{item?.id ? 'تعديل صنف' : 'إضافة صنف'}</h3>
-          <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
+          <h3 className="font-semibold text-shift-ink">{item?.id ? 'تعديل صنف' : 'إضافة صنف'}</h3>
+          <button onClick={onClose}><X size={18} className="text-shift-muted" /></button>
         </div>
         <div className="p-5 space-y-3">
           <div>
-            <label className="block text-sm text-gray-600 mb-1">الاسم بالعربي *</label>
+            <label className="block text-sm text-shift-body mb-1">الاسم بالعربي *</label>
             <input value={form.name_ar} onChange={e => setForm(f => ({ ...f, name_ar: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-shift-ok" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">الاسم بالإنجليزي</label>
+            <label className="block text-sm text-shift-body mb-1">الاسم بالإنجليزي</label>
             <input value={form.name_en || ''} onChange={e => setForm(f => ({ ...f, name_en: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" dir="ltr" />
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-shift-ok" dir="ltr" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">السعر (JOD) *</label>
+            <label className="block text-sm text-shift-body mb-1">السعر (JOD) *</label>
             <input type="number" step="0.1" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: parseFloat(e.target.value) }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" dir="ltr" />
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-shift-ok" dir="ltr" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">الفئة *</label>
+            <label className="block text-sm text-shift-body mb-1">الفئة *</label>
             <select value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none">
               <option value="">اختر فئة</option>
               {categories.map(c => <option key={c.id} value={c.id}>{c.name_ar}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">الوصف</label>
+            <label className="block text-sm text-shift-body mb-1">الوصف</label>
             <textarea rows={2} value={form.description_ar || ''} onChange={e => setForm(f => ({ ...f, description_ar: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none resize-none" />
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none resize-none" />
           </div>
           <div className="flex gap-4">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -71,8 +71,8 @@ function ItemModal({ item, categories, onSave, onClose }) {
           </div>
         </div>
         <div className="flex gap-2 px-5 pb-5">
-          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm">إلغاء</button>
-          <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-500 text-white py-2 rounded-lg text-sm disabled:opacity-50">
+          <button onClick={onClose} className="flex-1 border border-shift-line text-shift-body py-2 rounded-lg text-sm">إلغاء</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 bg-shift-ok text-white py-2 rounded-lg text-sm disabled:opacity-50">
             {saving ? 'جاري الحفظ...' : 'حفظ'}
           </button>
         </div>
@@ -117,19 +117,19 @@ function ModifierGroupModal({ group, onSave, onClose }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-y-auto max-h-[90vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold text-gray-800">{group?.id ? 'تعديل مجموعة إضافات' : 'إضافة مجموعة إضافات'}</h3>
-          <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
+          <h3 className="font-semibold text-shift-ink">{group?.id ? 'تعديل مجموعة إضافات' : 'إضافة مجموعة إضافات'}</h3>
+          <button onClick={onClose}><X size={18} className="text-shift-muted" /></button>
         </div>
         <div className="p-5 space-y-3">
           <div>
-            <label className="block text-sm text-gray-600 mb-1">الاسم بالعربي *</label>
+            <label className="block text-sm text-shift-body mb-1">الاسم بالعربي *</label>
             <input value={form.name_ar} onChange={e => setForm(f => ({ ...f, name_ar: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-shift-ok" />
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-1">الاسم بالإنجليزي</label>
+            <label className="block text-sm text-shift-body mb-1">الاسم بالإنجليزي</label>
             <input value={form.name_en || ''} onChange={e => setForm(f => ({ ...f, name_en: e.target.value }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" dir="ltr" />
+              className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none" dir="ltr" />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <label className="flex items-center gap-2 text-sm cursor-pointer col-span-1">
@@ -137,28 +137,28 @@ function ModifierGroupModal({ group, onSave, onClose }) {
               إجباري
             </label>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">الحد الأدنى</label>
+              <label className="block text-xs text-shift-muted mb-1">الحد الأدنى</label>
               <input type="number" min="0" value={form.min_select}
                 onChange={e => setForm(f => ({ ...f, min_select: parseInt(e.target.value) || 0 }))}
-                className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none" dir="ltr" />
+                className="w-full border border-shift-line rounded-lg px-2 py-1.5 text-sm focus:outline-none" dir="ltr" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">الحد الأقصى</label>
+              <label className="block text-xs text-shift-muted mb-1">الحد الأقصى</label>
               <input type="number" min="1" value={form.max_select}
                 onChange={e => setForm(f => ({ ...f, max_select: parseInt(e.target.value) || 1 }))}
-                className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none" dir="ltr" />
+                className="w-full border border-shift-line rounded-lg px-2 py-1.5 text-sm focus:outline-none" dir="ltr" />
             </div>
           </div>
           <div>
-            <label className="block text-sm text-gray-600 mb-2">الخيارات</label>
+            <label className="block text-sm text-shift-body mb-2">الخيارات</label>
             {form.options.map((opt, i) => (
-              <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 mb-1.5">
-                <span className="text-sm text-gray-700">{opt.name_ar}</span>
+              <div key={i} className="flex items-center justify-between bg-shift-canvas rounded-lg px-3 py-2 mb-1.5">
+                <span className="text-sm text-shift-body">{opt.name_ar}</span>
                 <div className="flex items-center gap-3">
                   {opt.price_delta !== 0 && (
-                    <span className="text-xs text-green-600">+{opt.price_delta} JOD</span>
+                    <span className="text-xs text-shift-ok">+{opt.price_delta} JOD</span>
                   )}
-                  <button onClick={() => removeOption(i)} className="text-gray-400 hover:text-red-500">
+                  <button onClick={() => removeOption(i)} className="text-shift-muted hover:text-red-500">
                     <X size={14} />
                   </button>
                 </div>
@@ -167,20 +167,20 @@ function ModifierGroupModal({ group, onSave, onClose }) {
             <div className="flex gap-2 mt-2">
               <input value={optionInput.name_ar} onChange={e => setOptionInput(o => ({ ...o, name_ar: e.target.value }))}
                 placeholder="اسم الخيار"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
+                className="flex-1 border border-shift-line rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
               <input type="number" step="0.1" value={optionInput.price_delta}
                 onChange={e => setOptionInput(o => ({ ...o, price_delta: parseFloat(e.target.value) || 0 }))}
                 placeholder="+JOD"
-                className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none" dir="ltr" />
-              <button onClick={addOption} className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-sm">
+                className="w-20 border border-shift-line rounded-lg px-2 py-1.5 text-sm focus:outline-none" dir="ltr" />
+              <button onClick={addOption} className="bg-shift-line2 hover:bg-shift-line text-shift-body px-3 py-1.5 rounded-lg text-sm">
                 إضافة
               </button>
             </div>
           </div>
         </div>
         <div className="flex gap-2 px-5 pb-5">
-          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm">إلغاء</button>
-          <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-500 text-white py-2 rounded-lg text-sm disabled:opacity-50">
+          <button onClick={onClose} className="flex-1 border border-shift-line text-shift-body py-2 rounded-lg text-sm">إلغاء</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 bg-shift-ok text-white py-2 rounded-lg text-sm disabled:opacity-50">
             {saving ? 'جاري الحفظ...' : 'حفظ'}
           </button>
         </div>
@@ -215,15 +215,15 @@ function CategoryModal({ onSave, onClose, nextOrder }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h3 className="font-semibold text-gray-800">إضافة تصنيف</h3>
+        <h3 className="font-semibold text-shift-ink">إضافة تصنيف</h3>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="الاسم، مثال: مشاوي" autoFocus
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+          className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-shift-ok" />
         <input value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder="الاسم بالإنجليزية (اختياري)" dir="ltr"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" />
-        {error && <p className="text-red-600 text-xs">{error}</p>}
+          className="w-full border border-shift-line rounded-lg px-3 py-2 text-sm focus:outline-none" />
+        {error && <p className="text-shift-danger text-xs">{error}</p>}
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 py-2 rounded-lg text-sm">إلغاء</button>
-          <button onClick={handleSave} disabled={saving} className="flex-1 bg-green-500 text-white py-2 rounded-lg text-sm disabled:opacity-50">
+          <button onClick={onClose} className="flex-1 border border-shift-line text-shift-body py-2 rounded-lg text-sm">إلغاء</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 bg-shift-ok text-white py-2 rounded-lg text-sm disabled:opacity-50">
             {saving ? 'جاري الحفظ...' : 'إضافة'}
           </button>
         </div>
@@ -272,17 +272,17 @@ export default function MenuPage() {
     load();
   };
 
-  const TAB_STYLE = (t) => `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === t ? 'bg-green-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`;
+  const TAB_STYLE = (t) => `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === t ? 'bg-shift-ok text-white' : 'text-shift-body hover:bg-shift-line2'}`;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-gray-800">القائمة</h1>
+        <h1 className="text-xl font-bold text-shift-ink">القائمة</h1>
         <div className="flex items-center gap-2">
         {tab === 'items' && (
           <button
             onClick={() => setModal('category')}
-            className="flex items-center gap-2 border border-green-500 text-green-700 px-4 py-2 rounded-lg text-sm hover:bg-green-50"
+            className="flex items-center gap-2 border border-shift-ok text-shift-ok px-4 py-2 rounded-lg text-sm hover:bg-shift-okBg"
           >
             <Plus size={16} />
             إضافة تصنيف
@@ -290,7 +290,7 @@ export default function MenuPage() {
         )}
         <button
           onClick={() => tab === 'items' ? setModal('add') : setModal({ type: 'modifier', group: null })}
-          className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-600"
+          className="flex items-center gap-2 bg-shift-ok text-white px-4 py-2 rounded-lg text-sm hover:bg-shift-ok"
         >
           <Plus size={16} />
           {tab === 'items' ? 'إضافة صنف' : 'إضافة مجموعة إضافات'}
@@ -299,54 +299,54 @@ export default function MenuPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-5 bg-gray-50 p-1 rounded-xl w-fit">
+      <div className="flex gap-2 mb-5 bg-shift-canvas p-1 rounded-xl w-fit">
         <button className={TAB_STYLE('items')} onClick={() => setTab('items')}>الأصناف</button>
         <button className={TAB_STYLE('modifiers')} onClick={() => setTab('modifiers')}>
           <Layers size={14} className="inline ml-1" /> مجموعات الإضافات
         </button>
       </div>
 
-      {loading && <div className="text-center py-12 text-gray-400">جاري التحميل...</div>}
+      {loading && <div className="text-center py-12 text-shift-muted">جاري التحميل...</div>}
 
       {/* Items Tab */}
       {tab === 'items' && !loading && (
         <div className="space-y-5">
           {menu.length === 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center">
-              <p className="text-sm font-medium text-amber-900">بدون هذه المعلومات يرد البوت بالترحيب فقط</p>
-              <p className="text-xs text-amber-800 mt-1">ابدأ بـ «إضافة تصنيف»، ثم أضف الأصناف وأسعارها.</p>
+            <div className="rounded-xl border border-[#F1D29A] bg-shift-warnBg px-4 py-6 text-center">
+              <p className="text-sm font-medium text-shift-warn">بدون هذه المعلومات يرد البوت بالترحيب فقط</p>
+              <p className="text-xs text-shift-warn mt-1">ابدأ بـ «إضافة تصنيف»، ثم أضف الأصناف وأسعارها.</p>
             </div>
           )}
           {menu.map(cat => (
-            <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 font-semibold text-gray-700 text-sm border-b border-gray-100">
+            <div key={cat.id} className="bg-white rounded-xl shadow-sm border border-shift-line2 overflow-hidden">
+              <div className="bg-shift-canvas px-4 py-3 font-semibold text-shift-body text-sm border-b border-shift-line2">
                 {cat.name_ar}
-                <span className="text-gray-400 font-normal mr-2">({cat.items?.length})</span>
+                <span className="text-shift-muted font-normal mr-2">({cat.items?.length})</span>
               </div>
               {cat.items?.length === 0 && (
-                <div className="text-center py-6 text-gray-300 text-sm">لا يوجد أصناف في هذه الفئة</div>
+                <div className="text-center py-6 text-shift-field text-sm">لا يوجد أصناف في هذه الفئة</div>
               )}
               {cat.items?.map(item => (
-                <div key={item.id} className="flex items-center justify-between px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                <div key={item.id} className="flex items-center justify-between px-4 py-3 border-b border-shift-canvas last:border-0 hover:bg-shift-canvas">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm text-gray-800">{item.name_ar}</span>
-                      {!item.available && <span className="text-xs bg-red-100 text-red-500 px-1.5 py-0.5 rounded">غير متاح</span>}
-                      {!item.active && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">مخفي</span>}
+                      <span className="font-medium text-sm text-shift-ink">{item.name_ar}</span>
+                      {!item.available && <span className="text-xs bg-shift-dangerBg text-red-500 px-1.5 py-0.5 rounded">غير متاح</span>}
+                      {!item.active && <span className="text-xs bg-shift-line2 text-shift-muted px-1.5 py-0.5 rounded">مخفي</span>}
                     </div>
-                    {item.description_ar && <div className="text-xs text-gray-400 mt-0.5">{item.description_ar}</div>}
+                    {item.description_ar && <div className="text-xs text-shift-muted mt-0.5">{item.description_ar}</div>}
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-green-600">{Number(item.price).toFixed(2)} JOD</span>
+                    <span className="text-sm font-semibold text-shift-ok">{Number(item.price).toFixed(2)} JOD</span>
                     <button onClick={() => toggleAvailable(item)} title={item.available ? 'إخفاء' : 'إظهار'}>
                       {item.available
-                        ? <ToggleRight size={20} className="text-green-500" />
-                        : <ToggleLeft size={20} className="text-gray-300" />}
+                        ? <ToggleRight size={20} className="text-shift-ok" />
+                        : <ToggleLeft size={20} className="text-shift-field" />}
                     </button>
-                    <button onClick={() => setModal(item)} className="text-gray-400 hover:text-blue-500">
+                    <button onClick={() => setModal(item)} className="text-shift-muted hover:text-blue-500">
                       <Edit2 size={15} />
                     </button>
-                    <button onClick={() => deleteItem(item.id)} className="text-gray-400 hover:text-red-500">
+                    <button onClick={() => deleteItem(item.id)} className="text-shift-muted hover:text-red-500">
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -359,30 +359,30 @@ export default function MenuPage() {
 
       {/* Modifier Groups Tab */}
       {tab === 'modifiers' && !loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-shift-line2 overflow-hidden">
           {modifierGroups.length === 0 && (
-            <div className="text-center py-12 text-gray-400">لا توجد مجموعات إضافات</div>
+            <div className="text-center py-12 text-shift-muted">لا توجد مجموعات إضافات</div>
           )}
           {modifierGroups.map((group, i) => (
-            <div key={group.id} className={`px-4 py-3 hover:bg-gray-50 ${i < modifierGroups.length - 1 ? 'border-b border-gray-50' : ''}`}>
+            <div key={group.id} className={`px-4 py-3 hover:bg-shift-canvas ${i < modifierGroups.length - 1 ? 'border-b border-shift-canvas' : ''}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm text-gray-800">{group.name_ar}</span>
+                    <span className="font-medium text-sm text-shift-ink">{group.name_ar}</span>
                     {group.required && <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">إجباري</span>}
-                    <span className="text-xs text-gray-400">اختر {group.min_select}–{group.max_select}</span>
+                    <span className="text-xs text-shift-muted">اختر {group.min_select}–{group.max_select}</span>
                   </div>
                   {group.options?.length > 0 && (
-                    <div className="text-xs text-gray-400 mt-1">
+                    <div className="text-xs text-shift-muted mt-1">
                       {group.options.map(o => o.name_ar).join(' · ')}
                     </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setModal({ type: 'modifier', group })} className="text-gray-400 hover:text-blue-500">
+                  <button onClick={() => setModal({ type: 'modifier', group })} className="text-shift-muted hover:text-blue-500">
                     <Edit2 size={15} />
                   </button>
-                  <button onClick={() => deleteModifierGroup(group.id)} className="text-gray-400 hover:text-red-500">
+                  <button onClick={() => deleteModifierGroup(group.id)} className="text-shift-muted hover:text-red-500">
                     <Trash2 size={15} />
                   </button>
                 </div>
