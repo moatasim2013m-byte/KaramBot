@@ -70,7 +70,7 @@ function Summary() {
             <h2 className="font-display text-[14px] font-semibold text-shift-ink mb-3">محادثات يوميًا</h2>
             <div className="flex items-end gap-1 h-28">
               {perDay.map((d) => (
-                <div key={d.date} className="flex-1 flex flex-col items-center gap-1 min-w-0" title={`${d.conversations}`}>
+                <div key={d.date} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0 h-full" title={`${d.conversations}`}>
                   <div className="w-full bg-shift-selLine rounded-t-md" style={{ height: `${((Number(d.conversations) || 0) / maxConv) * 100}%`, minHeight: d.conversations ? 3 : 0 }} />
                 </div>
               ))}

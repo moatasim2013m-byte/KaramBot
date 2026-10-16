@@ -29,7 +29,10 @@ export default function TryTheBot({ endpoint = '/whatsapp/status/test', suggesti
   const [meta, setMeta] = useState(null);           // has_workflow, latency
   const endRef = useRef(null);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns]);
+  // Only once there is a conversation to follow: on mount this scrolled the whole page down to the box.
+  useEffect(() => {
+    if (turns.length) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [turns]);
 
   const send = async (msg) => {
     const m = String(msg ?? text).trim();
