@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Store, Kanban, Receipt, SlidersHorizontal, Search, Menu, X, ArrowLeftRight } from 'lucide-react';
+import { Home, Store, Kanban, Receipt, SlidersHorizontal, Search, Menu, X, MessageSquare, Bot } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
 import { ATTENTION_EVENT, fleetRow, matchesSearch } from '../components/admin/operatorView';
@@ -21,6 +21,10 @@ import { ATTENTION_EVENT, fleetRow, matchesSearch } from '../components/admin/op
  *
  * A platform_admin who also has a business_id lands here regardless. Navigation must not
  * change because of a data accident.
+ *
+ * «شِفت» at the bottom is SHIFT's own sales bot — its inbox and its bot page, the same screens a
+ * shop has, scoped to SHIFT's shop. karambots.com shows nothing but this console, so SHIFT's own
+ * shop team (business_type 'shift', not admins) enters here too and sees that section alone.
  */
 
 const NAV = [
@@ -31,11 +35,17 @@ const NAV = [
   { to: '/admin/billing', icon: Receipt, label: 'الاشتراكات والدفعات' },
 ];
 
-/** The attention count for the nav badge: announced by «اليوم», asked for elsewhere. */
-function useAttentionCount() {
+// SHIFT's own shop: the sales bot's chats and its settings.
+const SHIFT_NAV = [
+  { to: '/admin/inbox', icon: MessageSquare, label: 'محادثات شِفت', unread: true },
+  { to: '/admin/bot', icon: Bot, label: 'بوت شِفت' },
+];
+
+/** The attention count for the nav badge: announced by «اليوم», asked for elsewhere (admins only). */
+function useAttentionCount(enabled) {
   const { pathname } = useLocation();
   const [count, setCount] = useState(null);
-  const onToday = pathname.startsWith('/admin/overview');
+  const onToday = !enabled || pathname.startsWith('/admin/overview');
 
   useEffect(() => {
     const on = (e) => setCount(Number(e.detail) || 0);
@@ -54,6 +64,22 @@ function useAttentionCount() {
     return () => { alive = false; clearInterval(t); };
   }, [onToday]);
 
+  return count;
+}
+
+/** Unread chats on SHIFT's own number, for the «محادثات شِفت» badge (the shop panel's bell, moved here). */
+function useShiftUnread(enabled) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let alive = true;
+    const ask = () => api.get('/inbox/v2/stats')
+      .then((res) => { if (alive) setCount(res.data?.unread || 0); })
+      .catch(() => {});
+    ask();
+    const t = setInterval(ask, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [enabled]);
   return count;
 }
 
@@ -133,15 +159,22 @@ export default function AdminLayout() {
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
-  const attention = useAttentionCount();
+  const isAdmin = user?.role === 'platform_admin';
+  // SHIFT's own shop is the admin's business_id (and the shift team's); without one there is no inbox to show.
+  const hasShiftShop = Boolean(user?.business_id);
+  const attention = useAttentionCount(isAdmin);
+  const unread = useShiftUnread(hasShiftShop);
+  // The inbox runs edge to edge and scrolls its own panes, as it does in the shop panel.
+  const fullBleed = pathname === '/admin/inbox';
 
   useEffect(() => {
+    if (!isAdmin) return undefined;
     const onKey = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearching(true); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [isAdmin]);
   useEffect(() => { setOpen(false); }, [pathname]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
@@ -165,15 +198,17 @@ export default function AdminLayout() {
           </button>
         </div>
 
-        <button type="button" onClick={() => setSearching(true)}
-          className="flex items-center gap-2.5 h-10 px-3 rounded-[10px] border border-white/[.12] bg-white/[.04] text-shift-navText text-[13.5px] hover:bg-white/[.07]">
-          <Search size={15} aria-hidden="true" />
-          ابحث عن زبون
-          <kbd dir="ltr" className="mr-auto font-mono text-[11px] text-shift-navMuted border border-white/[.16] rounded-md px-1.5">⌘K</kbd>
-        </button>
+        {isAdmin && (
+          <button type="button" onClick={() => setSearching(true)}
+            className="flex items-center gap-2.5 h-10 px-3 rounded-[10px] border border-white/[.12] bg-white/[.04] text-shift-navText text-[13.5px] hover:bg-white/[.07]">
+            <Search size={15} aria-hidden="true" />
+            ابحث عن زبون
+            <kbd dir="ltr" className="mr-auto font-mono text-[11px] text-shift-navMuted border border-white/[.16] rounded-md px-1.5">⌘K</kbd>
+          </button>
+        )}
 
         <nav className="flex flex-col gap-0.5">
-          {NAV.map(({ to, icon: Icon, label, badge }) => (
+          {isAdmin && NAV.map(({ to, icon: Icon, label, badge }) => (
             <NavLink key={to} to={to} className={navItem}>
               <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
               <span className="flex-1">{label}</span>
@@ -185,26 +220,37 @@ export default function AdminLayout() {
               )}
             </NavLink>
           ))}
+          {hasShiftShop && (
+            <>
+              <span className={`px-[15px] ${isAdmin ? 'pt-4' : ''} pb-1 text-[11px] font-semibold tracking-wide text-shift-navMuted`}>شِفت</span>
+              {SHIFT_NAV.map(({ to, icon: Icon, label, unread: showUnread }) => (
+                <NavLink key={to} to={to} className={navItem}>
+                  <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
+                  <span className="flex-1">{label}</span>
+                  {showUnread && unread > 0 && (
+                    <span className="min-w-[20px] text-center text-xs font-semibold text-white bg-shift-danger rounded-full px-[7px] tabular-nums"
+                      aria-label={`رسائل غير مقروءة: ${unread}`}>
+                      {unread > 99 ? '99+' : unread}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
 
         <div className="mt-auto flex flex-col gap-2.5">
-          {/* SHIFT's own shop (كرم بوت) is a shop like the others, with its own panel; the admin who
-              owns it opens it from here, on the same door (karambots.com). */}
-          {user?.business_id && (
-            <NavLink to="/overview" className={navItem({ isActive: false })}>
-              <ArrowLeftRight size={18} strokeWidth={1.75} aria-hidden="true" />
-              <span className="flex-1 text-sm">لوحة محل شِفت</span>
+          {isAdmin && (
+            <NavLink to="/admin/settings" className={navItem}>
+              <SlidersHorizontal size={18} strokeWidth={1.75} aria-hidden="true" />
+              <span className="flex-1 text-sm">إعدادات المنصة</span>
             </NavLink>
           )}
-          <NavLink to="/admin/settings" className={navItem}>
-            <SlidersHorizontal size={18} strokeWidth={1.75} aria-hidden="true" />
-            <span className="flex-1 text-sm">إعدادات المنصة</span>
-          </NavLink>
           <div className="flex items-center gap-2.5 px-2.5 pt-3 border-t border-white/[.08]">
             <div aria-hidden="true" className="w-8 h-8 rounded-full bg-shift-ink2 text-[#EAF0F9] grid place-items-center font-semibold text-[13px]">{initial}</div>
             <div className="flex flex-col min-w-0">
               <span className="text-white text-[13.5px] font-medium truncate">{user?.name}</span>
-              <span className="text-xs text-shift-navMuted">مدير المنصة</span>
+              <span className="text-xs text-shift-navMuted">{isAdmin ? 'مدير المنصة' : 'فريق شِفت'}</span>
             </div>
             <button type="button" onClick={handleLogout} className="mr-auto min-h-[32px] px-2 text-shift-navMuted hover:text-white text-[12.5px]">
               خروج
@@ -221,18 +267,20 @@ export default function AdminLayout() {
             <Menu size={22} />
           </button>
           <span className="mr-2.5"><Logo small /></span>
-          {attention > 0 && (
+          {isAdmin && attention > 0 && (
             <NavLink to="/admin/overview" className="mr-2 min-w-[22px] h-[22px] px-1.5 rounded-full bg-white/15 text-white text-[11px] font-semibold flex items-center justify-center tabular-nums"
               aria-label={`يحتاج انتباهك: ${attention}`}>
               {attention}
             </NavLink>
           )}
-          <button type="button" onClick={() => setSearching(true)} aria-label="ابحث عن زبون" className="mr-auto w-11 h-11 grid place-items-center text-white">
-            <Search size={20} />
-          </button>
+          {isAdmin && (
+            <button type="button" onClick={() => setSearching(true)} aria-label="ابحث عن زبون" className="mr-auto w-11 h-11 grid place-items-center text-white">
+              <Search size={20} />
+            </button>
+          )}
         </header>
 
-        <main className="flex-1 overflow-y-auto px-4 py-5 lg:px-8 lg:pt-7 lg:pb-12">
+        <main className={fullBleed ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto px-4 py-5 lg:px-8 lg:pt-7 lg:pb-12'}>
           <Outlet />
         </main>
       </div>

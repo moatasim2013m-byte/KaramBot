@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { OPERATOR_ORIGIN, currentSurface, goToOrigin } from './utils/surface';
+import { currentSurface } from './utils/surface';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './components/common/DashboardLayout';
 import OverviewPage from './pages/OverviewPage';
@@ -40,18 +40,41 @@ function ProtectedRoute({ children }) {
 }
 
 /**
- * The platform is SHIFT's, on karambots.com. Opened on the customers' door (app.shifts-ai.com) it
- * goes to karambots.com with the same path instead of offering SHIFT's login to the shops.
+ * The console is SHIFT's, on karambots.com. On the customers' door (app.shifts-ai.com) /admin is
+ * simply not there: a shop that types it lands on its own home, and nothing names the other address.
  */
 function OperatorDoor({ children }) {
-  const customerDoor = currentSurface() === 'customer';
-  useEffect(() => { if (customerDoor) goToOrigin(OPERATOR_ORIGIN); }, [customerDoor]);
-  return customerDoor ? null : children;
+  if (currentSurface() === 'customer') return <Navigate to="/" replace />;
+  return children;
 }
 
-function RoleRoute({ roles, children }) {
+/**
+ * karambots.com shows the console only. SHIFT's own sales-bot inbox and bot settings sit inside
+ * it («محادثات شِفت», «بوت شِفت»), so the customer-panel routes have nowhere to go on this door
+ * but their console twins. Elsewhere (the app, a preview) the shop panel renders as it is.
+ */
+const CONSOLE_TWIN = { '/inbox': '/admin/inbox', '/bot': '/admin/bot' };
+function CustomerDoor({ children }) {
   const { user } = useAuth();
-  if (!user || !roles.includes(user.role)) return <Navigate to="/overview" replace />;
+  const { pathname } = useLocation();
+  if (currentSurface() !== 'operator') return children;
+  const twin = Object.keys(CONSOLE_TWIN).find((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const fallback = user?.role === 'platform_admin' ? '/admin/overview' : '/admin/inbox';
+  return <Navigate to={twin ? CONSOLE_TWIN[twin] : fallback} replace />;
+}
+
+/** SHIFT's own shop team (business_type 'shift') may enter the console for its own inbox and bot. */
+const isShiftTeam = (user) => Boolean(user) && (user.role === 'platform_admin' || user.business_type === 'shift');
+
+function RoleRoute({ roles, children, fallback = '/overview' }) {
+  const { user } = useAuth();
+  if (!user || !roles.includes(user.role)) return <Navigate to={fallback} replace />;
+  return children;
+}
+
+function ConsoleRoute({ children }) {
+  const { user } = useAuth();
+  if (!isShiftTeam(user)) return <Navigate to="/overview" replace />;
   return children;
 }
 
@@ -65,8 +88,21 @@ function RoleRoute({ roles, children }) {
 function HomeRedirect() {
   const { user } = useAuth();
   // Staff answer chats; their home is the inbox (spec «الرئيسية»).
-  const home = user?.role === 'platform_admin' ? '/admin/overview' : user?.role === 'staff' ? '/inbox' : '/overview';
+  const home = user?.role === 'platform_admin' ? '/admin/overview'
+    : currentSurface() === 'operator' ? '/admin/inbox'
+      : user?.role === 'staff' ? '/inbox' : '/overview';
   return <Navigate to={home} replace />;
+}
+
+/** The console's front page: «اليوم» for the admin, SHIFT's inbox for the rest of SHIFT's team. */
+function ConsoleHome() {
+  const { user } = useAuth();
+  return <Navigate to={user?.role === 'platform_admin' ? '/admin/overview' : '/admin/inbox'} replace />;
+}
+
+/** The admin's pages; SHIFT's own shop team is sent back to its inbox, never out of the console. */
+function AdminOnly({ children }) {
+  return <RoleRoute roles={['platform_admin']} fallback="/admin/inbox">{children}</RoleRoute>;
 }
 
 export default function App() {
@@ -85,7 +121,9 @@ export default function App() {
           <Route path="/join" element={<JoinPage />} />
           <Route path="/" element={
             <ProtectedRoute>
-              <DashboardLayout />
+              <CustomerDoor>
+                <DashboardLayout />
+              </CustomerDoor>
             </ProtectedRoute>
           }>
             <Route index element={<HomeRedirect />} />
@@ -133,27 +171,32 @@ export default function App() {
               </RoleRoute>
             } />
           </Route>
-          {/* SHIFT platform — its own tree, its own shell, never mixed with a business dashboard. */}
+          {/* SHIFT console — its own tree, its own shell, never mixed with a business dashboard.
+              SHIFT's own shop team enters it for «محادثات شِفت» and «بوت شِفت» only. */}
           <Route path="/admin" element={
             <OperatorDoor>
               <ProtectedRoute>
-                <RoleRoute roles={['platform_admin']}>
+                <ConsoleRoute>
                   <AdminLayout />
-                </RoleRoute>
+                </ConsoleRoute>
               </ProtectedRoute>
             </OperatorDoor>
           }>
-            <Route index element={<Navigate to="/admin/overview" replace />} />
-            <Route path="overview" element={<AdminOverviewPage />} />
-            <Route path="accounts" element={<BusinessesPage />} />
-            <Route path="accounts/new" element={<CreateBusinessPage />} />
-            <Route path="accounts/:id" element={<BusinessDetailPage />} />
+            <Route index element={<ConsoleHome />} />
+            <Route path="overview" element={<AdminOnly><AdminOverviewPage /></AdminOnly>} />
+            <Route path="accounts" element={<AdminOnly><BusinessesPage /></AdminOnly>} />
+            <Route path="accounts/new" element={<AdminOnly><CreateBusinessPage /></AdminOnly>} />
+            <Route path="accounts/:id" element={<AdminOnly><BusinessDetailPage /></AdminOnly>} />
             {/* Read-only, audited: every visit is written to admin_access_logs. */}
-            <Route path="accounts/:id/conversations" element={<AccountWorkspacePage />} />
-            <Route path="onboarding" element={<OnboardingBoardPage />} />
+            <Route path="accounts/:id/conversations" element={<AdminOnly><AccountWorkspacePage /></AdminOnly>} />
+            <Route path="onboarding" element={<AdminOnly><OnboardingBoardPage /></AdminOnly>} />
             {/* «الاشتراكات والدفعات»: money across all shops, recorded by hand. */}
-            <Route path="billing" element={<BillingAdminPage />} />
-            <Route path="settings" element={<PlatformSettingsPage />} />
+            <Route path="billing" element={<AdminOnly><BillingAdminPage /></AdminOnly>} />
+            <Route path="settings" element={<AdminOnly><PlatformSettingsPage /></AdminOnly>} />
+            {/* SHIFT's own sales bot: the same inbox and bot pages a shop has, scoped to SHIFT's shop
+                (attachBusinessId defaults to the caller's own business). */}
+            <Route path="inbox" element={<InboxPage />} />
+            <Route path="bot" element={<BotPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

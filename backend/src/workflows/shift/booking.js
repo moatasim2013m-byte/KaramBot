@@ -388,7 +388,7 @@ function eventIdFor(conversationId, startIso, seq = 1) {
 }
 
 function inboxUrl() {
-  return (process.env.SHIFT_INBOX_URL || '').trim() || `${OPERATOR_ORIGIN}/inbox`;
+  return (process.env.SHIFT_INBOX_URL || '').trim() || `${OPERATOR_ORIGIN}/admin/inbox`;
 }
 
 const SECTOR_AR = { clinic: 'عيادة', restaurant: 'مطعم/كافيه', store: 'متجر إلكتروني', other: 'نشاط آخر' };

@@ -67,7 +67,7 @@ async function authenticate(req, res, next) {
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-    // An admin who belongs to a shop (SHIFT's own) is that shop's owner too, in «لوحة محل شِفت».
+    // An admin who belongs to a shop (SHIFT's own) is that shop's owner too, in the console's «محادثات شِفت» and «بوت شِفت».
     // An admin with no shop is not: owner routes have no account to act on for it.
     const allowed = roles.includes(req.user.role)
       || (req.user.role === 'platform_admin' && Boolean(req.user.business_id) && roles.includes('business_owner'));
@@ -113,7 +113,7 @@ function attachBusinessId(req, res, next) {
   }
 
   // platform_admin reads across accounts, so the account must be named explicitly — except in
-  // the admin's own shop (SHIFT's, opened from «لوحة محل شِفت»), which is the default when none is named.
+  // the admin's own shop (SHIFT's, behind the console's «محادثات شِفت»), which is the default when none is named.
   req.businessId = req.params.businessId || req.query.businessId || req.user.business_id || null;
   if (!req.businessId) {
     return res.status(400).json({ error: 'platform_admin must supply businessId as query param or route param' });

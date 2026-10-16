@@ -288,7 +288,7 @@ describe('when it fires', () => {
     delete process.env.SHIFT_INBOX_URL;
     seedBusiness({}, { business_type: 'shift' });
     await deliver([{ type: 'audio', audio: { id: 'a' } }]);
-    expect(send.mock.calls[0][0]).toMatchObject({ link: 'https://karambots.com/inbox' });
+    expect(send.mock.calls[0][0]).toMatchObject({ link: 'https://karambots.com/admin/inbox' });
   });
 
   test('a DB error or a throwing alert resolves (never rejects) and is logged', async () => {
