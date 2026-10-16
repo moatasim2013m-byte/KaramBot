@@ -19,11 +19,11 @@ import { ClaimCardButton, ConnectInline } from './OwnerSetupActions';
  */
 
 const TONE = {
-  good: 'border-emerald-200 bg-emerald-50',
+  good: 'border-shift-okBg bg-shift-okBg',
   warn: 'border-[#F1D29A] bg-shift-warnBg',
   bad: 'border-shift-dangerLine bg-shift-dangerBg',
 };
-const TONE_TEXT = { good: 'text-emerald-900', warn: 'text-shift-warn', bad: 'text-shift-danger' };
+const TONE_TEXT = { good: 'text-[#116B32]', warn: 'text-shift-warn', bad: 'text-shift-danger' };
 const SUPPORT_WA = 'https://wa.me/962776788972';
 const MANAGER_URL = 'https://business.facebook.com/wa/manage/home/';
 

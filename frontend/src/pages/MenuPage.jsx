@@ -158,7 +158,7 @@ function ModifierGroupModal({ group, onSave, onClose }) {
                   {opt.price_delta !== 0 && (
                     <span className="text-xs text-shift-ok">+{opt.price_delta} JOD</span>
                   )}
-                  <button onClick={() => removeOption(i)} className="text-shift-muted hover:text-red-500">
+                  <button onClick={() => removeOption(i)} className="text-shift-muted hover:text-shift-danger">
                     <X size={14} />
                   </button>
                 </div>
@@ -331,7 +331,7 @@ export default function MenuPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-sm text-shift-ink">{item.name_ar}</span>
-                      {!item.available && <span className="text-xs bg-shift-dangerBg text-red-500 px-1.5 py-0.5 rounded">غير متاح</span>}
+                      {!item.available && <span className="text-xs bg-shift-dangerBg text-shift-danger px-1.5 py-0.5 rounded">غير متاح</span>}
                       {!item.active && <span className="text-xs bg-shift-line2 text-shift-muted px-1.5 py-0.5 rounded">مخفي</span>}
                     </div>
                     {item.description_ar && <div className="text-xs text-shift-muted mt-0.5">{item.description_ar}</div>}
@@ -343,10 +343,10 @@ export default function MenuPage() {
                         ? <ToggleRight size={20} className="text-shift-ok" />
                         : <ToggleLeft size={20} className="text-shift-muted" />}
                     </button>
-                    <button onClick={() => setModal(item)} className="text-shift-muted hover:text-blue-500">
+                    <button onClick={() => setModal(item)} className="text-shift-muted hover:text-shift-selText">
                       <Edit2 size={15} />
                     </button>
-                    <button onClick={() => deleteItem(item.id)} className="text-shift-muted hover:text-red-500">
+                    <button onClick={() => deleteItem(item.id)} className="text-shift-muted hover:text-shift-danger">
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -369,7 +369,7 @@ export default function MenuPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm text-shift-ink">{group.name_ar}</span>
-                    {group.required && <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">إجباري</span>}
+                    {group.required && <span className="text-xs bg-shift-warnBg text-shift-warn px-1.5 py-0.5 rounded">إجباري</span>}
                     <span className="text-xs text-shift-muted">اختر {group.min_select}–{group.max_select}</span>
                   </div>
                   {group.options?.length > 0 && (
@@ -379,10 +379,10 @@ export default function MenuPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setModal({ type: 'modifier', group })} className="text-shift-muted hover:text-blue-500">
+                  <button onClick={() => setModal({ type: 'modifier', group })} className="text-shift-muted hover:text-shift-selText">
                     <Edit2 size={15} />
                   </button>
-                  <button onClick={() => deleteModifierGroup(group.id)} className="text-shift-muted hover:text-red-500">
+                  <button onClick={() => deleteModifierGroup(group.id)} className="text-shift-muted hover:text-shift-danger">
                     <Trash2 size={15} />
                   </button>
                 </div>

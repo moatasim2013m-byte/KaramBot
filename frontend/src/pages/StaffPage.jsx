@@ -73,7 +73,7 @@ function InviteSheet({ onClose, onInvited, initial = null }) {
             )}
             <button type="button" onClick={copy}
               className="w-full flex items-center justify-center gap-1.5 h-11 rounded-xl border border-shift-field text-[14px] font-semibold text-shift-ink">
-              {copied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />} {copied ? 'تم النسخ' : 'انسخ الرابط'}
+              {copied ? <Check size={14} className="text-[#116B32]" /> : <Copy size={14} />} {copied ? 'تم النسخ' : 'انسخ الرابط'}
             </button>
           </>
         ) : (
@@ -173,7 +173,7 @@ export default function StaffPage() {
           </div>
           {seats ? (
             <div className="mt-1.5 h-2 bg-shift-line2 rounded-full overflow-hidden">
-              <div className={`h-full ${full ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
+              <div className={`h-full ${full ? 'bg-[#D98A0B]' : 'bg-shift-ok'}`} style={{ width: `${pct}%` }} />
             </div>
           ) : null}
           {owner && full && (

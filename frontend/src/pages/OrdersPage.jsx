@@ -26,8 +26,8 @@ const APPT_STATUS_COLOR = {
   confirmed: 'bg-shift-okBg text-[#116B32]',
   completed: 'bg-shift-line2 text-shift-body',
   cancelled: 'bg-shift-dangerBg text-shift-danger',
-  no_show: 'bg-yellow-100 text-yellow-700',
-  draft: 'bg-blue-100 text-blue-700',
+  no_show: 'bg-shift-warnBg text-shift-warn',
+  draft: 'bg-shift-sel text-shift-selText',
 };
 const APPT_NEXT = { draft: ['confirmed', 'cancelled'], confirmed: ['completed', 'no_show', 'cancelled'] };
 
@@ -116,12 +116,12 @@ const STATUS_AR = {
 };
 
 const STATUS_COLOR = {
-  draft: 'bg-yellow-100 text-yellow-700',
-  awaiting_confirmation: 'bg-yellow-100 text-yellow-700',
+  draft: 'bg-shift-warnBg text-shift-warn',
+  awaiting_confirmation: 'bg-shift-warnBg text-shift-warn',
   confirmed: 'bg-shift-okBg text-[#116B32]',
-  preparing: 'bg-blue-100 text-blue-700',
-  ready: 'bg-purple-100 text-purple-700',
-  out_for_delivery: 'bg-orange-100 text-orange-700',
+  preparing: 'bg-shift-sel text-shift-selText',
+  ready: 'bg-shift-line2 text-shift-ink',
+  out_for_delivery: 'bg-shift-warnBg text-shift-warn',
   delivered: 'bg-shift-line2 text-shift-body',
   cancelled: 'bg-shift-dangerBg text-shift-danger',
 };

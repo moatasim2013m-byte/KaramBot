@@ -91,13 +91,13 @@ export default function TryTheBot({ endpoint = '/whatsapp/status/test', suggesti
         )}
         {turns.map((t, i) => (
           <div key={i} className={`flex ${t.from === 'bot' ? 'justify-start' : 'justify-end'}`}>
-            <div className={`max-w-[80%] rounded-lg px-3 py-2 ${t.from === 'bot' ? 'bg-shift-line2' : 'bg-emerald-50'}`}>
+            <div className={`max-w-[80%] rounded-lg px-3 py-2 ${t.from === 'bot' ? 'bg-shift-line2' : 'bg-shift-okBg'}`}>
               <div className="flex items-center gap-1.5 mb-0.5 text-[10px] text-shift-muted">
                 {t.from === 'bot' ? <><Bot size={10} /> البوت</> : <><User size={10} /> الزبون (أنت)</>}
               </div>
               <p className="text-[13px] text-shift-ink whitespace-pre-wrap leading-relaxed">{t.text || <span className="text-shift-muted">(بدون رد)</span>}</p>
               {t.from === 'bot' && ACTION_LABEL[t.action] && (
-                <p className="mt-1 text-[11px] text-emerald-800">✓ {ACTION_LABEL[t.action]} — لم يحدث لأنها تجربة</p>
+                <p className="mt-1 text-[11px] text-[#116B32]">✓ {ACTION_LABEL[t.action]} — لم يحدث لأنها تجربة</p>
               )}
               {t.from === 'bot' && t.handed && (
                 <p className="mt-1 text-[11px] text-shift-warn">↪ البوت حوّل المحادثة لموظف من هنا</p>

@@ -14,8 +14,8 @@ const STATUS_COLOR = {
   confirmed: 'bg-shift-okBg text-[#116B32]',
   completed: 'bg-shift-line2 text-shift-body',
   cancelled: 'bg-shift-dangerBg text-shift-danger',
-  no_show: 'bg-yellow-100 text-yellow-700',
-  draft: 'bg-blue-100 text-blue-700',
+  no_show: 'bg-shift-warnBg text-shift-warn',
+  draft: 'bg-shift-sel text-shift-selText',
 };
 
 // ── Service Modal ──────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ export default function ClinicPage() {
                       منتهي
                     </button>
                     <button onClick={() => updateAppointmentStatus(appt.id, 'no_show')}
-                      className="text-xs bg-yellow-50 text-yellow-700 px-3 py-1.5 rounded-lg hover:bg-yellow-100">
+                      className="text-xs bg-shift-warnBg text-shift-warn px-3 py-1.5 rounded-lg hover:bg-shift-warnBg">
                       لم يحضر
                     </button>
                     <button onClick={() => updateAppointmentStatus(appt.id, 'cancelled')}
@@ -300,14 +300,14 @@ export default function ClinicPage() {
                 <div className="text-xs text-shift-muted mt-0.5">
                   <Clock size={10} className="inline ml-1" />{svc.duration_minutes} دقيقة
                   {svc.price != null && ` · ${parseFloat(svc.price).toFixed(2)} JOD`}
-                  {!svc.active && <span className="mr-2 text-red-400">معطل</span>}
+                  {!svc.active && <span className="mr-2 text-shift-danger">معطل</span>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setModal({ type: 'service', item: svc })} className="text-shift-muted hover:text-blue-500">
+                <button onClick={() => setModal({ type: 'service', item: svc })} className="text-shift-muted hover:text-shift-selText">
                   <Edit2 size={15} />
                 </button>
-                <button onClick={() => deleteService(svc.id)} className="text-shift-muted hover:text-red-500">
+                <button onClick={() => deleteService(svc.id)} className="text-shift-muted hover:text-shift-danger">
                   <Trash2 size={15} />
                 </button>
               </div>
@@ -325,20 +325,20 @@ export default function ClinicPage() {
           {doctors.map((doc, i) => (
             <div key={doc.id} className={`flex items-center justify-between px-4 py-3 hover:bg-shift-canvas ${i < doctors.length - 1 ? 'border-b border-shift-canvas' : ''}`}>
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
+                <div className="w-9 h-9 rounded-full bg-shift-sel flex items-center justify-center text-shift-selText font-bold text-sm">
                   {doc.name_ar?.[0] || 'د'}
                 </div>
                 <div>
                   <div className="font-medium text-sm text-shift-ink">د. {doc.name_ar}</div>
                   {doc.specialty_ar && <div className="text-xs text-shift-muted">{doc.specialty_ar}</div>}
-                  {!doc.active && <span className="text-xs text-red-400">معطل</span>}
+                  {!doc.active && <span className="text-xs text-shift-danger">معطل</span>}
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setModal({ type: 'doctor', item: doc })} className="text-shift-muted hover:text-blue-500">
+                <button onClick={() => setModal({ type: 'doctor', item: doc })} className="text-shift-muted hover:text-shift-selText">
                   <Edit2 size={15} />
                 </button>
-                <button onClick={() => deleteDoctor(doc.id)} className="text-shift-muted hover:text-red-500">
+                <button onClick={() => deleteDoctor(doc.id)} className="text-shift-muted hover:text-shift-danger">
                   <Trash2 size={15} />
                 </button>
               </div>

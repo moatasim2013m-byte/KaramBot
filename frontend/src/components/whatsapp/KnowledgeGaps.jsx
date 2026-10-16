@@ -63,7 +63,7 @@ export default function KnowledgeGaps({ limit = null, onChange, embedded = false
     <section className={embedded ? '' : 'rounded-2xl border border-shift-line bg-white'}>
       <header className="flex items-center justify-between px-4 h-11 border-b border-shift-line2">
         <div className="flex items-center gap-2">
-          <HelpCircle size={15} className="text-amber-600" />
+          <HelpCircle size={15} className="text-shift-warn" />
           <h3 className="text-[14px] font-semibold text-shift-ink">ما عرف يجاوب</h3>
           {gaps && gaps.length > 0 && <span className="text-[11px] bg-shift-warnBg text-shift-warn rounded-full px-1.5">{gaps.length}</span>}
         </div>
@@ -74,7 +74,7 @@ export default function KnowledgeGaps({ limit = null, onChange, embedded = false
 
       {error && <p className="px-4 py-2 text-[13px] text-shift-danger">{error}</p>}
       {taught > 0 && (
-        <p className="px-4 py-2 text-[12px] text-emerald-800 bg-emerald-50 flex items-center gap-1.5">
+        <p className="px-4 py-2 text-[12px] text-[#116B32] bg-shift-okBg flex items-center gap-1.5">
           <CheckCircle2 size={13} /> تعلّم البوت الجواب — يستعمله من الرسالة القادمة.
         </p>
       )}

@@ -184,8 +184,8 @@ function StepList({ reached, failedAt, working }) {
         const failed = failedAt === i;
         return (
           <li key={key} className="flex items-center gap-2 text-[13px]">
-            {done ? <Check size={14} className="text-emerald-600" />
-              : failed ? <X size={14} className="text-red-500" />
+            {done ? <Check size={14} className="text-[#116B32]" />
+              : failed ? <X size={14} className="text-shift-danger" />
                 : working ? <Loader2 size={14} className="animate-spin text-shift-muted" />
                   : <span className="inline-block h-3.5 w-3.5 rounded-full border border-shift-field" />}
             <span className={done ? 'text-shift-muted' : failed ? 'text-shift-danger' : 'text-shift-body'}>{label}</span>
@@ -463,7 +463,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
     return (
       <div className={frame} dir="rtl">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100"><Check size={14} className="text-emerald-700" /></span>
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-shift-okBg"><Check size={14} className="text-[#116B32]" /></span>
           <div className="min-w-0">
             <p className="text-[14px] font-semibold text-shift-ink">
               واتساب متصل{onb?.display_phone && <>: <bdi dir="ltr">{onb.display_phone}</bdi></>}
@@ -483,7 +483,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
         </div>
 
         {onb?.coexistence && (
-          <div className="mt-3 rounded-lg bg-blue-50 p-3 text-[13px] text-blue-900">
+          <div className="mt-3 rounded-lg bg-shift-sel p-3 text-[13px] text-shift-selText">
             <p className="font-medium">الرقم يعمل على تطبيق واتساب للأعمال وعلى كرم بوت معًا.</p>
             <p className="mt-1 text-[12px]">{COEX_NOTICE.inactivity}</p>
             <p className="mt-1 text-[12px]">{COEX_NOTICE.owner_hold}</p>
@@ -537,7 +537,7 @@ export default function ConnectWhatsApp({ endpoints, beforeConnectNote = null, o
           </div>
         </div>
       ) : busy === 'popup' ? (
-        <div className="rounded-lg bg-blue-50 p-4 text-[13px] text-blue-900">
+        <div className="rounded-lg bg-shift-sel p-4 text-[13px] text-shift-selText">
           <p className="flex items-center gap-2 font-medium"><Loader2 size={14} className="animate-spin" /> أكمل الخطوات في نافذة فيسبوك — لا تغلق هذه الصفحة.</p>
         </div>
       ) : busy === 'exchanging' || busy === 'retrying' ? (

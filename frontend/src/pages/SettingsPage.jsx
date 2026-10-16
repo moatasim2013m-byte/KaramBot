@@ -159,7 +159,7 @@ function SupportCode({ code }) {
         ) : (
           <span className="text-[12px] text-shift-muted">لا يوجد رمز دعم لهذا الربط بعد.</span>
         )}
-        {copied && <span className="text-[12px] text-emerald-700">تم النسخ — أرسله لفريق الدعم</span>}
+        {copied && <span className="text-[12px] text-[#116B32]">تم النسخ — أرسله لفريق الدعم</span>}
       </div>
     </details>
   );
@@ -210,7 +210,7 @@ function ShopTab({ user }) {
         className="inline-flex items-center gap-1.5 h-10 px-4 rounded-[10px] bg-shift-selText text-white text-[13px] font-semibold disabled:opacity-50">
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} احفظ
       </button>
-      {saved && <span className="text-[12px] text-emerald-700">تم الحفظ</span>}
+      {saved && <span className="text-[12px] text-[#116B32]">تم الحفظ</span>}
       {error && <span className="text-[12px] text-shift-danger">{error}</span>}
     </div>
   );
@@ -295,7 +295,7 @@ function PasswordForm() {
           className="h-10 px-4 rounded-[10px] border border-shift-field text-[13px] font-medium text-shift-body">
           غيّر كلمة المرور
         </button>
-        {done && <span className="text-[12px] text-emerald-700">تم تغيير كلمة المرور</span>}
+        {done && <span className="text-[12px] text-[#116B32]">تم تغيير كلمة المرور</span>}
       </div>
     );
   }

@@ -133,7 +133,7 @@ function ConversationRow({ conv, active, onOpen }) {
           {(conv.team_request || conv.current_state || sub) && (
             <div className="flex items-center gap-1 mt-1 flex-wrap">
               {conv.team_request && (
-                <span className="text-[10px] font-medium bg-orange-50 text-orange-700 border border-orange-200 rounded-full px-1.5">
+                <span className="text-[10px] font-medium bg-shift-warnBg text-shift-warn border border-[#F1D29A] rounded-full px-1.5">
                   يحتاج الفريق: {NEEDS_TEAM_LABELS[conv.team_request.reason] || conv.team_request.reason || 'طلب'}
                 </span>
               )}
@@ -299,7 +299,7 @@ function MessageBubble({ msg, prev, customerName, onReply, convId }) {
       <div className={`group flex items-end gap-1 ${out ? 'justify-end' : 'justify-start'} ${msg.reactions.length ? 'mb-3.5' : ''}`}>
         {out && <ReplyButton onClick={() => onReply(msg)} />}
         <div className={bubble}>
-          {kindTag && <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 mb-1 rounded bg-emerald-100 text-emerald-700">{kindTag}</span>}
+          {kindTag && <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 mb-1 rounded bg-shift-okBg text-[#116B32]">{kindTag}</span>}
           {msg.reply_to && (
             <div
               role="button"
@@ -793,7 +793,7 @@ export default function InboxPage() {
   );
   const botButton = (cls = '') => (
     <button onClick={toggleBot}
-      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${botActive ? 'bg-white text-shift-body border-shift-line hover:border-shift-field' : 'bg-orange-50 text-orange-700 border-orange-300'} ${cls}`}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${botActive ? 'bg-white text-shift-body border-shift-line hover:border-shift-field' : 'bg-shift-warnBg text-shift-warn border-[#F1D29A]'} ${cls}`}
       title="تشغيل/إيقاف البوت لهذه المحادثة">
       {botActive ? <Bot className="h-3.5 w-3.5" /> : <User className="h-3.5 w-3.5" />}
       {botActive ? 'البوت يرد' : 'أنت ترد — البوت متوقف'}
@@ -906,7 +906,7 @@ export default function InboxPage() {
               </div>
               {win && (
                 <span title="نافذة الـ24 ساعة: بعدها ما بتوصل إلا القوالب المعتمدة"
-                  className={`ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${win.expired || win.urgent ? 'bg-shift-dangerBg text-shift-danger border-shift-dangerLine' : win.warn ? 'bg-shift-warnBg text-shift-warn border-[#F1D29A]' : 'bg-shift-okBg text-[#116B32] border-green-200'}`}>
+                  className={`ms-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium border ${win.expired || win.urgent ? 'bg-shift-dangerBg text-shift-danger border-shift-dangerLine' : win.warn ? 'bg-shift-warnBg text-shift-warn border-[#F1D29A]' : 'bg-shift-okBg text-[#116B32] border-shift-okBg'}`}>
                   <Clock className="h-3 w-3" />{win.label}
                 </span>
               )}

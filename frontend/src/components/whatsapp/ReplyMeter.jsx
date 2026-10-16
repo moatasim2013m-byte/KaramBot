@@ -1,7 +1,7 @@
 import React from 'react';
 import { meterView, countAr } from './panelView';
 
-const BAR = { good: 'bg-emerald-500', warn: 'bg-amber-500', bad: 'bg-red-500' };
+const BAR = { good: 'bg-shift-ok', warn: 'bg-[#D98A0B]', bad: 'bg-shift-danger' };
 const NOTE = { warn: 'text-shift-warn', bad: 'text-shift-danger' };
 
 /**
