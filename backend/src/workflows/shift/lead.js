@@ -19,13 +19,13 @@ const jsonb = require('../../db/jsonb');
 const LEAD_SCALARS = ['name', 'business_name', 'sector', 'sector_text', 'city', 'preferred_time', 'language', 'budget_note', 'interest', 'source'];
 const LEAD_ARRAYS = ['need', 'products', 'objections', 'customer_numbers', 'site_estimates'];
 const SECTORS = ['clinic', 'restaurant', 'store', 'other'];
-const PRODUCT_KEYS = ['karam', 'loyalty', 'bookings', 'subscriptions', 'attendance', 'marketing', 'erp', 'custom'];
+const PRODUCT_KEYS = ['karam', 'loyalty', 'bookings', 'subscriptions', 'attendance', 'marketing', 'erp', 'tax', 'custom'];
 const OBJECTION_KEYS = ['price', 'staff', 'ai_errors', 'customers', 'small', 'later', 'references', 'other'];
 const LANGUAGES = ['ar', 'en'];
 const INTERESTS = ['hot', 'warm', 'cold'];
 
 const MAX_TEXT = 200;
-const ARRAY_CAPS = { need: 5, objections: 10, products: 8, customer_numbers: 20 };
+const ARRAY_CAPS = { need: 5, objections: 10, products: 9, customer_numbers: 20 };
 const TEXT_SCALARS = ['name', 'business_name', 'sector_text', 'city', 'budget_note'];
 const PREFERRED_TIME_KEYS = ['text', 'start', 'end', 'tz', 'slot_id'];
 const SOURCE_KEYS = ['type', 'attribution', 'referral', 'confidence'];
