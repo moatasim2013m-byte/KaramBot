@@ -40,6 +40,7 @@ const PRODUCT_NAME_TO_KEY = {
   'التسويق الآلي': 'marketing',
   'نظام إدارة الأعمال': 'erp',
   'أتمتة مخصّصة': 'custom',
+  'نظام الفوترة والضريبة': 'tax',
   'Karam Bot': 'karam',
   'Loyalty Points': 'loyalty',
   'Attendance System': 'attendance',
@@ -48,6 +49,7 @@ const PRODUCT_NAME_TO_KEY = {
   'Marketing Automation': 'marketing',
   'Business ERP': 'erp',
   'Custom Automation': 'custom',
+  'Invoicing & Tax': 'tax',
 };
 
 // The site's «أحتاج» chip labels (content.js contact chips). «شيء آخر» carries no information and is dropped.
