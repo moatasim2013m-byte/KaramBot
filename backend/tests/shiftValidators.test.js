@@ -1215,4 +1215,10 @@ describe('the larger packages (owner, 2026-10-08)', () => {
     expect(check('الباقة الذهبية 99.99 دينار بالشهر.').blocks.map((b) => b.code)).toContain('digits');
     expect(check('عنا 149.99 عميل.').blocks.map((b) => b.code)).toContain('digits');
   });
+  test('the tax system may be 50 a month, nothing else may be 50', () => {
+    expect(check('نظام الفوترة والضريبة سعره 50 دينار بالشهر، ومربوط مع جو فوترة.').verdict).toBe('ok');
+    expect(check('The invoicing & tax system is 50 JOD a month.', 'en').verdict).toBe('ok');
+    expect(check('نظام الولاء 50 دينار بالشهر.').blocks.map((b) => b.code)).toContain('digits');
+    expect(check('عنا 50 عميل بيستخدموا الفوترة.').blocks.map((b) => b.code)).toContain('digits');
+  });
 });
