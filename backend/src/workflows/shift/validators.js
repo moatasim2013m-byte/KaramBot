@@ -340,6 +340,9 @@ const PUBLISHED_FIGURES = [
   { value: 39.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 79.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
   { value: 149.99, clause: /دينار|دنانير|JD|JOD|اشتراك|باق|شهر|month|package|plan/i },
+  // The tax/invoicing system linked to JoFotara (owner, 2026-10-18): 50 JD a month. Only beside the
+  // system's own name and a money/month word, so «50 دينار» for anything else stays invented.
+  { value: 50, clause: /^(?=.*(?:دينار|دنانير|JD|JOD|شهر|month))(?=.*(?:ضريب|فوتر|فاتور|tax|invoic|JoFotara))/i },
   // The free trial (owner, 2026-10-13). The October offer's «أول ١٠ محلات» ended with it.
   // Both the day unit and the trial word: «7 أسابيع ببلاش» or «التنفيذ خلال 7 أيام» are still invented.
   { value: 7, clause: /^(?=.*(?:أيام|ايام|يوم|days?\b))(?=.*(?:تجرب|مجان|ببلاش|trial|free))/i },
